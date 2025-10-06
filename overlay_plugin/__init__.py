@@ -3,4 +3,5 @@
 __all__ = [
     "overlay_watchdog",
     "overlay_socket_server",
+    "overlay_api",
 ]

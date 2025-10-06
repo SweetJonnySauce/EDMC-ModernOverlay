@@ -72,6 +72,26 @@ The plugin expects a dedicated Python environment for the overlay client. The `.
    ```
    When packaging or relocating the client, update the preferences or environment to point the watchdog at the correct interpreter.
 
+## Programmatic API
+
+Other plugins within EDMC can publish overlay updates without depending on socket details by using the bundled helper:
+
+```python
+from overlay_plugin.overlay_api import send_overlay_message
+
+payload = {
+    "event": "TestMessage",
+    "message": "Fly safe, CMDR!",
+    "timestamp": "2025-10-06T15:42:00Z",
+}
+
+if not send_overlay_message(payload):
+    # Handle delivery failure (overlay offline, port missing, etc.)
+    pass
+```
+
+`send_overlay_message()` validates payloads, ensures a timestamp, and routes the message through the running plugin’s broadcaster. It returns `False` if the plugin is inactive or the payload cannot be serialised. Keep payloads small (<16 KB) and include an `event` string so future overlay features can route them.
+
 ## Development Tips
 
 - VS Code launch configurations are provided for both the overlay client and a standalone broadcast server harness.

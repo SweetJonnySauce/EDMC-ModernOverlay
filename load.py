@@ -8,16 +8,26 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
 if __package__:
     from .overlay_plugin.overlay_watchdog import OverlayWatchdog
     from .overlay_plugin.overlay_socket_server import WebSocketBroadcaster
     from .overlay_plugin.preferences import Preferences, PreferencesPanel
+    from .overlay_plugin.overlay_api import (
+        register_publisher,
+        send_overlay_message,
+        unregister_publisher,
+    )
 else:  # pragma: no cover - EDMC loads as top-level module
     from overlay_plugin.overlay_watchdog import OverlayWatchdog
     from overlay_plugin.overlay_socket_server import WebSocketBroadcaster
     from overlay_plugin.preferences import Preferences, PreferencesPanel
+    from overlay_plugin.overlay_api import (
+        register_publisher,
+        send_overlay_message,
+        unregister_publisher,
+    )
 
 PLUGIN_NAME = "EDMC-ModernOverlay"
 PLUGIN_VERSION = "0.1.0"
@@ -123,6 +133,7 @@ class _PluginRuntime:
             self._write_port_file()
             self._start_watchdog()
             self._running = True
+        register_publisher(self._publish_external)
         _log("Plugin started")
         return PLUGIN_NAME
 
@@ -131,6 +142,7 @@ class _PluginRuntime:
             if not self._running:
                 return
             self._running = False
+        unregister_publisher()
         _log("Plugin stopping")
         if self.watchdog:
             if self.watchdog.stop():
@@ -251,10 +263,26 @@ class _PluginRuntime:
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "event": "TestMessage",
             "message": text,
-            "raw": {"message": text},
         }
-        self.broadcaster.publish(payload)
-        LOGGER.debug("Sent test message to overlay: %s", text)
+        if not send_overlay_message(payload):
+            raise RuntimeError("Failed to send test message via overlay API")
+        LOGGER.debug("Sent test message to overlay via API: %s", text)
+
+    def _publish_external(self, payload: Mapping[str, Any]) -> bool:
+        if not self._running:
+            return False
+        message = dict(payload)
+        message.setdefault("cmdr", self._state.get("cmdr", ""))
+        message.setdefault("system", self._state.get("system", ""))
+        message.setdefault("station", self._state.get("station", ""))
+        message.setdefault("docked", self._state.get("docked", False))
+        message.setdefault("raw", dict(message))
+        self.broadcaster.publish(message)
+        LOGGER.debug(
+            "Broadcasted external overlay message: event=%s",
+            message.get("event"),
+        )
+        return True
 
     def _locate_overlay_python(self) -> Path:
         env_override = os.getenv("EDMC_OVERLAY_PYTHON")
