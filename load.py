@@ -12,16 +12,17 @@ from typing import Any, Dict, Optional
 
 if __package__:
     from .overlay_plugin.overlay_watchdog import OverlayWatchdog
-    from .overlay_plugin.websocket_server import WebSocketBroadcaster
+    from .overlay_plugin.overlay_socket_server import WebSocketBroadcaster
     from .overlay_plugin.preferences import Preferences, PreferencesPanel
 else:  # pragma: no cover - EDMC loads as top-level module
     from overlay_plugin.overlay_watchdog import OverlayWatchdog
-    from overlay_plugin.websocket_server import WebSocketBroadcaster
+    from overlay_plugin.overlay_socket_server import WebSocketBroadcaster
     from overlay_plugin.preferences import Preferences, PreferencesPanel
 
-PLUGIN_NAME = "Modern Overlay"
+PLUGIN_NAME = "EDMC-ModernOverlay"
 PLUGIN_VERSION = "0.1.0"
 LOGGER_NAME = "EDMC.ModernOverlay"
+LOG_TAG = "EDMC-ModernOverlay"
 
 
 class _EDMCLogHandler(logging.Handler):
@@ -69,7 +70,7 @@ def _configure_logger() -> logging.Logger:
     if not any(getattr(handler, "_edmc_handler", False) for handler in logger.handlers):
         handler = _EDMCLogHandler()
         handler._edmc_handler = True  # type: ignore[attr-defined]
-        formatter = logging.Formatter("[%(asctime)s] [ModernOverlay] %(message)s", "%H:%M:%S")
+        formatter = logging.Formatter(f"[%(asctime)s] [{LOG_TAG}] %(message)s", "%H:%M:%S")
         handler.setFormatter(formatter)
         logger.addHandler(handler)
     logger.propagate = False
@@ -132,7 +133,10 @@ class _PluginRuntime:
             self._running = False
         _log("Plugin stopping")
         if self.watchdog:
-            self.watchdog.stop()
+            if self.watchdog.stop():
+                LOGGER.debug("Overlay watchdog stopped and client terminated cleanly")
+            else:
+                LOGGER.warning("Overlay watchdog stop reported incomplete shutdown")
             self.watchdog = None
         self.broadcaster.stop()
         self._delete_port_file()
@@ -291,10 +295,14 @@ def plugin_start3(plugin_dir: str) -> str:
 
 
 def plugin_stop() -> None:
-    global _prefs_panel
+    global _prefs_panel, _plugin, _preferences
     if _plugin:
-        _plugin.stop()
+        try:
+            _plugin.stop()
+        finally:
+            _plugin = None
     _prefs_panel = None
+    _preferences = None
 
 
 def plugin_app(parent) -> Optional[Any]:  # pragma: no cover - EDMC Tk frame hook

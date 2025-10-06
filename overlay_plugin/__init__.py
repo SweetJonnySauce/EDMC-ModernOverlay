@@ -2,5 +2,5 @@
 
 __all__ = [
     "overlay_watchdog",
-    "websocket_server",
+    "overlay_socket_server",
 ]

@@ -50,13 +50,20 @@ class OverlayWatchdog:
         self._thread.start()
         self._debug("Overlay watchdog started")
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
         self._stop_event.set()
-        self._terminate_process()
+        process_terminated = self._terminate_process()
+        thread_joined = True
         if self._thread:
             self._thread.join(timeout=5.0)
+            thread_joined = not self._thread.is_alive()
         self._thread = None
-        self._log("Overlay watchdog stopped")
+        success = process_terminated and thread_joined
+        if success:
+            self._log("Overlay watchdog stopped")
+        else:
+            self._log("Overlay watchdog stop incomplete")
+        return success
 
     # Internal helpers -----------------------------------------------------
 
@@ -129,10 +136,11 @@ class OverlayWatchdog:
             self._log_failure_details(pid, returncode, stdout_data, stderr_data)
         self._process = None
 
-    def _terminate_process(self) -> None:
+    def _terminate_process(self) -> bool:
         if not self._process:
-            return
+            return True
         proc = self._process
+        terminated = True
         try:
             if proc.poll() is None:
                 self._debug(f"Terminating overlay process (pid={proc.pid})")
@@ -145,10 +153,12 @@ class OverlayWatchdog:
                     proc.wait(timeout=5.0)
             else:
                 self._debug(f"Overlay process already stopped (pid={proc.pid}, returncode={proc.returncode})")
+            terminated = proc.poll() is not None
         except Exception:
-            pass
+            terminated = False
         finally:
             self._process = None
+        return terminated
 
     def _format_command(self) -> str:
         try:

@@ -9,7 +9,7 @@ EDMC-ModernOverlay/
 ├── load.py                # EDMC entry hook file (copy into EDMC plugins dir)
 ├── overlay_plugin/        # Supporting plugin package
 │   ├── overlay_watchdog.py
-│   ├── websocket_server.py
+│   ├── overlay_socket_server.py
 │   ├── preferences.py
 │   └── requirements.txt
 ├── overlay-client/        # Stand-alone PyQt6 overlay
