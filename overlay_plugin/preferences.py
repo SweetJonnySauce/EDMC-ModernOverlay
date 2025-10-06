@@ -54,7 +54,7 @@ class PreferencesPanel:
         frame = nb.Frame(parent)
         description = (
             "Capture overlay stdout/stderr when EDMC logging is set to DEBUG "
-            "(useful for troubleshooting)"
+            "(useful for troubleshooting). Changes require restarting the overlay."
         )
         checkbox = tk.Checkbutton(
             frame,
