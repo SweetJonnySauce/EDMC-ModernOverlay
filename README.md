@@ -10,6 +10,7 @@ EDMC-ModernOverlay/
 ├── overlay_plugin/        # Supporting plugin package
 │   ├── overlay_watchdog.py
 │   ├── websocket_server.py
+│   ├── preferences.py
 │   └── requirements.txt
 ├── overlay-client/        # Stand-alone PyQt6 overlay
 │   ├── overlay_client.py
@@ -25,8 +26,9 @@ EDMC-ModernOverlay/
 - Background `asyncio` JSON-over-TCP server that never blocks EDMC's Tkinter thread
 - Safe watchdog that supervises the overlay executable and restarts it when needed
 - JSON discovery file (`port.json`) so the overlay can find the active port
-- Transparent, click-through PyQt6 HUD with live CMDR/system/station info
+- Transparent, click-through PyQt6 HUD with live CMDR/system/station info and ad-hoc test messages
 - Automatic reconnection logic in both plugin and overlay client
+- Full EDMC logging integration with optional stdout/stderr capture toggled from the preferences pane
 - Plugin runtime uses only the Python standard library (no EDMC-side installs required)
 
 ## Prerequisites
@@ -36,37 +38,39 @@ EDMC-ModernOverlay/
 
 ## Setup
 
-1. **Create and activate a virtual environment** inside the repository root:
+The plugin expects a dedicated Python environment for the overlay client. The `.venv/` folder is *not* distributed, so create it yourself before copying the plugin into EDMC.
+
+1. **Create a virtual environment for the overlay client** inside the repository root:
    ```bash
-   python -m venv .venv
+   python3 -m venv .venv
    # Windows PowerShell
    .venv\Scripts\activate
    # macOS/Linux
    source .venv/bin/activate
    ```
-2. **Install dependencies** required for the overlay client:**
+2. **Install overlay dependencies** into that environment:
    ```bash
-   pip install PyQt6
+   pip install -r overlay-client/requirements.txt
    ```
    On Linux you also need Qt's XCB helpers:
    ```bash
    sudo apt-get update
    sudo apt-get install libxcb-cursor0 libxkbcommon-x11-0
    ```
-3. **Install the EDMC plugin** by copying `load.py` **and** the `overlay_plugin/` directory into your EDMC plugin workspace:
+3. **Copy the plugin into EDMC's plugin directory**:
    ```
    %LOCALAPPDATA%\EDMarketConnector\plugins\EDMCModernOverlay\
    ```
-   - Windows default: `%LOCALAPPDATA%\EDMarketConnector\plugins`
-   - macOS: `~/Library/Application Support/EDMarketConnector/plugins`
-   - Linux (Wine default): `~/.local/share/EDMarketConnector/plugins`
-   - (Optional) Copy the `overlay-client/` folder alongside `load.py` if you want the watchdog to launch it automatically.
-4. **Launch EDMC.** The plugin starts automatically, spins up the background broadcast server, writes `port.json`, and begins supervising the overlay.
-5. **Run the overlay client** manually for development:
+   Include `load.py`, the entire `overlay_plugin/` folder, and (optionally) `overlay-client/` if you want EDMC to supervise the overlay. The watchdog will automatically use `<plugin_root>/.venv/bin/python` (or `Scripts\python.exe` on Windows). To use a different interpreter set `EDMC_OVERLAY_PYTHON` before launching EDMC.
+4. **Launch EDMC.** The plugin starts automatically, spins up the background broadcast server, writes `port.json`, and begins supervising the overlay client.
+5. **Configure via EDMC** under *File → Settings → Modern Overlay*:
+   - Toggle *Enable overlay stdout/stderr capture* when you need detailed diagnostics; leave it off for normal play.
+   - Use *Send test message to overlay* to push a one-off message to the HUD and verify connectivity.
+6. **Run the overlay client manually (optional)** for development:
    ```bash
-   python overlay-client/overlay_client.py
+   .venv/bin/python overlay-client/overlay_client.py
    ```
-   In production you can package the overlay and update the watchdog command accordingly.
+   When packaging or relocating the client, update the preferences or environment to point the watchdog at the correct interpreter.
 
 ## Development Tips
 
