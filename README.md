@@ -26,10 +26,11 @@ EDMC-ModernOverlay/
 - Background `asyncio` JSON-over-TCP server that never blocks EDMC's Tkinter thread
 - Safe watchdog that supervises the overlay executable and restarts it when needed
 - JSON discovery file (`port.json`) so the overlay can find the active port
-- Transparent, click-through PyQt6 HUD with live CMDR/system/station info and ad-hoc test messages
+- Transparent, click-through PyQt6 HUD with live CMDR/system/station info, ad-hoc test messages, and legacy rectangle/text rendering for `edmcoverlay` callers
 - Automatic reconnection logic in both plugin and overlay client
 - Full EDMC logging integration with optional stdout/stderr capture toggled from the preferences pane
 - Plugin runtime uses only the Python standard library (no EDMC-side installs required)
+- Drop-in Python compatibility layer (`EDMCOverlay/edmcoverlay.py`) that emulates the classic EDMCOverlay API so existing plugins can migrate without code changes
 
 ## Prerequisites
 
@@ -65,7 +66,8 @@ The plugin expects a dedicated Python environment for the overlay client. The `.
 4. **Launch EDMC.** The plugin starts automatically, spins up the background broadcast server, writes `port.json`, and begins supervising the overlay client.
 5. **Configure via EDMC** under *File → Settings → Modern Overlay*:
    - Toggle *Enable overlay stdout/stderr capture* when you need detailed diagnostics; leave it off for normal play.
-   - Use *Send test message to overlay* to push a one-off message to the HUD and verify connectivity.
+   - Use *Send test message to overlay* for a quick health check of the native API.
+   - Use the legacy compatibility buttons to send `edmcoverlay`-style messages and rectangles without writing any code.
 6. **Run the overlay client manually (optional)** for development:
    ```bash
    .venv/bin/python overlay-client/overlay_client.py
@@ -91,6 +93,20 @@ if not send_overlay_message(payload):
 ```
 
 `send_overlay_message()` validates payloads, ensures a timestamp, and routes the message through the running plugin’s broadcaster. It returns `False` if the plugin is inactive or the payload cannot be serialised. Keep payloads small (<16 KB) and include an `event` string so future overlay features can route them.
+
+### `edmcoverlay` Compatibility Layer
+
+Modern Overlay ships with a drop-in replacement for the legacy `edmcoverlay` module. Once this plugin is installed, other plugins can simply:
+
+```python
+from EDMCOverlay import edmcoverlay
+
+overlay = edmcoverlay.Overlay()
+overlay.send_message("demo", "Hello CMDR", "yellow", 100, 150, ttl=5, size="large")
+overlay.send_shape("demo-frame", "rect", "#ffffff", "#40000000", 80, 120, 420, 160, ttl=5)
+```
+
+Under the hood the compatibility layer forwards payloads through `send_overlay_message`, so no socket management or process monitoring is required. The overlay client understands the legacy message/rectangle schema, making migration from the original EDMCOverlay plugin largely turnkey.
 
 ## EDMC Compliance Checklist
 

@@ -271,12 +271,13 @@ class _PluginRuntime:
     def _publish_external(self, payload: Mapping[str, Any]) -> bool:
         if not self._running:
             return False
-        message = dict(payload)
+        original_payload = dict(payload)
+        message = dict(original_payload)
         message.setdefault("cmdr", self._state.get("cmdr", ""))
         message.setdefault("system", self._state.get("system", ""))
         message.setdefault("station", self._state.get("station", ""))
         message.setdefault("docked", self._state.get("docked", False))
-        message.setdefault("raw", dict(message))
+        message.setdefault("raw", original_payload)
         self.broadcaster.publish(message)
         LOGGER.debug(
             "Broadcasted external overlay message: event=%s",

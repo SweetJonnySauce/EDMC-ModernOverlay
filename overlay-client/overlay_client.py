@@ -7,11 +7,12 @@ import json
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal, QObject
-from PyQt6.QtGui import QColor, QFont, QPainter
+from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush
 from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 
@@ -131,6 +132,12 @@ class OverlayWindow(QWidget):
             "docked": False,
             "message": "",
         }
+        self._legacy_items: Dict[str, Dict[str, Any]] = {}
+
+        self._legacy_timer = QTimer(self)
+        self._legacy_timer.setInterval(250)
+        self._legacy_timer.timeout.connect(self._purge_legacy)
+        self._legacy_timer.start()
 
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setWindowFlags(
@@ -175,12 +182,17 @@ class OverlayWindow(QWidget):
         painter.setBrush(QColor(0, 0, 0, 96))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(self.rect(), 12, 12)
+        self._paint_legacy(painter)
         painter.end()
         super().paintEvent(event)
 
     # Signal handlers ------------------------------------------------------
 
     def _on_message(self, payload: Dict[str, Any]) -> None:
+        if payload.get("event") == "LegacyOverlay":
+            self._handle_legacy(payload)
+            return
+
         self._state.update(
             {
                 "cmdr": payload.get("cmdr", self._state["cmdr"]),
@@ -221,6 +233,97 @@ class OverlayWindow(QWidget):
         except Exception:
             pass
 
+    # Legacy overlay handling ---------------------------------------------
+
+    def _handle_legacy(self, payload: Dict[str, Any]) -> None:
+        item_type = payload.get("type")
+        item_id = payload.get("id")
+        if item_type == "clear_all":
+            self._legacy_items.clear()
+            self.update()
+            return
+        if not isinstance(item_id, str):
+            return
+
+        ttl = max(int(payload.get("ttl", 4)), 0)
+        expiry: Optional[float] = None if ttl <= 0 else time.monotonic() + ttl
+
+        if item_type == "message":
+            text = payload.get("text", "")
+            if not text:
+                self._legacy_items.pop(item_id, None)
+                self.update()
+                return
+            item = {
+                "kind": "message",
+                "text": text,
+                "color": payload.get("color", "white"),
+                "x": int(payload.get("x", 0)),
+                "y": int(payload.get("y", 0)),
+                "size": payload.get("size", "normal"),
+                "expiry": expiry,
+            }
+            self._legacy_items[item_id] = item
+            self.update()
+            return
+
+        if item_type == "shape" and payload.get("shape") == "rect":
+            fill = payload.get("fill") or "#00000000"
+            item = {
+                "kind": "rect",
+                "color": payload.get("color", "white"),
+                "fill": fill,
+                "x": int(payload.get("x", 0)),
+                "y": int(payload.get("y", 0)),
+                "w": int(payload.get("w", 0)),
+                "h": int(payload.get("h", 0)),
+                "expiry": expiry,
+            }
+            self._legacy_items[item_id] = item
+            self.update()
+            return
+
+        if item_type == "raw":
+            return
+
+    def _purge_legacy(self) -> None:
+        now = time.monotonic()
+        expired = [key for key, item in self._legacy_items.items() if item.get("expiry") is not None and item["expiry"] < now]
+        for key in expired:
+            self._legacy_items.pop(key, None)
+        if expired:
+            self.update()
+
+    def _paint_legacy(self, painter: QPainter) -> None:
+        for item in self._legacy_items.values():
+            kind = item.get("kind")
+            if kind == "message":
+                self._paint_legacy_message(painter, item)
+            elif kind == "rect":
+                self._paint_legacy_rect(painter, item)
+
+    def _paint_legacy_message(self, painter: QPainter, item: Dict[str, Any]) -> None:
+        color = QColor(str(item.get("color", "white")))
+        size = str(item.get("size", "normal")).lower()
+        font = QFont("Segoe UI", 18 if size == "large" else 14)
+        painter.setPen(color)
+        painter.setFont(font)
+        painter.drawText(int(item.get("x", 0)), int(item.get("y", 0)), str(item.get("text", "")))
+
+    def _paint_legacy_rect(self, painter: QPainter, item: Dict[str, Any]) -> None:
+        border_color = QColor(str(item.get("color", "white")))
+        fill_color = QColor(str(item.get("fill", "#00000000")))
+        pen = QPen(border_color)
+        pen.setWidth(2)
+        painter.setPen(pen)
+        painter.setBrush(QBrush(fill_color))
+        painter.drawRect(
+            int(item.get("x", 0)),
+            int(item.get("y", 0)),
+            int(item.get("w", 0)),
+            int(item.get("h", 0)),
+        )
+
 
 def resolve_port_file(args_port: Optional[str]) -> Path:
     if args_port:
@@ -240,7 +343,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     app = QApplication(sys.argv)
     data_client = OverlayDataClient(port_file)
     window = OverlayWindow(data_client)
-    window.resize(400, 200)
+    window.resize(1280, 720)
     window.show()
     data_client.start()
 

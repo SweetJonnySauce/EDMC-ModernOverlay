@@ -50,6 +50,7 @@ class PreferencesPanel:
         self._send_test = send_test_callback
         self._test_var = tk.StringVar()
         self._status_var = tk.StringVar(value="")
+        self._legacy_client = None
 
         frame = nb.Frame(parent)
         description = (
@@ -79,8 +80,18 @@ class PreferencesPanel:
         frame.columnconfigure(0, weight=1)
         test_row.columnconfigure(0, weight=1)
 
+        legacy_label = tk.Label(frame, text="Legacy edmcoverlay compatibility:")
+        legacy_label.grid(row=4, column=0, sticky="w", pady=(10, 0))
+
+        legacy_row = tk.Frame(frame)
+        legacy_text_btn = tk.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
+        legacy_rect_btn = tk.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
+        legacy_text_btn.pack(side="left")
+        legacy_rect_btn.pack(side="left", padx=(8, 0))
+        legacy_row.grid(row=5, column=0, sticky="w", pady=(2, 0))
+
         status_label = tk.Label(frame, textvariable=self._status_var, wraplength=400, justify="left", fg="#808080")
-        status_label.grid(row=4, column=0, sticky="w", pady=(4, 0))
+        status_label.grid(row=6, column=0, sticky="w", pady=(4, 0))
 
         self._frame = frame
 
@@ -108,3 +119,47 @@ class PreferencesPanel:
             self._status_var.set(f"Failed to send message: {exc}")
             return
         self._status_var.set("Test message sent to overlay.")
+
+    def _legacy_overlay(self):
+        if self._legacy_client is None:
+            try:
+                from EDMCOverlay import edmcoverlay
+            except ImportError:
+                from . import overlay_api  # pragma: no cover - fallback
+                self._status_var.set("Legacy API not available.")
+                return None
+            self._legacy_client = edmcoverlay.Overlay()
+        return self._legacy_client
+
+    def _on_legacy_text(self) -> None:
+        overlay = self._legacy_overlay()
+        if overlay is None:
+            return
+        message = self._test_var.get().strip() or "Hello from edmcoverlay"
+        try:
+            overlay.send_message("modernoverlay-test", message, "#80d0ff", 60, 120, ttl=5, size="large")
+        except Exception as exc:
+            self._status_var.set(f"Legacy text failed: {exc}")
+            return
+        self._status_var.set("Legacy text sent via edmcoverlay API.")
+
+    def _on_legacy_rect(self) -> None:
+        overlay = self._legacy_overlay()
+        if overlay is None:
+            return
+        try:
+            overlay.send_shape(
+                "modernoverlay-test-rect",
+                "rect",
+                "#80d0ff",
+                "#20004080",
+                40,
+                80,
+                400,
+                120,
+                ttl=5,
+            )
+        except Exception as exc:
+            self._status_var.set(f"Legacy rectangle failed: {exc}")
+            return
+        self._status_var.set("Legacy rectangle sent via edmcoverlay API.")
