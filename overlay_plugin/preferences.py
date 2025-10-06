@@ -81,7 +81,13 @@ class PreferencesPanel:
         checkbox.grid(row=0, column=0, sticky="w")
         helper.grid(row=1, column=0, sticky="w", pady=(2, 0))
 
-        opacity_label = tk.Label(frame, text="Overlay background opacity (0.0 transparent – 1.0 opaque):")
+        opacity_label = tk.Label(
+            frame,
+            text=(
+                "Overlay background opacity (0.0 transparent – 1.0 opaque). "
+                "Alt+drag is enabled when opacity > 0.5."
+            ),
+        )
         opacity_label.grid(row=2, column=0, sticky="w", pady=(10, 0))
 
         opacity_row = tk.Frame(frame)

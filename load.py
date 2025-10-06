@@ -295,6 +295,7 @@ class _PluginRuntime:
         payload = {
             "event": "OverlayConfig",
             "opacity": float(self._preferences.overlay_opacity),
+            "enable_drag": bool(self._preferences.overlay_opacity > 0.5),
         }
         self.broadcaster.publish(payload)
         LOGGER.debug("Published overlay config: opacity=%s", payload["opacity"])

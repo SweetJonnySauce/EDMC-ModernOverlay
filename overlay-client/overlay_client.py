@@ -11,8 +11,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer
-from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush
+from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QCursor
 from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 
@@ -134,11 +134,23 @@ class OverlayWindow(QWidget):
         }
         self._legacy_items: Dict[str, Dict[str, Any]] = {}
         self._background_opacity: float = 0.0
+        self._drag_enabled: bool = False
+        self._drag_active: bool = False
+        self._drag_offset: QPoint = QPoint()
+        self._move_mode: bool = False
+        self._cursor_saved: bool = False
+        self._saved_cursor: QCursor = self.cursor()
+        self._transparent_input_supported = hasattr(Qt.WindowType, "WindowTransparentForInput")
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
         self._legacy_timer.timeout.connect(self._purge_legacy)
         self._legacy_timer.start()
+
+        self._modifier_timer = QTimer(self)
+        self._modifier_timer.setInterval(100)
+        self._modifier_timer.timeout.connect(self._poll_modifiers)
+        self._modifier_timer.start()
 
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setWindowFlags(
@@ -146,10 +158,9 @@ class OverlayWindow(QWidget):
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
         )
-        if hasattr(Qt.WindowType, "WindowTransparentForInput"):
-            self.setWindowFlag(Qt.WindowType.WindowTransparentForInput, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self._apply_drag_state()
 
         font = QFont("Segoe UI", 18)
         self.cmdr_label = QLabel("CMDR: ---")
@@ -193,6 +204,44 @@ class OverlayWindow(QWidget):
         painter.end()
         super().paintEvent(event)
 
+    # Interaction -------------------------------------------------
+
+    def mousePressEvent(self, event) -> None:  # type: ignore[override]
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._drag_enabled
+            and self._move_mode
+        ):
+            self._drag_active = True
+            self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            if not self._cursor_saved:
+                self._saved_cursor = self.cursor()
+                self._cursor_saved = True
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # type: ignore[override]
+        if self._drag_active:
+            new_pos = event.globalPosition().toPoint() - self._drag_offset
+            self.move(new_pos)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
+        if self._drag_active and event.button() == Qt.MouseButton.LeftButton:
+            self._drag_active = False
+            self.raise_()
+            if self._cursor_saved:
+                self.setCursor(self._saved_cursor)
+                self._cursor_saved = False
+            self._apply_drag_state()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
     # Signal handlers ------------------------------------------------------
 
     def _on_message(self, payload: Dict[str, Any]) -> None:
@@ -205,6 +254,8 @@ class OverlayWindow(QWidget):
                 self._background_opacity = max(0.0, min(1.0, float(opacity)))
             except (TypeError, ValueError):
                 self._background_opacity = 0.0
+            self._drag_enabled = bool(payload.get("enable_drag", False))
+            self._apply_drag_state()
             self.update()
             return
 
@@ -246,6 +297,48 @@ class OverlayWindow(QWidget):
                 user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED | WS_EX_TRANSPARENT)
             except Exception:
                 pass
+        window = self.windowHandle()
+        if window and self._transparent_input_supported:
+            window.setFlag(Qt.WindowType.WindowTransparentForInput, True)
+
+    def _apply_drag_state(self) -> None:
+        self._set_click_through(not self._drag_enabled)
+        if not self._drag_enabled:
+            self._move_mode = False
+            self._drag_active = False
+            if self._cursor_saved:
+                self.setCursor(self._saved_cursor)
+                self._cursor_saved = False
+        self.raise_()
+
+    def _poll_modifiers(self) -> None:
+        if not self._drag_enabled or self._drag_active:
+            return
+        modifiers = QApplication.queryKeyboardModifiers()
+        alt_down = bool(modifiers & Qt.KeyboardModifier.AltModifier)
+        if alt_down and not self._move_mode:
+            self._move_mode = True
+            if not self._cursor_saved:
+                self._saved_cursor = self.cursor()
+                self._cursor_saved = True
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+        elif not alt_down and self._move_mode:
+            self._move_mode = False
+            if self._cursor_saved:
+                self.setCursor(self._saved_cursor)
+                self._cursor_saved = False
+
+    def _set_click_through(self, transparent: bool) -> None:
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, transparent)
+        window = self.windowHandle()
+        if window and self._transparent_input_supported:
+            window.setFlag(Qt.WindowType.WindowTransparentForInput, transparent)
+        if transparent:
+            self._enable_click_through()
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setWindowFlag(Qt.WindowType.Tool, True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.show()
 
     # Legacy overlay handling ---------------------------------------------
 

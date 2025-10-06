@@ -66,7 +66,7 @@ The plugin expects a dedicated Python environment for the overlay client. The `.
 4. **Launch EDMC.** The plugin starts automatically, spins up the background broadcast server, writes `port.json`, and begins supervising the overlay client.
 5. **Configure via EDMC** under *File → Settings → Modern Overlay*:
    - Toggle *Enable overlay stdout/stderr capture* when you need detailed diagnostics; leave it off for normal play.
-   - Adjust *Overlay background opacity* to reintroduce a translucent backdrop (0.0 = fully transparent, 1.0 = opaque). Changes preview in real time.
+   - Adjust *Overlay background opacity* to reintroduce a translucent backdrop (0.0 = fully transparent, 1.0 = opaque). Alt+drag to reposition is enabled only when opacity > 0.5, and changes preview in real time.
    - Use *Send test message to overlay* for a quick health check of the native API.
    - Use the legacy compatibility buttons to send `edmcoverlay`-style messages and rectangles without writing any code.
 6. **Run the overlay client manually (optional)** for development:
