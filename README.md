@@ -58,6 +58,10 @@ The plugin expects a dedicated Python environment for the overlay client. The `.
    sudo apt-get update
    sudo apt-get install libxcb-cursor0 libxkbcommon-x11-0
    ```
+   Source Sans 3 (SIL Open Font License 1.1) ships in `overlay-client/fonts/`
+   as `SourceSans3-Regular.ttf` and is used by default. To override the HUD
+   typeface drop another font (for example `Eurocaps.ttf`) into the same
+   directory along with its license.
 3. **Copy the plugin into EDMC's plugin directory**:
    ```
    %LOCALAPPDATA%\EDMarketConnector\plugins\EDMCModernOverlay\

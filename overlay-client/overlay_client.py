@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint
-from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QCursor
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QCursor, QFontDatabase
 from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 
@@ -123,6 +123,7 @@ class OverlayWindow(QWidget):
 
     def __init__(self, data_client: OverlayDataClient) -> None:
         super().__init__()
+        self._font_family = self._resolve_font_family()
         self.data_client = data_client
         self._status = "Initialising"
         self._state: Dict[str, Any] = {
@@ -159,8 +160,10 @@ class OverlayWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self._apply_drag_state()
 
-        status_font = QFont("Segoe UI", 18)
-        message_font = QFont("Segoe UI", 16)
+        status_font = QFont(self._font_family, 18)
+        status_font.setWeight(QFont.Weight.Normal)
+        message_font = QFont(self._font_family, 16)
+        message_font.setWeight(QFont.Weight.Normal)
         self.message_label = QLabel("")
         self.message_label.setFont(message_font)
         self.message_label.setStyleSheet("color: #80d0ff; background: transparent;")
@@ -410,7 +413,8 @@ class OverlayWindow(QWidget):
     def _paint_legacy_message(self, painter: QPainter, item: Dict[str, Any]) -> None:
         color = QColor(str(item.get("color", "white")))
         size = str(item.get("size", "normal")).lower()
-        font = QFont("Segoe UI", 18 if size == "large" else 14)
+        font = QFont(self._font_family, 18 if size == "large" else 14)
+        font.setWeight(QFont.Weight.Normal)
         painter.setPen(color)
         painter.setFont(font)
         painter.drawText(int(item.get("x", 0)), int(item.get("y", 0)), str(item.get("text", "")))
@@ -428,6 +432,61 @@ class OverlayWindow(QWidget):
             int(item.get("w", 0)),
             int(item.get("h", 0)),
         )
+
+    def _resolve_font_family(self) -> str:
+        fonts_dir = Path(__file__).resolve().parent / "fonts"
+        default_family = "Segoe UI"
+
+        def try_font_file(font_path: Path, label: str) -> Optional[str]:
+            if not font_path.exists():
+                return None
+            try:
+                font_id = QFontDatabase.addApplicationFont(str(font_path))
+            except Exception as exc:
+                print(f"[ModernOverlay] Failed to load {label} font from {font_path}: {exc}")
+                return None
+            if font_id == -1:
+                print(f"[ModernOverlay] {label} font file at {font_path} could not be registered; falling back")
+                return None
+            families = QFontDatabase.applicationFontFamilies(font_id)
+            if families:
+                family = families[0]
+                print(f"[ModernOverlay] Using {label} font family '{family}' from {font_path}")
+                return family
+            print(f"[ModernOverlay] {label} font registered but no families reported; falling back")
+            return None
+
+        font_candidates = [
+            (fonts_dir / "SourceSans3-Regular.ttf", "Source Sans 3"),
+            (fonts_dir / "Eurocaps.ttf", "Eurocaps"),
+        ]
+
+        for path, label in font_candidates:
+            family = try_font_file(path, label)
+            if family:
+                return family
+
+        installed_candidates = [
+            "Source Sans 3",
+            "SourceSans3",
+            "Source Sans",
+            "Source Sans 3 Regular",
+            "Eurocaps",
+            "Euro Caps",
+            "EUROCAPS",
+        ]
+        try:
+            available = set(QFontDatabase.families())
+        except Exception as exc:
+            print(f"[ModernOverlay] Could not enumerate installed fonts: {exc}")
+            available = set()
+        for candidate in installed_candidates:
+            if candidate in available:
+                print(f"[ModernOverlay] Using installed font family '{candidate}'")
+                return candidate
+
+        print(f"[ModernOverlay] Preferred fonts unavailable; falling back to {default_family}")
+        return default_family
 
 
 def resolve_port_file(args_port: Optional[str]) -> Path:
