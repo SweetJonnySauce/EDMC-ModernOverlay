@@ -92,6 +92,16 @@ if not send_overlay_message(payload):
 
 `send_overlay_message()` validates payloads, ensures a timestamp, and routes the message through the running plugin’s broadcaster. It returns `False` if the plugin is inactive or the payload cannot be serialised. Keep payloads small (<16 KB) and include an `event` string so future overlay features can route them.
 
+## EDMC Compliance Checklist
+
+- Uses only the documented EDMC hooks (`plugin_start3`, `plugin_stop`, `plugin_prefs`, `plugin_prefs_save`, `journal_entry`) and keeps the Tk thread free of blocking work.
+- All background work (socket broadcaster and watchdog) runs on managed daemon threads that are stopped during `plugin_stop`, along with the supervised overlay process.
+- Logging flows through EDMC’s logger with DEBUG-only diagnostics, avoiding direct stdout/stderr noise and respecting EDMC log level controls.
+- Preferences UI returns an `myNotebook` frame, persists settings in the plugin directory, and notes when users need to restart the overlay to apply diagnostic capture changes.
+- The overlay client is launched via the plugin’s own virtual environment; EDMC’s Python environment is never modified and the interpreter path can be overridden with `EDMC_OVERLAY_PYTHON`.
+- The public API (`send_overlay_message`) routes messages through the running plugin, providing stable message delivery for other plugins without exposing socket details.
+- Startup, logging, and watchdog behaviours are platform-aware (Windows/macOS/Linux) with guarded code paths and virtualenv selection, keeping the plugin cross-platform alongside EDMC.
+
 ## Development Tips
 
 - VS Code launch configurations are provided for both the overlay client and a standalone broadcast server harness.
@@ -108,7 +118,3 @@ pyinstaller --onefile overlay-client/overlay_client.py
 ```
 
 Update `OverlayWatchdog`'s command to point at the generated binary if you ship it to other commanders.
-
-## License
-
-MIT — remix, extend, and deploy freely for your wing or squadron.
