@@ -217,7 +217,7 @@ def resolve_port_file(args_port: Optional[str]) -> Path:
     env_override = os.getenv("EDMC_OVERLAY_PORT_FILE")
     if env_override:
         return Path(env_override).expanduser().resolve()
-    return (Path(__file__).resolve().parent.parent / "plugin" / "port.json").resolve()
+    return (Path(__file__).resolve().parent.parent / "port.json").resolve()
 
 
 def main(argv: Optional[list[str]] = None) -> int:

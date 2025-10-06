@@ -12,7 +12,7 @@
       "name": "Run Plugin Broadcast Server (standalone test)",
       "type": "python",
       "request": "launch",
-      "program": "${workspaceFolder}/plugin/websocket_server.py",
+      "program": "${workspaceFolder}/overlay_plugin/websocket_server.py",
       "console": "integratedTerminal"
     }
   ]

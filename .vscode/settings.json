@@ -1,7 +1,7 @@
 {
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
   "python.analysis.extraPaths": [
-    "${workspaceFolder}/plugin",
+    "${workspaceFolder}/overlay_plugin",
     "${workspaceFolder}/overlay-client"
   ],
   "python.formatting.provider": "black",

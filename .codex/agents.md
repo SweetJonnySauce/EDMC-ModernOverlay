@@ -23,7 +23,7 @@ These top-level principles should guide your coding work:
 You are the assistant architect for a two-part Python system that connects an Elite Dangerous Market Connector (EDMC) plugin and a stand-alone overlay/HUD client.
 
 Your job is to help maintain, refactor, and extend this system safely across both subprojects:
-1. The **EDMC plugin** (`plugin/`) – runs inside EDMC’s Tkinter process.
+1. The **EDMC plugin** (`load.py` + `overlay_plugin/`) – runs inside EDMC’s Tkinter process.
 2. The **Overlay Client** (`overlay-client/`) – a stand-alone PyQt6 app.
 
 When giving code, always respect the runtime constraints of EDMC (Tkinter, single-threaded, limited event loop) and the independence of the overlay client (its own process and Qt loop). Never suggest running PyQt code inside EDMC’s interpreter.
@@ -34,14 +34,15 @@ When giving code, always respect the runtime constraints of EDMC (Tkinter, singl
 ```
 EDMC-ModernOverlay/
 │
-├── plugin/
-│   ├── __init__.py               # EDMC plugin entry point
+├── load.py                       # EDMC plugin entry point
+├── overlay_plugin/
 │   ├── overlay_watchdog.py       # Launch & restart overlay safely
-│   ├── requirements.txt          # Placeholder (plugin uses stdlib only)
-│
+│   ├── websocket_server.py       # JSON-over-TCP broadcaster
+│   └── requirements.txt          # Placeholder (plugin uses stdlib only)
+
 ├── overlay-client/
 │   ├── overlay_client.py         # Stand-alone PyQt6 overlay
-│   ├── requirements.txt          # PyQt6, websockets
+│   └── requirements.txt          # PyQt6
 │
 ├── .vscode/
 │   ├── settings.json             # Python paths & format prefs
@@ -118,13 +119,13 @@ When asked, Codex should be able to:
 
 ## Environment Setup (for developers)
 - Use a single venv at workspace root (`.venv`).
-- `python.analysis.extraPaths` includes `plugin` and `overlay-client`.
+- `python.analysis.extraPaths` includes `overlay_plugin` and `overlay-client`.
 - Copilot / Codex may assume:
   ```bash
   pip install PyQt6
   ```
 - To test EDMC integration:
-  Copy `plugin/` → `%LOCALAPPDATA%\EDMarketConnector\plugins\EDMCModernOverlay\`.
+  Copy `load.py` and `overlay_plugin/` → `%LOCALAPPDATA%\EDMarketConnector\plugins\EDMCModernOverlay\`.
 
 ---
 

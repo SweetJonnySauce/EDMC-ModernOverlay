@@ -6,8 +6,8 @@ EDMC Modern Overlay is a two-part reference implementation for Elite Dangerous M
 
 ```
 EDMC-ModernOverlay/
-├── plugin/                # EDMC plugin package
-│   ├── load.py            # EDMC hook implementation
+├── load.py                # EDMC entry hook file (copy into EDMC plugins dir)
+├── overlay_plugin/        # Supporting plugin package
 │   ├── overlay_watchdog.py
 │   ├── websocket_server.py
 │   └── requirements.txt
@@ -53,13 +53,14 @@ EDMC-ModernOverlay/
    sudo apt-get update
    sudo apt-get install libxcb-cursor0 libxkbcommon-x11-0
    ```
-3. **Install the EDMC plugin** by copying (or symlinking) the contents of the `plugin/` directory into your EDMC plugin workspace:
+3. **Install the EDMC plugin** by copying `load.py` **and** the `overlay_plugin/` directory into your EDMC plugin workspace:
    ```
    %LOCALAPPDATA%\EDMarketConnector\plugins\EDMCModernOverlay\
    ```
    - Windows default: `%LOCALAPPDATA%\EDMarketConnector\plugins`
    - macOS: `~/Library/Application Support/EDMarketConnector/plugins`
    - Linux (Wine default): `~/.local/share/EDMarketConnector/plugins`
+   - (Optional) Copy the `overlay-client/` folder alongside `load.py` if you want the watchdog to launch it automatically.
 4. **Launch EDMC.** The plugin starts automatically, spins up the background broadcast server, writes `port.json`, and begins supervising the overlay.
 5. **Run the overlay client** manually for development:
    ```bash
