@@ -290,10 +290,6 @@ class _PluginRuntime:
         message.setdefault("docked", self._state.get("docked", False))
         message.setdefault("raw", original_payload)
         self.broadcaster.publish(message)
-        LOGGER.debug(
-            "Broadcasted external overlay message: event=%s",
-            message.get("event"),
-        )
         return True
 
     def _send_overlay_config(self) -> None:
