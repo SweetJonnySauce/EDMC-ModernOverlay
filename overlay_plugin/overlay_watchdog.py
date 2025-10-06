@@ -21,6 +21,7 @@ class OverlayWatchdog:
         working_dir: Path,
         log: LogFunc,
         debug_log: Optional[LogFunc] = None,
+        capture_output: bool = False,
         max_restarts: int = 3,
         restart_window: float = 60.0,
     ) -> None:
@@ -28,6 +29,7 @@ class OverlayWatchdog:
         self._working_dir = working_dir
         self._log = log
         self._log_debug = debug_log or log
+        self._capture_output = capture_output
         self._max_restarts = max_restarts
         self._restart_window = restart_window
 
@@ -82,16 +84,22 @@ class OverlayWatchdog:
 
     def _spawn_overlay(self) -> None:
         self._debug("Launching overlay client: %s" % self._format_command())
-        try:
-            proc = subprocess.Popen(
-                self._command,
-                cwd=str(self._working_dir),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+        popen_kwargs = {
+            "cwd": str(self._working_dir),
+            "stdout": subprocess.PIPE if self._capture_output else subprocess.DEVNULL,
+            "stderr": subprocess.PIPE if self._capture_output else subprocess.DEVNULL,
+            "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        }
+        if self._capture_output:
+            popen_kwargs.update(
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        try:
+            proc = subprocess.Popen(
+                self._command,
+                **popen_kwargs,
             )
         except FileNotFoundError:
             self._log("Overlay executable not found; watchdog disabled")
@@ -117,7 +125,7 @@ class OverlayWatchdog:
         returncode = proc.returncode if proc else "?"
         stdout_data, stderr_data = self._collect_process_output(proc)
         self._debug(f"Overlay process exited (pid={pid}, returncode={returncode})")
-        if isinstance(returncode, int) and returncode != 0:
+        if self._capture_output and isinstance(returncode, int) and returncode != 0:
             self._log_failure_details(pid, returncode, stdout_data, stderr_data)
         self._process = None
 
@@ -155,7 +163,7 @@ class OverlayWatchdog:
             pass
 
     def _collect_process_output(self, proc: Optional[subprocess.Popen[str]]) -> Tuple[str, str]:
-        if proc is None:
+        if proc is None or not self._capture_output:
             return "", ""
         stdout_data = ""
         stderr_data = ""
@@ -193,3 +201,7 @@ class OverlayWatchdog:
         if len(stripped) <= limit:
             return stripped
         return stripped[-limit:]
+
+    def set_capture_output(self, capture_output: bool) -> None:
+        self._capture_output = capture_output
+        self._debug(f"Capture output setting updated to {capture_output}")

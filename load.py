@@ -12,9 +12,11 @@ from typing import Any, Dict, Optional
 if __package__:
     from .overlay_plugin.overlay_watchdog import OverlayWatchdog
     from .overlay_plugin.websocket_server import WebSocketBroadcaster
+    from .overlay_plugin.preferences import Preferences, PreferencesPanel
 else:  # pragma: no cover - EDMC loads as top-level module
     from overlay_plugin.overlay_watchdog import OverlayWatchdog
     from overlay_plugin.websocket_server import WebSocketBroadcaster
+    from overlay_plugin.preferences import Preferences, PreferencesPanel
 
 PLUGIN_NAME = "Modern Overlay"
 PLUGIN_VERSION = "0.1.0"
@@ -95,7 +97,7 @@ class _PluginRuntime:
         "SupercruiseEntry",
     }
 
-    def __init__(self, plugin_dir: str) -> None:
+    def __init__(self, plugin_dir: str, preferences: Preferences) -> None:
         self.plugin_dir = Path(plugin_dir)
         self.broadcaster = WebSocketBroadcaster(log=_log)
         self.watchdog: Optional[OverlayWatchdog] = None
@@ -107,6 +109,7 @@ class _PluginRuntime:
             "station": "",
             "docked": False,
         }
+        self._preferences = preferences
 
     # Lifecycle ------------------------------------------------------------
 
@@ -206,6 +209,7 @@ class _PluginRuntime:
             overlay_script.parent,
             log=_log,
             debug_log=LOGGER.debug,
+            capture_output=self._capture_enabled(),
         )
         self.watchdog.start()
 
@@ -220,6 +224,17 @@ class _PluginRuntime:
             if candidate.exists():
                 return candidate
         return None
+
+    def _capture_enabled(self) -> bool:
+        return bool(self._preferences.capture_output and LOGGER.isEnabledFor(logging.DEBUG))
+
+    def on_preferences_updated(self) -> None:
+        LOGGER.debug(
+            "Applying updated preferences: capture_output=%s",
+            self._preferences.capture_output,
+        )
+        if self.watchdog:
+            self.watchdog.set_capture_output(self._capture_enabled())
 
     def _locate_overlay_python(self) -> Path:
         env_override = os.getenv("EDMC_OVERLAY_PYTHON")
@@ -247,18 +262,23 @@ class _PluginRuntime:
 # EDMC hook functions ------------------------------------------------------
 
 _plugin: Optional[_PluginRuntime] = None
+_preferences: Optional[Preferences] = None
+_prefs_panel: Optional[PreferencesPanel] = None
 
 
 def plugin_start3(plugin_dir: str) -> str:
     _log(f"Initialising Modern Overlay plugin from {plugin_dir}")
-    global _plugin
-    _plugin = _PluginRuntime(plugin_dir)
+    global _plugin, _preferences
+    _preferences = Preferences(Path(plugin_dir))
+    _plugin = _PluginRuntime(plugin_dir, _preferences)
     return _plugin.start()
 
 
 def plugin_stop() -> None:
+    global _prefs_panel
     if _plugin:
         _plugin.stop()
+    _prefs_panel = None
 
 
 def plugin_app(parent) -> Optional[Any]:  # pragma: no cover - EDMC Tk frame hook
@@ -267,21 +287,33 @@ def plugin_app(parent) -> Optional[Any]:  # pragma: no cover - EDMC Tk frame hoo
 
 def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - optional settings pane
     LOGGER.debug("plugin_prefs invoked: parent=%r cmdr=%r is_beta=%s", parent, cmdr, is_beta)
-    try:
-        import tkinter as tk
-    except Exception as exc:
-        LOGGER.exception("plugin_prefs failed to import tkinter: %s", exc)
+    if _preferences is None:
+        LOGGER.debug("Preferences not initialised; returning no UI")
         return None
+    try:
+        panel = PreferencesPanel(parent, _preferences)
+    except Exception as exc:
+        LOGGER.exception("Failed to build preferences panel: %s", exc)
+        return None
+    global _prefs_panel
+    _prefs_panel = panel
+    frame = panel.frame
+    LOGGER.debug("plugin_prefs returning frame=%r", frame)
+    return frame
 
+
+def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - save hook
+    LOGGER.debug("plugin_prefs_save invoked: cmdr=%r is_beta=%s", cmdr, is_beta)
+    if _prefs_panel is None:
+        LOGGER.debug("No preferences panel to save")
+        return
     try:
-        frame = tk.Frame(parent)
-        label = tk.Label(frame, text="Modern Overlay does not expose preferences.")
-        label.grid(sticky="w")
-        LOGGER.debug("plugin_prefs returning frame=%r with children=%d", frame, len(frame.winfo_children()))
-        return frame
+        _prefs_panel.apply()
+        LOGGER.debug("Preferences saved: capture_output=%s", _preferences.capture_output if _preferences else None)
+        if _plugin:
+            _plugin.on_preferences_updated()
     except Exception as exc:
-        LOGGER.exception("plugin_prefs failed while building UI: %s", exc)
-        return None
+        LOGGER.exception("Failed to save preferences: %s", exc)
 
 
 def journal_entry(
