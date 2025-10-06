@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -236,6 +237,21 @@ class _PluginRuntime:
         if self.watchdog:
             self.watchdog.set_capture_output(self._capture_enabled())
 
+    def send_test_message(self, message: str) -> None:
+        text = message.strip()
+        if not text:
+            raise ValueError("Message is empty")
+        if not self._running:
+            raise RuntimeError("Overlay is not running")
+        payload = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "event": "TestMessage",
+            "message": text,
+            "raw": {"message": text},
+        }
+        self.broadcaster.publish(payload)
+        LOGGER.debug("Sent test message to overlay: %s", text)
+
     def _locate_overlay_python(self) -> Path:
         env_override = os.getenv("EDMC_OVERLAY_PYTHON")
         if env_override:
@@ -290,8 +306,9 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
     if _preferences is None:
         LOGGER.debug("Preferences not initialised; returning no UI")
         return None
+    send_callback = _plugin.send_test_message if _plugin else None
     try:
-        panel = PreferencesPanel(parent, _preferences)
+        panel = PreferencesPanel(parent, _preferences, send_callback)
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)
         return None

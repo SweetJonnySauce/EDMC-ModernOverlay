@@ -129,6 +129,7 @@ class OverlayWindow(QWidget):
             "system": "---",
             "station": "---",
             "docked": False,
+            "message": "",
         }
 
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -142,15 +143,20 @@ class OverlayWindow(QWidget):
         self.cmdr_label = QLabel("CMDR: ---")
         self.system_label = QLabel("System: ---")
         self.station_label = QLabel("Station: ---")
+        self.message_label = QLabel("")
         self.status_label = QLabel(self._status)
         for label in (self.cmdr_label, self.system_label, self.station_label, self.status_label):
             label.setFont(font)
             label.setStyleSheet("color: white;")
+        message_font = QFont("Segoe UI", 16)
+        self.message_label.setFont(message_font)
+        self.message_label.setStyleSheet("color: #80d0ff;")
 
         layout = QVBoxLayout()
         layout.addWidget(self.cmdr_label)
         layout.addWidget(self.system_label)
         layout.addWidget(self.station_label)
+        layout.addWidget(self.message_label)
         layout.addWidget(self.status_label)
         layout.setContentsMargins(20, 20, 20, 20)
         self.setLayout(layout)
@@ -181,12 +187,17 @@ class OverlayWindow(QWidget):
                 "system": payload.get("system", self._state["system"]),
                 "station": payload.get("station", self._state["station"]),
                 "docked": payload.get("docked", self._state["docked"]),
+                "message": payload.get("message", self._state.get("message", "")),
             }
         )
         docked_text = "Docked" if self._state.get("docked") else "In flight"
         self.cmdr_label.setText(f"CMDR: {self._state['cmdr']}")
         self.system_label.setText(f"System: {self._state['system']}")
         self.station_label.setText(f"Station: {self._state['station']} ({docked_text})")
+        message_text = self._state.get("message") or ""
+        if payload.get("event") == "TestMessage" and payload.get("message"):
+            message_text = payload.get("message", "")
+        self.message_label.setText(message_text)
 
     def _on_status(self, status: str) -> None:
         self._status = status
