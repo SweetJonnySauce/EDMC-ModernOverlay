@@ -134,6 +134,7 @@ class _PluginRuntime:
             self._start_watchdog()
             self._running = True
         register_publisher(self._publish_external)
+        self._send_overlay_config()
         _log("Plugin started")
         return PLUGIN_NAME
 
@@ -252,6 +253,7 @@ class _PluginRuntime:
         )
         if self.watchdog:
             self.watchdog.set_capture_output(self._capture_enabled())
+        self._send_overlay_config()
 
     def send_test_message(self, message: str) -> None:
         text = message.strip()
@@ -267,6 +269,10 @@ class _PluginRuntime:
         if not send_overlay_message(payload):
             raise RuntimeError("Failed to send test message via overlay API")
         LOGGER.debug("Sent test message to overlay via API: %s", text)
+
+    def preview_overlay_opacity(self, value: float) -> None:
+        self._preferences.overlay_opacity = float(value)
+        self._send_overlay_config()
 
     def _publish_external(self, payload: Mapping[str, Any]) -> bool:
         if not self._running:
@@ -284,6 +290,14 @@ class _PluginRuntime:
             message.get("event"),
         )
         return True
+
+    def _send_overlay_config(self) -> None:
+        payload = {
+            "event": "OverlayConfig",
+            "opacity": float(self._preferences.overlay_opacity),
+        }
+        self.broadcaster.publish(payload)
+        LOGGER.debug("Published overlay config: opacity=%s", payload["opacity"])
 
     def _locate_overlay_python(self) -> Path:
         env_override = os.getenv("EDMC_OVERLAY_PYTHON")
@@ -344,8 +358,9 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         LOGGER.debug("Preferences not initialised; returning no UI")
         return None
     send_callback = _plugin.send_test_message if _plugin else None
+    opacity_callback = _plugin.preview_overlay_opacity if _plugin else None
     try:
-        panel = PreferencesPanel(parent, _preferences, send_callback)
+        panel = PreferencesPanel(parent, _preferences, send_callback, opacity_callback)
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)
         return None

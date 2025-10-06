@@ -133,6 +133,7 @@ class OverlayWindow(QWidget):
             "message": "",
         }
         self._legacy_items: Dict[str, Dict[str, Any]] = {}
+        self._background_opacity: float = 0.0
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -183,6 +184,11 @@ class OverlayWindow(QWidget):
     def paintEvent(self, event) -> None:  # type: ignore[override]
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if self._background_opacity > 0.0:
+            alpha = int(255 * max(0.0, min(1.0, self._background_opacity)))
+            painter.setBrush(QColor(0, 0, 0, alpha))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(self.rect(), 12, 12)
         self._paint_legacy(painter)
         painter.end()
         super().paintEvent(event)
@@ -192,6 +198,14 @@ class OverlayWindow(QWidget):
     def _on_message(self, payload: Dict[str, Any]) -> None:
         if payload.get("event") == "LegacyOverlay":
             self._handle_legacy(payload)
+            return
+        if payload.get("event") == "OverlayConfig":
+            opacity = payload.get("opacity")
+            try:
+                self._background_opacity = max(0.0, min(1.0, float(opacity)))
+            except (TypeError, ValueError):
+                self._background_opacity = 0.0
+            self.update()
             return
 
         self._state.update(

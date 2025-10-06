@@ -16,6 +16,7 @@ class Preferences:
 
     plugin_dir: Path
     capture_output: bool = True
+    overlay_opacity: float = 0.0
 
     def __post_init__(self) -> None:
         self.plugin_dir = Path(self.plugin_dir)
@@ -32,25 +33,37 @@ class Preferences:
         except json.JSONDecodeError:
             return
         self.capture_output = bool(data.get("capture_output", True))
+        self.overlay_opacity = float(data.get("overlay_opacity", 0.0))
 
     def save(self) -> None:
-        payload: Dict[str, Any] = {"capture_output": bool(self.capture_output)}
+        payload: Dict[str, Any] = {
+            "capture_output": bool(self.capture_output),
+            "overlay_opacity": float(self.overlay_opacity),
+        }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 class PreferencesPanel:
     """Builds a Tkinter frame that edits Modern Overlay preferences."""
 
-    def __init__(self, parent, preferences: Preferences, send_test_callback: Optional[Callable[[str], None]] = None) -> None:
+    def __init__(
+        self,
+        parent,
+        preferences: Preferences,
+        send_test_callback: Optional[Callable[[str], None]] = None,
+        set_opacity_callback: Optional[Callable[[float], None]] = None,
+    ) -> None:
         import tkinter as tk
         import myNotebook as nb
 
         self._preferences = preferences
         self._var_capture = tk.BooleanVar(value=preferences.capture_output)
+        self._var_opacity = tk.DoubleVar(value=preferences.overlay_opacity)
         self._send_test = send_test_callback
         self._test_var = tk.StringVar()
         self._status_var = tk.StringVar(value="")
         self._legacy_client = None
+        self._set_opacity = set_opacity_callback
 
         frame = nb.Frame(parent)
         description = (
@@ -68,30 +81,47 @@ class PreferencesPanel:
         checkbox.grid(row=0, column=0, sticky="w")
         helper.grid(row=1, column=0, sticky="w", pady=(2, 0))
 
+        opacity_label = tk.Label(frame, text="Overlay background opacity (0.0 transparent – 1.0 opaque):")
+        opacity_label.grid(row=2, column=0, sticky="w", pady=(10, 0))
+
+        opacity_row = tk.Frame(frame)
+        opacity_scale = tk.Scale(
+            opacity_row,
+            variable=self._var_opacity,
+            from_=0.0,
+            to=1.0,
+            resolution=0.05,
+            orient=tk.HORIZONTAL,
+            length=250,
+            command=self._on_opacity_change,
+        )
+        opacity_scale.pack(side="left", fill="x")
+        opacity_row.grid(row=3, column=0, sticky="we")
+
         test_label = tk.Label(frame, text="Send test message to overlay:")
-        test_label.grid(row=2, column=0, sticky="w", pady=(10, 0))
+        test_label.grid(row=4, column=0, sticky="w", pady=(10, 0))
 
         test_row = tk.Frame(frame)
         test_entry = tk.Entry(test_row, textvariable=self._test_var, width=50)
         send_button = tk.Button(test_row, text="Send", command=self._on_send_click)
         test_entry.pack(side="left", fill="x", expand=True)
         send_button.pack(side="left", padx=(8, 0))
-        test_row.grid(row=3, column=0, sticky="we", pady=(2, 0))
+        test_row.grid(row=5, column=0, sticky="we", pady=(2, 0))
         frame.columnconfigure(0, weight=1)
         test_row.columnconfigure(0, weight=1)
 
         legacy_label = tk.Label(frame, text="Legacy edmcoverlay compatibility:")
-        legacy_label.grid(row=4, column=0, sticky="w", pady=(10, 0))
+        legacy_label.grid(row=6, column=0, sticky="w", pady=(10, 0))
 
         legacy_row = tk.Frame(frame)
         legacy_text_btn = tk.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
         legacy_rect_btn = tk.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
         legacy_text_btn.pack(side="left")
         legacy_rect_btn.pack(side="left", padx=(8, 0))
-        legacy_row.grid(row=5, column=0, sticky="w", pady=(2, 0))
+        legacy_row.grid(row=7, column=0, sticky="w", pady=(2, 0))
 
         status_label = tk.Label(frame, textvariable=self._status_var, wraplength=400, justify="left", fg="#808080")
-        status_label.grid(row=6, column=0, sticky="w", pady=(4, 0))
+        status_label.grid(row=8, column=0, sticky="w", pady=(4, 0))
 
         self._frame = frame
 
@@ -101,6 +131,7 @@ class PreferencesPanel:
 
     def apply(self) -> None:
         self._preferences.capture_output = bool(self._var_capture.get())
+        self._preferences.overlay_opacity = float(self._var_opacity.get())
         self._preferences.save()
 
     # UI Callbacks --------------------------------------------------------
@@ -119,6 +150,17 @@ class PreferencesPanel:
             self._status_var.set(f"Failed to send message: {exc}")
             return
         self._status_var.set("Test message sent to overlay.")
+
+    def _on_opacity_change(self, value: str) -> None:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            numeric = 0.0
+        if self._set_opacity:
+            try:
+                self._set_opacity(numeric)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update opacity: {exc}")
 
     def _legacy_overlay(self):
         if self._legacy_client is None:
