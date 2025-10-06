@@ -37,7 +37,7 @@ EDMC-ModernOverlay/
 ├── plugin/
 │   ├── __init__.py               # EDMC plugin entry point
 │   ├── overlay_watchdog.py       # Launch & restart overlay safely
-│   ├── requirements.txt          # Minimal: websockets, psutil
+│   ├── requirements.txt          # Placeholder (plugin uses stdlib only)
 │
 ├── overlay-client/
 │   ├── overlay_client.py         # Stand-alone PyQt6 overlay
@@ -56,19 +56,19 @@ EDMC-ModernOverlay/
 ## Functional Overview
 
 ### EDMC Plugin
-- Runs a **background WebSocket server** in its own thread (no Tkinter conflicts).
+- Runs a **background JSON-over-TCP broadcast server** in its own thread (no Tkinter conflicts).
 - Writes a `port.json` file (e.g. `{ "port": 51341 }`) for clients to auto-discover.
 - Uses a **non-blocking queue** to broadcast journal events to connected overlays.
 - Includes a **watchdog** that:
   - Launches the overlay client as an external process (via `subprocess.Popen`).
-  - Monitors it with `psutil`.
+  - Monitors it using subprocess polling.
   - Restarts on crash, up to `MAX_RESTARTS` times, then logs an error.
   - Cleans up gracefully on EDMC exit.
 
 ### Overlay Client
 - Stand-alone **PyQt6 GUI** with a fully transparent, click-through window.
-- Reads `port.json` to find the correct WebSocket port.
-- Connects via `websockets` and displays real-time EDMC events (e.g., CMDR, system, docked).
+- Reads `port.json` to find the broadcast port.
+- Connects via a lightweight TCP client and displays real-time EDMC events (e.g., CMDR, system, docked).
 - Auto-reconnects if EDMC restarts.
 - Can be packaged into a single `.exe` via `pyinstaller --onefile`.
 
@@ -76,10 +76,10 @@ EDMC-ModernOverlay/
 
 ## Key Safety Rules
 1. **No blocking in EDMC main thread.**
-   - Always spawn threads for WebSocket and watchdog logic.
+   - Always spawn threads for the broadcast server and watchdog logic.
 2. **No PyQt imports in EDMC.**
    - Overlay runs in its own Python environment or binary.
-3. **All communication via localhost WebSocket.**
+3. **All communication via localhost TCP socket.**
 4. **Logging only via print() or EDMC’s logging module.**
 5. **Graceful exit on shutdown.**
 6. **Restart overlay ≤ MAX_RESTARTS, then disable further attempts.**
@@ -89,7 +89,7 @@ EDMC-ModernOverlay/
 ## Coding Guidance for Copilot / Codex
 When writing or editing code in this workspace:
 - Treat `/plugin` and `/overlay-client` as separate Python packages.
-- Always maintain the interface boundary at the WebSocket layer.
+- Always maintain the interface boundary at the TCP message layer.
 - Never suggest direct function imports between these two subprojects.
 - Use idiomatic asyncio + threading patterns for background servers.
 - For plugin threads: mark them `daemon=True`.
@@ -105,14 +105,14 @@ When writing or editing code in this workspace:
 
 ## Extension Tasks Codex Should Handle
 When asked, Codex should be able to:
-- Add new telemetry fields (e.g., cargo, merits) to WebSocket payloads.
+- Add new telemetry fields (e.g., cargo, merits) to broadcast payloads.
 - Modify the overlay UI (fonts, colors, positioning, transitions).
 - Implement auto-positioning over the Elite Dangerous window via Win32 APIs.
 - Extend the watchdog to log to EDMC’s log pane.
 - Add plugin preferences UI for toggling auto-launch.
 - Package the overlay with `pyinstaller`.
 - Generate platform-specific installers or launch scripts.
-- Add unit tests for the WebSocket server and watchdog.
+- Add unit tests for the broadcast server and watchdog.
 
 ---
 
@@ -121,7 +121,7 @@ When asked, Codex should be able to:
 - `python.analysis.extraPaths` includes `plugin` and `overlay-client`.
 - Copilot / Codex may assume:
   ```bash
-  pip install psutil PyQt6 websockets
+  pip install PyQt6
   ```
 - To test EDMC integration:
   Copy `plugin/` → `%LOCALAPPDATA%\EDMarketConnector\plugins\EDMCModernOverlay\`.

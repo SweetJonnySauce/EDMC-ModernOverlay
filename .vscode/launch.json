@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Overlay Client",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/overlay-client/overlay_client.py",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Run Plugin Broadcast Server (standalone test)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/plugin/websocket_server.py",
+      "console": "integratedTerminal"
+    }
+  ]
+}
