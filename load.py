@@ -248,8 +248,9 @@ class _PluginRuntime:
 
     def on_preferences_updated(self) -> None:
         LOGGER.debug(
-            "Applying updated preferences: capture_output=%s",
+            "Applying updated preferences: capture_output=%s show_connection_status=%s",
             self._preferences.capture_output,
+            self._preferences.show_connection_status,
         )
         if self.watchdog:
             self.watchdog.set_capture_output(self._capture_enabled())
@@ -274,6 +275,10 @@ class _PluginRuntime:
         self._preferences.overlay_opacity = float(value)
         self._send_overlay_config()
 
+    def set_show_status_preference(self, value: bool) -> None:
+        self._preferences.show_connection_status = bool(value)
+        self._send_overlay_config()
+
     def _publish_external(self, payload: Mapping[str, Any]) -> bool:
         if not self._running:
             return False
@@ -296,9 +301,14 @@ class _PluginRuntime:
             "event": "OverlayConfig",
             "opacity": float(self._preferences.overlay_opacity),
             "enable_drag": bool(self._preferences.overlay_opacity > 0.5),
+            "show_status": bool(self._preferences.show_connection_status),
         }
         self.broadcaster.publish(payload)
-        LOGGER.debug("Published overlay config: opacity=%s", payload["opacity"])
+        LOGGER.debug(
+            "Published overlay config: opacity=%s show_status=%s",
+            payload["opacity"],
+            payload["show_status"],
+        )
 
     def _locate_overlay_python(self) -> Path:
         env_override = os.getenv("EDMC_OVERLAY_PYTHON")
@@ -361,7 +371,8 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
     send_callback = _plugin.send_test_message if _plugin else None
     opacity_callback = _plugin.preview_overlay_opacity if _plugin else None
     try:
-        panel = PreferencesPanel(parent, _preferences, send_callback, opacity_callback)
+        status_callback = _plugin.set_show_status_preference if _plugin else None
+        panel = PreferencesPanel(parent, _preferences, send_callback, opacity_callback, status_callback)
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)
         return None
@@ -379,7 +390,12 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
         return
     try:
         _prefs_panel.apply()
-        LOGGER.debug("Preferences saved: capture_output=%s", _preferences.capture_output if _preferences else None)
+        if _preferences:
+            LOGGER.debug(
+                "Preferences saved: capture_output=%s show_connection_status=%s",
+                _preferences.capture_output,
+                _preferences.show_connection_status,
+            )
         if _plugin:
             _plugin.on_preferences_updated()
     except Exception as exc:

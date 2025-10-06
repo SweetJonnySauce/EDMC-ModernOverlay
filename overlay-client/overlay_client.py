@@ -126,10 +126,6 @@ class OverlayWindow(QWidget):
         self.data_client = data_client
         self._status = "Initialising"
         self._state: Dict[str, Any] = {
-            "cmdr": "---",
-            "system": "---",
-            "station": "---",
-            "docked": False,
             "message": "",
         }
         self._legacy_items: Dict[str, Dict[str, Any]] = {}
@@ -141,6 +137,7 @@ class OverlayWindow(QWidget):
         self._cursor_saved: bool = False
         self._saved_cursor: QCursor = self.cursor()
         self._transparent_input_supported = hasattr(Qt.WindowType, "WindowTransparentForInput")
+        self._show_status: bool = False
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -162,27 +159,22 @@ class OverlayWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self._apply_drag_state()
 
-        font = QFont("Segoe UI", 18)
-        self.cmdr_label = QLabel("CMDR: ---")
-        self.system_label = QLabel("System: ---")
-        self.station_label = QLabel("Station: ---")
-        self.message_label = QLabel("")
-        self.status_label = QLabel(self._status)
-        for label in (self.cmdr_label, self.system_label, self.station_label, self.status_label):
-            label.setFont(font)
-            label.setStyleSheet("color: white; background: transparent;")
+        status_font = QFont("Segoe UI", 18)
         message_font = QFont("Segoe UI", 16)
+        self.message_label = QLabel("")
         self.message_label.setFont(message_font)
         self.message_label.setStyleSheet("color: #80d0ff; background: transparent;")
+        self.message_label.setWordWrap(True)
+        self.status_label = QLabel(self._status)
+        self.status_label.setFont(status_font)
+        self.status_label.setStyleSheet("color: white; background: transparent;")
 
         layout = QVBoxLayout()
-        layout.addWidget(self.cmdr_label)
-        layout.addWidget(self.system_label)
-        layout.addWidget(self.station_label)
         layout.addWidget(self.message_label)
         layout.addWidget(self.status_label)
         layout.setContentsMargins(20, 20, 20, 20)
         self.setLayout(layout)
+        self.status_label.setVisible(False)
 
         # Connect signals
         self.data_client.message_received.connect(self._on_message)
@@ -255,31 +247,37 @@ class OverlayWindow(QWidget):
             except (TypeError, ValueError):
                 self._background_opacity = 0.0
             self._drag_enabled = bool(payload.get("enable_drag", False))
+            if "show_status" in payload:
+                previous = self._show_status
+                self._show_status = bool(payload.get("show_status"))
+                if self._show_status:
+                    if self._status and (not previous or not self.status_label.text()):
+                        self.status_label.setText(self._status)
+                else:
+                    self.status_label.clear()
+                self._update_status_visibility()
             self._apply_drag_state()
             self.update()
             return
 
-        self._state.update(
-            {
-                "cmdr": payload.get("cmdr", self._state["cmdr"]),
-                "system": payload.get("system", self._state["system"]),
-                "station": payload.get("station", self._state["station"]),
-                "docked": payload.get("docked", self._state["docked"]),
-                "message": payload.get("message", self._state.get("message", "")),
-            }
-        )
-        docked_text = "Docked" if self._state.get("docked") else "In flight"
-        self.cmdr_label.setText(f"CMDR: {self._state['cmdr']}")
-        self.system_label.setText(f"System: {self._state['system']}")
-        self.station_label.setText(f"Station: {self._state['station']} ({docked_text})")
-        message_text = self._state.get("message") or ""
+        message_text = payload.get("message")
         if payload.get("event") == "TestMessage" and payload.get("message"):
-            message_text = payload.get("message", "")
-        self.message_label.setText(message_text)
+            message_text = payload.get("message")
+        if message_text is not None:
+            self._state["message"] = str(message_text)
+        self.message_label.setText(self._state.get("message", ""))
 
     def _on_status(self, status: str) -> None:
         self._status = status
-        self.status_label.setText(status)
+        if self._show_status:
+            self.status_label.setText(status)
+        else:
+            self.status_label.clear()
+        self._update_status_visibility()
+
+    def _update_status_visibility(self) -> None:
+        should_display = bool(self._show_status and self._status)
+        self.status_label.setVisible(should_display)
 
     # Platform integration -------------------------------------------------
 
