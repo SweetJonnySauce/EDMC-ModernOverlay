@@ -145,6 +145,10 @@ class OverlayWindow(QWidget):
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
         )
+        if hasattr(Qt.WindowType, "WindowTransparentForInput"):
+            self.setWindowFlag(Qt.WindowType.WindowTransparentForInput, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
 
         font = QFont("Segoe UI", 18)
         self.cmdr_label = QLabel("CMDR: ---")
@@ -154,10 +158,10 @@ class OverlayWindow(QWidget):
         self.status_label = QLabel(self._status)
         for label in (self.cmdr_label, self.system_label, self.station_label, self.status_label):
             label.setFont(font)
-            label.setStyleSheet("color: white;")
+            label.setStyleSheet("color: white; background: transparent;")
         message_font = QFont("Segoe UI", 16)
         self.message_label.setFont(message_font)
-        self.message_label.setStyleSheet("color: #80d0ff;")
+        self.message_label.setStyleSheet("color: #80d0ff; background: transparent;")
 
         layout = QVBoxLayout()
         layout.addWidget(self.cmdr_label)
@@ -179,9 +183,6 @@ class OverlayWindow(QWidget):
     def paintEvent(self, event) -> None:  # type: ignore[override]
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(QColor(0, 0, 0, 96))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(self.rect(), 12, 12)
         self._paint_legacy(painter)
         painter.end()
         super().paintEvent(event)
@@ -218,20 +219,19 @@ class OverlayWindow(QWidget):
     # Platform integration -------------------------------------------------
 
     def _enable_click_through(self) -> None:
-        if not sys.platform.startswith("win"):
-            return
-        try:
-            import ctypes
+        if sys.platform.startswith("win"):
+            try:
+                import ctypes
 
-            user32 = ctypes.windll.user32
-            GWL_EXSTYLE = -20
-            WS_EX_LAYERED = 0x80000
-            WS_EX_TRANSPARENT = 0x20
-            hwnd = int(self.winId())
-            style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-            user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED | WS_EX_TRANSPARENT)
-        except Exception:
-            pass
+                user32 = ctypes.windll.user32
+                GWL_EXSTYLE = -20
+                WS_EX_LAYERED = 0x80000
+                WS_EX_TRANSPARENT = 0x20
+                hwnd = int(self.winId())
+                style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+                user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED | WS_EX_TRANSPARENT)
+            except Exception:
+                pass
 
     # Legacy overlay handling ---------------------------------------------
 
