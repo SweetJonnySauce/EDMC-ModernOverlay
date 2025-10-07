@@ -128,13 +128,13 @@ Under the hood the compatibility layer forwards payloads through `send_overlay_m
 
 ## EDMC Compliance Checklist
 
-- Uses only the documented EDMC hooks (`plugin_start3`, `plugin_stop`, `plugin_prefs`, `plugin_prefs_save`, `journal_entry`) and keeps the Tk thread free of blocking work.
-- All background work (socket broadcaster and watchdog) runs on managed daemon threads that are stopped during `plugin_stop`, along with the supervised overlay process.
-- Logging flows through EDMC’s logger with DEBUG-only diagnostics, avoiding direct stdout/stderr noise and respecting EDMC log level controls.
-- Preferences UI returns an `myNotebook` frame, persists settings in the plugin directory, and notes when users need to restart the overlay to apply diagnostic capture changes.
-- The overlay client is launched via the dedicated `overlay-client/.venv` virtual environment; EDMC’s Python environment is never modified and the interpreter path can be overridden with `EDMC_OVERLAY_PYTHON`.
-- The public API (`send_overlay_message`) routes messages through the running plugin, providing stable message delivery for other plugins without exposing socket details.
-- Startup, logging, and watchdog behaviours are platform-aware (Windows/macOS/Linux) with guarded code paths and virtualenv selection, keeping the plugin cross-platform alongside EDMC.
+- Implements the documented EDMC hooks (`plugin_start3`, `plugin_stop`, `plugin_prefs`, `plugin_prefs_save`, `journal_entry`); `plugin_app` explicitly returns `None`, so the Tk main thread stays idle.
+- Long-running work stays off the Tk thread. `WebSocketBroadcaster` runs on a daemon thread with its own asyncio loop, `OverlayWatchdog` supervises the client on another daemon thread, and `plugin_stop()` always stops both and removes `port.json`.
+- Plugin state lives inside the plugin directory. `Preferences` reads and writes `overlay_settings.json`, and the Tk UI built with `myNotebook` saves through `plugin_prefs_save`, including helper text when a restart of the overlay is required for stdout/stderr capture changes.
+- Logging integrates with EDMC’s logger via `_EDMCLogHandler`; optional payload mirroring and stdout/stderr capture are preference-gated and emit additional detail only when EDMC logging is set to DEBUG.
+- The overlay client launches with the dedicated `overlay-client/.venv` interpreter (or an override via `EDMC_OVERLAY_PYTHON`), keeping EDMC’s bundled Python environment untouched.
+- Other plugins publish safely through `overlay_plugin.overlay_api.send_overlay_message`, which validates payload structure and size before handing messages to the broadcaster.
+- Platform-aware paths handle Windows-specific interpreter names and window flags while keeping Linux/macOS support intact.
 
 ## Development Tips
 
