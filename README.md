@@ -40,9 +40,9 @@ EDMC-ModernOverlay/
 
 ## Setup
 
-The plugin expects a dedicated Python environment for the overlay client. The `.venv/` folder is *not* distributed, so create it yourself before copying the plugin into EDMC.
+The client lives in the plugin folder and expects a dedicated Python environment for the overlay. The `.venv/` folder is *not* distributed, so create it yourself before copying the plugin into EDMC.
 
-1. **Create a virtual environment for the overlay client** inside the repository root:
+1. **From the plugin folder, create a virtual environment for the overlay client** inside the repository root:
    ```bash
    python3 -m venv .venv
    # Windows PowerShell
