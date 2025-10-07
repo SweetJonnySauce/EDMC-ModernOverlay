@@ -247,11 +247,16 @@ class PreferencesPanel:
             numeric = float(value)
         except (TypeError, ValueError):
             numeric = 0.0
+        numeric = max(0.0, min(1.0, numeric))
+        self._var_opacity.set(numeric)
         if self._set_opacity:
             try:
                 self._set_opacity(numeric)
             except Exception as exc:
                 self._status_var.set(f"Failed to update opacity: {exc}")
+                return
+        self._preferences.overlay_opacity = numeric
+        self._preferences.save()
 
     def _on_show_status_toggle(self) -> None:
         value = bool(self._var_show_status.get())

@@ -8,7 +8,7 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Callable, Dict, Mapping, Optional, Set
 
 if __package__:
     from .overlay_plugin.overlay_watchdog import OverlayWatchdog
@@ -122,6 +122,8 @@ class _PluginRuntime:
             "docked": False,
         }
         self._preferences = preferences
+        self._last_config: Dict[str, Any] = {}
+        self._config_timers: Set[threading.Timer] = set()
 
     # Lifecycle ------------------------------------------------------------
 
@@ -134,7 +136,7 @@ class _PluginRuntime:
             self._start_watchdog()
             self._running = True
         register_publisher(self._publish_external)
-        self._send_overlay_config()
+        self._send_overlay_config(rebroadcast=True)
         _log("Plugin started")
         return PLUGIN_NAME
 
@@ -145,6 +147,7 @@ class _PluginRuntime:
             self._running = False
         unregister_publisher()
         _log("Plugin stopping")
+        self._cancel_config_timers()
         if self.watchdog:
             if self.watchdog.stop():
                 LOGGER.debug("Overlay watchdog stopped and client terminated cleanly")
@@ -274,7 +277,11 @@ class _PluginRuntime:
         LOGGER.debug("Sent test message to overlay via API: %s", text)
 
     def preview_overlay_opacity(self, value: float) -> None:
-        self._preferences.overlay_opacity = float(value)
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            numeric = 0.0
+        self._preferences.overlay_opacity = max(0.0, min(1.0, numeric))
         self._send_overlay_config()
 
     def set_show_status_preference(self, value: bool) -> None:
@@ -309,7 +316,7 @@ class _PluginRuntime:
         self._publish_payload(message)
         return True
 
-    def _send_overlay_config(self) -> None:
+    def _send_overlay_config(self, rebroadcast: bool = False) -> None:
         payload = {
             "event": "OverlayConfig",
             "opacity": float(self._preferences.overlay_opacity),
@@ -317,6 +324,7 @@ class _PluginRuntime:
             "show_status": bool(self._preferences.show_connection_status),
             "legacy_scale_y": float(self._preferences.legacy_vertical_scale),
         }
+        self._last_config = dict(payload)
         self._publish_payload(payload)
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s legacy_scale_y=%.2f",
@@ -324,6 +332,8 @@ class _PluginRuntime:
             payload["show_status"],
             payload["legacy_scale_y"],
         )
+        if rebroadcast:
+            self._schedule_config_rebroadcasts()
 
     def _publish_payload(self, payload: Mapping[str, Any]) -> None:
         self._log_payload(payload)
@@ -367,6 +377,46 @@ class _PluginRuntime:
 
         LOGGER.debug("No dedicated overlay Python found; falling back to sys.executable=%s", sys.executable)
         return Path(sys.executable)
+
+    def _schedule_config_rebroadcasts(self, count: int = 5, interval: float = 1.0) -> None:
+        if count <= 0 or interval <= 0:
+            return
+
+        self._cancel_config_timers()
+
+        def _schedule(delay: float) -> None:
+            timer_ref: Optional[threading.Timer] = None
+
+            def _callback() -> None:
+                try:
+                    self._rebroadcast_last_config()
+                finally:
+                    if timer_ref is not None:
+                        self._config_timers.discard(timer_ref)
+
+            timer_ref = threading.Timer(delay, _callback)
+            timer_ref.daemon = True
+            self._config_timers.add(timer_ref)
+            timer_ref.start()
+
+        for index in range(count):
+            delay = interval * (index + 1)
+            _schedule(delay)
+
+    def _rebroadcast_last_config(self) -> None:
+        if not self._running:
+            return
+        if not self._last_config:
+            return
+        self._publish_payload(dict(self._last_config))
+
+    def _cancel_config_timers(self) -> None:
+        for timer in list(self._config_timers):
+            try:
+                timer.cancel()
+            except Exception:
+                pass
+        self._config_timers.clear()
 
 
 # EDMC hook functions ------------------------------------------------------
