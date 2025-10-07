@@ -430,8 +430,11 @@ class OverlayWindow(QWidget):
         painter.setPen(color)
         painter.setFont(font)
         x = int(round(item.get("x", 0)))
-        y = int(round(item.get("y", 0) * self._legacy_scale_y))
-        painter.drawText(x, y, str(item.get("text", "")))
+        raw_top = float(item.get("y", 0))
+        scaled_top = raw_top * self._legacy_scale_y
+        metrics = painter.fontMetrics()
+        baseline = int(round(scaled_top + metrics.ascent()))
+        painter.drawText(x, baseline, str(item.get("text", "")))
 
     def _paint_legacy_rect(self, painter: QPainter, item: Dict[str, Any]) -> None:
         border_color = QColor(str(item.get("color", "white")))
