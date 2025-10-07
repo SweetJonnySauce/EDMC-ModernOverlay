@@ -42,15 +42,15 @@ EDMC-ModernOverlay/
 
 ## Setup
 
-The client lives in the plugin folder and expects a dedicated Python environment for the overlay. The `.venv/` folder is *not* distributed, so create it yourself before copying the plugin into EDMC.
+The client lives in the plugin folder and expects a dedicated Python environment under `overlay-client/.venv`. That directory is *not* distributed, so create it yourself before copying the plugin into EDMC.
 
-1. **From the plugin folder, create a virtual environment for the overlay client** inside the repository root:
+1. **From the plugin folder, create a virtual environment for the overlay client** inside `overlay-client/`:
    ```bash
-   python3 -m venv .venv
+   python3 -m venv overlay-client/.venv
    # Windows PowerShell
-   .venv\Scripts\activate
+   overlay-client\.venv\Scripts\activate
    # macOS/Linux
-   source .venv/bin/activate
+   source overlay-client/.venv/bin/activate
    ```
 2. **Install overlay dependencies** into that environment:
    ```bash
@@ -83,7 +83,7 @@ The client lives in the plugin folder and expects a dedicated Python environment
    - Use the legacy compatibility buttons to send `edmcoverlay`-style messages and rectangles without writing any code.
 6. **Run the overlay client manually (optional)** for development:
    ```bash
-   .venv/bin/python overlay-client/overlay_client.py
+   overlay-client/.venv/bin/python overlay-client/overlay_client.py
    ```
    When packaging or relocating the client, update the preferences or environment to point the watchdog at the correct interpreter.
 
@@ -127,7 +127,7 @@ Under the hood the compatibility layer forwards payloads through `send_overlay_m
 - All background work (socket broadcaster and watchdog) runs on managed daemon threads that are stopped during `plugin_stop`, along with the supervised overlay process.
 - Logging flows through EDMC’s logger with DEBUG-only diagnostics, avoiding direct stdout/stderr noise and respecting EDMC log level controls.
 - Preferences UI returns an `myNotebook` frame, persists settings in the plugin directory, and notes when users need to restart the overlay to apply diagnostic capture changes.
-- The overlay client is launched via the plugin’s own virtual environment; EDMC’s Python environment is never modified and the interpreter path can be overridden with `EDMC_OVERLAY_PYTHON`.
+- The overlay client is launched via the dedicated `overlay-client/.venv` virtual environment; EDMC’s Python environment is never modified and the interpreter path can be overridden with `EDMC_OVERLAY_PYTHON`.
 - The public API (`send_overlay_message`) routes messages through the running plugin, providing stable message delivery for other plugins without exposing socket details.
 - Startup, logging, and watchdog behaviours are platform-aware (Windows/macOS/Linux) with guarded code paths and virtualenv selection, keeping the plugin cross-platform alongside EDMC.
 

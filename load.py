@@ -433,8 +433,13 @@ class _PluginRuntime:
 
         venv_candidates = []
         plugin_root = self.plugin_dir
-        venv_candidates.append(plugin_root / ".venv" / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python"))
-        venv_candidates.append(plugin_root / "overlay-client" / ".venv" / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python"))
+        overlay_client_root = plugin_root / "overlay-client"
+        venv_candidates.append(
+            overlay_client_root
+            / ".venv"
+            / ("Scripts" if os.name == "nt" else "bin")
+            / ("python.exe" if os.name == "nt" else "python")
+        )
 
         for candidate in venv_candidates:
             if candidate.exists():
