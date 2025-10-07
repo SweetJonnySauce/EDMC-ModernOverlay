@@ -28,19 +28,44 @@ _CLIENT_LOGGER.propagate = False
 _CLIENT_LOG_HANDLER: Optional[logging.Handler] = None
 _CLIENT_LOG_PATH: Optional[Path] = None
 _CURRENT_LOG_RETENTION = 5
+_INITIAL_WINDOW_WIDTH = 1920
+_INITIAL_WINDOW_HEIGHT = 1080
 
 
-def _load_initial_retention(default: int = 5) -> int:
+def _load_initial_settings() -> Dict[str, int]:
+    defaults = {
+        "client_log_retention": 5,
+        "window_width": 1920,
+        "window_height": 1080,
+    }
     settings_path = Path(__file__).resolve().parents[1] / "overlay_settings.json"
     try:
         data = json.loads(settings_path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return default
+        return defaults
+    result = dict(defaults)
     try:
-        value = int(data.get("client_log_retention", default))
+        retention = int(data.get("client_log_retention", defaults["client_log_retention"]))
     except (TypeError, ValueError):
-        return default
-    return max(1, value)
+        retention = defaults["client_log_retention"]
+    result["client_log_retention"] = max(1, retention)
+    try:
+        width = int(data.get("window_width", defaults["window_width"]))
+    except (TypeError, ValueError):
+        width = defaults["window_width"]
+    try:
+        height = int(data.get("window_height", defaults["window_height"]))
+    except (TypeError, ValueError):
+        height = defaults["window_height"]
+    result["window_width"] = max(640, width)
+    result["window_height"] = max(360, height)
+    return result
+
+
+_INITIAL_CLIENT_SETTINGS = _load_initial_settings()
+_CURRENT_LOG_RETENTION = _INITIAL_CLIENT_SETTINGS["client_log_retention"]
+_INITIAL_WINDOW_WIDTH = _INITIAL_CLIENT_SETTINGS["window_width"]
+_INITIAL_WINDOW_HEIGHT = _INITIAL_CLIENT_SETTINGS["window_height"]
 
 
 def _resolve_logs_dir() -> Path:
@@ -127,7 +152,7 @@ def _log_debug(message: str) -> None:
     _CLIENT_LOGGER.debug(message)
 
 
-_configure_client_logging(_load_initial_retention())
+_configure_client_logging(_CURRENT_LOG_RETENTION)
 
 
 class OverlayDataClient(QObject):
@@ -235,7 +260,12 @@ class OverlayDataClient(QObject):
 class OverlayWindow(QWidget):
     """Transparent overlay that renders CMDR and location info."""
 
-    def __init__(self, data_client: OverlayDataClient, initial_base_height: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        data_client: OverlayDataClient,
+        initial_base_height: Optional[int] = None,
+        initial_width: Optional[int] = None,
+    ) -> None:
         super().__init__()
         self._font_family = self._resolve_font_family()
         self.data_client = data_client
@@ -259,6 +289,7 @@ class OverlayWindow(QWidget):
         self._base_height: int = 0
         self._log_retention: int = _get_log_retention()
         self._requested_base_height: Optional[int] = initial_base_height if (initial_base_height and initial_base_height > 0) else None
+        self._requested_width: Optional[int] = initial_width if (initial_width and initial_width > 0) else None
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -302,12 +333,12 @@ class OverlayWindow(QWidget):
         # Connect signals
         self.data_client.message_received.connect(self._on_message)
         self.data_client.status_changed.connect(self._on_status)
-        if self._requested_base_height is not None:
-            _log_debug(
-                f"Overlay window initialised; log retention={self._log_retention}, initial_base_height={self._requested_base_height}"
-            )
-        else:
-            _log_debug(f"Overlay window initialised; log retention={self._log_retention}")
+        initial_height_display = self._requested_base_height if self._requested_base_height is not None else "layout"
+        initial_width_display = self._requested_width if self._requested_width is not None else "layout"
+        _log_debug(
+            f"Overlay window initialised; log retention={self._log_retention}, "
+            f"initial_base_height={initial_height_display}, initial_width={initial_width_display}"
+        )
 
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
@@ -432,6 +463,30 @@ class OverlayWindow(QWidget):
                 except (TypeError, ValueError):
                     spacing_value = self._gridline_spacing
                 self._gridline_spacing = max(10, spacing_value)
+            size_changed = False
+            if "window_width" in payload:
+                try:
+                    width_value = int(payload.get("window_width", self._requested_width or self.width()))
+                except (TypeError, ValueError):
+                    width_value = self._requested_width
+                if width_value and width_value > 0 and width_value != self._requested_width:
+                    self._requested_width = width_value
+                    size_changed = True
+            if "window_height" in payload:
+                try:
+                    height_value = int(payload.get("window_height", self._requested_base_height or self._base_height or self.height()))
+                except (TypeError, ValueError):
+                    height_value = self._requested_base_height or self._base_height
+                if height_value and height_value > 0:
+                    if height_value != self._requested_base_height:
+                        self._requested_base_height = height_value
+                        size_changed = True
+                    self._base_height = height_value
+            if size_changed:
+                _log_debug(
+                    f"Applied window size from configuration: width={self._requested_width}, base_height={self._base_height}, scale={self._legacy_scale_y}"
+                )
+                self._apply_legacy_scale()
             if "show_status" in payload:
                 previous = self._show_status
                 self._show_status = bool(payload.get("show_status"))
@@ -626,11 +681,18 @@ class OverlayWindow(QWidget):
 
     def _apply_legacy_scale(self) -> None:
         if self._base_height <= 0:
-            return
+            if self._requested_base_height and self._requested_base_height > 0:
+                self._base_height = self._requested_base_height
+            else:
+                self._base_height = max(self.height(), 1)
         scale = max(0.5, min(2.0, self._legacy_scale_y))
         target_height = max(int(round(self._base_height * scale)), 1)
+        target_width = self._requested_width if self._requested_width and self._requested_width > 0 else self.width()
+        if target_width <= 0:
+            target_width = 1
         self.setMinimumHeight(target_height)
-        self.resize(self.width(), target_height)
+        self.setMinimumWidth(target_width)
+        self.resize(target_width, target_height)
         self.update()
 
     def _resolve_font_family(self) -> str:
@@ -709,9 +771,18 @@ def main(argv: Optional[list[str]] = None) -> int:
     _CLIENT_LOGGER.debug("Resolved port file path to %s", port_file)
     app = QApplication(sys.argv)
     data_client = OverlayDataClient(port_file)
-    window = OverlayWindow(data_client, initial_base_height=720)
-    _CLIENT_LOGGER.debug("Overlay window created; initial log retention=%d", window._log_retention)
-    window.resize(1280, 720)
+    window = OverlayWindow(
+        data_client,
+        initial_base_height=_INITIAL_WINDOW_HEIGHT,
+        initial_width=_INITIAL_WINDOW_WIDTH,
+    )
+    _CLIENT_LOGGER.debug(
+        "Overlay window created; initial log retention=%d, initial size=%dx%d",
+        window._log_retention,
+        _INITIAL_WINDOW_WIDTH,
+        _INITIAL_WINDOW_HEIGHT,
+    )
+    window.resize(_INITIAL_WINDOW_WIDTH, _INITIAL_WINDOW_HEIGHT)
     window.show()
     data_client.start()
 

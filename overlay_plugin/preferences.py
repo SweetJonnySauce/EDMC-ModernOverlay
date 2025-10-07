@@ -23,6 +23,8 @@ class Preferences:
     client_log_retention: int = 5
     gridlines_enabled: bool = False
     gridline_spacing: int = 120
+    window_width: int = 1920
+    window_height: int = 1080
 
     def __post_init__(self) -> None:
         self.plugin_dir = Path(self.plugin_dir)
@@ -57,6 +59,16 @@ class Preferences:
         except (TypeError, ValueError):
             spacing = 120
         self.gridline_spacing = max(10, spacing)
+        try:
+            width = int(data.get("window_width", 1920))
+        except (TypeError, ValueError):
+            width = 1920
+        try:
+            height = int(data.get("window_height", 1080))
+        except (TypeError, ValueError):
+            height = 1080
+        self.window_width = max(640, width)
+        self.window_height = max(360, height)
 
     def save(self) -> None:
         payload: Dict[str, Any] = {
@@ -68,6 +80,8 @@ class Preferences:
             "client_log_retention": int(self.client_log_retention),
             "gridlines_enabled": bool(self.gridlines_enabled),
             "gridline_spacing": int(self.gridline_spacing),
+            "window_width": int(self.window_width),
+            "window_height": int(self.window_height),
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -86,6 +100,8 @@ class PreferencesPanel:
         set_legacy_scale_callback: Optional[Callable[[float], None]] = None,
         set_gridlines_enabled_callback: Optional[Callable[[bool], None]] = None,
         set_gridline_spacing_callback: Optional[Callable[[int], None]] = None,
+        set_window_width_callback: Optional[Callable[[int], None]] = None,
+        set_window_height_callback: Optional[Callable[[int], None]] = None,
     ) -> None:
         import tkinter as tk
         import myNotebook as nb
@@ -99,6 +115,8 @@ class PreferencesPanel:
         self._var_log_retention = tk.IntVar(value=max(1, int(preferences.client_log_retention)))
         self._var_gridlines_enabled = tk.BooleanVar(value=preferences.gridlines_enabled)
         self._var_gridline_spacing = tk.IntVar(value=max(10, int(preferences.gridline_spacing)))
+        self._var_window_width = tk.IntVar(value=max(640, int(preferences.window_width)))
+        self._var_window_height = tk.IntVar(value=max(360, int(preferences.window_height)))
         self._send_test = send_test_callback
         self._test_var = tk.StringVar()
         self._status_var = tk.StringVar(value="")
@@ -109,6 +127,8 @@ class PreferencesPanel:
         self._set_legacy_scale = set_legacy_scale_callback
         self._set_gridlines_enabled = set_gridlines_enabled_callback
         self._set_gridline_spacing = set_gridline_spacing_callback
+        self._set_window_width = set_window_width_callback
+        self._set_window_height = set_window_height_callback
         self._legacy_scale_display = tk.StringVar(value=f"{preferences.legacy_vertical_scale:.2f}×")
 
         frame = nb.Frame(parent)
@@ -208,6 +228,40 @@ class PreferencesPanel:
         opacity_scale.pack(side="left", fill="x")
         opacity_row.grid(row=9, column=0, sticky="we")
 
+        size_label = tk.Label(frame, text="Initial overlay window size (pixels):")
+        size_label.grid(row=10, column=0, sticky="w", pady=(10, 0))
+
+        size_row = tk.Frame(frame)
+        width_label = tk.Label(size_row, text="Width:")
+        width_label.pack(side="left")
+        width_spin = tk.Spinbox(
+            size_row,
+            from_=640,
+            to=3840,
+            increment=20,
+            width=6,
+            textvariable=self._var_window_width,
+            command=self._on_window_width_command,
+        )
+        width_spin.pack(side="left", padx=(6, 0))
+        width_spin.bind("<FocusOut>", self._on_window_width_event)
+        width_spin.bind("<Return>", self._on_window_width_event)
+        height_label = tk.Label(size_row, text="Height:")
+        height_label.pack(side="left", padx=(12, 0))
+        height_spin = tk.Spinbox(
+            size_row,
+            from_=360,
+            to=2160,
+            increment=20,
+            width=6,
+            textvariable=self._var_window_height,
+            command=self._on_window_height_command,
+        )
+        height_spin.pack(side="left", padx=(6, 0))
+        height_spin.bind("<FocusOut>", self._on_window_height_event)
+        height_spin.bind("<Return>", self._on_window_height_event)
+        size_row.grid(row=11, column=0, sticky="w", pady=(2, 0))
+
         grid_checkbox = tk.Checkbutton(
             frame,
             text="Show light gridlines over the overlay background",
@@ -216,7 +270,7 @@ class PreferencesPanel:
             offvalue=False,
             command=self._on_gridlines_toggle,
         )
-        grid_checkbox.grid(row=10, column=0, sticky="w", pady=(8, 0))
+        grid_checkbox.grid(row=12, column=0, sticky="w", pady=(8, 0))
 
         grid_spacing_row = tk.Frame(frame)
         grid_spacing_label = tk.Label(grid_spacing_row, text="Grid spacing (pixels):")
@@ -233,32 +287,32 @@ class PreferencesPanel:
         grid_spacing_spin.pack(side="left", padx=(6, 0))
         grid_spacing_spin.bind("<FocusOut>", self._on_gridline_spacing_event)
         grid_spacing_spin.bind("<Return>", self._on_gridline_spacing_event)
-        grid_spacing_row.grid(row=11, column=0, sticky="w", pady=(2, 0))
+        grid_spacing_row.grid(row=13, column=0, sticky="w", pady=(2, 0))
 
         test_label = tk.Label(frame, text="Send test message to overlay:")
-        test_label.grid(row=12, column=0, sticky="w", pady=(10, 0))
+        test_label.grid(row=14, column=0, sticky="w", pady=(10, 0))
 
         test_row = tk.Frame(frame)
         test_entry = tk.Entry(test_row, textvariable=self._test_var, width=50)
         send_button = tk.Button(test_row, text="Send", command=self._on_send_click)
         test_entry.pack(side="left", fill="x", expand=True)
         send_button.pack(side="left", padx=(8, 0))
-        test_row.grid(row=13, column=0, sticky="we", pady=(2, 0))
+        test_row.grid(row=15, column=0, sticky="we", pady=(2, 0))
         frame.columnconfigure(0, weight=1)
         test_row.columnconfigure(0, weight=1)
 
         legacy_label = tk.Label(frame, text="Legacy edmcoverlay compatibility:")
-        legacy_label.grid(row=14, column=0, sticky="w", pady=(10, 0))
+        legacy_label.grid(row=16, column=0, sticky="w", pady=(10, 0))
 
         legacy_row = tk.Frame(frame)
         legacy_text_btn = tk.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
         legacy_rect_btn = tk.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
         legacy_text_btn.pack(side="left")
         legacy_rect_btn.pack(side="left", padx=(8, 0))
-        legacy_row.grid(row=15, column=0, sticky="w", pady=(2, 0))
+        legacy_row.grid(row=17, column=0, sticky="w", pady=(2, 0))
 
         status_label = tk.Label(frame, textvariable=self._status_var, wraplength=400, justify="left", fg="#808080")
-        status_label.grid(row=16, column=0, sticky="w", pady=(4, 0))
+        status_label.grid(row=18, column=0, sticky="w", pady=(4, 0))
 
         self._frame = frame
 
@@ -275,6 +329,8 @@ class PreferencesPanel:
         self._preferences.client_log_retention = max(1, int(self._var_log_retention.get()))
         self._preferences.gridlines_enabled = bool(self._var_gridlines_enabled.get())
         self._preferences.gridline_spacing = max(10, int(self._var_gridline_spacing.get()))
+        self._preferences.window_width = max(640, int(self._var_window_width.get()))
+        self._preferences.window_height = max(360, int(self._var_window_height.get()))
         if self._set_status:
             try:
                 self._set_status(self._preferences.show_connection_status)
@@ -398,6 +454,49 @@ class PreferencesPanel:
                 self._set_gridline_spacing(spacing)
             except Exception as exc:
                 self._status_var.set(f"Failed to update grid spacing: {exc}")
+                return
+        self._preferences.save()
+
+    def _on_window_width_command(self) -> None:
+        self._apply_window_size(self._var_window_width.get(), self._var_window_height.get())
+
+    def _on_window_width_event(self, event) -> None:  # type: ignore[override]
+        width = event.widget.get() if hasattr(event, "widget") else self._var_window_width.get()
+        self._apply_window_size(width, self._var_window_height.get())
+
+    def _on_window_height_command(self) -> None:
+        self._apply_window_size(self._var_window_width.get(), self._var_window_height.get())
+
+    def _on_window_height_event(self, event) -> None:  # type: ignore[override]
+        height = event.widget.get() if hasattr(event, "widget") else self._var_window_height.get()
+        self._apply_window_size(self._var_window_width.get(), height)
+
+    def _apply_window_size(self, raw_width: Any, raw_height: Any) -> None:
+        try:
+            width = int(raw_width)
+        except (TypeError, ValueError):
+            width = self._preferences.window_width
+        try:
+            height = int(raw_height)
+        except (TypeError, ValueError):
+            height = self._preferences.window_height
+        width = max(640, width)
+        height = max(360, height)
+        self._var_window_width.set(width)
+        self._var_window_height.set(height)
+        self._preferences.window_width = width
+        self._preferences.window_height = height
+        if self._set_window_width:
+            try:
+                self._set_window_width(width)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update window width: {exc}")
+                return
+        if self._set_window_height:
+            try:
+                self._set_window_height(height)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update window height: {exc}")
                 return
         self._preferences.save()
 

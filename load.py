@@ -251,7 +251,8 @@ class _PluginRuntime:
 
     def on_preferences_updated(self) -> None:
         LOGGER.debug(
-            "Applying updated preferences: capture_output=%s show_connection_status=%s log_payloads=%s legacy_vertical_scale=%.2f client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d",
+            "Applying updated preferences: capture_output=%s show_connection_status=%s log_payloads=%s legacy_vertical_scale=%.2f "
+            "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d window_width=%d window_height=%d",
             self._preferences.capture_output,
             self._preferences.show_connection_status,
             self._preferences.log_payloads,
@@ -259,6 +260,8 @@ class _PluginRuntime:
             self._preferences.client_log_retention,
             self._preferences.gridlines_enabled,
             self._preferences.gridline_spacing,
+            self._preferences.window_width,
+            self._preferences.window_height,
         )
         if self.watchdog:
             self.watchdog.set_capture_output(self._capture_enabled())
@@ -321,6 +324,26 @@ class _PluginRuntime:
         LOGGER.debug("Overlay gridline spacing set to %d px", spacing)
         self._send_overlay_config()
 
+    def set_window_width_preference(self, value: int) -> None:
+        try:
+            width = int(value)
+        except (TypeError, ValueError):
+            width = self._preferences.window_width
+        width = max(640, width)
+        self._preferences.window_width = width
+        LOGGER.debug("Overlay window width set to %d px", width)
+        self._send_overlay_config()
+
+    def set_window_height_preference(self, value: int) -> None:
+        try:
+            height = int(value)
+        except (TypeError, ValueError):
+            height = self._preferences.window_height
+        height = max(360, height)
+        self._preferences.window_height = height
+        LOGGER.debug("Overlay window height set to %d px", height)
+        self._send_overlay_config()
+
     def _publish_external(self, payload: Mapping[str, Any]) -> bool:
         if not self._running:
             return False
@@ -344,17 +367,22 @@ class _PluginRuntime:
             "client_log_retention": int(self._preferences.client_log_retention),
             "gridlines_enabled": bool(self._preferences.gridlines_enabled),
             "gridline_spacing": int(self._preferences.gridline_spacing),
+            "window_width": int(self._preferences.window_width),
+            "window_height": int(self._preferences.window_height),
         }
         self._last_config = dict(payload)
         self._publish_payload(payload)
         LOGGER.debug(
-            "Published overlay config: opacity=%s show_status=%s legacy_scale_y=%.2f client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d",
+            "Published overlay config: opacity=%s show_status=%s legacy_scale_y=%.2f client_log_retention=%d "
+            "gridlines_enabled=%s gridline_spacing=%d window_width=%d window_height=%d",
             payload["opacity"],
             payload["show_status"],
             payload["legacy_scale_y"],
             payload["client_log_retention"],
             payload["gridlines_enabled"],
             payload["gridline_spacing"],
+            payload["window_width"],
+            payload["window_height"],
         )
         if rebroadcast:
             self._schedule_config_rebroadcasts()
@@ -486,6 +514,8 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         legacy_scale_callback = _plugin.set_legacy_scale_preference if _plugin else None
         gridlines_enabled_callback = _plugin.set_gridlines_enabled_preference if _plugin else None
         gridline_spacing_callback = _plugin.set_gridline_spacing_preference if _plugin else None
+        window_width_callback = _plugin.set_window_width_preference if _plugin else None
+        window_height_callback = _plugin.set_window_height_preference if _plugin else None
         panel = PreferencesPanel(
             parent,
             _preferences,
@@ -496,6 +526,8 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             legacy_scale_callback,
             gridlines_enabled_callback,
             gridline_spacing_callback,
+            window_width_callback,
+            window_height_callback,
         )
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)
@@ -516,7 +548,8 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
         _prefs_panel.apply()
         if _preferences:
             LOGGER.debug(
-                "Preferences saved: capture_output=%s show_connection_status=%s log_payloads=%s legacy_vertical_scale=%.2f client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d",
+                "Preferences saved: capture_output=%s show_connection_status=%s log_payloads=%s legacy_vertical_scale=%.2f "
+                "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d window_width=%d window_height=%d",
                 _preferences.capture_output,
                 _preferences.show_connection_status,
                 _preferences.log_payloads,
@@ -524,6 +557,8 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
                 _preferences.client_log_retention,
                 _preferences.gridlines_enabled,
                 _preferences.gridline_spacing,
+                _preferences.window_width,
+                _preferences.window_height,
             )
         if _plugin:
             _plugin.on_preferences_updated()
