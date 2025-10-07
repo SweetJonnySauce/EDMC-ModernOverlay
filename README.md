@@ -9,6 +9,7 @@ EDMC Modern Overlay is a two-part reference implementation for Elite Dangerous M
 ```
 EDMC-ModernOverlay/
 ├── load.py                # EDMC entry hook file (copy into EDMC plugins dir)
+├── edmcoverlay.py         # Legacy compatibility shim for `edmcoverlay` callers
 ├── overlay_plugin/        # Supporting plugin package
 │   ├── overlay_watchdog.py
 │   ├── overlay_socket_server.py
@@ -16,7 +17,9 @@ EDMC-ModernOverlay/
 │   └── requirements.txt
 ├── overlay-client/        # Stand-alone PyQt6 overlay
 │   ├── overlay_client.py
-│   └── requirements.txt
+│   ├── requirements.txt
+│   └── .venv/             # Local virtual environment (create locally; not tracked)
+├── overlay_settings.json  # Sample overlay configuration bundle for the client
 ├── .vscode/               # VS Code settings & launch configs
 │   ├── launch.json
 │   └── settings.json
