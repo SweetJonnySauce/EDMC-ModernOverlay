@@ -176,7 +176,7 @@ class _PluginRuntime:
             "docked": self._state.get("docked", False),
             "raw": entry,
         }
-        self.broadcaster.publish(payload)
+        self._publish_payload(payload)
 
     # Helpers --------------------------------------------------------------
 
@@ -248,9 +248,10 @@ class _PluginRuntime:
 
     def on_preferences_updated(self) -> None:
         LOGGER.debug(
-            "Applying updated preferences: capture_output=%s show_connection_status=%s",
+            "Applying updated preferences: capture_output=%s show_connection_status=%s log_payloads=%s",
             self._preferences.capture_output,
             self._preferences.show_connection_status,
+            self._preferences.log_payloads,
         )
         if self.watchdog:
             self.watchdog.set_capture_output(self._capture_enabled())
@@ -279,6 +280,10 @@ class _PluginRuntime:
         self._preferences.show_connection_status = bool(value)
         self._send_overlay_config()
 
+    def set_log_payload_preference(self, value: bool) -> None:
+        self._preferences.log_payloads = bool(value)
+        LOGGER.debug("Overlay payload logging %s", "enabled" if self._preferences.log_payloads else "disabled")
+
     def _publish_external(self, payload: Mapping[str, Any]) -> bool:
         if not self._running:
             return False
@@ -289,7 +294,7 @@ class _PluginRuntime:
         message.setdefault("station", self._state.get("station", ""))
         message.setdefault("docked", self._state.get("docked", False))
         message.setdefault("raw", original_payload)
-        self.broadcaster.publish(message)
+        self._publish_payload(message)
         return True
 
     def _send_overlay_config(self) -> None:
@@ -299,12 +304,33 @@ class _PluginRuntime:
             "enable_drag": bool(self._preferences.overlay_opacity > 0.5),
             "show_status": bool(self._preferences.show_connection_status),
         }
-        self.broadcaster.publish(payload)
+        self._publish_payload(payload)
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s",
             payload["opacity"],
             payload["show_status"],
         )
+
+    def _publish_payload(self, payload: Mapping[str, Any]) -> None:
+        self._log_payload(payload)
+        self.broadcaster.publish(dict(payload))
+
+    def _log_payload(self, payload: Mapping[str, Any]) -> None:
+        if not self._preferences.log_payloads:
+            return
+        event: Optional[str] = None
+        if isinstance(payload, Mapping):
+            raw_event = payload.get("event")
+            if isinstance(raw_event, str) and raw_event:
+                event = raw_event
+        try:
+            serialised = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        except (TypeError, ValueError):
+            serialised = repr(payload)
+        if event:
+            LOGGER.info("Overlay payload [%s]: %s", event, serialised)
+        else:
+            LOGGER.info("Overlay payload: %s", serialised)
 
     def _locate_overlay_python(self) -> Path:
         env_override = os.getenv("EDMC_OVERLAY_PYTHON")
@@ -368,7 +394,8 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
     opacity_callback = _plugin.preview_overlay_opacity if _plugin else None
     try:
         status_callback = _plugin.set_show_status_preference if _plugin else None
-        panel = PreferencesPanel(parent, _preferences, send_callback, opacity_callback, status_callback)
+        log_callback = _plugin.set_log_payload_preference if _plugin else None
+        panel = PreferencesPanel(parent, _preferences, send_callback, opacity_callback, status_callback, log_callback)
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)
         return None
@@ -388,9 +415,10 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
         _prefs_panel.apply()
         if _preferences:
             LOGGER.debug(
-                "Preferences saved: capture_output=%s show_connection_status=%s",
+                "Preferences saved: capture_output=%s show_connection_status=%s log_payloads=%s",
                 _preferences.capture_output,
                 _preferences.show_connection_status,
+                _preferences.log_payloads,
             )
         if _plugin:
             _plugin.on_preferences_updated()
