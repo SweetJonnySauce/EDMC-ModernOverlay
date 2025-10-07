@@ -20,6 +20,7 @@ class Preferences:
     show_connection_status: bool = False
     log_payloads: bool = False
     legacy_vertical_scale: float = 1.0
+    legacy_horizontal_scale: float = 1.0
     client_log_retention: int = 5
     gridlines_enabled: bool = False
     gridline_spacing: int = 120
@@ -49,6 +50,10 @@ class Preferences:
         except (TypeError, ValueError):
             self.legacy_vertical_scale = 1.0
         try:
+            self.legacy_horizontal_scale = float(data.get("legacy_horizontal_scale", 1.0))
+        except (TypeError, ValueError):
+            self.legacy_horizontal_scale = 1.0
+        try:
             retention = int(data.get("client_log_retention", 5))
         except (TypeError, ValueError):
             retention = 5
@@ -77,6 +82,7 @@ class Preferences:
             "show_connection_status": bool(self.show_connection_status),
             "log_payloads": bool(self.log_payloads),
             "legacy_vertical_scale": float(self.legacy_vertical_scale),
+            "legacy_horizontal_scale": float(self.legacy_horizontal_scale),
             "client_log_retention": int(self.client_log_retention),
             "gridlines_enabled": bool(self.gridlines_enabled),
             "gridline_spacing": int(self.gridline_spacing),
@@ -102,6 +108,7 @@ class PreferencesPanel:
         set_gridline_spacing_callback: Optional[Callable[[int], None]] = None,
         set_window_width_callback: Optional[Callable[[int], None]] = None,
         set_window_height_callback: Optional[Callable[[int], None]] = None,
+        set_horizontal_scale_callback: Optional[Callable[[float], None]] = None,
     ) -> None:
         import tkinter as tk
         import myNotebook as nb
@@ -112,6 +119,7 @@ class PreferencesPanel:
         self._var_show_status = tk.BooleanVar(value=preferences.show_connection_status)
         self._var_log_payloads = tk.BooleanVar(value=preferences.log_payloads)
         self._var_legacy_scale = tk.DoubleVar(value=preferences.legacy_vertical_scale)
+        self._var_horizontal_scale = tk.DoubleVar(value=preferences.legacy_horizontal_scale)
         self._var_log_retention = tk.IntVar(value=max(1, int(preferences.client_log_retention)))
         self._var_gridlines_enabled = tk.BooleanVar(value=preferences.gridlines_enabled)
         self._var_gridline_spacing = tk.IntVar(value=max(10, int(preferences.gridline_spacing)))
@@ -129,7 +137,9 @@ class PreferencesPanel:
         self._set_gridline_spacing = set_gridline_spacing_callback
         self._set_window_width = set_window_width_callback
         self._set_window_height = set_window_height_callback
+        self._set_horizontal_scale = set_horizontal_scale_callback
         self._legacy_scale_display = tk.StringVar(value=f"{preferences.legacy_vertical_scale:.2f}×")
+        self._horizontal_scale_display = tk.StringVar(value=f"{preferences.legacy_horizontal_scale:.2f}×")
 
         frame = nb.Frame(parent)
         description = (
@@ -205,6 +215,28 @@ class PreferencesPanel:
         legacy_scale_value_label.pack(side="left", padx=(8, 0))
         legacy_scale_row.grid(row=7, column=0, sticky="we")
 
+        horizontal_scale_label = tk.Label(
+            frame,
+            text="Legacy overlay horizontal scale (1.00× keeps original width).",
+        )
+        horizontal_scale_label.grid(row=8, column=0, sticky="w", pady=(10, 0))
+
+        horizontal_scale_row = tk.Frame(frame)
+        horizontal_scale = tk.Scale(
+            horizontal_scale_row,
+            variable=self._var_horizontal_scale,
+            from_=0.5,
+            to=2.0,
+            resolution=0.05,
+            orient=tk.HORIZONTAL,
+            length=250,
+            command=self._on_horizontal_scale_change,
+        )
+        horizontal_scale.pack(side="left", fill="x", expand=True)
+        horizontal_scale_value_label = tk.Label(horizontal_scale_row, textvariable=self._horizontal_scale_display, width=6, anchor="w")
+        horizontal_scale_value_label.pack(side="left", padx=(8, 0))
+        horizontal_scale_row.grid(row=9, column=0, sticky="we")
+
         opacity_label = tk.Label(
             frame,
             text=(
@@ -212,7 +244,7 @@ class PreferencesPanel:
                 "Alt+drag is enabled when opacity > 0.5."
             ),
         )
-        opacity_label.grid(row=8, column=0, sticky="w", pady=(10, 0))
+        opacity_label.grid(row=10, column=0, sticky="w", pady=(10, 0))
 
         opacity_row = tk.Frame(frame)
         opacity_scale = tk.Scale(
@@ -226,10 +258,10 @@ class PreferencesPanel:
             command=self._on_opacity_change,
         )
         opacity_scale.pack(side="left", fill="x")
-        opacity_row.grid(row=9, column=0, sticky="we")
+        opacity_row.grid(row=11, column=0, sticky="we")
 
         size_label = tk.Label(frame, text="Initial overlay window size (pixels):")
-        size_label.grid(row=10, column=0, sticky="w", pady=(10, 0))
+        size_label.grid(row=12, column=0, sticky="w", pady=(10, 0))
 
         size_row = tk.Frame(frame)
         width_label = tk.Label(size_row, text="Width:")
@@ -260,7 +292,7 @@ class PreferencesPanel:
         height_spin.pack(side="left", padx=(6, 0))
         height_spin.bind("<FocusOut>", self._on_window_height_event)
         height_spin.bind("<Return>", self._on_window_height_event)
-        size_row.grid(row=11, column=0, sticky="w", pady=(2, 0))
+        size_row.grid(row=13, column=0, sticky="w", pady=(2, 0))
 
         grid_checkbox = tk.Checkbutton(
             frame,
@@ -270,7 +302,7 @@ class PreferencesPanel:
             offvalue=False,
             command=self._on_gridlines_toggle,
         )
-        grid_checkbox.grid(row=12, column=0, sticky="w", pady=(8, 0))
+        grid_checkbox.grid(row=14, column=0, sticky="w", pady=(8, 0))
 
         grid_spacing_row = tk.Frame(frame)
         grid_spacing_label = tk.Label(grid_spacing_row, text="Grid spacing (pixels):")
@@ -287,32 +319,32 @@ class PreferencesPanel:
         grid_spacing_spin.pack(side="left", padx=(6, 0))
         grid_spacing_spin.bind("<FocusOut>", self._on_gridline_spacing_event)
         grid_spacing_spin.bind("<Return>", self._on_gridline_spacing_event)
-        grid_spacing_row.grid(row=13, column=0, sticky="w", pady=(2, 0))
+        grid_spacing_row.grid(row=15, column=0, sticky="w", pady=(2, 0))
 
         test_label = tk.Label(frame, text="Send test message to overlay:")
-        test_label.grid(row=14, column=0, sticky="w", pady=(10, 0))
+        test_label.grid(row=16, column=0, sticky="w", pady=(10, 0))
 
         test_row = tk.Frame(frame)
         test_entry = tk.Entry(test_row, textvariable=self._test_var, width=50)
         send_button = tk.Button(test_row, text="Send", command=self._on_send_click)
         test_entry.pack(side="left", fill="x", expand=True)
         send_button.pack(side="left", padx=(8, 0))
-        test_row.grid(row=15, column=0, sticky="we", pady=(2, 0))
+        test_row.grid(row=17, column=0, sticky="we", pady=(2, 0))
         frame.columnconfigure(0, weight=1)
         test_row.columnconfigure(0, weight=1)
 
         legacy_label = tk.Label(frame, text="Legacy edmcoverlay compatibility:")
-        legacy_label.grid(row=16, column=0, sticky="w", pady=(10, 0))
+        legacy_label.grid(row=18, column=0, sticky="w", pady=(10, 0))
 
         legacy_row = tk.Frame(frame)
         legacy_text_btn = tk.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
         legacy_rect_btn = tk.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
         legacy_text_btn.pack(side="left")
         legacy_rect_btn.pack(side="left", padx=(8, 0))
-        legacy_row.grid(row=17, column=0, sticky="w", pady=(2, 0))
+        legacy_row.grid(row=19, column=0, sticky="w", pady=(2, 0))
 
         status_label = tk.Label(frame, textvariable=self._status_var, wraplength=400, justify="left", fg="#808080")
-        status_label.grid(row=18, column=0, sticky="w", pady=(4, 0))
+        status_label.grid(row=20, column=0, sticky="w", pady=(4, 0))
 
         self._frame = frame
 
@@ -326,6 +358,7 @@ class PreferencesPanel:
         self._preferences.show_connection_status = bool(self._var_show_status.get())
         self._preferences.log_payloads = bool(self._var_log_payloads.get())
         self._preferences.legacy_vertical_scale = float(self._var_legacy_scale.get())
+        self._preferences.legacy_horizontal_scale = float(self._var_horizontal_scale.get())
         self._preferences.client_log_retention = max(1, int(self._var_log_retention.get()))
         self._preferences.gridlines_enabled = bool(self._var_gridlines_enabled.get())
         self._preferences.gridline_spacing = max(10, int(self._var_gridline_spacing.get()))
@@ -348,6 +381,12 @@ class PreferencesPanel:
                 self._set_legacy_scale(self._preferences.legacy_vertical_scale)
             except Exception as exc:
                 self._status_var.set(f"Failed to update legacy scale: {exc}")
+                return
+        if self._set_horizontal_scale:
+            try:
+                self._set_horizontal_scale(self._preferences.legacy_horizontal_scale)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update horizontal scale: {exc}")
                 return
         self._preferences.save()
 
@@ -420,6 +459,23 @@ class PreferencesPanel:
                 self._set_legacy_scale(numeric)
             except Exception as exc:
                 self._status_var.set(f"Failed to update legacy scale: {exc}")
+                return
+        self._preferences.save()
+
+    def _on_horizontal_scale_change(self, value: str) -> None:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            numeric = 1.0
+        numeric = max(0.5, min(2.0, numeric))
+        self._var_horizontal_scale.set(numeric)
+        self._horizontal_scale_display.set(f"{numeric:.2f}×")
+        self._preferences.legacy_horizontal_scale = numeric
+        if self._set_horizontal_scale:
+            try:
+                self._set_horizontal_scale(numeric)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update horizontal scale: {exc}")
                 return
         self._preferences.save()
 

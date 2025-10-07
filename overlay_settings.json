@@ -4,6 +4,7 @@
   "show_connection_status": false,
   "log_payloads": false,
   "legacy_vertical_scale": 1.5,
+  "legacy_horizontal_scale": 1.4,
   "client_log_retention": 5,
   "gridlines_enabled": true,
   "gridline_spacing": 120,

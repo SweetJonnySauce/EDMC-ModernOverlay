@@ -286,7 +286,9 @@ class OverlayWindow(QWidget):
         self._transparent_input_supported = hasattr(Qt.WindowType, "WindowTransparentForInput")
         self._show_status: bool = False
         self._legacy_scale_y: float = 1.0
+        self._legacy_scale_x: float = 1.0
         self._base_height: int = 0
+        self._base_width: int = 0
         self._log_retention: int = _get_log_retention()
         self._requested_base_height: Optional[int] = initial_base_height if (initial_base_height and initial_base_height > 0) else None
         self._requested_width: Optional[int] = initial_width if (initial_width and initial_width > 0) else None
@@ -342,8 +344,9 @@ class OverlayWindow(QWidget):
 
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
-        if self._base_height <= 0:
+        if self._base_height <= 0 or self._base_width <= 0:
             raw_height = self.height()
+            raw_width = self.width()
             if self._requested_base_height is not None and self._requested_base_height > 0:
                 self._base_height = self._requested_base_height
                 base_source = "requested"
@@ -352,12 +355,22 @@ class OverlayWindow(QWidget):
                     raw_height = 1
                 self._base_height = raw_height
                 base_source = "layout"
+            if self._base_width <= 0:
+                if self._requested_width is not None and self._requested_width > 0:
+                    self._base_width = self._requested_width
+                else:
+                    if raw_width <= 0:
+                        raw_width = 1
+                    self._base_width = max(raw_width, 1)
             clamped_scale = max(0.5, min(2.0, self._legacy_scale_y))
+            clamped_scale_x = max(0.5, min(2.0, self._legacy_scale_x))
             target_height = max(int(round(self._base_height * clamped_scale)), 1)
+            target_width = max(int(round(self._base_width * clamped_scale_x)), 1)
             _log_debug(
                 "Initial window height established: "
                 f"raw_height={raw_height}, base_source={base_source}, base_height={self._base_height}, "
-                f"legacy_scale_y={self._legacy_scale_y}, clamped_scale={clamped_scale}, target_height={target_height}"
+                f"legacy_scale_y={self._legacy_scale_y}, clamped_scale={clamped_scale}, target_height={target_height}, "
+                f"base_width={self._base_width}, legacy_scale_x={self._legacy_scale_x}, clamped_scale_x={clamped_scale_x}, target_width={target_width}"
             )
         self._apply_legacy_scale()
         self._enable_click_through()
@@ -445,6 +458,15 @@ class OverlayWindow(QWidget):
                     scale_value = 1.0
                 self._legacy_scale_y = max(0.5, min(2.0, scale_value))
                 self._apply_legacy_scale()
+            if "legacy_scale_x" in payload:
+                try:
+                    scale_value_x = float(payload.get("legacy_scale_x", 1.0))
+                except (TypeError, ValueError):
+                    scale_value_x = 1.0
+                new_scale_x = max(0.5, min(2.0, scale_value_x))
+                if new_scale_x != self._legacy_scale_x:
+                    self._legacy_scale_x = new_scale_x
+                    self._apply_legacy_scale()
             if "client_log_retention" in payload:
                 try:
                     new_retention = int(payload.get("client_log_retention", self._log_retention))
@@ -469,22 +491,25 @@ class OverlayWindow(QWidget):
                     width_value = int(payload.get("window_width", self._requested_width or self.width()))
                 except (TypeError, ValueError):
                     width_value = self._requested_width
-                if width_value and width_value > 0 and width_value != self._requested_width:
+                if width_value and width_value > 0:
+                    if width_value != (self._requested_width or self._base_width):
+                        size_changed = True
                     self._requested_width = width_value
-                    size_changed = True
+                    self._base_width = width_value
             if "window_height" in payload:
                 try:
                     height_value = int(payload.get("window_height", self._requested_base_height or self._base_height or self.height()))
                 except (TypeError, ValueError):
                     height_value = self._requested_base_height or self._base_height
                 if height_value and height_value > 0:
-                    if height_value != self._requested_base_height:
-                        self._requested_base_height = height_value
+                    if height_value != (self._requested_base_height or self._base_height):
                         size_changed = True
+                    self._requested_base_height = height_value
                     self._base_height = height_value
             if size_changed:
                 _log_debug(
-                    f"Applied window size from configuration: width={self._requested_width}, base_height={self._base_height}, scale={self._legacy_scale_y}"
+                    "Applied window size from configuration: width=%s, base_height=%s, scale_y=%.2f, scale_x=%.2f"
+                    % (self._requested_width, self._base_height, self._legacy_scale_y, self._legacy_scale_x)
                 )
                 self._apply_legacy_scale()
             if "show_status" in payload:
@@ -670,7 +695,7 @@ class OverlayWindow(QWidget):
         painter.setBrush(QBrush(fill_color))
         x = int(round(item.get("x", 0)))
         y = int(round(item.get("y", 0) * self._legacy_scale_y))
-        w = int(round(item.get("w", 0)))
+        w = int(round(item.get("w", 0) * self._legacy_scale_x))
         h = int(round(item.get("h", 0) * self._legacy_scale_y))
         painter.drawRect(
             x,
@@ -685,11 +710,15 @@ class OverlayWindow(QWidget):
                 self._base_height = self._requested_base_height
             else:
                 self._base_height = max(self.height(), 1)
-        scale = max(0.5, min(2.0, self._legacy_scale_y))
-        target_height = max(int(round(self._base_height * scale)), 1)
-        target_width = self._requested_width if self._requested_width and self._requested_width > 0 else self.width()
-        if target_width <= 0:
-            target_width = 1
+        if self._base_width <= 0:
+            if self._requested_width and self._requested_width > 0:
+                self._base_width = self._requested_width
+            else:
+                self._base_width = max(self.width(), 1)
+        scale_y = max(0.5, min(2.0, self._legacy_scale_y))
+        scale_x = max(0.5, min(2.0, self._legacy_scale_x))
+        target_height = max(int(round(self._base_height * scale_y)), 1)
+        target_width = max(int(round(self._base_width * scale_x)), 1)
         self.setMinimumHeight(target_height)
         self.setMinimumWidth(target_width)
         self.resize(target_width, target_height)
