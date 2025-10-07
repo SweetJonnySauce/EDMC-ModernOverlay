@@ -235,7 +235,7 @@ class OverlayDataClient(QObject):
 class OverlayWindow(QWidget):
     """Transparent overlay that renders CMDR and location info."""
 
-    def __init__(self, data_client: OverlayDataClient) -> None:
+    def __init__(self, data_client: OverlayDataClient, initial_base_height: Optional[int] = None) -> None:
         super().__init__()
         self._font_family = self._resolve_font_family()
         self.data_client = data_client
@@ -256,6 +256,7 @@ class OverlayWindow(QWidget):
         self._legacy_scale_y: float = 1.0
         self._base_height: int = 0
         self._log_retention: int = _get_log_retention()
+        self._requested_base_height: Optional[int] = initial_base_height if (initial_base_height and initial_base_height > 0) else None
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -299,19 +300,30 @@ class OverlayWindow(QWidget):
         # Connect signals
         self.data_client.message_received.connect(self._on_message)
         self.data_client.status_changed.connect(self._on_status)
-        _log_debug(f"Overlay window initialised; log retention={self._log_retention}")
+        if self._requested_base_height is not None:
+            _log_debug(
+                f"Overlay window initialised; log retention={self._log_retention}, initial_base_height={self._requested_base_height}"
+            )
+        else:
+            _log_debug(f"Overlay window initialised; log retention={self._log_retention}")
 
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
         if self._base_height <= 0:
             raw_height = self.height()
-            min_height = 1
-            self._base_height = max(raw_height, min_height)
+            if self._requested_base_height is not None and self._requested_base_height > 0:
+                self._base_height = self._requested_base_height
+                base_source = "requested"
+            else:
+                if raw_height <= 0:
+                    raw_height = 1
+                self._base_height = raw_height
+                base_source = "layout"
             clamped_scale = max(0.5, min(2.0, self._legacy_scale_y))
             target_height = max(int(round(self._base_height * clamped_scale)), 1)
             _log_debug(
                 "Initial window height established: "
-                f"raw_height={raw_height}, min_height={min_height}, base_height={self._base_height}, "
+                f"raw_height={raw_height}, base_source={base_source}, base_height={self._base_height}, "
                 f"legacy_scale_y={self._legacy_scale_y}, clamped_scale={clamped_scale}, target_height={target_height}"
             )
         self._apply_legacy_scale()
@@ -674,7 +686,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     _CLIENT_LOGGER.debug("Resolved port file path to %s", port_file)
     app = QApplication(sys.argv)
     data_client = OverlayDataClient(port_file)
-    window = OverlayWindow(data_client)
+    window = OverlayWindow(data_client, initial_base_height=720)
     _CLIENT_LOGGER.debug("Overlay window created; initial log retention=%d", window._log_retention)
     window.resize(1280, 720)
     window.show()
