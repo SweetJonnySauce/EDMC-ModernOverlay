@@ -29,9 +29,11 @@ EDMC-ModernOverlay/
 - Transparent, click-through PyQt6 HUD with test messages, and legacy rectangle/text rendering for `edmcoverlay` callers
 - Automatic reconnection logic in both plugin and overlay client
 - Full EDMC logging integration with optional stdout/stderr capture and payload mirroring toggled from the preferences pane
-- Configurable legacy overlay vertical scaling so legacy payloads stay legible at higher line counts
+- Configurable legacy overlay scaling on both axes so text spacing and legacy rectangles can be adjusted without breaking layout
+- Adjustable overlay window size with optional background gridlines for alignment and layout authoring
 - Plugin runtime uses only the Python standard library (no EDMC-side installs required)
 - Drop-in Python compatibility layer (`EDMCOverlay/edmcoverlay.py`) that emulates the classic EDMCOverlay API so existing plugins can migrate without code changes
+- Dedicated client log with rotation controls that writes alongside EDMC’s own logs
 
 ## Prerequisites
 
@@ -72,8 +74,11 @@ The client lives in the plugin folder and expects a dedicated Python environment
 5. **Configure via EDMC** under *File → Settings → Modern Overlay*:
    - Toggle *Enable overlay stdout/stderr capture* when you need detailed diagnostics; leave it off for normal play.
    - Enable *Send overlay payloads to the EDMC log* to mirror every payload into EDMC's own log for troubleshooting.
-   - Adjust *Legacy overlay vertical scale* if legacy payload text needs extra spacing (1.00× keeps the original layout).
+   - Adjust *Legacy overlay vertical scale* if legacy payload text needs extra spacing (1.00× keeps the original layout) and *Legacy overlay horizontal scale* if legacy rectangles need additional width.
+   - Change *Overlay window width/height* to set the baseline canvas size before scaling is applied.
+   - Toggle *Show light gridlines* and set *Grid spacing* to visualise layout columns or HUD zones; grid opacity follows the background opacity setting.
    - Adjust *Overlay background opacity* to reintroduce a translucent backdrop (0.0 = fully transparent, 1.0 = opaque). Alt+drag to reposition is enabled only when opacity > 0.5, and changes preview in real time.
+   - Set *Overlay client log files to keep* if you need longer log history from the client’s rotating logfile.
    - Use *Send test message to overlay* for a quick health check of the native API.
    - Use the legacy compatibility buttons to send `edmcoverlay`-style messages and rectangles without writing any code.
 6. **Run the overlay client manually (optional)** for development:
@@ -129,7 +134,7 @@ Under the hood the compatibility layer forwards payloads through `send_overlay_m
 ## Development Tips
 
 - VS Code launch configurations are provided for both the overlay client and a standalone broadcast server harness.
-- Logs are routed through EDMC when `config.log` is available; otherwise they fall back to stdout.
+- Plugin-side logs are routed through EDMC when `config.log` is available; otherwise they fall back to stdout. The overlay client writes to its own rotating log in `logs/EDMC-ModernOverlay/overlay-client.log`.
 - All background work runs on daemon threads so EDMC can shut down cleanly.
 
 ## Packaging
