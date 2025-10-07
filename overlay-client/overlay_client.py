@@ -734,17 +734,17 @@ class OverlayWindow(QWidget):
             try:
                 font_id = QFontDatabase.addApplicationFont(str(font_path))
             except Exception as exc:
-                print(f"[ModernOverlay] Failed to load {label} font from {font_path}: {exc}")
+                _CLIENT_LOGGER.warning("Failed to load %s font from %s: %s", label, font_path, exc)
                 return None
             if font_id == -1:
-                print(f"[ModernOverlay] {label} font file at {font_path} could not be registered; falling back")
+                _CLIENT_LOGGER.warning("%s font file at %s could not be registered; falling back", label, font_path)
                 return None
             families = QFontDatabase.applicationFontFamilies(font_id)
             if families:
                 family = families[0]
-                print(f"[ModernOverlay] Using {label} font family '{family}' from {font_path}")
+                _CLIENT_LOGGER.debug("Using %s font family '%s' from %s", label, family, font_path)
                 return family
-            print(f"[ModernOverlay] {label} font registered but no families reported; falling back")
+            _CLIENT_LOGGER.warning("%s font registered but no families reported; falling back", label)
             return None
 
         font_candidates = [
@@ -769,14 +769,14 @@ class OverlayWindow(QWidget):
         try:
             available = set(QFontDatabase.families())
         except Exception as exc:
-            print(f"[ModernOverlay] Could not enumerate installed fonts: {exc}")
+            _CLIENT_LOGGER.warning("Could not enumerate installed fonts: %s", exc)
             available = set()
         for candidate in installed_candidates:
             if candidate in available:
-                print(f"[ModernOverlay] Using installed font family '{candidate}'")
+                _CLIENT_LOGGER.debug("Using installed font family '%s'", candidate)
                 return candidate
 
-        print(f"[ModernOverlay] Preferred fonts unavailable; falling back to {default_family}")
+        _CLIENT_LOGGER.warning("Preferred fonts unavailable; falling back to %s", default_family)
         return default_family
 
 
