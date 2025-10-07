@@ -20,6 +20,7 @@ class Preferences:
     show_connection_status: bool = False
     log_payloads: bool = False
     legacy_vertical_scale: float = 1.0
+    client_log_retention: int = 5
 
     def __post_init__(self) -> None:
         self.plugin_dir = Path(self.plugin_dir)
@@ -43,6 +44,11 @@ class Preferences:
             self.legacy_vertical_scale = float(data.get("legacy_vertical_scale", 1.0))
         except (TypeError, ValueError):
             self.legacy_vertical_scale = 1.0
+        try:
+            retention = int(data.get("client_log_retention", 5))
+        except (TypeError, ValueError):
+            retention = 5
+        self.client_log_retention = max(1, retention)
 
     def save(self) -> None:
         payload: Dict[str, Any] = {
@@ -51,6 +57,7 @@ class Preferences:
             "show_connection_status": bool(self.show_connection_status),
             "log_payloads": bool(self.log_payloads),
             "legacy_vertical_scale": float(self.legacy_vertical_scale),
+            "client_log_retention": int(self.client_log_retention),
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -77,6 +84,7 @@ class PreferencesPanel:
         self._var_show_status = tk.BooleanVar(value=preferences.show_connection_status)
         self._var_log_payloads = tk.BooleanVar(value=preferences.log_payloads)
         self._var_legacy_scale = tk.DoubleVar(value=preferences.legacy_vertical_scale)
+        self._var_log_retention = tk.IntVar(value=max(1, int(preferences.client_log_retention)))
         self._send_test = send_test_callback
         self._test_var = tk.StringVar()
         self._status_var = tk.StringVar(value="")
@@ -123,11 +131,27 @@ class PreferencesPanel:
         )
         log_checkbox.grid(row=3, column=0, sticky="w", pady=(4, 0))
 
+        retention_label = tk.Label(frame, text="Overlay client log files to keep (rotate when current file grows).")
+        retention_label.grid(row=4, column=0, sticky="w", pady=(6, 0))
+
+        retention_row = tk.Frame(frame)
+        retention_spin = tk.Spinbox(
+            retention_row,
+            from_=1,
+            to=20,
+            width=5,
+            textvariable=self._var_log_retention,
+        )
+        retention_spin.pack(side="left")
+        retention_helper = tk.Label(retention_row, text="(applies next time the overlay restarts)")
+        retention_helper.pack(side="left", padx=(8, 0))
+        retention_row.grid(row=5, column=0, sticky="w")
+
         legacy_scale_label = tk.Label(
             frame,
             text="Legacy overlay vertical scale (1.00× keeps original spacing).",
         )
-        legacy_scale_label.grid(row=4, column=0, sticky="w", pady=(10, 0))
+        legacy_scale_label.grid(row=6, column=0, sticky="w", pady=(10, 0))
 
         legacy_scale_row = tk.Frame(frame)
         legacy_scale = tk.Scale(
@@ -143,7 +167,7 @@ class PreferencesPanel:
         legacy_scale.pack(side="left", fill="x", expand=True)
         legacy_scale_value_label = tk.Label(legacy_scale_row, textvariable=self._legacy_scale_display, width=6, anchor="w")
         legacy_scale_value_label.pack(side="left", padx=(8, 0))
-        legacy_scale_row.grid(row=5, column=0, sticky="we")
+        legacy_scale_row.grid(row=7, column=0, sticky="we")
 
         opacity_label = tk.Label(
             frame,
@@ -152,7 +176,7 @@ class PreferencesPanel:
                 "Alt+drag is enabled when opacity > 0.5."
             ),
         )
-        opacity_label.grid(row=6, column=0, sticky="w", pady=(10, 0))
+        opacity_label.grid(row=8, column=0, sticky="w", pady=(10, 0))
 
         opacity_row = tk.Frame(frame)
         opacity_scale = tk.Scale(
@@ -166,32 +190,32 @@ class PreferencesPanel:
             command=self._on_opacity_change,
         )
         opacity_scale.pack(side="left", fill="x")
-        opacity_row.grid(row=7, column=0, sticky="we")
+        opacity_row.grid(row=9, column=0, sticky="we")
 
         test_label = tk.Label(frame, text="Send test message to overlay:")
-        test_label.grid(row=8, column=0, sticky="w", pady=(10, 0))
+        test_label.grid(row=10, column=0, sticky="w", pady=(10, 0))
 
         test_row = tk.Frame(frame)
         test_entry = tk.Entry(test_row, textvariable=self._test_var, width=50)
         send_button = tk.Button(test_row, text="Send", command=self._on_send_click)
         test_entry.pack(side="left", fill="x", expand=True)
         send_button.pack(side="left", padx=(8, 0))
-        test_row.grid(row=9, column=0, sticky="we", pady=(2, 0))
+        test_row.grid(row=11, column=0, sticky="we", pady=(2, 0))
         frame.columnconfigure(0, weight=1)
         test_row.columnconfigure(0, weight=1)
 
         legacy_label = tk.Label(frame, text="Legacy edmcoverlay compatibility:")
-        legacy_label.grid(row=10, column=0, sticky="w", pady=(10, 0))
+        legacy_label.grid(row=12, column=0, sticky="w", pady=(10, 0))
 
         legacy_row = tk.Frame(frame)
         legacy_text_btn = tk.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
         legacy_rect_btn = tk.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
         legacy_text_btn.pack(side="left")
         legacy_rect_btn.pack(side="left", padx=(8, 0))
-        legacy_row.grid(row=11, column=0, sticky="w", pady=(2, 0))
+        legacy_row.grid(row=13, column=0, sticky="w", pady=(2, 0))
 
         status_label = tk.Label(frame, textvariable=self._status_var, wraplength=400, justify="left", fg="#808080")
-        status_label.grid(row=12, column=0, sticky="w", pady=(4, 0))
+        status_label.grid(row=14, column=0, sticky="w", pady=(4, 0))
 
         self._frame = frame
 
@@ -205,6 +229,7 @@ class PreferencesPanel:
         self._preferences.show_connection_status = bool(self._var_show_status.get())
         self._preferences.log_payloads = bool(self._var_log_payloads.get())
         self._preferences.legacy_vertical_scale = float(self._var_legacy_scale.get())
+        self._preferences.client_log_retention = max(1, int(self._var_log_retention.get()))
         if self._set_status:
             try:
                 self._set_status(self._preferences.show_connection_status)

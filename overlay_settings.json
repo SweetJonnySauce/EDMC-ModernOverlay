@@ -3,5 +3,6 @@
   "overlay_opacity": 0.45,
   "show_connection_status": false,
   "log_payloads": false,
-  "legacy_vertical_scale": 1.0
+  "legacy_vertical_scale": 1.0,
+  "client_log_retention": 5
 }

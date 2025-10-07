@@ -251,11 +251,12 @@ class _PluginRuntime:
 
     def on_preferences_updated(self) -> None:
         LOGGER.debug(
-            "Applying updated preferences: capture_output=%s show_connection_status=%s log_payloads=%s legacy_vertical_scale=%.2f",
+            "Applying updated preferences: capture_output=%s show_connection_status=%s log_payloads=%s legacy_vertical_scale=%.2f client_log_retention=%d",
             self._preferences.capture_output,
             self._preferences.show_connection_status,
             self._preferences.log_payloads,
             self._preferences.legacy_vertical_scale,
+            self._preferences.client_log_retention,
         )
         if self.watchdog:
             self.watchdog.set_capture_output(self._capture_enabled())
@@ -323,14 +324,16 @@ class _PluginRuntime:
             "enable_drag": bool(self._preferences.overlay_opacity > 0.5),
             "show_status": bool(self._preferences.show_connection_status),
             "legacy_scale_y": float(self._preferences.legacy_vertical_scale),
+            "client_log_retention": int(self._preferences.client_log_retention),
         }
         self._last_config = dict(payload)
         self._publish_payload(payload)
         LOGGER.debug(
-            "Published overlay config: opacity=%s show_status=%s legacy_scale_y=%.2f",
+            "Published overlay config: opacity=%s show_status=%s legacy_scale_y=%.2f client_log_retention=%d",
             payload["opacity"],
             payload["show_status"],
             payload["legacy_scale_y"],
+            payload["client_log_retention"],
         )
         if rebroadcast:
             self._schedule_config_rebroadcasts()
@@ -488,11 +491,12 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
         _prefs_panel.apply()
         if _preferences:
             LOGGER.debug(
-                "Preferences saved: capture_output=%s show_connection_status=%s log_payloads=%s legacy_vertical_scale=%.2f",
+                "Preferences saved: capture_output=%s show_connection_status=%s log_payloads=%s legacy_vertical_scale=%.2f client_log_retention=%d",
                 _preferences.capture_output,
                 _preferences.show_connection_status,
                 _preferences.log_payloads,
                 _preferences.legacy_vertical_scale,
+                _preferences.client_log_retention,
             )
         if _plugin:
             _plugin.on_preferences_updated()

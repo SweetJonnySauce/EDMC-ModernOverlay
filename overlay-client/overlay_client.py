@@ -4,16 +4,130 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import sys
 import threading
 import time
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QCursor, QFontDatabase
 from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+
+
+_LOGGER_NAME = "EDMC.ModernOverlay.Client"
+_LOG_DIR_NAME = "EDMC-ModernOverlay"
+_LOG_FILE_NAME = "overlay-client.log"
+_MAX_LOG_BYTES = 512 * 1024
+_CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
+_CLIENT_LOGGER.setLevel(logging.DEBUG)
+_CLIENT_LOGGER.propagate = False
+_CLIENT_LOG_HANDLER: Optional[logging.Handler] = None
+_CLIENT_LOG_PATH: Optional[Path] = None
+_CURRENT_LOG_RETENTION = 5
+
+
+def _load_initial_retention(default: int = 5) -> int:
+    settings_path = Path(__file__).resolve().parents[1] / "overlay_settings.json"
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return default
+    try:
+        value = int(data.get("client_log_retention", default))
+    except (TypeError, ValueError):
+        return default
+    return max(1, value)
+
+
+def _resolve_logs_dir() -> Path:
+    current = Path(__file__).resolve()
+    candidates = []
+    parents = current.parents
+    if len(parents) >= 4:
+        candidates.append(parents[3] / "logs")
+    if len(parents) >= 3:
+        candidates.append(parents[2] / "logs")
+    candidates.append(Path.cwd() / "logs")
+    for base in candidates:
+        try:
+            target = base / _LOG_DIR_NAME
+            target.mkdir(parents=True, exist_ok=True)
+            return target
+        except Exception:
+            continue
+    fallback = current.parent / "logs" / _LOG_DIR_NAME
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
+def _configure_client_logging(retention: int) -> None:
+    global _CLIENT_LOG_HANDLER, _CLIENT_LOG_PATH, _CURRENT_LOG_RETENTION
+    retention = max(1, retention)
+    logs_dir = _resolve_logs_dir()
+    log_path = logs_dir / _LOG_FILE_NAME
+    backup_count = max(0, retention - 1)
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
+    try:
+        handler = RotatingFileHandler(
+            log_path,
+            maxBytes=_MAX_LOG_BYTES,
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(formatter)
+        if _CLIENT_LOG_HANDLER is not None:
+            _CLIENT_LOGGER.removeHandler(_CLIENT_LOG_HANDLER)
+            try:
+                _CLIENT_LOG_HANDLER.close()
+            except Exception:
+                pass
+        _CLIENT_LOGGER.addHandler(stream_handler)
+        _CLIENT_LOGGER.warning("Failed to initialise file logging at %s: %s", log_path, exc)
+        _CLIENT_LOG_HANDLER = stream_handler
+        _CLIENT_LOG_PATH = None
+        _CURRENT_LOG_RETENTION = retention
+        return
+    handler.setFormatter(formatter)
+    if _CLIENT_LOG_HANDLER is not None:
+        _CLIENT_LOGGER.removeHandler(_CLIENT_LOG_HANDLER)
+        try:
+            _CLIENT_LOG_HANDLER.close()
+        except Exception:
+            pass
+    _CLIENT_LOGGER.addHandler(handler)
+    _CLIENT_LOG_HANDLER = handler
+    _CLIENT_LOG_PATH = log_path
+    _CURRENT_LOG_RETENTION = retention
+    _CLIENT_LOGGER.debug(
+        "Client logging initialised: path=%s retention=%d max_bytes=%d backup_count=%d",
+        log_path,
+        retention,
+        _MAX_LOG_BYTES,
+        backup_count,
+    )
+
+
+def _set_log_retention(retention: int) -> None:
+    if retention != _CURRENT_LOG_RETENTION:
+        _configure_client_logging(retention)
+        _CLIENT_LOGGER.debug("Client log retention updated to %d", retention)
+
+
+def _get_log_retention() -> int:
+    return _CURRENT_LOG_RETENTION
+
+
+def _log_debug(message: str) -> None:
+    _CLIENT_LOGGER.debug(message)
+
+
+_configure_client_logging(_load_initial_retention())
 
 
 class OverlayDataClient(QObject):
@@ -141,6 +255,7 @@ class OverlayWindow(QWidget):
         self._show_status: bool = False
         self._legacy_scale_y: float = 1.0
         self._base_height: int = 0
+        self._log_retention: int = _get_log_retention()
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -184,11 +299,21 @@ class OverlayWindow(QWidget):
         # Connect signals
         self.data_client.message_received.connect(self._on_message)
         self.data_client.status_changed.connect(self._on_status)
+        _log_debug(f"Overlay window initialised; log retention={self._log_retention}")
 
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
         if self._base_height <= 0:
-            self._base_height = max(self.height(), 1)
+            raw_height = self.height()
+            min_height = 1
+            self._base_height = max(raw_height, min_height)
+            clamped_scale = max(0.5, min(2.0, self._legacy_scale_y))
+            target_height = max(int(round(self._base_height * clamped_scale)), 1)
+            _log_debug(
+                "Initial window height established: "
+                f"raw_height={raw_height}, min_height={min_height}, base_height={self._base_height}, "
+                f"legacy_scale_y={self._legacy_scale_y}, clamped_scale={clamped_scale}, target_height={target_height}"
+            )
         self._apply_legacy_scale()
         self._enable_click_through()
 
@@ -262,6 +387,16 @@ class OverlayWindow(QWidget):
                     scale_value = 1.0
                 self._legacy_scale_y = max(0.5, min(2.0, scale_value))
                 self._apply_legacy_scale()
+            if "client_log_retention" in payload:
+                try:
+                    new_retention = int(payload.get("client_log_retention", self._log_retention))
+                except (TypeError, ValueError):
+                    new_retention = self._log_retention
+                new_retention = max(1, new_retention)
+                if new_retention != self._log_retention:
+                    self._log_retention = new_retention
+                    _set_log_retention(new_retention)
+                    _log_debug(f"Applied client log retention from config: {new_retention}")
             if "show_status" in payload:
                 previous = self._show_status
                 self._show_status = bool(payload.get("show_status"))
@@ -533,16 +668,21 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--port-file", help="Path to port.json emitted by the plugin")
     args = parser.parse_args(argv)
 
+    _CLIENT_LOGGER.info("Starting overlay client (pid=%s)", os.getpid())
+
     port_file = resolve_port_file(args.port_file)
+    _CLIENT_LOGGER.debug("Resolved port file path to %s", port_file)
     app = QApplication(sys.argv)
     data_client = OverlayDataClient(port_file)
     window = OverlayWindow(data_client)
+    _CLIENT_LOGGER.debug("Overlay window created; initial log retention=%d", window._log_retention)
     window.resize(1280, 720)
     window.show()
     data_client.start()
 
     exit_code = app.exec()
     data_client.stop()
+    _CLIENT_LOGGER.info("Overlay client exiting with code %s", exit_code)
     return int(exit_code)
 
 
