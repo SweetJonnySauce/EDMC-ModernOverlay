@@ -245,6 +245,8 @@ class OverlayWindow(QWidget):
         }
         self._legacy_items: Dict[str, Dict[str, Any]] = {}
         self._background_opacity: float = 0.0
+        self._gridlines_enabled: bool = False
+        self._gridline_spacing: int = 120
         self._drag_enabled: bool = False
         self._drag_active: bool = False
         self._drag_offset: QPoint = QPoint()
@@ -332,11 +334,24 @@ class OverlayWindow(QWidget):
     def paintEvent(self, event) -> None:  # type: ignore[override]
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        if self._background_opacity > 0.0:
-            alpha = int(255 * max(0.0, min(1.0, self._background_opacity)))
+        bg_opacity = max(0.0, min(1.0, self._background_opacity))
+        if bg_opacity > 0.0:
+            alpha = int(255 * bg_opacity)
             painter.setBrush(QColor(0, 0, 0, alpha))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(self.rect(), 12, 12)
+            if self._gridlines_enabled and self._gridline_spacing > 0:
+                grid_color = QColor(200, 200, 200, alpha)
+                grid_pen = QPen(grid_color)
+                grid_pen.setWidth(1)
+                painter.setPen(grid_pen)
+                spacing = self._gridline_spacing
+                width = self.width()
+                height = self.height()
+                for x in range(spacing, width, spacing):
+                    painter.drawLine(x, 0, x, height)
+                for y in range(spacing, height, spacing):
+                    painter.drawLine(0, y, width, y)
         self._paint_legacy(painter)
         painter.end()
         super().paintEvent(event)
@@ -409,6 +424,14 @@ class OverlayWindow(QWidget):
                     self._log_retention = new_retention
                     _set_log_retention(new_retention)
                     _log_debug(f"Applied client log retention from config: {new_retention}")
+            if "gridlines_enabled" in payload:
+                self._gridlines_enabled = bool(payload.get("gridlines_enabled"))
+            if "gridline_spacing" in payload:
+                try:
+                    spacing_value = int(payload.get("gridline_spacing", self._gridline_spacing))
+                except (TypeError, ValueError):
+                    spacing_value = self._gridline_spacing
+                self._gridline_spacing = max(10, spacing_value)
             if "show_status" in payload:
                 previous = self._show_status
                 self._show_status = bool(payload.get("show_status"))
