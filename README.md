@@ -83,11 +83,7 @@ The client lives in the plugin folder and expects a dedicated Python environment
    - Set *Overlay client log files to keep* if you need longer log history from the client’s rotating logfile.
    - Use *Send test message to overlay* for a quick health check of the native API.
    - Use the legacy compatibility buttons to send `edmcoverlay`-style messages and rectangles without writing any code.
-6. **Run the overlay client manually (optional)** for development:
-   ```bash
-   overlay-client/.venv/bin/python overlay-client/overlay_client.py
-   ```
-   When packaging or relocating the client, update the preferences or environment to point the watchdog at the correct interpreter.
+
 
 ## Programmatic API
 
