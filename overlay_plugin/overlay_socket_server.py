@@ -48,7 +48,13 @@ class SocketBroadcaster:
         if self._loop and self._loop.is_running():
             self._loop.call_soon_threadsafe(lambda: None)
         if self._thread:
-            self._thread.join(timeout=5.0)
+            worker = self._thread
+            worker.join(timeout=5.0)
+            if worker.is_alive():
+                self.log("Broadcast server thread still running after 5s; waiting a little longer")
+                worker.join(timeout=2.0)
+                if worker.is_alive():
+                    self.log("Broadcast server thread failed to terminate cleanly; abandoning join")
         self._loop = None
         self._thread = None
         self._clients.clear()
