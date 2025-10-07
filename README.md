@@ -26,7 +26,7 @@ EDMC-ModernOverlay/
 - Background `asyncio` JSON-over-TCP server that never blocks EDMC's Tkinter thread
 - Safe watchdog that supervises the overlay executable and restarts it when needed
 - JSON discovery file (`port.json`) so the overlay can find the active port
-- Transparent, click-through PyQt6 HUD with live CMDR/system/station info, ad-hoc test messages, and legacy rectangle/text rendering for `edmcoverlay` callers
+- Transparent, click-through PyQt6 HUD with test messages, and legacy rectangle/text rendering for `edmcoverlay` callers
 - Automatic reconnection logic in both plugin and overlay client
 - Full EDMC logging integration with optional stdout/stderr capture and payload mirroring toggled from the preferences pane
 - Configurable legacy overlay vertical scaling so legacy payloads stay legible at higher line counts
