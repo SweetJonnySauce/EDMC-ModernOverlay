@@ -19,8 +19,10 @@ EDMC-ModernOverlay/
 │   ├── preferences.py
 │   └── requirements.txt
 ├── overlay-client/        # Stand-alone PyQt6 overlay
-│   ├── fonts              # Directory for client fonts being used
-│   ├── overlay_client.py
+│   ├── fonts/             # HUD font assets (drop in optional alternates)
+│   ├── client_config.py   # Typed bootstrap defaults and OverlayConfig parsing
+│   ├── developer_helpers.py  # Developer-helper controller & logging utilities
+│   ├── overlay_client.py  # Core PyQt window and socket bridge
 │   ├── requirements.txt
 │   └── .venv/             # Local virtual environment (create locally; not tracked)
 ├── overlay_settings.json  # Sample overlay configuration bundle for the client
