@@ -63,11 +63,11 @@ The client lives in the plugin folder and expects a dedicated Python environment
    as `SourceSans3-Regular.ttf` and is used by default. To override the HUD
    typeface drop another font (for example `Eurocaps.ttf`) into the same
    directory along with its license.
-3. **Copy the plugin into EDMC's plugin directory**:
+3. **Copy the entire plugin (including client) into EDMC's plugin directory**:
    ```
    %LOCALAPPDATA%\EDMarketConnector\plugins\EDMCModernOverlay\
    ```
-   Include `load.py`, the entire `overlay_plugin/` folder, and (optionally) `overlay-client/` if you want EDMC to supervise the overlay. The watchdog will automatically use `<plugin_root>/.venv/bin/python` (or `Scripts\python.exe` on Windows). To use a different interpreter set `EDMC_OVERLAY_PYTHON` before launching EDMC.
+
 4. **Launch EDMC.** The plugin starts automatically, spins up the background broadcast server, writes `port.json`, and begins supervising the overlay client.
 5. **Configure via EDMC** under *File → Settings → Modern Overlay*:
    - Toggle *Enable overlay stdout/stderr capture* when you need detailed diagnostics; leave it off for normal play.
