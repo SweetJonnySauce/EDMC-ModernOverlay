@@ -248,10 +248,11 @@ class _PluginRuntime:
 
     def on_preferences_updated(self) -> None:
         LOGGER.debug(
-            "Applying updated preferences: capture_output=%s show_connection_status=%s log_payloads=%s",
+            "Applying updated preferences: capture_output=%s show_connection_status=%s log_payloads=%s legacy_vertical_scale=%.2f",
             self._preferences.capture_output,
             self._preferences.show_connection_status,
             self._preferences.log_payloads,
+            self._preferences.legacy_vertical_scale,
         )
         if self.watchdog:
             self.watchdog.set_capture_output(self._capture_enabled())
@@ -283,6 +284,17 @@ class _PluginRuntime:
     def set_log_payload_preference(self, value: bool) -> None:
         self._preferences.log_payloads = bool(value)
         LOGGER.debug("Overlay payload logging %s", "enabled" if self._preferences.log_payloads else "disabled")
+        self._send_overlay_config()
+
+    def set_legacy_scale_preference(self, value: float) -> None:
+        try:
+            scale = float(value)
+        except (TypeError, ValueError):
+            scale = 1.0
+        scale = max(0.5, min(2.0, scale))
+        self._preferences.legacy_vertical_scale = scale
+        LOGGER.debug("Legacy overlay vertical scale set to %.2fx", scale)
+        self._send_overlay_config()
 
     def _publish_external(self, payload: Mapping[str, Any]) -> bool:
         if not self._running:
@@ -303,12 +315,14 @@ class _PluginRuntime:
             "opacity": float(self._preferences.overlay_opacity),
             "enable_drag": bool(self._preferences.overlay_opacity > 0.5),
             "show_status": bool(self._preferences.show_connection_status),
+            "legacy_scale_y": float(self._preferences.legacy_vertical_scale),
         }
         self._publish_payload(payload)
         LOGGER.debug(
-            "Published overlay config: opacity=%s show_status=%s",
+            "Published overlay config: opacity=%s show_status=%s legacy_scale_y=%.2f",
             payload["opacity"],
             payload["show_status"],
+            payload["legacy_scale_y"],
         )
 
     def _publish_payload(self, payload: Mapping[str, Any]) -> None:
@@ -395,7 +409,16 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
     try:
         status_callback = _plugin.set_show_status_preference if _plugin else None
         log_callback = _plugin.set_log_payload_preference if _plugin else None
-        panel = PreferencesPanel(parent, _preferences, send_callback, opacity_callback, status_callback, log_callback)
+        legacy_scale_callback = _plugin.set_legacy_scale_preference if _plugin else None
+        panel = PreferencesPanel(
+            parent,
+            _preferences,
+            send_callback,
+            opacity_callback,
+            status_callback,
+            log_callback,
+            legacy_scale_callback,
+        )
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)
         return None
@@ -415,10 +438,11 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
         _prefs_panel.apply()
         if _preferences:
             LOGGER.debug(
-                "Preferences saved: capture_output=%s show_connection_status=%s log_payloads=%s",
+                "Preferences saved: capture_output=%s show_connection_status=%s log_payloads=%s legacy_vertical_scale=%.2f",
                 _preferences.capture_output,
                 _preferences.show_connection_status,
                 _preferences.log_payloads,
+                _preferences.legacy_vertical_scale,
             )
         if _plugin:
             _plugin.on_preferences_updated()

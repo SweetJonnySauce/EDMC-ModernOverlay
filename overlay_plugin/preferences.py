@@ -19,6 +19,7 @@ class Preferences:
     overlay_opacity: float = 0.0
     show_connection_status: bool = False
     log_payloads: bool = False
+    legacy_vertical_scale: float = 1.0
 
     def __post_init__(self) -> None:
         self.plugin_dir = Path(self.plugin_dir)
@@ -38,6 +39,10 @@ class Preferences:
         self.overlay_opacity = float(data.get("overlay_opacity", 0.0))
         self.show_connection_status = bool(data.get("show_connection_status", False))
         self.log_payloads = bool(data.get("log_payloads", False))
+        try:
+            self.legacy_vertical_scale = float(data.get("legacy_vertical_scale", 1.0))
+        except (TypeError, ValueError):
+            self.legacy_vertical_scale = 1.0
 
     def save(self) -> None:
         payload: Dict[str, Any] = {
@@ -45,6 +50,7 @@ class Preferences:
             "overlay_opacity": float(self.overlay_opacity),
             "show_connection_status": bool(self.show_connection_status),
             "log_payloads": bool(self.log_payloads),
+            "legacy_vertical_scale": float(self.legacy_vertical_scale),
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -60,6 +66,7 @@ class PreferencesPanel:
         set_opacity_callback: Optional[Callable[[float], None]] = None,
         set_status_callback: Optional[Callable[[bool], None]] = None,
         set_log_payloads_callback: Optional[Callable[[bool], None]] = None,
+        set_legacy_scale_callback: Optional[Callable[[float], None]] = None,
     ) -> None:
         import tkinter as tk
         import myNotebook as nb
@@ -69,6 +76,7 @@ class PreferencesPanel:
         self._var_opacity = tk.DoubleVar(value=preferences.overlay_opacity)
         self._var_show_status = tk.BooleanVar(value=preferences.show_connection_status)
         self._var_log_payloads = tk.BooleanVar(value=preferences.log_payloads)
+        self._var_legacy_scale = tk.DoubleVar(value=preferences.legacy_vertical_scale)
         self._send_test = send_test_callback
         self._test_var = tk.StringVar()
         self._status_var = tk.StringVar(value="")
@@ -76,6 +84,8 @@ class PreferencesPanel:
         self._set_opacity = set_opacity_callback
         self._set_status = set_status_callback
         self._set_log_payloads = set_log_payloads_callback
+        self._set_legacy_scale = set_legacy_scale_callback
+        self._legacy_scale_display = tk.StringVar(value=f"{preferences.legacy_vertical_scale:.2f}×")
 
         frame = nb.Frame(parent)
         description = (
@@ -113,6 +123,28 @@ class PreferencesPanel:
         )
         log_checkbox.grid(row=3, column=0, sticky="w", pady=(4, 0))
 
+        legacy_scale_label = tk.Label(
+            frame,
+            text="Legacy overlay vertical scale (1.00× keeps original spacing).",
+        )
+        legacy_scale_label.grid(row=4, column=0, sticky="w", pady=(10, 0))
+
+        legacy_scale_row = tk.Frame(frame)
+        legacy_scale = tk.Scale(
+            legacy_scale_row,
+            variable=self._var_legacy_scale,
+            from_=0.5,
+            to=2.0,
+            resolution=0.05,
+            orient=tk.HORIZONTAL,
+            length=250,
+            command=self._on_legacy_scale_change,
+        )
+        legacy_scale.pack(side="left", fill="x", expand=True)
+        legacy_scale_value_label = tk.Label(legacy_scale_row, textvariable=self._legacy_scale_display, width=6, anchor="w")
+        legacy_scale_value_label.pack(side="left", padx=(8, 0))
+        legacy_scale_row.grid(row=5, column=0, sticky="we")
+
         opacity_label = tk.Label(
             frame,
             text=(
@@ -120,7 +152,7 @@ class PreferencesPanel:
                 "Alt+drag is enabled when opacity > 0.5."
             ),
         )
-        opacity_label.grid(row=4, column=0, sticky="w", pady=(10, 0))
+        opacity_label.grid(row=6, column=0, sticky="w", pady=(10, 0))
 
         opacity_row = tk.Frame(frame)
         opacity_scale = tk.Scale(
@@ -134,32 +166,32 @@ class PreferencesPanel:
             command=self._on_opacity_change,
         )
         opacity_scale.pack(side="left", fill="x")
-        opacity_row.grid(row=5, column=0, sticky="we")
+        opacity_row.grid(row=7, column=0, sticky="we")
 
         test_label = tk.Label(frame, text="Send test message to overlay:")
-        test_label.grid(row=6, column=0, sticky="w", pady=(10, 0))
+        test_label.grid(row=8, column=0, sticky="w", pady=(10, 0))
 
         test_row = tk.Frame(frame)
         test_entry = tk.Entry(test_row, textvariable=self._test_var, width=50)
         send_button = tk.Button(test_row, text="Send", command=self._on_send_click)
         test_entry.pack(side="left", fill="x", expand=True)
         send_button.pack(side="left", padx=(8, 0))
-        test_row.grid(row=7, column=0, sticky="we", pady=(2, 0))
+        test_row.grid(row=9, column=0, sticky="we", pady=(2, 0))
         frame.columnconfigure(0, weight=1)
         test_row.columnconfigure(0, weight=1)
 
         legacy_label = tk.Label(frame, text="Legacy edmcoverlay compatibility:")
-        legacy_label.grid(row=8, column=0, sticky="w", pady=(10, 0))
+        legacy_label.grid(row=10, column=0, sticky="w", pady=(10, 0))
 
         legacy_row = tk.Frame(frame)
         legacy_text_btn = tk.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
         legacy_rect_btn = tk.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
         legacy_text_btn.pack(side="left")
         legacy_rect_btn.pack(side="left", padx=(8, 0))
-        legacy_row.grid(row=9, column=0, sticky="w", pady=(2, 0))
+        legacy_row.grid(row=11, column=0, sticky="w", pady=(2, 0))
 
         status_label = tk.Label(frame, textvariable=self._status_var, wraplength=400, justify="left", fg="#808080")
-        status_label.grid(row=10, column=0, sticky="w", pady=(4, 0))
+        status_label.grid(row=12, column=0, sticky="w", pady=(4, 0))
 
         self._frame = frame
 
@@ -172,6 +204,7 @@ class PreferencesPanel:
         self._preferences.overlay_opacity = float(self._var_opacity.get())
         self._preferences.show_connection_status = bool(self._var_show_status.get())
         self._preferences.log_payloads = bool(self._var_log_payloads.get())
+        self._preferences.legacy_vertical_scale = float(self._var_legacy_scale.get())
         if self._set_status:
             try:
                 self._set_status(self._preferences.show_connection_status)
@@ -183,6 +216,12 @@ class PreferencesPanel:
                 self._set_log_payloads(self._preferences.log_payloads)
             except Exception as exc:
                 self._status_var.set(f"Failed to update payload logging: {exc}")
+                return
+        if self._set_legacy_scale:
+            try:
+                self._set_legacy_scale(self._preferences.legacy_vertical_scale)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update legacy scale: {exc}")
                 return
         self._preferences.save()
 
@@ -233,6 +272,23 @@ class PreferencesPanel:
                 self._set_log_payloads(value)
             except Exception as exc:
                 self._status_var.set(f"Failed to update payload logging: {exc}")
+                return
+        self._preferences.save()
+
+    def _on_legacy_scale_change(self, value: str) -> None:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            numeric = 1.0
+        numeric = max(0.5, min(2.0, numeric))
+        self._var_legacy_scale.set(numeric)
+        self._legacy_scale_display.set(f"{numeric:.2f}×")
+        self._preferences.legacy_vertical_scale = numeric
+        if self._set_legacy_scale:
+            try:
+                self._set_legacy_scale(numeric)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update legacy scale: {exc}")
                 return
         self._preferences.save()
 

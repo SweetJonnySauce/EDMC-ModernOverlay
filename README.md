@@ -29,6 +29,7 @@ EDMC-ModernOverlay/
 - Transparent, click-through PyQt6 HUD with live CMDR/system/station info, ad-hoc test messages, and legacy rectangle/text rendering for `edmcoverlay` callers
 - Automatic reconnection logic in both plugin and overlay client
 - Full EDMC logging integration with optional stdout/stderr capture and payload mirroring toggled from the preferences pane
+- Configurable legacy overlay vertical scaling so legacy payloads stay legible at higher line counts
 - Plugin runtime uses only the Python standard library (no EDMC-side installs required)
 - Drop-in Python compatibility layer (`EDMCOverlay/edmcoverlay.py`) that emulates the classic EDMCOverlay API so existing plugins can migrate without code changes
 
@@ -71,6 +72,7 @@ The plugin expects a dedicated Python environment for the overlay client. The `.
 5. **Configure via EDMC** under *File → Settings → Modern Overlay*:
    - Toggle *Enable overlay stdout/stderr capture* when you need detailed diagnostics; leave it off for normal play.
    - Enable *Send overlay payloads to the EDMC log* to mirror every payload into EDMC's own log for troubleshooting.
+   - Adjust *Legacy overlay vertical scale* if legacy payload text needs extra spacing (1.00× keeps the original layout).
    - Adjust *Overlay background opacity* to reintroduce a translucent backdrop (0.0 = fully transparent, 1.0 = opaque). Alt+drag to reposition is enabled only when opacity > 0.5, and changes preview in real time.
    - Use *Send test message to overlay* for a quick health check of the native API.
    - Use the legacy compatibility buttons to send `edmcoverlay`-style messages and rectangles without writing any code.

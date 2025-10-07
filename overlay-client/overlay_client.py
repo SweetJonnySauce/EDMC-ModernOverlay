@@ -139,6 +139,8 @@ class OverlayWindow(QWidget):
         self._saved_cursor: QCursor = self.cursor()
         self._transparent_input_supported = hasattr(Qt.WindowType, "WindowTransparentForInput")
         self._show_status: bool = False
+        self._legacy_scale_y: float = 1.0
+        self._base_height: int = 0
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -185,6 +187,9 @@ class OverlayWindow(QWidget):
 
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
+        if self._base_height <= 0:
+            self._base_height = max(self.height(), 1)
+        self._apply_legacy_scale()
         self._enable_click_through()
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
@@ -250,6 +255,13 @@ class OverlayWindow(QWidget):
             except (TypeError, ValueError):
                 self._background_opacity = 0.0
             self._drag_enabled = bool(payload.get("enable_drag", False))
+            if "legacy_scale_y" in payload:
+                try:
+                    scale_value = float(payload.get("legacy_scale_y", 1.0))
+                except (TypeError, ValueError):
+                    scale_value = 1.0
+                self._legacy_scale_y = max(0.5, min(2.0, scale_value))
+                self._apply_legacy_scale()
             if "show_status" in payload:
                 previous = self._show_status
                 self._show_status = bool(payload.get("show_status"))
@@ -417,7 +429,9 @@ class OverlayWindow(QWidget):
         font.setWeight(QFont.Weight.Normal)
         painter.setPen(color)
         painter.setFont(font)
-        painter.drawText(int(item.get("x", 0)), int(item.get("y", 0)), str(item.get("text", "")))
+        x = int(round(item.get("x", 0)))
+        y = int(round(item.get("y", 0) * self._legacy_scale_y))
+        painter.drawText(x, y, str(item.get("text", "")))
 
     def _paint_legacy_rect(self, painter: QPainter, item: Dict[str, Any]) -> None:
         border_color = QColor(str(item.get("color", "white")))
@@ -426,12 +440,25 @@ class OverlayWindow(QWidget):
         pen.setWidth(2)
         painter.setPen(pen)
         painter.setBrush(QBrush(fill_color))
+        x = int(round(item.get("x", 0)))
+        y = int(round(item.get("y", 0) * self._legacy_scale_y))
+        w = int(round(item.get("w", 0)))
+        h = int(round(item.get("h", 0) * self._legacy_scale_y))
         painter.drawRect(
-            int(item.get("x", 0)),
-            int(item.get("y", 0)),
-            int(item.get("w", 0)),
-            int(item.get("h", 0)),
+            x,
+            y,
+            w,
+            h,
         )
+
+    def _apply_legacy_scale(self) -> None:
+        if self._base_height <= 0:
+            return
+        scale = max(0.5, min(2.0, self._legacy_scale_y))
+        target_height = max(int(round(self._base_height * scale)), 1)
+        self.setMinimumHeight(target_height)
+        self.resize(self.width(), target_height)
+        self.update()
 
     def _resolve_font_family(self) -> str:
         fonts_dir = Path(__file__).resolve().parent / "fonts"

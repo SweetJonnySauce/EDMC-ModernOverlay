@@ -1,6 +1,7 @@
 {
   "capture_output": true,
-  "overlay_opacity": 0.0,
-  "show_connection_status": true,
-  "log_payloads": true
+  "overlay_opacity": 0.45,
+  "show_connection_status": false,
+  "log_payloads": false,
+  "legacy_vertical_scale": 1.0
 }
