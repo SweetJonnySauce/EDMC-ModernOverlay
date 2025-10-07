@@ -1,5 +1,7 @@
 # EDMC Modern Overlay
 
+Warning: This is not your normal EDMC plugin and should be considered a prototype. It has only been tested on Ubuntu at this time. It has **not** been tested with edmcovelay2 loading at the same time. 
+
 EDMC Modern Overlay is a two-part reference implementation for Elite Dangerous Market Connector (EDMC). It streams journal data from EDMC over a lightweight TCP socket and displays a transparent, click-through PyQt6 heads-up display on your desktop.
 
 ## Project Layout
