@@ -202,6 +202,10 @@ class OverlayWindow(QWidget):
         self._tracking_timer.setInterval(250)
         self._tracking_timer.timeout.connect(self._refresh_follow_geometry)
 
+        self._message_clear_timer = QTimer(self)
+        self._message_clear_timer.setSingleShot(True)
+        self._message_clear_timer.timeout.connect(self._clear_message)
+
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         window_flags = (
             Qt.WindowType.FramelessWindowHint
@@ -224,13 +228,16 @@ class OverlayWindow(QWidget):
         self.message_label.setFont(message_font)
         self.message_label.setStyleSheet("color: #80d0ff; background: transparent;")
         self.message_label.setWordWrap(True)
+        self.message_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.status_label = QLabel(self._status)
         self.status_label.setFont(status_font)
         self.status_label.setStyleSheet("color: white; background: transparent;")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
 
         layout = QVBoxLayout()
-        layout.addWidget(self.message_label)
-        layout.addWidget(self.status_label)
+        layout.addWidget(self.message_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        layout.addStretch(1)
+        layout.addWidget(self.status_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
         layout.setContentsMargins(20, 20, 20, 20)
         self.setLayout(layout)
         self.status_label.setVisible(False)
@@ -487,9 +494,16 @@ class OverlayWindow(QWidget):
             ):
                 self._update_follow_visibility(False)
 
-    def display_message(self, message: str) -> None:
+    def display_message(self, message: str, *, ttl: Optional[float] = None) -> None:
+        self._message_clear_timer.stop()
         self._state["message"] = message
         self.message_label.setText(message)
+        if ttl is not None and ttl > 0:
+            self._message_clear_timer.start(int(ttl * 1000))
+
+    def _clear_message(self) -> None:
+        self._state["message"] = ""
+        self.message_label.clear()
 
     def set_status_text(self, status: str) -> None:
         self._status = status
@@ -1261,10 +1275,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             helper.handle_legacy_payload(window, payload)
             return
         message_text = payload.get("message")
+        ttl: Optional[float] = None
         if event == "TestMessage" and payload.get("message"):
             message_text = payload["message"]
+            ttl = 10.0
         if message_text is not None:
-            window.display_message(str(message_text))
+            window.display_message(str(message_text), ttl=ttl)
 
     data_client.message_received.connect(_handle_payload)
     data_client.status_changed.connect(window.set_status_text)
