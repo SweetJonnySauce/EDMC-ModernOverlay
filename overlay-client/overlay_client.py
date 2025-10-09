@@ -157,8 +157,10 @@ class OverlayWindow(QWidget):
         self._saved_cursor: QCursor = self.cursor()
         self._transparent_input_supported = hasattr(Qt.WindowType, "WindowTransparentForInput")
         self._show_status: bool = False
-        self._legacy_scale_y: float = 1.0
-        self._legacy_scale_x: float = 1.0
+        self._legacy_auto_scale_y: float = 1.0
+        self._legacy_auto_scale_x: float = 1.0
+        self._legacy_user_scale_y: float = 1.0
+        self._legacy_user_scale_x: float = 1.0
         self._auto_legacy_scale: bool = True
         self._base_height: int = 0
         self._base_width: int = 0
@@ -241,8 +243,28 @@ class OverlayWindow(QWidget):
             self.format_scale_debug(),
         )
 
+    @staticmethod
+    def _clamp_effective_scale(value: float) -> float:
+        return max(0.25, min(4.0, value))
+
+    def _effective_legacy_scale_x(self) -> float:
+        return self._clamp_effective_scale(self._legacy_auto_scale_x * self._legacy_user_scale_x)
+
+    def _effective_legacy_scale_y(self) -> float:
+        return self._clamp_effective_scale(self._legacy_auto_scale_y * self._legacy_user_scale_y)
+
     def format_scale_debug(self) -> str:
-        return f"scale_x={self._legacy_scale_x:.2f} scale_y={self._legacy_scale_y:.2f}"
+        return (
+            "scale_x={:.2f} (auto={:.2f} user={:.2f}) "
+            "scale_y={:.2f} (auto={:.2f} user={:.2f})"
+        ).format(
+            self._effective_legacy_scale_x(),
+            self._legacy_auto_scale_x,
+            self._legacy_user_scale_x,
+            self._effective_legacy_scale_y(),
+            self._legacy_auto_scale_y,
+            self._legacy_user_scale_y,
+        )
 
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
@@ -264,23 +286,25 @@ class OverlayWindow(QWidget):
                     if raw_width <= 0:
                         raw_width = 1
                     self._base_width = max(raw_width, 1)
-            clamped_scale = max(0.5, min(2.0, self._legacy_scale_y))
-            clamped_scale_x = max(0.5, min(2.0, self._legacy_scale_x))
-            target_height = max(int(round(self._base_height * clamped_scale)), 1)
-            target_width = max(int(round(self._base_width * clamped_scale_x)), 1)
+            effective_scale_y = self._effective_legacy_scale_y()
+            effective_scale_x = self._effective_legacy_scale_x()
+            target_height = max(int(round(self._base_height * effective_scale_y)), 1)
+            target_width = max(int(round(self._base_width * effective_scale_x)), 1)
             _CLIENT_LOGGER.debug(
                 "Initial window height established: raw_height=%s base_source=%s base_height=%s "
-                "legacy_scale_y=%.2f clamped_scale=%.2f target_height=%s base_width=%s legacy_scale_x=%.2f "
-                "clamped_scale_x=%.2f target_width=%s",
+                "auto_scale_y=%.2f user_scale_y=%.2f effective_scale_y=%.2f target_height=%s base_width=%s "
+                "auto_scale_x=%.2f user_scale_x=%.2f effective_scale_x=%.2f target_width=%s",
                 raw_height,
                 base_source,
                 self._base_height,
-                self._legacy_scale_y,
-                clamped_scale,
+                self._legacy_auto_scale_y,
+                self._legacy_user_scale_y,
+                effective_scale_y,
                 target_height,
                 self._base_width,
-                self._legacy_scale_x,
-                clamped_scale_x,
+                self._legacy_auto_scale_x,
+                self._legacy_user_scale_x,
+                effective_scale_x,
                 target_width,
             )
         self._apply_legacy_scale()
@@ -537,12 +561,13 @@ class OverlayWindow(QWidget):
         except (TypeError, ValueError):
             value = 1.0
         value = max(0.5, min(2.0, value))
-        if not auto:
-            if self._auto_legacy_scale and math.isclose(value, 1.0, rel_tol=1e-4):
-                return
-            self._auto_legacy_scale = False
-        if not math.isclose(value, self._legacy_scale_y, rel_tol=1e-4):
-            self._legacy_scale_y = value
+        if auto:
+            if not math.isclose(value, self._legacy_auto_scale_y, rel_tol=1e-4):
+                self._legacy_auto_scale_y = value
+                self._apply_legacy_scale()
+            return
+        if not math.isclose(value, self._legacy_user_scale_y, rel_tol=1e-4):
+            self._legacy_user_scale_y = value
             self._apply_legacy_scale()
 
     def set_legacy_scale_x(self, scale: float, *, auto: bool = False) -> None:
@@ -551,12 +576,13 @@ class OverlayWindow(QWidget):
         except (TypeError, ValueError):
             value = 1.0
         value = max(0.5, min(2.0, value))
-        if not auto:
-            if self._auto_legacy_scale and math.isclose(value, 1.0, rel_tol=1e-4):
-                return
-            self._auto_legacy_scale = False
-        if not math.isclose(value, self._legacy_scale_x, rel_tol=1e-4):
-            self._legacy_scale_x = value
+        if auto:
+            if not math.isclose(value, self._legacy_auto_scale_x, rel_tol=1e-4):
+                self._legacy_auto_scale_x = value
+                self._apply_legacy_scale()
+            return
+        if not math.isclose(value, self._legacy_user_scale_x, rel_tol=1e-4):
+            self._legacy_user_scale_x = value
             self._apply_legacy_scale()
 
     def set_gridlines(self, *, enabled: bool, spacing: Optional[int] = None) -> None:
@@ -622,8 +648,8 @@ class OverlayWindow(QWidget):
                 "Applied window size: width=%s, base_height=%s, scale_y=%.2f, scale_x=%.2f",
                 self._requested_width,
                 self._base_height,
-                self._legacy_scale_y,
-                self._legacy_scale_x,
+                self._effective_legacy_scale_y(),
+                self._effective_legacy_scale_x(),
             )
             self._apply_legacy_scale()
 
@@ -948,8 +974,8 @@ class OverlayWindow(QWidget):
             return str(screen)
 
     def _sync_base_dimensions_to_widget(self) -> None:
-        scale_x = max(0.5, min(2.0, self._legacy_scale_x))
-        scale_y = max(0.5, min(2.0, self._legacy_scale_y))
+        scale_x = self._effective_legacy_scale_x()
+        scale_y = self._effective_legacy_scale_y()
         current_width = max(self.width(), 1)
         current_height = max(self.height(), 1)
         self._base_width = max(int(round(current_width / scale_x)), 1)
@@ -971,11 +997,11 @@ class OverlayWindow(QWidget):
         clamped_scale_x = max(0.5, min(2.0, desired_scale_x))
         clamped_scale_y = max(0.5, min(2.0, desired_scale_y))
         updated = False
-        if not math.isclose(clamped_scale_x, self._legacy_scale_x, rel_tol=1e-4):
-            self._legacy_scale_x = clamped_scale_x
+        if not math.isclose(clamped_scale_x, self._legacy_auto_scale_x, rel_tol=1e-4):
+            self._legacy_auto_scale_x = clamped_scale_x
             updated = True
-        if not math.isclose(clamped_scale_y, self._legacy_scale_y, rel_tol=1e-4):
-            self._legacy_scale_y = clamped_scale_y
+        if not math.isclose(clamped_scale_y, self._legacy_auto_scale_y, rel_tol=1e-4):
+            self._legacy_auto_scale_y = clamped_scale_y
             updated = True
         if updated:
             self._base_width = ref_width
@@ -1066,8 +1092,8 @@ class OverlayWindow(QWidget):
         font.setWeight(QFont.Weight.Normal)
         painter.setPen(color)
         painter.setFont(font)
-        scale_x = max(0.5, min(2.0, self._legacy_scale_x))
-        scale_y = max(0.5, min(2.0, self._legacy_scale_y))
+        scale_x = self._effective_legacy_scale_x()
+        scale_y = self._effective_legacy_scale_y()
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
         scaled_left = raw_left * scale_x
@@ -1084,8 +1110,8 @@ class OverlayWindow(QWidget):
         pen.setWidth(2)
         painter.setPen(pen)
         painter.setBrush(QBrush(fill_color))
-        scale_x = max(0.5, min(2.0, self._legacy_scale_x))
-        scale_y = max(0.5, min(2.0, self._legacy_scale_y))
+        scale_x = self._effective_legacy_scale_x()
+        scale_y = self._effective_legacy_scale_y()
         x = int(round(float(item.get("x", 0)) * scale_x))
         y = int(round(float(item.get("y", 0)) * scale_y))
         w = int(round(float(item.get("w", 0)) * scale_x))
@@ -1108,8 +1134,8 @@ class OverlayWindow(QWidget):
                 self._base_width = self._requested_width
             else:
                 self._base_width = max(self.width(), 1)
-        scale_y = max(0.5, min(2.0, self._legacy_scale_y))
-        scale_x = max(0.5, min(2.0, self._legacy_scale_x))
+        scale_y = self._effective_legacy_scale_y()
+        scale_x = self._effective_legacy_scale_x()
         if self._follow_enabled and (self._window_tracker is not None or self._last_follow_state is not None):
             self._sync_base_dimensions_to_widget()
             self.update()
