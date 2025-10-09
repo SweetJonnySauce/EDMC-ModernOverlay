@@ -14,6 +14,10 @@ class InitialClientSettings:
     client_log_retention: int = 5
     window_width: int = 1920
     window_height: int = 1080
+    follow_elite_window: bool = True
+    follow_x_offset: int = 20
+    follow_y_offset: int = 40
+    force_render: bool = False
 
 
 @dataclass
@@ -30,6 +34,10 @@ class DeveloperHelperConfig:
     window_width: Optional[int] = None
     window_height: Optional[int] = None
     show_status: Optional[bool] = None
+    follow_enabled: Optional[bool] = None
+    follow_x_offset: Optional[int] = None
+    follow_y_offset: Optional[int] = None
+    force_render: Optional[bool] = None
 
     @classmethod
     def from_payload(cls, payload: Dict[str, Any]) -> "DeveloperHelperConfig":
@@ -66,6 +74,10 @@ class DeveloperHelperConfig:
             window_width=_int(payload.get("window_width"), None),
             window_height=_int(payload.get("window_height"), None),
             show_status=_bool(payload.get("show_status"), None),
+            follow_enabled=_bool(payload.get("follow_game_window"), None),
+            follow_x_offset=_int(payload.get("follow_x_offset"), None),
+            follow_y_offset=_int(payload.get("follow_y_offset"), None),
+            force_render=_bool(payload.get("force_render"), None),
         )
 
 
@@ -97,10 +109,23 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         height = int(data.get("window_height", height))
     except (TypeError, ValueError):
         height = defaults.window_height
+    follow_mode = bool(data.get("follow_game_window", defaults.follow_elite_window))
+    try:
+        x_offset = int(data.get("follow_x_offset", defaults.follow_x_offset))
+    except (TypeError, ValueError):
+        x_offset = defaults.follow_x_offset
+    try:
+        y_offset = int(data.get("follow_y_offset", defaults.follow_y_offset))
+    except (TypeError, ValueError):
+        y_offset = defaults.follow_y_offset
+    force_render = bool(data.get("force_render", defaults.force_render))
 
     return InitialClientSettings(
         client_log_retention=max(1, retention),
         window_width=max(640, width),
         window_height=max(360, height),
+        follow_elite_window=follow_mode,
+        follow_x_offset=max(0, x_offset),
+        follow_y_offset=max(0, y_offset),
+        force_render=force_render,
     )
-

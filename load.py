@@ -356,6 +356,38 @@ class _PluginRuntime:
         LOGGER.debug("Overlay window height set to %d px", height)
         self._send_overlay_config()
 
+    def set_follow_mode_preference(self, value: bool) -> None:
+        self._preferences.follow_game_window = bool(value)
+        LOGGER.debug(
+            "Overlay follow mode %s",
+            "enabled" if self._preferences.follow_game_window else "disabled",
+        )
+        self._send_overlay_config()
+
+    def set_follow_offsets_preference(self, x_value: int, y_value: int) -> None:
+        try:
+            x_offset = int(x_value)
+        except (TypeError, ValueError):
+            x_offset = self._preferences.follow_x_offset
+        try:
+            y_offset = int(y_value)
+        except (TypeError, ValueError):
+            y_offset = self._preferences.follow_y_offset
+        x_offset = max(0, x_offset)
+        y_offset = max(0, y_offset)
+        self._preferences.follow_x_offset = x_offset
+        self._preferences.follow_y_offset = y_offset
+        LOGGER.debug("Overlay follow offsets set to x=%d y=%d", x_offset, y_offset)
+        self._send_overlay_config()
+
+    def set_force_render_preference(self, value: bool) -> None:
+        self._preferences.force_render = bool(value)
+        LOGGER.debug(
+            "Overlay force-render %s",
+            "enabled" if self._preferences.force_render else "disabled",
+        )
+        self._send_overlay_config()
+
     def _publish_external(self, payload: Mapping[str, Any]) -> bool:
         if not self._running:
             return False
@@ -382,12 +414,17 @@ class _PluginRuntime:
             "gridline_spacing": int(self._preferences.gridline_spacing),
             "window_width": int(self._preferences.window_width),
             "window_height": int(self._preferences.window_height),
+            "follow_game_window": bool(self._preferences.follow_game_window),
+            "follow_x_offset": int(self._preferences.follow_x_offset),
+            "follow_y_offset": int(self._preferences.follow_y_offset),
+            "force_render": bool(self._preferences.force_render),
         }
         self._last_config = dict(payload)
         self._publish_payload(payload)
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s legacy_scale_y=%.2f legacy_scale_x=%.2f client_log_retention=%d "
-            "gridlines_enabled=%s gridline_spacing=%d window_width=%d window_height=%d",
+            "gridlines_enabled=%s gridline_spacing=%d window_width=%d window_height=%d follow_game_window=%s "
+            "follow_x_offset=%d follow_y_offset=%d force_render=%s",
             payload["opacity"],
             payload["show_status"],
             payload["legacy_scale_y"],
@@ -397,6 +434,10 @@ class _PluginRuntime:
             payload["gridline_spacing"],
             payload["window_width"],
             payload["window_height"],
+            payload["follow_game_window"],
+            payload["follow_x_offset"],
+            payload["follow_y_offset"],
+            payload["force_render"],
         )
         if rebroadcast:
             self._schedule_config_rebroadcasts()
@@ -536,6 +577,9 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         window_width_callback = _plugin.set_window_width_preference if _plugin else None
         window_height_callback = _plugin.set_window_height_preference if _plugin else None
         horizontal_scale_callback = _plugin.set_horizontal_scale_preference if _plugin else None
+        follow_mode_callback = _plugin.set_follow_mode_preference if _plugin else None
+        follow_offsets_callback = _plugin.set_follow_offsets_preference if _plugin else None
+        force_render_callback = _plugin.set_force_render_preference if _plugin else None
         panel = PreferencesPanel(
             parent,
             _preferences,
@@ -549,6 +593,9 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             window_width_callback,
             window_height_callback,
             horizontal_scale_callback,
+            follow_mode_callback,
+            follow_offsets_callback,
+            force_render_callback,
         )
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)
@@ -571,7 +618,8 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
             LOGGER.debug(
                 "Preferences saved: capture_output=%s show_connection_status=%s log_payloads=%s legacy_vertical_scale=%.2f "
                 "legacy_horizontal_scale=%.2f client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d "
-                "window_width=%d window_height=%d",
+                "window_width=%d window_height=%d follow_game_window=%s follow_x_offset=%d follow_y_offset=%d "
+                "force_render=%s",
                 _preferences.capture_output,
                 _preferences.show_connection_status,
                 _preferences.log_payloads,
@@ -582,6 +630,10 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
                 _preferences.gridline_spacing,
                 _preferences.window_width,
                 _preferences.window_height,
+                _preferences.follow_game_window,
+                _preferences.follow_x_offset,
+                _preferences.follow_y_offset,
+                _preferences.force_render,
             )
         if _plugin:
             _plugin.on_preferences_updated()

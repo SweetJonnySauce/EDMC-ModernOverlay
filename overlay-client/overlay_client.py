@@ -10,10 +10,10 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
-from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint
-from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QCursor, QFontDatabase
+from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QCursor, QFontDatabase, QGuiApplication
 from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 
@@ -23,6 +23,7 @@ if str(CLIENT_DIR) not in sys.path:
 
 from client_config import InitialClientSettings, load_initial_settings  # type: ignore  # noqa: E402
 from developer_helpers import DeveloperHelperController  # type: ignore  # noqa: E402
+from window_tracking import WindowState, WindowTracker, create_elite_window_tracker  # type: ignore  # noqa: E402
 
 
 _LOGGER_NAME = "EDMC.ModernOverlay.Client"
@@ -162,6 +163,14 @@ class OverlayWindow(QWidget):
         self._log_retention: int = max(1, int(initial.client_log_retention))
         self._requested_base_height: Optional[int] = max(360, int(initial.window_height))
         self._requested_width: Optional[int] = max(640, int(initial.window_width))
+        self._follow_enabled: bool = bool(getattr(initial, "follow_elite_window", True))
+        self._follow_x_offset: int = max(0, int(getattr(initial, "follow_x_offset", 20)))
+        self._follow_y_offset: int = max(0, int(getattr(initial, "follow_y_offset", 40)))
+        self._force_render: bool = bool(getattr(initial, "force_render", False))
+        self._window_tracker: Optional[WindowTracker] = None
+        self._last_follow_state: Optional[WindowState] = None
+        self._follow_resume_at: float = 0.0
+        self._lost_window_logged: bool = False
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -172,6 +181,10 @@ class OverlayWindow(QWidget):
         self._modifier_timer.setInterval(100)
         self._modifier_timer.timeout.connect(self._poll_modifiers)
         self._modifier_timer.start()
+
+        self._tracking_timer = QTimer(self)
+        self._tracking_timer.setInterval(250)
+        self._tracking_timer.timeout.connect(self._refresh_follow_geometry)
 
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setWindowFlags(
@@ -285,6 +298,7 @@ class OverlayWindow(QWidget):
             and self._move_mode
         ):
             self._drag_active = True
+            self._suspend_follow(1.0)
             self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             if not self._cursor_saved:
                 self._saved_cursor = self.cursor()
@@ -305,6 +319,7 @@ class OverlayWindow(QWidget):
     def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
         if self._drag_active and event.button() == Qt.MouseButton.LeftButton:
             self._drag_active = False
+            self._suspend_follow(0.5)
             self.raise_()
             if self._cursor_saved:
                 self.setCursor(self._saved_cursor)
@@ -319,6 +334,71 @@ class OverlayWindow(QWidget):
     @property
     def gridlines_enabled(self) -> bool:
         return self._gridlines_enabled
+
+    @property
+    def follow_offsets(self) -> Tuple[int, int]:
+        return self._follow_x_offset, self._follow_y_offset
+
+    def set_window_tracker(self, tracker: Optional[WindowTracker]) -> None:
+        self._window_tracker = tracker
+        if tracker and self._follow_enabled:
+            self._start_tracking()
+            self._refresh_follow_geometry()
+        else:
+            self._stop_tracking()
+
+    def set_follow_enabled(self, enabled: bool) -> None:
+        flag = bool(enabled)
+        if flag == self._follow_enabled:
+            return
+        self._follow_enabled = flag
+        if flag:
+            self._lost_window_logged = False
+            self._suspend_follow(0.5)
+            self._start_tracking()
+            self._update_follow_visibility(True)
+        else:
+            self._stop_tracking()
+            self._update_follow_visibility(True)
+            self._sync_base_dimensions_to_widget()
+
+    def set_follow_offsets(self, x_offset: int, y_offset: int) -> None:
+        try:
+            x_val = int(x_offset)
+        except (TypeError, ValueError):
+            x_val = self._follow_x_offset
+        try:
+            y_val = int(y_offset)
+        except (TypeError, ValueError):
+            y_val = self._follow_y_offset
+        x_val = max(0, x_val)
+        y_val = max(0, y_val)
+        if x_val == self._follow_x_offset and y_val == self._follow_y_offset:
+            return
+        self._follow_x_offset = x_val
+        self._follow_y_offset = y_val
+        if self._follow_enabled and self._last_follow_state:
+            self._apply_follow_state(self._last_follow_state)
+
+    def get_follow_offsets(self) -> Tuple[int, int]:
+        return self._follow_x_offset, self._follow_y_offset
+
+    def set_force_render(self, force: bool) -> None:
+        flag = bool(force)
+        if flag == self._force_render:
+            return
+        self._force_render = flag
+        if flag:
+            self._update_follow_visibility(True)
+            if self._last_follow_state:
+                self._apply_follow_state(self._last_follow_state)
+        else:
+            if (
+                self._follow_enabled
+                and self._last_follow_state
+                and not self._last_follow_state.is_foreground
+            ):
+                self._update_follow_visibility(False)
 
     def display_message(self, message: str) -> None:
         self._state["message"] = message
@@ -472,6 +552,7 @@ class OverlayWindow(QWidget):
         alt_down = bool(modifiers & Qt.KeyboardModifier.AltModifier)
         if alt_down and not self._move_mode:
             self._move_mode = True
+            self._suspend_follow(0.75)
             if not self._cursor_saved:
                 self._saved_cursor = self.cursor()
                 self._cursor_saved = True
@@ -493,6 +574,125 @@ class OverlayWindow(QWidget):
         self.setWindowFlag(Qt.WindowType.Tool, True)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.show()
+
+    # Follow mode ----------------------------------------------------------
+
+    def _start_tracking(self) -> None:
+        if not self._window_tracker or not self._follow_enabled:
+            return
+        if not self._tracking_timer.isActive():
+            self._tracking_timer.start()
+
+    def _stop_tracking(self) -> None:
+        if self._tracking_timer.isActive():
+            self._tracking_timer.stop()
+
+    def _suspend_follow(self, delay: float = 0.75) -> None:
+        self._follow_resume_at = max(self._follow_resume_at, time.monotonic() + max(0.0, delay))
+
+    def _refresh_follow_geometry(self) -> None:
+        if not self._follow_enabled or self._window_tracker is None:
+            return
+        now = time.monotonic()
+        if self._drag_active or self._move_mode:
+            self._suspend_follow(0.75)
+            return
+        if now < self._follow_resume_at:
+            return
+        try:
+            state = self._window_tracker.poll()
+        except Exception as exc:  # pragma: no cover - defensive guard
+            _CLIENT_LOGGER.debug("Window tracker poll failed: %s", exc)
+            return
+        if state is None:
+            self._handle_missing_follow_state()
+            return
+        self._apply_follow_state(state)
+
+    def _apply_follow_state(self, state: WindowState) -> None:
+        self._last_follow_state = state
+        self._lost_window_logged = False
+        if not state.is_visible and not self._force_render:
+            self._update_follow_visibility(False)
+            return
+        width = max(1, state.width - 2 * self._follow_x_offset)
+        height = max(1, state.height - 2 * self._follow_y_offset)
+        x = state.x + self._follow_x_offset
+        y = state.y + self._follow_y_offset
+        target_rect = QRect(x, y, width, height)
+        current_rect = self.geometry()
+        if (
+            current_rect.x() != target_rect.x()
+            or current_rect.y() != target_rect.y()
+            or current_rect.width() != target_rect.width()
+            or current_rect.height() != target_rect.height()
+        ):
+            self.setGeometry(target_rect)
+            self._sync_base_dimensions_to_widget()
+            self.raise_()
+            self._move_to_screen(target_rect)
+        else:
+            self._sync_base_dimensions_to_widget()
+        should_show = self._force_render or (state.is_visible and state.is_foreground)
+        self._update_follow_visibility(should_show)
+
+    def _handle_missing_follow_state(self) -> None:
+        if not self._lost_window_logged:
+            _CLIENT_LOGGER.debug("Elite Dangerous window not found; waiting for window to appear")
+            self._lost_window_logged = True
+        if self._last_follow_state is None:
+            if not self._force_render:
+                self._update_follow_visibility(False)
+            return
+        if not self._force_render and not self._last_follow_state.is_foreground:
+            self._update_follow_visibility(False)
+
+    def _update_follow_visibility(self, show: bool) -> None:
+        if show:
+            if not self.isVisible():
+                self.show()
+                self.raise_()
+                self._apply_drag_state()
+        else:
+            if self.isVisible():
+                self.hide()
+
+    def _move_to_screen(self, rect: QRect) -> None:
+        window = self.windowHandle()
+        if window is None:
+            return
+        screen = self._screen_for_rect(rect)
+        if screen is not None and window.screen() is not screen:
+            window.setScreen(screen)
+
+    def _screen_for_rect(self, rect: QRect):
+        screens = QGuiApplication.screens()
+        if not screens:
+            return None
+        best_screen = None
+        best_area = 0
+        for screen in screens:
+            area = rect.intersected(screen.geometry())
+            intersection_area = area.width() * area.height()
+            if intersection_area > best_area:
+                best_area = intersection_area
+                best_screen = screen
+        if best_screen is not None:
+            return best_screen
+        primary = QGuiApplication.primaryScreen()
+        return primary or screens[0]
+
+    def _sync_base_dimensions_to_widget(self) -> None:
+        scale_x = max(0.5, min(2.0, self._legacy_scale_x))
+        scale_y = max(0.5, min(2.0, self._legacy_scale_y))
+        current_width = max(self.width(), 1)
+        current_height = max(self.height(), 1)
+        self._base_width = max(int(round(current_width / scale_x)), 1)
+        self._base_height = max(int(round(current_height / scale_y)), 1)
+        self._requested_width = self._base_width
+        self._requested_base_height = self._base_height
+        self.setMinimumWidth(current_width)
+        self.setMinimumHeight(current_height)
 
     # Legacy overlay handling ---------------------------------------------
 
@@ -608,6 +808,10 @@ class OverlayWindow(QWidget):
                 self._base_width = max(self.width(), 1)
         scale_y = max(0.5, min(2.0, self._legacy_scale_y))
         scale_x = max(0.5, min(2.0, self._legacy_scale_x))
+        if self._follow_enabled and (self._window_tracker is not None or self._last_follow_state is not None):
+            self._sync_base_dimensions_to_widget()
+            self.update()
+            return
         target_height = max(int(round(self._base_height * scale_y)), 1)
         target_width = max(int(round(self._base_width * scale_x)), 1)
         self.setMinimumHeight(target_height)
@@ -705,8 +909,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     window = OverlayWindow(initial_settings)
     helper.apply_initial_window_state(window, initial_settings)
     window.resize(initial_settings.window_width, initial_settings.window_height)
-    # Ensure the overlay starts at the top-left of the primary screen (0,0)
-    window.move(0, 0)
+    if not initial_settings.follow_elite_window:
+        # Ensure the overlay starts at the top-left of the primary screen (0,0)
+        window.move(0, 0)
+    tracker = create_elite_window_tracker(_CLIENT_LOGGER)
+    if tracker is not None:
+        window.set_window_tracker(tracker)
+    else:
+        _CLIENT_LOGGER.info("Window tracker unavailable; follow mode disabled")
     _CLIENT_LOGGER.debug(
         "Overlay window created, sized to %dx%d, moved to (0,0)",
         window.width(),
