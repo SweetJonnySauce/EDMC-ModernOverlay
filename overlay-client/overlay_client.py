@@ -164,13 +164,21 @@ class OverlayWindow(QWidget):
         self._requested_base_height: Optional[int] = max(360, int(initial.window_height))
         self._requested_width: Optional[int] = max(640, int(initial.window_width))
         self._follow_enabled: bool = bool(getattr(initial, "follow_elite_window", True))
-        self._follow_x_offset: int = max(0, int(getattr(initial, "follow_x_offset", 20)))
-        self._follow_y_offset: int = max(0, int(getattr(initial, "follow_y_offset", 40)))
+        self._follow_x_offset: int = max(0, int(getattr(initial, "follow_x_offset", 0)))
+        self._follow_y_offset: int = max(0, int(getattr(initial, "follow_y_offset", 0)))
         self._force_render: bool = bool(getattr(initial, "force_render", False))
         self._window_tracker: Optional[WindowTracker] = None
         self._last_follow_state: Optional[WindowState] = None
         self._follow_resume_at: float = 0.0
         self._lost_window_logged: bool = False
+        self._last_tracker_state: Optional[Tuple[str, int, int, int, int]] = None
+        self._last_geometry_log: Optional[Tuple[int, int, int, int]] = None
+        self._last_move_log: Optional[Tuple[int, int]] = None
+        self._last_status_log: Optional[Tuple[int, int]] = None
+        self._last_screen_name: Optional[str] = None
+        self._last_set_geometry: Optional[Tuple[int, int, int, int]] = None
+        self._last_visibility_state: Optional[bool] = None
+        self._wm_authoritative_rect: Optional[Tuple[int, int, int, int]] = None
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -190,10 +198,11 @@ class OverlayWindow(QWidget):
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
+            | Qt.WindowType.Window
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self._apply_drag_state()
 
         status_font = QFont(self._font_family, 18)
@@ -329,6 +338,31 @@ class OverlayWindow(QWidget):
             return
         super().mouseReleaseEvent(event)
 
+    def moveEvent(self, event) -> None:  # type: ignore[override]
+        super().moveEvent(event)
+        frame = self.frameGeometry()
+        current = (frame.x(), frame.y())
+        if current != self._last_move_log:
+            _CLIENT_LOGGER.debug(
+                "Overlay moveEvent: pos=(%d,%d) frame=%s last_set=%s",
+                frame.x(),
+                frame.y(),
+                (frame.x(), frame.y(), frame.width(), frame.height()),
+                self._last_set_geometry,
+            )
+            if (
+                self._follow_enabled
+                and self._last_set_geometry is not None
+                and (frame.x(), frame.y(), frame.width(), frame.height()) != self._last_set_geometry
+            ):
+                self._wm_authoritative_rect = (frame.x(), frame.y(), frame.width(), frame.height())
+                _CLIENT_LOGGER.debug(
+                    "Recorded WM authoritative rect from moveEvent: %s",
+                    self._wm_authoritative_rect,
+                )
+            self._last_move_log = current
+            self._update_status_position_info()
+
     # External control -----------------------------------------------------
 
     @property
@@ -361,6 +395,7 @@ class OverlayWindow(QWidget):
             self._stop_tracking()
             self._update_follow_visibility(True)
             self._sync_base_dimensions_to_widget()
+            self._wm_authoritative_rect = None
 
     def set_follow_offsets(self, x_offset: int, y_offset: int) -> None:
         try:
@@ -406,21 +441,44 @@ class OverlayWindow(QWidget):
 
     def set_status_text(self, status: str) -> None:
         self._status = status
-        if self._show_status:
-            self.status_label.setText(status)
-        else:
-            self.status_label.clear()
+        self._last_status_log = None
+        self._refresh_status_label()
         self._update_status_visibility()
 
     def set_show_status(self, show: bool) -> None:
-        previous = self._show_status
         self._show_status = bool(show)
-        if self._show_status:
-            if self._status and (not previous or not self.status_label.text()):
-                self.status_label.setText(self._status)
-        else:
+        if not self._show_status:
             self.status_label.clear()
+            self._last_status_log = None
+        self._refresh_status_label()
         self._update_status_visibility()
+
+    def _refresh_status_label(self) -> None:
+        if not self._show_status:
+            return
+        text = self._compose_status_text()
+        if text != self.status_label.text():
+            self.status_label.setText(text)
+
+    def _compose_status_text(self) -> str:
+        base = (self._status or "").strip()
+        frame = self.frameGeometry()
+        screen_desc = self._describe_screen(self.windowHandle().screen() if self.windowHandle() else None)
+        position = f"x={frame.x()} y={frame.y()}"
+        suffix = f"{position} on {screen_desc}"
+        if base:
+            return f"{base} ({suffix})"
+        return f"Overlay position ({suffix})"
+
+    def _update_status_position_info(self) -> None:
+        if not self._show_status:
+            return
+        frame = self.frameGeometry()
+        current = (frame.x(), frame.y())
+        if current != self._last_status_log:
+            _CLIENT_LOGGER.debug("Updating status position info: pos=(%d,%d)", frame.x(), frame.y())
+            self._last_status_log = current
+        self._refresh_status_label()
 
     def set_background_opacity(self, opacity: float) -> None:
         try:
@@ -469,6 +527,25 @@ class OverlayWindow(QWidget):
         self.update()
 
     def set_window_dimensions(self, width: Optional[int], height: Optional[int]) -> None:
+        follow_locked = self._follow_enabled and (self._window_tracker is not None or self._last_follow_state is not None)
+        if follow_locked:
+            if width is not None:
+                try:
+                    self._requested_width = max(640, int(width))
+                except (TypeError, ValueError):
+                    pass
+            if height is not None:
+                try:
+                    self._requested_base_height = max(360, int(height))
+                except (TypeError, ValueError):
+                    pass
+            _CLIENT_LOGGER.debug(
+                "Ignoring explicit window size while follow mode is active (requested=%sx%s)",
+                self._requested_width,
+                self._requested_base_height,
+            )
+            return
+
         size_changed = False
         if width is not None:
             try:
@@ -512,7 +589,9 @@ class OverlayWindow(QWidget):
         self._handle_legacy(payload)
 
     def _update_status_visibility(self) -> None:
-        should_display = bool(self._show_status and self._status)
+        should_display = bool(self._show_status)
+        if self.status_label.isVisible() != should_display:
+            _CLIENT_LOGGER.debug("Overlay status label visibility set to %s", should_display)
         self.status_label.setVisible(should_display)
 
     # Platform integration -------------------------------------------------
@@ -596,8 +675,10 @@ class OverlayWindow(QWidget):
         now = time.monotonic()
         if self._drag_active or self._move_mode:
             self._suspend_follow(0.75)
+            _CLIENT_LOGGER.debug("Skipping follow refresh: drag/move active")
             return
         if now < self._follow_resume_at:
+            _CLIENT_LOGGER.debug("Skipping follow refresh: awaiting resume window")
             return
         try:
             state = self._window_tracker.poll()
@@ -607,35 +688,114 @@ class OverlayWindow(QWidget):
         if state is None:
             self._handle_missing_follow_state()
             return
+        global_x = state.global_x if state.global_x is not None else state.x
+        global_y = state.global_y if state.global_y is not None else state.y
+        tracker_key = (state.identifier, global_x, global_y, state.width, state.height)
+        if tracker_key != self._last_tracker_state:
+            _CLIENT_LOGGER.debug(
+                "Tracker state: id=%s global=(%d,%d) size=%dx%d foreground=%s visible=%s",
+                state.identifier,
+                global_x,
+                global_y,
+                state.width,
+                state.height,
+                state.is_foreground,
+                state.is_visible,
+            )
+            self._last_tracker_state = tracker_key
         self._apply_follow_state(state)
 
     def _apply_follow_state(self, state: WindowState) -> None:
-        self._last_follow_state = state
         self._lost_window_logged = False
-        if not state.is_visible and not self._force_render:
-            self._update_follow_visibility(False)
-            return
+
+        tracker_global_x = state.global_x if state.global_x is not None else state.x
+        tracker_global_y = state.global_y if state.global_y is not None else state.y
         width = max(1, state.width - 2 * self._follow_x_offset)
         height = max(1, state.height - 2 * self._follow_y_offset)
-        x = state.x + self._follow_x_offset
-        y = state.y + self._follow_y_offset
-        target_rect = QRect(x, y, width, height)
-        current_rect = self.geometry()
-        if (
-            current_rect.x() != target_rect.x()
-            or current_rect.y() != target_rect.y()
-            or current_rect.width() != target_rect.width()
-            or current_rect.height() != target_rect.height()
-        ):
+        tracker_target_tuple = (
+            tracker_global_x + self._follow_x_offset,
+            tracker_global_y + self._follow_y_offset,
+            width,
+            height,
+        )
+
+        target_tuple = tracker_target_tuple
+        if self._wm_authoritative_rect and tracker_target_tuple != self._wm_authoritative_rect:
+            target_tuple = self._wm_authoritative_rect
+        elif self._wm_authoritative_rect and tracker_target_tuple == self._wm_authoritative_rect:
+            _CLIENT_LOGGER.debug("Tracker target realigned with WM authoritative rect; clearing override")
+            self._wm_authoritative_rect = None
+
+        target_rect = QRect(*target_tuple)
+        current_rect = self.frameGeometry()
+        actual_tuple = (
+            current_rect.x(),
+            current_rect.y(),
+            current_rect.width(),
+            current_rect.height(),
+        )
+
+        if target_tuple != self._last_geometry_log:
+            _CLIENT_LOGGER.debug(
+                "Calculated overlay geometry: target=%s offsets=(%d,%d)",
+                target_tuple,
+                self._follow_x_offset,
+                self._follow_y_offset,
+            )
+
+        needs_geometry_update = (
+            self._wm_authoritative_rect is None
+            and actual_tuple != target_tuple
+        )
+
+        if needs_geometry_update:
+            _CLIENT_LOGGER.debug("Applying geometry via setGeometry: target=%s", target_tuple)
+            self._move_to_screen(target_rect)
+            self._last_set_geometry = target_tuple
             self.setGeometry(target_rect)
             self._sync_base_dimensions_to_widget()
             self.raise_()
-            self._move_to_screen(target_rect)
+            current_rect = self.frameGeometry()
+            actual_tuple = (
+                current_rect.x(),
+                current_rect.y(),
+                current_rect.width(),
+                current_rect.height(),
+            )
         else:
+            self._last_set_geometry = target_tuple
             self._sync_base_dimensions_to_widget()
+
+        if actual_tuple != target_tuple:
+            _CLIENT_LOGGER.debug(
+                "Window manager override detected: actual=%s target=%s",
+                actual_tuple,
+                target_tuple,
+            )
+            self._wm_authoritative_rect = actual_tuple
+            target_tuple = actual_tuple
+            target_rect = QRect(*target_tuple)
+        elif self._wm_authoritative_rect and tracker_target_tuple == target_tuple:
+            self._wm_authoritative_rect = None
+
+        final_global_x = target_tuple[0] - self._follow_x_offset
+        final_global_y = target_tuple[1] - self._follow_y_offset
+
+        self._last_geometry_log = target_tuple
+        self._last_follow_state = WindowState(
+            x=final_global_x,
+            y=final_global_y,
+            width=state.width,
+            height=state.height,
+            is_foreground=state.is_foreground,
+            is_visible=state.is_visible,
+            identifier=state.identifier,
+            global_x=final_global_x,
+            global_y=final_global_y,
+        )
+
         should_show = self._force_render or (state.is_visible and state.is_foreground)
         self._update_follow_visibility(should_show)
-
     def _handle_missing_follow_state(self) -> None:
         if not self._lost_window_logged:
             _CLIENT_LOGGER.debug("Elite Dangerous window not found; waiting for window to appear")
@@ -656,6 +816,9 @@ class OverlayWindow(QWidget):
         else:
             if self.isVisible():
                 self.hide()
+        if self._last_visibility_state != show:
+            _CLIENT_LOGGER.debug("Overlay visibility set to %s", "visible" if show else "hidden")
+            self._last_visibility_state = show
 
     def _move_to_screen(self, rect: QRect) -> None:
         window = self.windowHandle()
@@ -663,7 +826,14 @@ class OverlayWindow(QWidget):
             return
         screen = self._screen_for_rect(rect)
         if screen is not None and window.screen() is not screen:
+            _CLIENT_LOGGER.debug(
+                "Moving overlay to screen %s",
+                self._describe_screen(screen),
+            )
             window.setScreen(screen)
+            self._last_screen_name = self._describe_screen(screen)
+        elif screen is not None:
+            self._last_screen_name = self._describe_screen(screen)
 
     def _screen_for_rect(self, rect: QRect):
         screens = QGuiApplication.screens()
@@ -681,6 +851,15 @@ class OverlayWindow(QWidget):
             return best_screen
         primary = QGuiApplication.primaryScreen()
         return primary or screens[0]
+
+    def _describe_screen(self, screen) -> str:
+        if screen is None:
+            return "unknown"
+        try:
+            geometry = screen.geometry()
+            return f"{screen.name()} {geometry.width()}x{geometry.height()}@({geometry.x()},{geometry.y()})"
+        except Exception:
+            return str(screen)
 
     def _sync_base_dimensions_to_widget(self) -> None:
         scale_x = max(0.5, min(2.0, self._legacy_scale_x))

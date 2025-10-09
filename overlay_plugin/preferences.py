@@ -27,8 +27,8 @@ class Preferences:
     window_width: int = 1920
     window_height: int = 1080
     follow_game_window: bool = True
-    follow_x_offset: int = 20
-    follow_y_offset: int = 40
+    follow_x_offset: int = 0
+    follow_y_offset: int = 0
     force_render: bool = False
 
     def __post_init__(self) -> None:
@@ -80,13 +80,13 @@ class Preferences:
         self.window_height = max(360, height)
         self.follow_game_window = bool(data.get("follow_game_window", True))
         try:
-            follow_x = int(data.get("follow_x_offset", 20))
+            follow_x = int(data.get("follow_x_offset", 0))
         except (TypeError, ValueError):
-            follow_x = 20
+            follow_x = 0
         try:
-            follow_y = int(data.get("follow_y_offset", 40))
+            follow_y = int(data.get("follow_y_offset", 0))
         except (TypeError, ValueError):
-            follow_y = 40
+            follow_y = 0
         self.follow_x_offset = max(0, follow_x)
         self.follow_y_offset = max(0, follow_y)
         self.force_render = bool(data.get("force_render", False))

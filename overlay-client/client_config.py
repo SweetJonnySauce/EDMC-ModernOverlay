@@ -15,8 +15,8 @@ class InitialClientSettings:
     window_width: int = 1920
     window_height: int = 1080
     follow_elite_window: bool = True
-    follow_x_offset: int = 20
-    follow_y_offset: int = 40
+    follow_x_offset: int = 0
+    follow_y_offset: int = 0
     force_render: bool = False
 
 

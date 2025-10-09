@@ -1,17 +1,17 @@
 {
   "capture_output": true,
-  "overlay_opacity": 0.35,
+  "overlay_opacity": 0.15,
   "show_connection_status": true,
   "log_payloads": false,
-  "legacy_vertical_scale": 1.45,
-  "legacy_horizontal_scale": 1.35,
+  "legacy_vertical_scale": 1.0,
+  "legacy_horizontal_scale": 1.0,
   "client_log_retention": 5,
   "gridlines_enabled": true,
   "gridline_spacing": 120,
   "window_width": 1980,
   "window_height": 1080,
   "follow_game_window": true,
-  "follow_x_offset": 20,
-  "follow_y_offset": 40,
-  "force_render": false
+  "follow_x_offset": 0,
+  "follow_y_offset": 0,
+  "force_render": true
 }
