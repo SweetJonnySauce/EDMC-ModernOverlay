@@ -238,7 +238,8 @@ class OverlayWindow(QWidget):
         layout.addWidget(self.message_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         layout.addStretch(1)
         layout.addWidget(self.status_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
-        layout.setContentsMargins(20, 20, 20, 20)
+        # Increase bottom margin by 10px to raise the status label slightly
+        layout.setContentsMargins(20, 20, 20, 30)
         self.setLayout(layout)
         self.status_label.setVisible(False)
 
