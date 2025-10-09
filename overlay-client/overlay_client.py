@@ -705,7 +705,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     window = OverlayWindow(initial_settings)
     helper.apply_initial_window_state(window, initial_settings)
     window.resize(initial_settings.window_width, initial_settings.window_height)
-    _CLIENT_LOGGER.debug("Overlay window created and sized to %dx%d", window.width(), window.height())
+    # Ensure the overlay starts at the top-left of the primary screen (0,0)
+    window.move(0, 0)
+    _CLIENT_LOGGER.debug(
+        "Overlay window created, sized to %dx%d, moved to (0,0)",
+        window.width(),
+        window.height(),
+    )
 
     def _handle_payload(payload: Dict[str, Any]) -> None:
         event = payload.get("event")
