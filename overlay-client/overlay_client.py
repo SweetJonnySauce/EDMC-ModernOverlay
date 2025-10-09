@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect
-from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QCursor, QFontDatabase, QGuiApplication
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QCursor, QFontDatabase, QGuiApplication, QWindow
 from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 
@@ -179,6 +179,8 @@ class OverlayWindow(QWidget):
         self._last_set_geometry: Optional[Tuple[int, int, int, int]] = None
         self._last_visibility_state: Optional[bool] = None
         self._wm_authoritative_rect: Optional[Tuple[int, int, int, int]] = None
+        self._transient_parent_id: Optional[str] = None
+        self._transient_parent_window: Optional[QWindow] = None
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -195,11 +197,14 @@ class OverlayWindow(QWidget):
         self._tracking_timer.timeout.connect(self._refresh_follow_geometry)
 
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setWindowFlags(
+        window_flags = (
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Window
         )
+        if sys.platform.startswith("linux"):
+            window_flags |= Qt.WindowType.X11BypassWindowManagerHint
+        self.setWindowFlags(window_flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
@@ -343,12 +348,14 @@ class OverlayWindow(QWidget):
         frame = self.frameGeometry()
         current = (frame.x(), frame.y())
         if current != self._last_move_log:
+            screen_desc = self._describe_screen(self.windowHandle().screen() if self.windowHandle() else None)
             _CLIENT_LOGGER.debug(
-                "Overlay moveEvent: pos=(%d,%d) frame=%s last_set=%s",
+                "Overlay moveEvent: pos=(%d,%d) frame=%s last_set=%s monitor=%s",
                 frame.x(),
                 frame.y(),
                 (frame.x(), frame.y(), frame.width(), frame.height()),
                 self._last_set_geometry,
+                screen_desc,
             )
             if (
                 self._follow_enabled
@@ -476,7 +483,8 @@ class OverlayWindow(QWidget):
         frame = self.frameGeometry()
         current = (frame.x(), frame.y())
         if current != self._last_status_log:
-            _CLIENT_LOGGER.debug("Updating status position info: pos=(%d,%d)", frame.x(), frame.y())
+            screen_desc = self._describe_screen(self.windowHandle().screen() if self.windowHandle() else None)
+            _CLIENT_LOGGER.debug("Updating status position info: pos=(%d,%d) monitor=%s", frame.x(), frame.y(), screen_desc)
             self._last_status_log = current
         self._refresh_status_label()
 
@@ -794,8 +802,35 @@ class OverlayWindow(QWidget):
             global_y=final_global_y,
         )
 
+        self._ensure_transient_parent(state)
+
         should_show = self._force_render or (state.is_visible and state.is_foreground)
         self._update_follow_visibility(should_show)
+
+    def _ensure_transient_parent(self, state: WindowState) -> None:
+        if not sys.platform.startswith("linux"):
+            return
+        identifier = state.identifier
+        if not identifier or identifier == self._transient_parent_id:
+            return
+        window_handle = self.windowHandle()
+        if window_handle is None:
+            return
+        try:
+            native_id = int(identifier, 16)
+        except ValueError:
+            return
+        try:
+            parent_window = QWindow.fromWinId(native_id)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            _CLIENT_LOGGER.debug("Failed to wrap native window %s: %s", identifier, exc)
+            return
+        if parent_window is None:
+            return
+        window_handle.setTransientParent(parent_window)
+        self._transient_parent_window = parent_window
+        self._transient_parent_id = identifier
+        _CLIENT_LOGGER.debug("Set overlay transient parent to Elite window %s", identifier)
     def _handle_missing_follow_state(self) -> None:
         if not self._lost_window_logged:
             _CLIENT_LOGGER.debug("Elite Dangerous window not found; waiting for window to appear")
