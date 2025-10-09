@@ -1118,12 +1118,29 @@ class OverlayWindow(QWidget):
         painter.drawText(x, baseline, str(item.get("text", "")))
 
     def _paint_legacy_rect(self, painter: QPainter, item: Dict[str, Any]) -> None:
-        border_color = QColor(str(item.get("color", "white")))
-        fill_color = QColor(str(item.get("fill", "#00000000")))
-        pen = QPen(border_color)
-        pen.setWidth(2)
+        border_spec = str(item.get("color", "white"))
+        fill_spec = str(item.get("fill", "#00000000"))
+
+        pen: QPen
+        if not border_spec or border_spec.lower() == "none":
+            pen = QPen(Qt.PenStyle.NoPen)
+        else:
+            border_color = QColor(border_spec)
+            if not border_color.isValid():
+                border_color = QColor("white")
+            pen = QPen(border_color)
+            pen.setWidth(2)
+
+        if not fill_spec or fill_spec.lower() == "none":
+            brush = QBrush(Qt.BrushStyle.NoBrush)
+        else:
+            fill_color = QColor(fill_spec)
+            if not fill_color.isValid():
+                fill_color = QColor("#00000000")
+            brush = QBrush(fill_color)
+
         painter.setPen(pen)
-        painter.setBrush(QBrush(fill_color))
+        painter.setBrush(brush)
         scale_x = self._effective_legacy_scale_x()
         scale_y = self._effective_legacy_scale_y()
         x = int(round(float(item.get("x", 0)) * scale_x))
