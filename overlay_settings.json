@@ -1,7 +1,7 @@
 {
   "capture_output": true,
   "overlay_opacity": 0.0,
-  "show_connection_status": true,
+  "show_connection_status": false,
   "log_payloads": false,
   "legacy_vertical_scale": 1.0,
   "legacy_horizontal_scale": 1.6,
@@ -13,5 +13,5 @@
   "follow_game_window": true,
   "follow_x_offset": 0,
   "follow_y_offset": 0,
-  "force_render": true
+  "force_render": false
 }

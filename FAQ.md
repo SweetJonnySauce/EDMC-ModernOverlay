@@ -9,3 +9,12 @@
 5. When the overlay window gets an `OverlayConfig` event in `_on_message`, it applies the updated opacity, scaling, grid, window size, log retention, and status flags immediately (`overlay-client/overlay_client.py`).
 6. On startup, the plugin rebroadcasts the current configuration a few times so newly launched clients always get the latest settings, and the client seeds its defaults from `overlay_settings.json` if no update has arrived yet (`load.py`, `overlay-client/overlay_client.py`).
 
+## Why does the overlay stay visible when I alt‑tab out of Elite Dangerous on Windows?
+
+The overlay hides itself when the game window is not foreground. This behavior is controlled by the `force_render` setting:
+
+- `force_render = false` (default): overlay hides when Elite is not the active/foreground window.
+- `force_render = true`: overlay remains visible even if Elite loses focus.
+
+You can toggle this via the EDMC preferences panel checkbox labeled "Keep overlay visible when Elite Dangerous is not the foreground window". The overlay client and plugin exchange this value through the regular `OverlayConfig` updates, so changes take effect immediately without restarting.
+
