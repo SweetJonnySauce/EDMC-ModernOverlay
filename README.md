@@ -83,7 +83,7 @@ The overlay client lives inside the plugin directory and expects a virtual envir
 
 The client expects a Python virtual environment at `overlay-client/.venv`. Create it locally before deploying into EDMC.
 
-1. In bash:
+1. In bash (default plugin path is `~/.local/share/EDMarketConnector/plugins/`; adjust if you use a custom location):
    ```bash
    cd /path/to/EDMC-ModernOverlay
    python3 -m venv overlay-client/.venv
