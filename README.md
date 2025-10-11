@@ -35,7 +35,6 @@ EDMC-ModernOverlay/
 │   │   ├── preferred_fonts.txt   # Optional case-insensitive priority list
 │   │   ├── SourceSans3-Regular.ttf
 │   │   ├── SourceSans3-OFL.txt
-│   │   └── old/                  # Backup copy of the shipping Source Sans font
 └── overlay_settings.json         # Sample preferences written by EDMC
 ```
 
