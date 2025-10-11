@@ -57,47 +57,54 @@ EDMC-ModernOverlay/
 - Elite Dangerous Market Connector installed
 - On Windows Microsoft Visual C++ 14.0 or greater is required. Get it with "Microsoft C++ Build Tools": https://visualstudio.microsoft.com/visual-cpp-build-tools/
 
-## Setup
+## Windows Setup
 
-The client lives in the plugin folder and expects a dedicated Python environment under `overlay-client/.venv`. That directory is *not* distributed, so create it yourself before copying the plugin into EDMC.
+The overlay client lives inside the plugin directory and expects a virtual environment at `overlay-client\.venv`. Create it locally before copying the plugin into EDMC.
 
-1. **From the plugin folder, create a virtual environment for the overlay client** inside `overlay-client/`:
+1. Set up client python environment
+   In PowerShell (default plugin path is `%LOCALAPPDATA%\EDMarketConnector\plugins\`, adjust if you store plugins elsewhere):
+   ```powershell
+   Set-Location "$env:LOCALAPPDATA\EDMarketConnector\plugins"
+   cd .\EDMC-ModernOverlay
+   py -3 -m venv overlay-client\.venv
+   overlay-client\.venv\Scripts\Activate.ps1
+   ```
+2. Install the client dependencies while the environment is active:
+   ```powershell
+   pip install -r overlay-client\requirements.txt
+   ```
+3. Copy the entire plugin (including `overlay-client\`) into:
+   ```
+   %LOCALAPPDATA%\EDMarketConnector\plugins\EDMCModernOverlay\
+   ```
+4. Launch EDMC. The plugin spins up the broadcaster, writes `port.json` when the listener is online, and supervises the overlay client. If the port is already taken the plugin stays loaded and logs that it is running in degraded mode until the port becomes free.
+5. Configure the plugin via *File → Settings → Modern Overlay* (see “Configuration” below for option details).
+
+## Linux Setup
+
+The client expects a Python virtual environment at `overlay-client/.venv`. Create it locally before deploying into EDMC.
+
+1. In bash:
    ```bash
+   cd /path/to/EDMC-ModernOverlay
    python3 -m venv overlay-client/.venv
-   # Windows PowerShell
-   overlay-client\.venv\Scripts\activate
-   # macOS/Linux
    source overlay-client/.venv/bin/activate
    ```
-2. **Install overlay dependencies** into that environment:
+2. Install the client dependencies while the environment is active:
    ```bash
    pip install -r overlay-client/requirements.txt
    ```
-   On Linux you also need Qt's XCB helpers:
+3. Install Qt helper libraries (required by PyQt6 on most distros):
    ```bash
    sudo apt-get update
    sudo apt-get install libxcb-cursor0 libxkbcommon-x11-0
    ```
-   Source Sans 3 (SIL Open Font License 1.1) ships in `overlay-client/fonts/`
-   as `SourceSans3-Regular.ttf` and is used by default. To override the HUD
-   typeface drop another font (for example `Eurocaps.ttf`) into the same
-   directory along with its license.
-3. **Copy the entire plugin (including client) into EDMC's plugin directory**:
+4. Copy the entire plugin (including `overlay-client/`) into:
    ```
-   %LOCALAPPDATA%\EDMarketConnector\plugins\EDMCModernOverlay\
+   ~/.local/share/EDMarketConnector/plugins/EDMCModernOverlay/
    ```
-
-4. **Launch EDMC.** The plugin starts automatically, spins up the background broadcast server, writes `port.json`, and begins supervising the overlay client.
-5. **Configure via EDMC** under *File → Settings → Modern Overlay*:
-   - Toggle *Enable overlay stdout/stderr capture* when you need detailed diagnostics; leave it off for normal play.
-   - Enable *Send overlay payloads to the EDMC log* to mirror every payload into EDMC's own log for troubleshooting.
-   - Adjust *Legacy overlay vertical scale* if legacy payload text needs extra spacing (1.00× keeps the original layout) and *Legacy overlay horizontal scale* if legacy rectangles need additional width.
-   - Change *Overlay window width/height* to set the baseline canvas size before scaling is applied.
-   - Toggle *Show light gridlines* and set *Grid spacing* to visualise layout columns or HUD zones; grid opacity follows the background opacity setting.
-   - Adjust *Overlay background opacity* to reintroduce a translucent backdrop (0.0 = fully transparent, 1.0 = opaque). Alt+drag to reposition is enabled only when opacity > 0.5, and changes preview in real time.
-   - Set *Overlay client log files to keep* if you need longer log history from the client’s rotating logfile.
-   - Use *Send test message to overlay* for a quick health check of the native API.
-   - Use the legacy compatibility buttons to send `edmcoverlay`-style messages and rectangles without writing any code.
+5. Launch EDMC. The plugin starts the broadcaster, writes `port.json` when the listener is available, and supervises the overlay client. If the port is occupied, the plugin stays loaded and logs that it is running in degraded mode until the port frees up.
+6. Configure the plugin via *File → Settings → Modern Overlay* (see “Configuration” below for option details).
 
 
 ## Programmatic API
