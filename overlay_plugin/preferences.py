@@ -183,6 +183,7 @@ class PreferencesPanel:
             variable=self._var_capture,
             onvalue=True,
             offvalue=False,
+            command=self._on_capture_toggle,
         )
         helper = tk.Label(frame, text=description, wraplength=400, justify="left")
         checkbox.grid(row=0, column=0, sticky="w")
@@ -517,6 +518,11 @@ class PreferencesPanel:
             self._status_var.set(f"Failed to send message: {exc}")
             return
         self._status_var.set("Test message sent to overlay.")
+
+    def _on_capture_toggle(self) -> None:
+        value = bool(self._var_capture.get())
+        self._preferences.capture_output = value
+        self._preferences.save()
 
     def _on_opacity_change(self, value: str) -> None:
         try:
