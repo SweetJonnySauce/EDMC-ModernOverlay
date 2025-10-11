@@ -55,30 +55,25 @@ EDMC-ModernOverlay/
 
 - Python 3.12+
 - Elite Dangerous Market Connector installed
+- On Windows Microsoft Visual C++ 14.0 or greater is required. Get it with "Microsoft C++ Build Tools": https://visualstudio.microsoft.com/visual-cpp-build-tools/
 
 ## Setup
 
 The client lives in the plugin folder and expects a dedicated Python environment under `overlay-client/.venv`. That directory is *not* distributed, so create it yourself before copying the plugin into EDMC.
 
-1. **Create a virtual environment for the overlay client** inside `overlay-client/`:
-   - Windows (PowerShell):
-     ```powershell
-     cd path\to\EDMC-ModernOverlay
-     py -3 -m venv overlay-client\.venv
-     overlay-client\.venv\Scripts\Activate.ps1
-     ```
-   - Linux/macOS (bash):
-     ```bash
-     cd /path/to/EDMC-ModernOverlay
-     python3 -m venv overlay-client/.venv
-     source overlay-client/.venv/bin/activate
-     ```
-2. **Install overlay dependencies** while the virtual environment is active:  
+1. **From the plugin folder, create a virtual environment for the overlay client** inside `overlay-client/`:
+   ```bash
+   python3 -m venv overlay-client/.venv
+   # Windows PowerShell
+   overlay-client\.venv\Scripts\activate
+   # macOS/Linux
+   source overlay-client/.venv/bin/activate
+   ```
+2. **Install overlay dependencies** into that environment:
    ```bash
    pip install -r overlay-client/requirements.txt
    ```
-
-   Linux users also need Qt's XCB helpers:
+   On Linux you also need Qt's XCB helpers:
    ```bash
    sudo apt-get update
    sudo apt-get install libxcb-cursor0 libxkbcommon-x11-0
@@ -87,11 +82,12 @@ The client lives in the plugin folder and expects a dedicated Python environment
    as `SourceSans3-Regular.ttf` and is used by default. To override the HUD
    typeface drop another font (for example `Eurocaps.ttf`) into the same
    directory along with its license.
-3. **Copy the entire plugin (including the `overlay-client/` folder) into EDMC's plugin directory**:
-   - Windows: `%LOCALAPPDATA%\EDMarketConnector\plugins\EDMCModernOverlay\`
-   - Linux/macOS: `~/.local/share/EDMarketConnector/plugins/EDMCModernOverlay/`
+3. **Copy the entire plugin (including client) into EDMC's plugin directory**:
+   ```
+   %LOCALAPPDATA%\EDMarketConnector\plugins\EDMCModernOverlay\
+   ```
 
-4. **Launch EDMC.** The plugin starts automatically, spins up the background broadcast server, writes `port.json` when the listener is online, and begins supervising the overlay client. If the port cannot be claimed immediately, the plugin remains loaded and logs that it is running in degraded mode until the port frees up.
+4. **Launch EDMC.** The plugin starts automatically, spins up the background broadcast server, writes `port.json`, and begins supervising the overlay client.
 5. **Configure via EDMC** under *File → Settings → Modern Overlay*:
    - Toggle *Enable overlay stdout/stderr capture* when you need detailed diagnostics; leave it off for normal play.
    - Enable *Send overlay payloads to the EDMC log* to mirror every payload into EDMC's own log for troubleshooting.
