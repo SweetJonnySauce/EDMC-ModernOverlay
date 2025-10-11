@@ -59,10 +59,9 @@ EDMC-ModernOverlay/
 
 ## Windows Setup
 
-The overlay client lives inside the plugin directory and expects a virtual environment at `overlay-client\.venv`. Create it locally before copying the plugin into EDMC.
+The overlay client lives inside the plugin directory and expects a virtual environment at `overlay-client\.venv`. Create it locally before starting the plugin in EDMC.
 
-1. Set up client python environment
-   In PowerShell (default plugin path is `%LOCALAPPDATA%\EDMarketConnector\plugins\`, adjust if you store plugins elsewhere):
+1. Set up the client Python environment using PowerShell (press `Win`+`X`, choose *Windows PowerShell* or *Terminal*, then run the commands; default plugin path is `%LOCALAPPDATA%\EDMarketConnector\plugins\`):
    ```powershell
    Set-Location "$env:LOCALAPPDATA\EDMarketConnector\plugins"
    cd .\EDMC-ModernOverlay
@@ -73,12 +72,12 @@ The overlay client lives inside the plugin directory and expects a virtual envir
    ```powershell
    pip install -r overlay-client\requirements.txt
    ```
-3. Copy the entire plugin (including `overlay-client\`) into:
+3. Copy the entire plugin (including `overlay-client\`) into the EDMC plugin directory if it's not already there:
    ```
    %LOCALAPPDATA%\EDMarketConnector\plugins\EDMCModernOverlay\
    ```
 4. Launch EDMC. The plugin spins up the broadcaster, writes `port.json` when the listener is online, and supervises the overlay client. If the port is already taken the plugin stays loaded and logs that it is running in degraded mode until the port becomes free.
-5. Configure the plugin via *File → Settings → Modern Overlay* (see “Configuration” below for option details).
+5. Configure the plugin via *File → Settings → EDMC-ModernOverlay* (see “Configuration” below for option details).
 
 ## Linux Setup
 
