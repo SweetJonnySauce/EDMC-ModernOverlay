@@ -34,7 +34,7 @@ EDMC-ModernOverlay/
 │   │   ├── README.txt
 │   │   ├── preferred_fonts.txt   # Optional case-insensitive priority list
 │   │   ├── SourceSans3-Regular.ttf
-│   │   ├── SourceSans3-OFL.txt
+│   │   └── SourceSans3-OFL.txt
 └── overlay_settings.json         # Sample preferences written by EDMC
 ```
 
