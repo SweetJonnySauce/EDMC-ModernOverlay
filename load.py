@@ -196,6 +196,7 @@ class _PluginRuntime:
         self._lock = threading.Lock()
         self._running = False
         self._legacy_conflict = False
+        self._capture_active = False
         self._state: Dict[str, Any] = {
             "cmdr": "",
             "system": "",
@@ -327,6 +328,7 @@ class _PluginRuntime:
             debug_log=LOGGER.debug,
             capture_output=self._capture_enabled(),
         )
+        self._update_capture_state(self._capture_enabled())
         self.watchdog.start()
 
     def _locate_overlay_client(self) -> Optional[Path]:
@@ -343,6 +345,11 @@ class _PluginRuntime:
 
     def _capture_enabled(self) -> bool:
         return bool(self._preferences.capture_output and _resolve_edmc_log_level() <= logging.DEBUG)
+
+    def _update_capture_state(self, enabled: bool) -> None:
+        if enabled and not self._capture_active:
+            LOGGER.debug("EDMC DEBUG mode detected; piping overlay stdout/stderr to EDMC log.")
+        self._capture_active = enabled
 
     def on_preferences_updated(self) -> None:
         LOGGER.debug(
@@ -362,6 +369,7 @@ class _PluginRuntime:
         )
         if self.watchdog:
             self.watchdog.set_capture_output(self._capture_enabled())
+        self._update_capture_state(self._capture_enabled())
         self._send_overlay_config()
 
     def send_test_message(self, message: str) -> None:

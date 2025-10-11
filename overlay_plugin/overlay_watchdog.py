@@ -245,6 +245,7 @@ class OverlayWatchdog:
                 daemon=True,
             )
             self._stderr_thread.start()
+        self._log_capture_chunk("stdout", "[EDMC-ModernOverlay] stdout capture check")
 
     def _stop_output_readers(self) -> None:
         for thread in (self._stdout_thread, self._stderr_thread):
@@ -275,14 +276,16 @@ class OverlayWatchdog:
                 pass
 
     def _append_stdout_chunk(self, chunk: str) -> None:
-        self._append_output_chunk(self._stdout_buffer, "_stdout_size", chunk)
+        text = self._append_output_chunk(self._stdout_buffer, "_stdout_size", chunk)
+        self._log_capture_chunk("stdout", text)
 
     def _append_stderr_chunk(self, chunk: str) -> None:
-        self._append_output_chunk(self._stderr_buffer, "_stderr_size", chunk)
+        text = self._append_output_chunk(self._stderr_buffer, "_stderr_size", chunk)
+        self._log_capture_chunk("stderr", text)
 
-    def _append_output_chunk(self, buffer: Deque[str], size_attr: str, chunk: str) -> None:
+    def _append_output_chunk(self, buffer: Deque[str], size_attr: str, chunk: str) -> str:
         if not chunk:
-            return
+            return ""
         if isinstance(chunk, bytes):
             chunk = chunk.decode("utf-8", errors="replace")
         with self._output_lock:
@@ -293,3 +296,14 @@ class OverlayWatchdog:
                 removed = buffer.popleft()
                 size -= len(removed)
             setattr(self, size_attr, size)
+        return chunk
+
+    def _log_capture_chunk(self, stream: str, chunk: str) -> None:
+        if not self._capture_output:
+            return
+        if not chunk:
+            return
+        for line in chunk.splitlines():
+            stripped = line.strip()
+            if stripped:
+                self._log_debug(f"Overlay {stream} >> {stripped}")
