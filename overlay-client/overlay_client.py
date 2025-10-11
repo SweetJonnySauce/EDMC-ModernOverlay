@@ -1202,12 +1202,62 @@ class OverlayWindow(QWidget):
             _CLIENT_LOGGER.warning("%s font registered but no families reported; falling back", label)
             return None
 
-        font_candidates = [
-            (fonts_dir / "SourceSans3-Regular.ttf", "Source Sans 3"),
-            (fonts_dir / "Eurocaps.ttf", "Eurocaps"),
+        def find_font_case_insensitive(filename: str) -> Optional[Path]:
+            if not filename:
+                return None
+            target = filename.lower()
+            if not fonts_dir.exists():
+                return None
+            for child in fonts_dir.iterdir():
+                if child.is_file() and child.name.lower() == target:
+                    return child
+            return None
+
+        preferred_marker = fonts_dir / "preferred_fonts.txt"
+        preferred_files: list[Path] = []
+        if preferred_marker.exists():
+            try:
+                for raw_line in preferred_marker.read_text(encoding="utf-8").splitlines():
+                    candidate_name = raw_line.strip()
+                    if not candidate_name:
+                        continue
+                    candidate_path = find_font_case_insensitive(candidate_name)
+                    if candidate_path:
+                        preferred_files.append(candidate_path)
+                    else:
+                        _CLIENT_LOGGER.warning(
+                            "Preferred font '%s' listed in %s but not found", candidate_name, preferred_marker
+                        )
+            except Exception as exc:
+                _CLIENT_LOGGER.warning("Failed to read preferred fonts list at %s: %s", preferred_marker, exc)
+
+        standard_candidates = [
+            ("SourceSans3-Regular.ttf", "Source Sans 3"),
+            ("Eurocaps.ttf", "Eurocaps"),
         ]
 
-        for path, label in font_candidates:
+        candidate_paths: list[Tuple[Path, str]] = []
+        seen: set[Path] = set()
+
+        def add_candidate(path: Optional[Path], label: str) -> None:
+            if not path:
+                return
+            try:
+                resolved = path.resolve()
+            except Exception:
+                resolved = path
+            if resolved in seen:
+                return
+            seen.add(resolved)
+            candidate_paths.append((path, label))
+
+        for preferred_path in preferred_files:
+            add_candidate(preferred_path, f"Preferred font '{preferred_path.name}'")
+
+        for filename, label in standard_candidates:
+            add_candidate(find_font_case_insensitive(filename), label)
+
+        for path, label in candidate_paths:
             family = try_font_file(path, label)
             if family:
                 return family
