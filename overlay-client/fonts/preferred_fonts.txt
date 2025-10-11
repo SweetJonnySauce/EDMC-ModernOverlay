@@ -1,1 +1,2 @@
+; One font filename per line. First successfully loaded entry wins.
 Eurocaps.ttf
