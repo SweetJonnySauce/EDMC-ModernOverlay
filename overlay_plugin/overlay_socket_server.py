@@ -25,18 +25,32 @@ class SocketBroadcaster:
     _ready_event: threading.Event = field(default_factory=threading.Event, init=False)
     _queue: "queue.Queue[Optional[str]]" = field(default_factory=queue.Queue, init=False)
     _clients: Set[Tuple[asyncio.StreamReader, asyncio.StreamWriter]] = field(default_factory=set, init=False)
+    _start_error: Optional[BaseException] = field(default=None, init=False)
 
-    def start(self) -> None:
-        """Start the broadcast server on a background thread."""
+    def start(self) -> bool:
+        """Start the broadcast server on a background thread.
+
+        Returns ``True`` when the listener becomes ready, ``False`` otherwise.
+        """
         if self._thread and self._thread.is_alive():
-            return
+            return True
 
         self._stop_event.clear()
         self._ready_event.clear()
+        self._start_error = None
         self._thread = threading.Thread(target=self._run, name="EDMCOverlay-Server", daemon=True)
         self._thread.start()
         if not self._ready_event.wait(timeout=5.0):
-            raise RuntimeError("Broadcast server failed to start in time")
+            self.log("Broadcast server did not signal readiness within 5s; shutting down")
+            self.stop()
+            return False
+
+        if self._start_error is not None:
+            self.log(f"Broadcast server failed to start: {self._start_error}")
+            self.stop()
+            return False
+
+        return True
 
     def stop(self) -> None:
         """Stop the server and release resources."""
@@ -81,7 +95,11 @@ class SocketBroadcaster:
         asyncio.set_event_loop(loop)
         try:
             loop.run_until_complete(self._server_main())
+        except Exception as exc:  # pragma: no cover - defensive
+            self._start_error = exc
+            self.log(f"Broadcast server loop terminated with error: {exc}")
         finally:
+            self._ready_event.set()
             pending = asyncio.all_tasks(loop)
             for task in pending:
                 task.cancel()

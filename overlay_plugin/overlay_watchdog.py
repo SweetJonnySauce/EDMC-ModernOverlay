@@ -37,6 +37,14 @@ class OverlayWatchdog:
         self._stop_event = threading.Event()
         self._process: Optional[subprocess.Popen[str]] = None
         self._restart_times: Deque[float] = deque(maxlen=max_restarts)
+        self._stdout_thread: Optional[threading.Thread] = None
+        self._stderr_thread: Optional[threading.Thread] = None
+        self._output_lock = threading.Lock()
+        self._stdout_buffer: Deque[str] = deque()
+        self._stderr_buffer: Deque[str] = deque()
+        self._stdout_size = 0
+        self._stderr_size = 0
+        self._output_limit = 4096
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -118,6 +126,7 @@ class OverlayWatchdog:
             return
         self._process = proc
         self._debug(f"Overlay process started (pid={proc.pid})")
+        self._start_output_readers(proc)
 
     def _wait_for_exit(self, interval: float) -> None:
         proc = self._process
@@ -130,7 +139,7 @@ class OverlayWatchdog:
             return
         pid = proc.pid if proc else "?"
         returncode = proc.returncode if proc else "?"
-        stdout_data, stderr_data = self._collect_process_output(proc)
+        stdout_data, stderr_data = self._collect_process_output()
         self._debug(f"Overlay process exited (pid={pid}, returncode={returncode})")
         if self._capture_output and isinstance(returncode, int) and returncode != 0:
             self._log_failure_details(pid, returncode, stdout_data, stderr_data)
@@ -158,6 +167,7 @@ class OverlayWatchdog:
             terminated = False
         finally:
             self._process = None
+            self._stop_output_readers()
         return terminated
 
     def _format_command(self) -> str:
@@ -172,20 +182,18 @@ class OverlayWatchdog:
         except Exception:
             pass
 
-    def _collect_process_output(self, proc: Optional[subprocess.Popen[str]]) -> Tuple[str, str]:
-        if proc is None or not self._capture_output:
+    def _collect_process_output(self) -> Tuple[str, str]:
+        if not self._capture_output:
             return "", ""
-        stdout_data = ""
-        stderr_data = ""
-        try:
-            if proc.stdout is None and proc.stderr is None:
-                return "", ""
-            stdout_data, stderr_data = proc.communicate()
-        except subprocess.TimeoutExpired:
-            stdout_data, stderr_data = "", ""
-        except Exception:
-            stdout_data, stderr_data = "", ""
-        return stdout_data or "", stderr_data or ""
+        self._stop_output_readers()
+        with self._output_lock:
+            stdout_text = "".join(self._stdout_buffer)
+            stderr_text = "".join(self._stderr_buffer)
+            self._stdout_buffer.clear()
+            self._stderr_buffer.clear()
+            self._stdout_size = 0
+            self._stderr_size = 0
+        return stdout_text or "", stderr_text or ""
 
     def _log_failure_details(self, pid: int, returncode: int, stdout_data: str, stderr_data: str) -> None:
         segments = [
@@ -215,3 +223,73 @@ class OverlayWatchdog:
     def set_capture_output(self, capture_output: bool) -> None:
         self._capture_output = capture_output
         self._debug(f"Capture output setting updated to {capture_output}")
+
+    def _start_output_readers(self, proc: subprocess.Popen[str]) -> None:
+        if not self._capture_output:
+            return
+        self._stop_output_readers()
+        self._reset_output_buffers()
+        if proc.stdout is not None:
+            self._stdout_thread = threading.Thread(
+                target=self._drain_stream,
+                args=(proc.stdout, self._append_stdout_chunk),
+                name="EDMCOverlay-stdout",
+                daemon=True,
+            )
+            self._stdout_thread.start()
+        if proc.stderr is not None:
+            self._stderr_thread = threading.Thread(
+                target=self._drain_stream,
+                args=(proc.stderr, self._append_stderr_chunk),
+                name="EDMCOverlay-stderr",
+                daemon=True,
+            )
+            self._stderr_thread.start()
+
+    def _stop_output_readers(self) -> None:
+        for thread in (self._stdout_thread, self._stderr_thread):
+            if thread and thread.is_alive() and thread is not threading.current_thread():
+                thread.join(timeout=1.0)
+        self._stdout_thread = None
+        self._stderr_thread = None
+
+    def _reset_output_buffers(self) -> None:
+        with self._output_lock:
+            self._stdout_buffer.clear()
+            self._stderr_buffer.clear()
+            self._stdout_size = 0
+            self._stderr_size = 0
+
+    def _drain_stream(self, stream, sink: Callable[[str], None]) -> None:
+        try:
+            for chunk in iter(stream.readline, ""):
+                if not chunk:
+                    break
+                sink(chunk)
+        except Exception:
+            pass
+        finally:
+            try:
+                stream.close()
+            except Exception:
+                pass
+
+    def _append_stdout_chunk(self, chunk: str) -> None:
+        self._append_output_chunk(self._stdout_buffer, "_stdout_size", chunk)
+
+    def _append_stderr_chunk(self, chunk: str) -> None:
+        self._append_output_chunk(self._stderr_buffer, "_stderr_size", chunk)
+
+    def _append_output_chunk(self, buffer: Deque[str], size_attr: str, chunk: str) -> None:
+        if not chunk:
+            return
+        if isinstance(chunk, bytes):
+            chunk = chunk.decode("utf-8", errors="replace")
+        with self._output_lock:
+            buffer.append(chunk)
+            size = getattr(self, size_attr)
+            size += len(chunk)
+            while size > self._output_limit and buffer:
+                removed = buffer.popleft()
+                size -= len(removed)
+            setattr(self, size_attr, size)

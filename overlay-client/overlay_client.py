@@ -1219,7 +1219,7 @@ class OverlayWindow(QWidget):
             try:
                 for raw_line in preferred_marker.read_text(encoding="utf-8").splitlines():
                     candidate_name = raw_line.strip()
-                    if not candidate_name:
+                    if not candidate_name or candidate_name.startswith(("#", ";")):
                         continue
                     candidate_path = find_font_case_insensitive(candidate_name)
                     if candidate_path:

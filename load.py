@@ -131,10 +131,18 @@ class _PluginRuntime:
         with self._lock:
             if self._running:
                 return PLUGIN_NAME
-            self.broadcaster.start()
-            self._write_port_file()
-            self._start_watchdog()
-            self._running = True
+            server_started = self.broadcaster.start()
+            if not server_started:
+                _log("Overlay broadcast server failed to start; running in degraded mode.")
+                self._running = False
+                self._delete_port_file()
+            else:
+                self._write_port_file()
+                self._start_watchdog()
+                self._running = True
+        if not self._running:
+            return PLUGIN_NAME
+
         register_publisher(self._publish_external)
         self._send_overlay_config(rebroadcast=True)
         _log("Plugin started")
@@ -484,7 +492,7 @@ class _PluginRuntime:
 
         for candidate in venv_candidates:
             if candidate.exists():
-                LOGGER.debug("Using overlay Python interpreter at %s", candidate)
+                LOGGER.debug("Using overlay client Python interpreter at %s", candidate)
                 return candidate
 
         LOGGER.debug("No dedicated overlay Python found; falling back to sys.executable=%s", sys.executable)
