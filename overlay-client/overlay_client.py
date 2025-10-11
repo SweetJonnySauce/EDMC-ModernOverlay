@@ -333,18 +333,44 @@ class OverlayWindow(QWidget):
             painter.setBrush(QColor(0, 0, 0, alpha))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(self.rect(), 12, 12)
-            if self._gridlines_enabled and self._gridline_spacing > 0:
-                grid_color = QColor(200, 200, 200, alpha)
-                grid_pen = QPen(grid_color)
-                grid_pen.setWidth(1)
-                painter.setPen(grid_pen)
-                spacing = self._gridline_spacing
-                width = self.width()
-                height = self.height()
-                for x in range(spacing, width, spacing):
-                    painter.drawLine(x, 0, x, height)
-                for y in range(spacing, height, spacing):
-                    painter.drawLine(0, y, width, y)
+        if self._gridlines_enabled and self._gridline_spacing > 0:
+            alpha = int(255 * max(0.0, min(1.0, self._background_opacity)))
+            grid_color = QColor(200, 200, 200, alpha or 255)
+            grid_pen = QPen(grid_color)
+            grid_pen.setWidth(1)
+            painter.setPen(grid_pen)
+            spacing = self._gridline_spacing
+            width = self.width()
+            height = self.height()
+            for x in range(spacing, width, spacing):
+                painter.drawLine(x, 0, x, height)
+            for y in range(spacing, height, spacing):
+                painter.drawLine(0, y, width, y)
+
+            painter.save()
+            label_font = painter.font()
+            label_font.setPointSizeF(max(6.0, label_font.pointSizeF() * 0.8))
+            painter.setFont(label_font)
+            painter.setPen(grid_color)
+            metrics = painter.fontMetrics()
+            top_baseline = metrics.ascent() + 2
+            # Origin label
+            painter.drawText(2, top_baseline, "0")
+            for x in range(spacing, width, spacing):
+                text = str(x)
+                text_rect = metrics.boundingRect(text)
+                text_x = x + 2
+                if text_x + text_rect.width() > width - 2:
+                    text_x = max(2, x - text_rect.width() - 2)
+                painter.drawText(text_x, top_baseline, text)
+            for y in range(spacing, height, spacing):
+                text = str(y)
+                text_rect = metrics.boundingRect(text)
+                baseline = y + metrics.ascent()
+                if baseline + 2 > height:
+                    baseline = y - 2
+                painter.drawText(2, baseline, text)
+            painter.restore()
         self._paint_legacy(painter)
         painter.end()
         super().paintEvent(event)
