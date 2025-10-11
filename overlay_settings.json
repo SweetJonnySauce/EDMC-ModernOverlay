@@ -13,5 +13,5 @@
   "follow_game_window": true,
   "follow_x_offset": 0,
   "follow_y_offset": 0,
-  "force_render": false
+  "force_render": true
 }

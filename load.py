@@ -1,6 +1,7 @@
 """Primary entry point for the EDMC Modern Overlay plugin."""
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import os
@@ -35,48 +36,127 @@ LOGGER_NAME = "EDMC.ModernOverlay"
 LOG_TAG = "EDMC-ModernOverlay"
 
 
-class _EDMCLogHandler(logging.Handler):
-    """Dispatch Python logging records to EDMC's logger when available."""
+EDMC_DEFAULT_LOG_LEVEL = logging.INFO
+_LEVEL_NAME_MAP = {
+    "CRITICAL": logging.CRITICAL,
+    "FATAL": logging.CRITICAL,
+    "ERROR": logging.ERROR,
+    "WARN": logging.WARNING,
+    "WARNING": logging.WARNING,
+    "INFO": logging.INFO,
+    "DEBUG": logging.DEBUG,
+    "TRACE": logging.DEBUG,
+}
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._config_module: Optional[Any] = None
+
+def _load_edmc_config_module() -> Optional[Any]:
+    try:
+        return importlib.import_module("config")
+    except Exception:
+        return None
+
+
+def _resolve_edmc_logger() -> Tuple[Optional[logging.Logger], Optional[Callable[[str], None]]]:
+    module = _load_edmc_config_module()
+    if module is None:
+        return None, None
+    logger_obj = getattr(module, "logger", None)
+    config_obj = getattr(module, "config", None)
+    legacy_log = getattr(config_obj, "log", None) if config_obj is not None else None
+    return logger_obj if isinstance(logger_obj, logging.Logger) else None, legacy_log if callable(legacy_log) else None
+
+
+def _resolve_edmc_log_level() -> int:
+    def _coerce_level(raw: Any) -> Optional[int]:
+        if raw is None:
+            return None
+        if isinstance(raw, int):
+            return raw
+        if isinstance(raw, str):
+            token = raw.strip().upper()
+            if token.isdigit():
+                try:
+                    return int(token)
+                except ValueError:
+                    return None
+            return _LEVEL_NAME_MAP.get(token)
+        return None
+
+    module = _load_edmc_config_module()
+    candidates: list[int] = []
+    if module is not None:
+        config_obj = getattr(module, "config", None)
+        if config_obj is not None:
+            for attr in ("log_level", "loglevel", "logLevel"):
+                coerced = _coerce_level(getattr(config_obj, attr, None))
+                if coerced is not None:
+                    candidates.append(coerced)
+                    break
+            getter = getattr(config_obj, "get", None)
+            if callable(getter):
+                try:
+                    coerced = _coerce_level(getter("loglevel"))
+                    if coerced is not None:
+                        candidates.append(coerced)
+                except Exception:
+                    pass
+        logger_obj = getattr(module, "logger", None)
+        if isinstance(logger_obj, logging.Logger):
+            try:
+                coerced = _coerce_level(logger_obj.getEffectiveLevel())
+                if coerced is not None:
+                    candidates.append(coerced)
+            except Exception:
+                pass
+    root = logging.getLogger()
+    candidates.append(root.getEffectiveLevel())
+    candidates.append(EDMC_DEFAULT_LOG_LEVEL)
+
+    for level in candidates:
+        if isinstance(level, int) and level != logging.NOTSET:
+            return level
+    return EDMC_DEFAULT_LOG_LEVEL
+
+
+def _ensure_plugin_logger_level() -> int:
+    level = _resolve_edmc_log_level()
+    logging.getLogger(LOGGER_NAME).setLevel(level)
+    return level
+
+
+class _EDMCLogHandler(logging.Handler):
+    """Logging bridge that always respects EDMC's configured log level."""
 
     def emit(self, record: logging.LogRecord) -> None:
+        target_level = _resolve_edmc_log_level()
+        plugin_logger = logging.getLogger(LOGGER_NAME)
+        if plugin_logger.level != target_level:
+            plugin_logger.setLevel(target_level)
+        if record.levelno < target_level:
+            return
         message = self.format(record)
-        config_module = self._ensure_config_module()
-        if config_module is not None:
-            logger_obj = getattr(config_module, "logger", None)
-            if logger_obj is not None:
-                try:
-                    logger_obj.log(record.levelno, message)
-                    return
-                except Exception:
-                    self._config_module = None
-            config_instance = getattr(config_module, "config", None)
-            log_func = getattr(config_instance, "log", None)
-            if callable(log_func):
-                try:
-                    log_func(message)
-                    return
-                except Exception:
-                    self._config_module = None
-        print(message)
-
-    def _ensure_config_module(self) -> Optional[Any]:
-        if self._config_module is None:
+        edmc_logger, legacy_log = _resolve_edmc_logger()
+        if edmc_logger is not None:
             try:
-                import importlib
-
-                self._config_module = importlib.import_module("config")
+                if edmc_logger.isEnabledFor(record.levelno):
+                    edmc_logger.log(record.levelno, message)
+                    return
             except Exception:
-                self._config_module = None
-        return self._config_module
+                pass
+        if legacy_log is not None:
+            try:
+                legacy_log(message)
+                return
+            except Exception:
+                pass
+        root_logger = logging.getLogger()
+        if root_logger.isEnabledFor(record.levelno):
+            root_logger.log(record.levelno, message)
 
 
 def _configure_logger() -> logging.Logger:
     logger = logging.getLogger(LOGGER_NAME)
-    logger.setLevel(logging.DEBUG)
+    _ensure_plugin_logger_level()
     if not any(getattr(handler, "_edmc_handler", False) for handler in logger.handlers):
         handler = _EDMCLogHandler()
         handler._edmc_handler = True  # type: ignore[attr-defined]
@@ -115,6 +195,7 @@ class _PluginRuntime:
         self.watchdog: Optional[OverlayWatchdog] = None
         self._lock = threading.Lock()
         self._running = False
+        self._legacy_conflict = False
         self._state: Dict[str, Any] = {
             "cmdr": "",
             "system": "",
@@ -130,6 +211,12 @@ class _PluginRuntime:
     def start(self) -> str:
         with self._lock:
             if self._running:
+                return PLUGIN_NAME
+            _ensure_plugin_logger_level()
+            if self._legacy_overlay_active():
+                self._legacy_conflict = True
+                self._delete_port_file()
+                LOGGER.error("Legacy edmcoverlay overlay detected; Modern Overlay will remain inactive.")
                 return PLUGIN_NAME
             server_started = self.broadcaster.start()
             if not server_started:
@@ -255,7 +342,7 @@ class _PluginRuntime:
         return None
 
     def _capture_enabled(self) -> bool:
-        return bool(self._preferences.capture_output and LOGGER.isEnabledFor(logging.DEBUG))
+        return bool(self._preferences.capture_output and _resolve_edmc_log_level() <= logging.DEBUG)
 
     def on_preferences_updated(self) -> None:
         LOGGER.debug(
@@ -497,6 +584,49 @@ class _PluginRuntime:
 
         LOGGER.debug("No dedicated overlay Python found; falling back to sys.executable=%s", sys.executable)
         return Path(sys.executable)
+
+    def _legacy_overlay_active(self) -> bool:
+        try:
+            legacy_module = importlib.import_module("edmcoverlay")
+        except ModuleNotFoundError:
+            return False
+        except Exception as exc:
+            LOGGER.debug("Error importing legacy edmcoverlay module: %s", exc)
+            return False
+
+        module_file = getattr(legacy_module, "__file__", None)
+        if module_file:
+            try:
+                module_path = Path(module_file).resolve()
+                if module_path.is_relative_to(self.plugin_dir.resolve()):
+                    return False
+            except Exception:
+                pass
+
+        overlay_cls = getattr(legacy_module, "Overlay", None)
+        if overlay_cls is None:
+            return False
+
+        try:
+            overlay = overlay_cls()
+            try:
+                overlay.connect()
+            except Exception:
+                pass
+            overlay.send_message(
+                "modern-overlay-conflict",
+                "EDMC Modern Overlay detected the legacy overlay. Using legacy overlay instead.",
+                "#ffa500",
+                100,
+                100,
+                ttl=5,
+                size="normal",
+            )
+        except Exception as exc:
+            LOGGER.debug("Legacy edmcoverlay overlay not responding: %s", exc)
+            return False
+
+        return True
 
     def _schedule_config_rebroadcasts(self, count: int = 5, interval: float = 1.0) -> None:
         if count <= 0 or interval <= 0:
