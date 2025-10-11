@@ -333,9 +333,10 @@ class OverlayWindow(QWidget):
             painter.setBrush(QColor(0, 0, 0, alpha))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(self.rect(), 12, 12)
-        if self._gridlines_enabled and self._gridline_spacing > 0:
-            alpha = int(255 * max(0.0, min(1.0, self._background_opacity)))
-            grid_color = QColor(200, 200, 200, alpha or 255)
+        grid_alpha = int(255 * max(0.0, min(1.0, self._background_opacity)))
+        render_grid = self._gridlines_enabled and self._gridline_spacing > 0 and grid_alpha > 0
+        if render_grid:
+            grid_color = QColor(200, 200, 200, grid_alpha)
             grid_pen = QPen(grid_color)
             grid_pen.setWidth(1)
             painter.setPen(grid_pen)
