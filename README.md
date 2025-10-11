@@ -8,44 +8,48 @@ EDMC Modern Overlay is a two-part reference implementation for Elite Dangerous M
 
 ```
 EDMC-ModernOverlay/
-├── load.py                # EDMC entry hook file (copy into EDMC plugins dir)
-├── edmcoverlay.py         # Legacy compatibility shim for `edmcoverlay` callers
-├── EDMCOverlay/           # Importable package form of the legacy shim
+├── README.md                     # You're here
+├── FAQ.md                        # Extra setup and troubleshooting notes
+├── LICENSE
+├── load.py                       # EDMC entry hook copied into the plugins dir
+├── __init__.py                   # Package marker for EDMC imports
+├── edmcoverlay.py                # Top-level legacy shim (`import edmcoverlay`)
+├── EDMCOverlay/                  # Package form of the legacy shim
 │   ├── __init__.py
 │   └── edmcoverlay.py
-├── overlay_plugin/        # Supporting plugin package
-│   ├── overlay_watchdog.py
-│   ├── overlay_socket_server.py
-│   ├── preferences.py
-│   └── requirements.txt
-├── overlay-client/        # Stand-alone PyQt6 overlay
-│   ├── fonts/             # HUD font assets (drop in optional alternates)
-│   ├── client_config.py   # Typed bootstrap defaults and OverlayConfig parsing
-│   ├── developer_helpers.py  # Developer-helper controller & logging utilities
-│   ├── overlay_client.py  # Core PyQt window and socket bridge
-│   ├── requirements.txt
-│   └── .venv/             # Local virtual environment (create locally; not tracked)
-├── overlay_settings.json  # Sample overlay configuration bundle for the client
-├── __init__.py            # Allows EDMC to import the plugin as a package
-├── .vscode/               # VS Code settings & launch configs
-│   ├── launch.json
-│   └── settings.json
-└── README.md
+├── overlay_plugin/               # Runtime that runs inside EDMC
+│   ├── __init__.py
+│   ├── overlay_api.py            # Helper API for other plugins
+│   ├── overlay_socket_server.py  # JSON-over-TCP broadcaster
+│   ├── overlay_watchdog.py       # Subprocess supervisor for the client
+│   ├── preferences.py            # myNotebook-backed settings panel
+│   └── requirements.txt          # Runtime dependencies (standard-library-only today)
+├── overlay-client/               # Stand-alone PyQt6 overlay process
+│   ├── overlay_client.py         # Main window and socket bridge
+│   ├── client_config.py          # Bootstrap defaults and OverlayConfig parsing
+│   ├── developer_helpers.py      # Dev utilities and logging helpers
+│   ├── window_tracking.py        # Elite Dangerous window tracking helpers
+│   ├── requirements.txt          # Client dependency list (PyQt6, etc.)
+│   ├── fonts/
+│   │   ├── README.txt
+│   │   ├── preferred_fonts.txt   # Optional case-insensitive priority list
+│   │   ├── SourceSans3-Regular.ttf
+│   │   ├── SourceSans3-OFL.txt
+│   │   └── old/                  # Backup copy of the shipping Source Sans font
+└── overlay_settings.json         # Sample preferences written by EDMC
 ```
 
 ## Features
 
-- Background `asyncio` JSON-over-TCP server that never blocks EDMC's Tkinter thread
-- Safe watchdog that supervises the overlay executable and restarts it when needed
-- JSON discovery file (`port.json`) so the overlay can find the active port
-- Transparent, click-through PyQt6 HUD with test messages, and legacy rectangle/text rendering for `edmcoverlay` callers
-- Automatic reconnection logic in both plugin and overlay client
-- Full EDMC logging integration with optional stdout/stderr capture and payload mirroring toggled from the preferences pane
-- Configurable legacy overlay scaling on both axes so text spacing and legacy rectangles can be adjusted without breaking layout
-- Adjustable overlay window size with optional background gridlines for alignment and layout authoring
-- Plugin runtime uses only the Python standard library (no EDMC-side installs required)
-- Drop-in Python compatibility layer (`EDMCOverlay/edmcoverlay.py`) that emulates the classic EDMCOverlay API so existing plugins can migrate without code changes
-- Dedicated client log with rotation controls that writes alongside EDMC’s own logs
+- Background `asyncio` JSON-over-TCP broadcaster that stays off EDMC’s Tk thread and degrades gracefully if the listener cannot bind.
+- Watchdog-managed overlay client that restarts the PyQt process after crashes and mirrors EDMC’s logging controls (stdout/stderr capture, payload mirroring).
+- JSON discovery file (`port.json`) that the overlay reads to locate the active port, removed automatically when the broadcaster is offline.
+- Transparent PyQt6 HUD with legacy text/shape rendering, gridlines, window-follow offsets, force-render toggle, and live test messages.
+- Custom font support with case-insensitive discovery and a `preferred_fonts.txt` priority list.
+- Preferences-driven scaling, window sizing, opacity, and log-retention controls exposed through a myNotebook settings pane.
+- Public helper API (`overlay_plugin.overlay_api.send_overlay_message`) that validates and forwards payloads from other plugins.
+- Drop-in `edmcoverlay` compatibility module for legacy callers.
+- Dedicated rotating client log written under the EDMC logs directory with user-configurable retention.
 
 ## Prerequisites
 
@@ -56,19 +60,25 @@ EDMC-ModernOverlay/
 
 The client lives in the plugin folder and expects a dedicated Python environment under `overlay-client/.venv`. That directory is *not* distributed, so create it yourself before copying the plugin into EDMC.
 
-1. **From the plugin folder, create a virtual environment for the overlay client** inside `overlay-client/`:
-   ```bash
-   python3 -m venv overlay-client/.venv
-   # Windows PowerShell
-   overlay-client\.venv\Scripts\activate
-   # macOS/Linux
-   source overlay-client/.venv/bin/activate
-   ```
-2. **Install overlay dependencies** into that environment:
+1. **Create a virtual environment for the overlay client** inside `overlay-client/`:
+   - Windows (PowerShell):
+     ```powershell
+     cd path\to\EDMC-ModernOverlay
+     py -3 -m venv overlay-client\.venv
+     overlay-client\.venv\Scripts\Activate.ps1
+     ```
+   - Linux/macOS (bash):
+     ```bash
+     cd /path/to/EDMC-ModernOverlay
+     python3 -m venv overlay-client/.venv
+     source overlay-client/.venv/bin/activate
+     ```
+2. **Install overlay dependencies** while the virtual environment is active:  
    ```bash
    pip install -r overlay-client/requirements.txt
    ```
-   On Linux you also need Qt's XCB helpers:
+
+   Linux users also need Qt's XCB helpers:
    ```bash
    sudo apt-get update
    sudo apt-get install libxcb-cursor0 libxkbcommon-x11-0
@@ -77,12 +87,11 @@ The client lives in the plugin folder and expects a dedicated Python environment
    as `SourceSans3-Regular.ttf` and is used by default. To override the HUD
    typeface drop another font (for example `Eurocaps.ttf`) into the same
    directory along with its license.
-3. **Copy the entire plugin (including client) into EDMC's plugin directory**:
-   ```
-   %LOCALAPPDATA%\EDMarketConnector\plugins\EDMCModernOverlay\
-   ```
+3. **Copy the entire plugin (including the `overlay-client/` folder) into EDMC's plugin directory**:
+   - Windows: `%LOCALAPPDATA%\EDMarketConnector\plugins\EDMCModernOverlay\`
+   - Linux/macOS: `~/.local/share/EDMarketConnector/plugins/EDMCModernOverlay/`
 
-4. **Launch EDMC.** The plugin starts automatically, spins up the background broadcast server, writes `port.json`, and begins supervising the overlay client.
+4. **Launch EDMC.** The plugin starts automatically, spins up the background broadcast server, writes `port.json` when the listener is online, and begins supervising the overlay client. If the port cannot be claimed immediately, the plugin remains loaded and logs that it is running in degraded mode until the port frees up.
 5. **Configure via EDMC** under *File → Settings → Modern Overlay*:
    - Toggle *Enable overlay stdout/stderr capture* when you need detailed diagnostics; leave it off for normal play.
    - Enable *Send overlay payloads to the EDMC log* to mirror every payload into EDMC's own log for troubleshooting.
