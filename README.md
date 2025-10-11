@@ -103,7 +103,7 @@ The client expects a Python virtual environment at `overlay-client/.venv`. Creat
    ~/.local/share/EDMarketConnector/plugins/EDMCModernOverlay/
    ```
 5. Launch EDMC. The plugin starts the broadcaster, writes `port.json` when the listener is available, and supervises the overlay client. If the port is occupied, the plugin stays loaded and logs that it is running in degraded mode until the port frees up.
-6. Configure the plugin via *File → Settings → Modern Overlay* (see “Configuration” below for option details).
+6. Configure the plugin via *File → Settings → EDMC-ModernOverlay* (see “Configuration” below for option details).
 
 
 ## Programmatic API
