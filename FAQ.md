@@ -18,3 +18,6 @@ The overlay hides itself when the game window is not foreground. This behavior i
 
 You can toggle this via the EDMC preferences panel checkbox labeled "Keep overlay visible when Elite Dangerous is not the foreground window". The overlay client and plugin exchange this value through the regular `OverlayConfig` updates, so changes take effect immediately without restarting.
 
+## Why does the overlay recommend borderless mode on Linux?
+
+When running under X11/Wayland the overlay lets the compositor manage its window so it can stay synced to Elite without tearing. Most compositors only vsync tool windows reliably when the game runs in borderless/fullscreen-windowed mode. If you launch Elite in exclusive fullscreen, the overlay still tracks the game window but the compositor may not present it smoothly. Switch Elite to borderless or enable compositor vsync (e.g. Picom `--vsync`) for the best experience.

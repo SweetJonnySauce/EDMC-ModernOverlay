@@ -187,6 +187,7 @@ class OverlayWindow(QWidget):
         self._wm_authoritative_rect: Optional[Tuple[int, int, int, int]] = None
         self._transient_parent_id: Optional[str] = None
         self._transient_parent_window: Optional[QWindow] = None
+        self._fullscreen_hint_logged: bool = False
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -920,6 +921,22 @@ class OverlayWindow(QWidget):
 
         self._update_auto_legacy_scale(target_tuple[2], target_tuple[3])
         self._ensure_transient_parent(state)
+        if (
+            sys.platform.startswith("linux")
+            and not self._fullscreen_hint_logged
+            and state.is_foreground
+        ):
+            screen = self.windowHandle().screen() if self.windowHandle() else None
+            if screen is None:
+                screen = QGuiApplication.primaryScreen()
+            if screen is not None:
+                geometry = screen.geometry()
+                if state.width >= geometry.width() and state.height >= geometry.height():
+                    _CLIENT_LOGGER.info(
+                        "Overlay running in compositor-managed mode; for true fullscreen use borderless windowed in Elite or enable compositor vsync. (%s)",
+                        self.format_scale_debug(),
+                    )
+                    self._fullscreen_hint_logged = True
 
         should_show = self._force_render or (state.is_visible and state.is_foreground)
         self._update_follow_visibility(should_show)
