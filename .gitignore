@@ -3,5 +3,5 @@
 __pycache__/
 *.py[cod]
 port.json
-*.code-workspace
+#*.code-workspace
 [Ee][Uu][Rr][Oo][Cc][Aa][Pp][Ss].[Tt][Tt][Ff]
