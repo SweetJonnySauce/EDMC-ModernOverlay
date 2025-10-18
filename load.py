@@ -206,6 +206,7 @@ class _PluginRuntime:
         self._preferences = preferences
         self._last_config: Dict[str, Any] = {}
         self._config_timers: Set[threading.Timer] = set()
+        self._enforce_force_xwayland(persist=True, update_watchdog=False, emit_config=False)
 
     # Lifecycle ------------------------------------------------------------
 
@@ -361,7 +362,53 @@ class _PluginRuntime:
             LOGGER.debug("EDMC DEBUG mode detected; piping overlay stdout/stderr to EDMC log.")
         self._capture_active = enabled
 
+    def _desired_force_xwayland(self) -> bool:
+        return (os.environ.get("XDG_SESSION_TYPE") or "").lower() == "wayland"
+
+    def _sync_force_xwayland_ui(self) -> None:
+        panel = globals().get("_prefs_panel")
+        if panel is not None:
+            try:
+                panel.sync_force_xwayland(self._preferences.force_xwayland)
+            except Exception as exc:
+                LOGGER.debug("Failed to sync preferences panel XWayland state: %s", exc)
+
+    def _enforce_force_xwayland(
+        self,
+        *,
+        persist: bool,
+        update_watchdog: bool,
+        emit_config: bool,
+    ) -> bool:
+        desired = self._desired_force_xwayland()
+        current = bool(self._preferences.force_xwayland)
+        if current == desired:
+            self._sync_force_xwayland_ui()
+            return False
+        self._preferences.force_xwayland = desired
+        if persist:
+            try:
+                self._preferences.save()
+            except Exception as exc:
+                LOGGER.warning("Failed to save preferences while enforcing XWayland setting: %s", exc)
+        if desired:
+            LOGGER.info("Detected Wayland session; forcing overlay client to run via XWayland.")
+        else:
+            LOGGER.info("Detected non-Wayland session; disabling XWayland override.")
+        if update_watchdog and self.watchdog:
+            try:
+                self.watchdog.set_environment(self._build_overlay_environment())
+            except Exception as exc:
+                LOGGER.warning("Failed to apply updated overlay environment: %s", exc)
+            else:
+                _log("Overlay XWayland preference updated; restart overlay to apply.")
+        self._sync_force_xwayland_ui()
+        if emit_config:
+            self._send_overlay_config()
+        return True
+
     def on_preferences_updated(self) -> None:
+        self._enforce_force_xwayland(persist=True, update_watchdog=True, emit_config=False)
         LOGGER.debug(
             "Applying updated preferences: capture_output=%s show_connection_status=%s log_payloads=%s "
             "legacy_vertical_scale=%.2f legacy_horizontal_scale=%.2f client_log_retention=%d gridlines_enabled=%s "
@@ -503,19 +550,14 @@ class _PluginRuntime:
         self._send_overlay_config()
 
     def set_force_xwayland_preference(self, value: bool) -> None:
-        self._preferences.force_xwayland = bool(value)
-        LOGGER.debug(
-            "Overlay XWayland override %s",
-            "enabled" if self._preferences.force_xwayland else "disabled",
-        )
-        if self.watchdog:
-            try:
-                self.watchdog.set_environment(self._build_overlay_environment())
-            except Exception as exc:
-                LOGGER.warning("Failed to apply updated overlay environment: %s", exc)
-            else:
-                _log("Overlay XWayland preference updated; restart overlay to apply.")
-        self._send_overlay_config()
+        desired = self._desired_force_xwayland()
+        if bool(value) != desired:
+            LOGGER.debug(
+                "Ignoring manual XWayland toggle request (%s); environment requires %s",
+                value,
+                "XWayland" if desired else "native",
+            )
+        self._enforce_force_xwayland(persist=True, update_watchdog=True, emit_config=True)
 
     def _publish_external(self, payload: Mapping[str, Any]) -> bool:
         if not self._running:
@@ -821,6 +863,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             force_render_callback,
             force_xwayland_callback,
         )
+        panel.sync_force_xwayland(_preferences.force_xwayland)
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)
         return None

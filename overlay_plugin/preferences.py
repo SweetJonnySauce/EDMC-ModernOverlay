@@ -386,6 +386,7 @@ class PreferencesPanel:
             command=self._on_force_xwayland_toggle,
         )
         xwayland_checkbox.grid(row=16, column=0, sticky="w", pady=(6, 0))
+        self._xwayland_checkbox = xwayland_checkbox
 
         force_checkbox = tk.Checkbutton(
             frame,
@@ -454,6 +455,16 @@ class PreferencesPanel:
     @property
     def frame(self):  # pragma: no cover - Tk integration
         return self._frame
+
+    def sync_force_xwayland(self, value: bool, locked: bool = True) -> None:
+        self._var_force_xwayland.set(bool(value))
+        checkbox = getattr(self, "_xwayland_checkbox", None)
+        if checkbox is not None:
+            state = "disabled" if locked else "normal"
+            try:
+                checkbox.configure(state=state)
+            except Exception:
+                pass
 
     def apply(self) -> None:
         self._preferences.capture_output = bool(self._var_capture.get())
