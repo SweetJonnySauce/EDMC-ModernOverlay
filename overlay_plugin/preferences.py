@@ -30,6 +30,7 @@ class Preferences:
     follow_x_offset: int = 0
     follow_y_offset: int = 0
     force_render: bool = False
+    force_xwayland: bool = False
 
     def __post_init__(self) -> None:
         self.plugin_dir = Path(self.plugin_dir)
@@ -90,6 +91,7 @@ class Preferences:
         self.follow_x_offset = max(0, follow_x)
         self.follow_y_offset = max(0, follow_y)
         self.force_render = bool(data.get("force_render", False))
+        self.force_xwayland = bool(data.get("force_xwayland", False))
 
     def save(self) -> None:
         payload: Dict[str, Any] = {
@@ -108,6 +110,7 @@ class Preferences:
             "follow_x_offset": int(self.follow_x_offset),
             "follow_y_offset": int(self.follow_y_offset),
             "force_render": bool(self.force_render),
+            "force_xwayland": bool(self.force_xwayland),
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -132,6 +135,7 @@ class PreferencesPanel:
         set_follow_mode_callback: Optional[Callable[[bool], None]] = None,
         set_follow_offsets_callback: Optional[Callable[[int, int], None]] = None,
         set_force_render_callback: Optional[Callable[[bool], None]] = None,
+        set_force_xwayland_callback: Optional[Callable[[bool], None]] = None,
     ) -> None:
         import tkinter as tk
         import myNotebook as nb
@@ -167,9 +171,11 @@ class PreferencesPanel:
         self._var_follow_x_offset = tk.IntVar(value=max(0, int(preferences.follow_x_offset)))
         self._var_follow_y_offset = tk.IntVar(value=max(0, int(preferences.follow_y_offset)))
         self._var_force_render = tk.BooleanVar(value=preferences.force_render)
+        self._var_force_xwayland = tk.BooleanVar(value=preferences.force_xwayland)
         self._set_follow_mode = set_follow_mode_callback
         self._set_follow_offsets = set_follow_offsets_callback
         self._set_force_render = set_force_render_callback
+        self._set_force_xwayland = set_force_xwayland_callback
         self._follow_offset_spinboxes = []
 
         frame = nb.Frame(parent)
@@ -371,6 +377,16 @@ class PreferencesPanel:
         follow_offset_row.grid(row=15, column=0, sticky="w", pady=(2, 0))
         self._update_follow_offset_state()
 
+        xwayland_checkbox = tk.Checkbutton(
+            frame,
+            text="Force overlay client to run via XWayland (requires overlay restart)",
+            variable=self._var_force_xwayland,
+            onvalue=True,
+            offvalue=False,
+            command=self._on_force_xwayland_toggle,
+        )
+        xwayland_checkbox.grid(row=16, column=0, sticky="w", pady=(6, 0))
+
         force_checkbox = tk.Checkbutton(
             frame,
             text="Keep overlay visible when Elite Dangerous is not the foreground window",
@@ -379,7 +395,7 @@ class PreferencesPanel:
             offvalue=False,
             command=self._on_force_render_toggle,
         )
-        force_checkbox.grid(row=16, column=0, sticky="w", pady=(6, 0))
+        force_checkbox.grid(row=17, column=0, sticky="w", pady=(6, 0))
 
         grid_checkbox = tk.Checkbutton(
             frame,
@@ -389,7 +405,7 @@ class PreferencesPanel:
             offvalue=False,
             command=self._on_gridlines_toggle,
         )
-        grid_checkbox.grid(row=17, column=0, sticky="w", pady=(8, 0))
+        grid_checkbox.grid(row=18, column=0, sticky="w", pady=(8, 0))
 
         grid_spacing_row = tk.Frame(frame)
         grid_spacing_label = tk.Label(grid_spacing_row, text="Grid spacing (pixels):")
@@ -406,32 +422,32 @@ class PreferencesPanel:
         grid_spacing_spin.pack(side="left", padx=(6, 0))
         grid_spacing_spin.bind("<FocusOut>", self._on_gridline_spacing_event)
         grid_spacing_spin.bind("<Return>", self._on_gridline_spacing_event)
-        grid_spacing_row.grid(row=18, column=0, sticky="w", pady=(2, 0))
+        grid_spacing_row.grid(row=19, column=0, sticky="w", pady=(2, 0))
 
         test_label = tk.Label(frame, text="Send test message to overlay:")
-        test_label.grid(row=19, column=0, sticky="w", pady=(10, 0))
+        test_label.grid(row=20, column=0, sticky="w", pady=(10, 0))
 
         test_row = tk.Frame(frame)
         test_entry = tk.Entry(test_row, textvariable=self._test_var, width=50)
         send_button = tk.Button(test_row, text="Send", command=self._on_send_click)
         test_entry.pack(side="left", fill="x", expand=True)
         send_button.pack(side="left", padx=(8, 0))
-        test_row.grid(row=20, column=0, sticky="we", pady=(2, 0))
+        test_row.grid(row=21, column=0, sticky="we", pady=(2, 0))
         frame.columnconfigure(0, weight=1)
         test_row.columnconfigure(0, weight=1)
 
         legacy_label = tk.Label(frame, text="Legacy edmcoverlay compatibility:")
-        legacy_label.grid(row=21, column=0, sticky="w", pady=(10, 0))
+        legacy_label.grid(row=22, column=0, sticky="w", pady=(10, 0))
 
         legacy_row = tk.Frame(frame)
         legacy_text_btn = tk.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
         legacy_rect_btn = tk.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
         legacy_text_btn.pack(side="left")
         legacy_rect_btn.pack(side="left", padx=(8, 0))
-        legacy_row.grid(row=22, column=0, sticky="w", pady=(2, 0))
+        legacy_row.grid(row=23, column=0, sticky="w", pady=(2, 0))
 
         status_label = tk.Label(frame, textvariable=self._status_var, wraplength=400, justify="left", fg="#808080")
-        status_label.grid(row=23, column=0, sticky="w", pady=(4, 0))
+        status_label.grid(row=24, column=0, sticky="w", pady=(4, 0))
 
         self._frame = frame
 
@@ -455,6 +471,7 @@ class PreferencesPanel:
         self._preferences.follow_x_offset = max(0, int(self._var_follow_x_offset.get()))
         self._preferences.follow_y_offset = max(0, int(self._var_follow_y_offset.get()))
         self._preferences.force_render = bool(self._var_force_render.get())
+        self._preferences.force_xwayland = bool(self._var_force_xwayland.get())
         if self._set_status:
             try:
                 self._set_status(self._preferences.show_connection_status)
@@ -499,6 +516,12 @@ class PreferencesPanel:
                 self._set_force_render(self._preferences.force_render)
             except Exception as exc:
                 self._status_var.set(f"Failed to update force-render option: {exc}")
+                return
+        if self._set_force_xwayland:
+            try:
+                self._set_force_xwayland(self._preferences.force_xwayland)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update XWayland preference: {exc}")
                 return
         self._preferences.save()
 
@@ -730,6 +753,17 @@ class PreferencesPanel:
                 self._set_force_render(value)
             except Exception as exc:
                 self._status_var.set(f"Failed to update force-render option: {exc}")
+                return
+        self._preferences.save()
+
+    def _on_force_xwayland_toggle(self) -> None:
+        value = bool(self._var_force_xwayland.get())
+        self._preferences.force_xwayland = value
+        if self._set_force_xwayland:
+            try:
+                self._set_force_xwayland(value)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update XWayland preference: {exc}")
                 return
         self._preferences.save()
 

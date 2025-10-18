@@ -321,12 +321,22 @@ class _PluginRuntime:
             command,
             overlay_script.parent,
         )
+        launch_env = self._build_overlay_environment()
+        platform_context = self._platform_context_payload()
+        LOGGER.debug(
+            "Overlay launch context: session=%s compositor=%s force_xwayland=%s qt_platform=%s",
+            platform_context.get("session_type"),
+            platform_context.get("compositor"),
+            platform_context.get("force_xwayland"),
+            launch_env.get("QT_QPA_PLATFORM"),
+        )
         self.watchdog = OverlayWatchdog(
             command,
             overlay_script.parent,
             log=_log,
             debug_log=LOGGER.debug,
             capture_output=self._capture_enabled(),
+            env=launch_env,
         )
         self._update_capture_state(self._capture_enabled())
         self.watchdog.start()
@@ -355,7 +365,7 @@ class _PluginRuntime:
         LOGGER.debug(
             "Applying updated preferences: capture_output=%s show_connection_status=%s log_payloads=%s "
             "legacy_vertical_scale=%.2f legacy_horizontal_scale=%.2f client_log_retention=%d gridlines_enabled=%s "
-            "gridline_spacing=%d window_width=%d window_height=%d",
+            "gridline_spacing=%d window_width=%d window_height=%d force_xwayland=%s",
             self._preferences.capture_output,
             self._preferences.show_connection_status,
             self._preferences.log_payloads,
@@ -366,6 +376,7 @@ class _PluginRuntime:
             self._preferences.gridline_spacing,
             self._preferences.window_width,
             self._preferences.window_height,
+            self._preferences.force_xwayland,
         )
         if self.watchdog:
             self.watchdog.set_capture_output(self._capture_enabled())
@@ -491,6 +502,21 @@ class _PluginRuntime:
         )
         self._send_overlay_config()
 
+    def set_force_xwayland_preference(self, value: bool) -> None:
+        self._preferences.force_xwayland = bool(value)
+        LOGGER.debug(
+            "Overlay XWayland override %s",
+            "enabled" if self._preferences.force_xwayland else "disabled",
+        )
+        if self.watchdog:
+            try:
+                self.watchdog.set_environment(self._build_overlay_environment())
+            except Exception as exc:
+                LOGGER.warning("Failed to apply updated overlay environment: %s", exc)
+            else:
+                _log("Overlay XWayland preference updated; restart overlay to apply.")
+        self._send_overlay_config()
+
     def _publish_external(self, payload: Mapping[str, Any]) -> bool:
         if not self._running:
             return False
@@ -521,13 +547,15 @@ class _PluginRuntime:
             "follow_x_offset": int(self._preferences.follow_x_offset),
             "follow_y_offset": int(self._preferences.follow_y_offset),
             "force_render": bool(self._preferences.force_render),
+            "force_xwayland": bool(self._preferences.force_xwayland),
+            "platform_context": self._platform_context_payload(),
         }
         self._last_config = dict(payload)
         self._publish_payload(payload)
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s legacy_scale_y=%.2f legacy_scale_x=%.2f client_log_retention=%d "
             "gridlines_enabled=%s gridline_spacing=%d window_width=%d window_height=%d follow_game_window=%s "
-            "follow_x_offset=%d follow_y_offset=%d force_render=%s",
+            "follow_x_offset=%d follow_y_offset=%d force_render=%s force_xwayland=%s platform_context=%s",
             payload["opacity"],
             payload["show_status"],
             payload["legacy_scale_y"],
@@ -541,6 +569,8 @@ class _PluginRuntime:
             payload["follow_x_offset"],
             payload["follow_y_offset"],
             payload["force_render"],
+            payload["force_xwayland"],
+            payload["platform_context"],
         )
         if rebroadcast:
             self._schedule_config_rebroadcasts()
@@ -592,6 +622,52 @@ class _PluginRuntime:
 
         LOGGER.debug("No dedicated overlay Python found; falling back to sys.executable=%s", sys.executable)
         return Path(sys.executable)
+
+    def _detect_wayland_compositor(self) -> str:
+        session = (os.environ.get("XDG_SESSION_TYPE") or "").lower()
+        if session != "wayland":
+            return "none"
+        env = os.environ
+        current_desktop = (env.get("XDG_CURRENT_DESKTOP") or "").upper()
+        if env.get("SWAYSOCK"):
+            return "sway"
+        if env.get("HYPRLAND_INSTANCE_SIGNATURE"):
+            return "hyprland"
+        if "KDE" in current_desktop or env.get("KDE_FULL_SESSION"):
+            return "kwin"
+        if "GNOME" in current_desktop or env.get("GNOME_SHELL_SESSION_MODE"):
+            return "gnome-shell"
+        if "COSMIC" in current_desktop:
+            return "cosmic"
+        if env.get("WAYLAND_DISPLAY", "").startswith("wayland-"):
+            return "unknown"
+        return "unknown"
+
+    def _build_overlay_environment(self) -> Dict[str, str]:
+        env = dict(os.environ)
+        session = (env.get("XDG_SESSION_TYPE") or "").lower()
+        compositor = self._detect_wayland_compositor()
+        force_xwayland = bool(self._preferences.force_xwayland)
+        env["EDMC_OVERLAY_SESSION_TYPE"] = session or "unknown"
+        env["EDMC_OVERLAY_COMPOSITOR"] = compositor
+        env["EDMC_OVERLAY_FORCE_XWAYLAND"] = "1" if force_xwayland else "0"
+        if sys.platform.startswith("linux"):
+            if session == "wayland" and not force_xwayland:
+                env.setdefault("QT_QPA_PLATFORM", "wayland")
+                env.setdefault("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1")
+                env.setdefault("QT_WAYLAND_LAYER_SHELL", "1")
+            else:
+                env["QT_QPA_PLATFORM"] = env.get("QT_QPA_PLATFORM", "xcb")
+                env.setdefault("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1")
+        return env
+
+    def _platform_context_payload(self) -> Dict[str, Any]:
+        session = (os.environ.get("XDG_SESSION_TYPE") or "").lower()
+        return {
+            "session_type": session or "unknown",
+            "compositor": self._detect_wayland_compositor(),
+            "force_xwayland": bool(self._preferences.force_xwayland),
+        }
 
     def _legacy_overlay_active(self) -> bool:
         try:
@@ -726,6 +802,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         follow_mode_callback = _plugin.set_follow_mode_preference if _plugin else None
         follow_offsets_callback = _plugin.set_follow_offsets_preference if _plugin else None
         force_render_callback = _plugin.set_force_render_preference if _plugin else None
+        force_xwayland_callback = _plugin.set_force_xwayland_preference if _plugin else None
         panel = PreferencesPanel(
             parent,
             _preferences,
@@ -742,6 +819,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             follow_mode_callback,
             follow_offsets_callback,
             force_render_callback,
+            force_xwayland_callback,
         )
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)
@@ -765,7 +843,7 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
                 "Preferences saved: capture_output=%s show_connection_status=%s log_payloads=%s legacy_vertical_scale=%.2f "
                 "legacy_horizontal_scale=%.2f client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d "
                 "window_width=%d window_height=%d follow_game_window=%s follow_x_offset=%d follow_y_offset=%d "
-                "force_render=%s",
+                "force_render=%s force_xwayland=%s",
                 _preferences.capture_output,
                 _preferences.show_connection_status,
                 _preferences.log_payloads,
@@ -780,6 +858,7 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
                 _preferences.follow_x_offset,
                 _preferences.follow_y_offset,
                 _preferences.force_render,
+                _preferences.force_xwayland,
             )
         if _plugin:
             _plugin.on_preferences_updated()

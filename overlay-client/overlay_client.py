@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QCursor, QFontDatabase, QGuiApplication, QWindow
@@ -24,6 +24,7 @@ if str(CLIENT_DIR) not in sys.path:
 
 from client_config import InitialClientSettings, load_initial_settings  # type: ignore  # noqa: E402
 from developer_helpers import DeveloperHelperController  # type: ignore  # noqa: E402
+from platform_integration import MonitorSnapshot, PlatformContext, PlatformController  # type: ignore  # noqa: E402
 from window_tracking import WindowState, WindowTracker, create_elite_window_tracker  # type: ignore  # noqa: E402
 
 
@@ -31,6 +32,17 @@ _LOGGER_NAME = "EDMC.ModernOverlay.Client"
 _CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
 _CLIENT_LOGGER.setLevel(logging.DEBUG)
 _CLIENT_LOGGER.propagate = False
+
+
+def _initial_platform_context(initial: InitialClientSettings) -> PlatformContext:
+    force_env = os.environ.get("EDMC_OVERLAY_FORCE_XWAYLAND") == "1"
+    session = os.environ.get("EDMC_OVERLAY_SESSION_TYPE") or os.environ.get("XDG_SESSION_TYPE") or ""
+    compositor = os.environ.get("EDMC_OVERLAY_COMPOSITOR") or ""
+    return PlatformContext(
+        session_type=session,
+        compositor=compositor,
+        force_xwayland=bool(initial.force_xwayland or force_env),
+    )
 
 
 class OverlayDataClient(QObject):
@@ -193,6 +205,14 @@ class OverlayWindow(QWidget):
         self._transient_parent_id: Optional[str] = None
         self._transient_parent_window: Optional[QWindow] = None
         self._fullscreen_hint_logged: bool = False
+        self._platform_context = _initial_platform_context(initial)
+        self._platform_controller = PlatformController(self, _CLIENT_LOGGER, self._platform_context)
+        _CLIENT_LOGGER.debug(
+            "Platform controller initialised: session=%s compositor=%s force_xwayland=%s",
+            self._platform_context.session_type or "unknown",
+            self._platform_context.compositor or "unknown",
+            self._platform_context.force_xwayland,
+        )
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -224,7 +244,6 @@ class OverlayWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        self._apply_drag_state()
 
         status_font = QFont(self._font_family, 18)
         status_font.setWeight(QFont.Weight.Normal)
@@ -235,10 +254,12 @@ class OverlayWindow(QWidget):
         self.message_label.setStyleSheet("color: #80d0ff; background: transparent;")
         self.message_label.setWordWrap(True)
         self.message_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.message_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.status_label = QLabel(self._status)
         self.status_label.setFont(status_font)
         self.status_label.setStyleSheet("color: white; background: transparent;")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+        self.status_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
         layout = QVBoxLayout()
         layout.addWidget(self.message_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -246,6 +267,7 @@ class OverlayWindow(QWidget):
         layout.addWidget(self.status_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
         # Raise the bottom status label ~10px further by increasing bottom margin
         layout.setContentsMargins(20, 20, 20, 40)
+        self._apply_drag_state()
         self.setLayout(layout)
         self.status_label.setVisible(False)
 
@@ -322,7 +344,14 @@ class OverlayWindow(QWidget):
                 target_width,
             )
         self._apply_legacy_scale()
-        self._enable_click_through()
+        self._platform_controller.prepare_window(self.windowHandle())
+        _CLIENT_LOGGER.debug(
+            "Platform controller initialised: session=%s compositor=%s force_xwayland=%s",
+            self._platform_context.session_type or "unknown",
+            self._platform_context.compositor or "unknown",
+            self._platform_context.force_xwayland,
+        )
+        self._platform_controller.apply_click_through(True)
         screen = self.windowHandle().screen() if self.windowHandle() else None
         if screen is None:
             screen = QGuiApplication.primaryScreen()
@@ -468,6 +497,11 @@ class OverlayWindow(QWidget):
 
     def set_window_tracker(self, tracker: Optional[WindowTracker]) -> None:
         self._window_tracker = tracker
+        if tracker and hasattr(tracker, "set_monitor_provider"):
+            try:
+                tracker.set_monitor_provider(self.monitor_snapshots)  # type: ignore[attr-defined]
+            except Exception as exc:
+                _CLIENT_LOGGER.debug("Window tracker rejected monitor provider hook: %s", exc)
         if tracker and self._follow_enabled:
             self._start_tracking()
             self._refresh_follow_geometry()
@@ -511,13 +545,31 @@ class OverlayWindow(QWidget):
     def get_follow_offsets(self) -> Tuple[int, int]:
         return self._follow_x_offset, self._follow_y_offset
 
+    def monitor_snapshots(self) -> List[MonitorSnapshot]:
+        return self._platform_controller.monitors()
+
+    def _is_wayland(self) -> bool:
+        platform_name = (QGuiApplication.platformName() or "").lower()
+        return "wayland" in platform_name
+
     def set_force_render(self, force: bool) -> None:
         flag = bool(force)
         if flag == self._force_render:
             return
         self._force_render = flag
         if flag:
+            if sys.platform.startswith("linux") and self._is_wayland():
+                window_handle = self.windowHandle()
+                if window_handle is not None:
+                    try:
+                        window_handle.setTransientParent(None)
+                    except Exception:
+                        pass
+                self._transient_parent_window = None
+                self._transient_parent_id = None
             self._update_follow_visibility(True)
+            if sys.platform.startswith("linux"):
+                self._platform_controller.apply_click_through(True)
             if self._last_follow_state:
                 self._apply_follow_state(self._last_follow_state)
         else:
@@ -718,25 +770,31 @@ class OverlayWindow(QWidget):
             _CLIENT_LOGGER.debug("Overlay status label visibility set to %s; %s", should_display, self.format_scale_debug())
         self.status_label.setVisible(should_display)
 
+    def update_platform_context(self, context_payload: Optional[Dict[str, Any]]) -> None:
+        if context_payload is None:
+            return
+        session = str(context_payload.get("session_type") or self._platform_context.session_type)
+        compositor = str(context_payload.get("compositor") or self._platform_context.compositor)
+        force_value = context_payload.get("force_xwayland")
+        if force_value is None:
+            force_flag = self._platform_context.force_xwayland
+        else:
+            force_flag = bool(force_value)
+        new_context = PlatformContext(session_type=session, compositor=compositor, force_xwayland=force_flag)
+        if new_context == self._platform_context:
+            return
+        self._platform_context = new_context
+        self._platform_controller.update_context(new_context)
+        self._platform_controller.prepare_window(self.windowHandle())
+        self._platform_controller.apply_click_through(True)
+        _CLIENT_LOGGER.debug(
+            "Platform context updated: session=%s compositor=%s force_xwayland=%s",
+            new_context.session_type or "unknown",
+            new_context.compositor or "unknown",
+            new_context.force_xwayland,
+        )
+
     # Platform integration -------------------------------------------------
-
-    def _enable_click_through(self) -> None:
-        if sys.platform.startswith("win"):
-            try:
-                import ctypes
-
-                user32 = ctypes.windll.user32
-                GWL_EXSTYLE = -20
-                WS_EX_LAYERED = 0x80000
-                WS_EX_TRANSPARENT = 0x20
-                hwnd = int(self.winId())
-                style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-                user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED | WS_EX_TRANSPARENT)
-            except Exception:
-                pass
-        window = self.windowHandle()
-        if window and self._transparent_input_supported:
-            window.setFlag(Qt.WindowType.WindowTransparentForInput, True)
 
     def _apply_drag_state(self) -> None:
         self._set_click_through(not self._drag_enabled)
@@ -768,15 +826,29 @@ class OverlayWindow(QWidget):
 
     def _set_click_through(self, transparent: bool) -> None:
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, transparent)
-        window = self.windowHandle()
-        if window and self._transparent_input_supported:
-            window.setFlag(Qt.WindowType.WindowTransparentForInput, transparent)
-        if transparent:
-            self._enable_click_through()
+        for child_name in ("message_label", "status_label"):
+            child = getattr(self, child_name, None)
+            if child is not None:
+                try:
+                    child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, transparent)
+                except Exception:
+                    pass
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-        self.setWindowFlag(Qt.WindowType.Tool, True)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
-        self.show()
+        if self._is_wayland():
+            self.setWindowFlag(Qt.WindowType.Tool, False)
+        else:
+            self.setWindowFlag(Qt.WindowType.Tool, True)
+        if not self.isVisible():
+            self.show()
+        window = self.windowHandle()
+        if window is not None:
+            self._platform_controller.prepare_window(window)
+            self._platform_controller.apply_click_through(transparent)
+            if self._transparent_input_supported:
+                window.setFlag(Qt.WindowType.WindowTransparentForInput, transparent)
+        if self.isVisible():
+            self.raise_()
 
     # Follow mode ----------------------------------------------------------
 
@@ -949,6 +1021,17 @@ class OverlayWindow(QWidget):
     def _ensure_transient_parent(self, state: WindowState) -> None:
         if not sys.platform.startswith("linux"):
             return
+        if self._is_wayland():
+            if self._transient_parent_window is not None:
+                window_handle = self.windowHandle()
+                if window_handle is not None:
+                    try:
+                        window_handle.setTransientParent(None)
+                    except Exception:
+                        pass
+                self._transient_parent_window = None
+                self._transient_parent_id = None
+            return
         identifier = state.identifier
         if not identifier or identifier == self._transient_parent_id:
             return
@@ -976,10 +1059,18 @@ class OverlayWindow(QWidget):
             _CLIENT_LOGGER.debug("Elite Dangerous window not found; waiting for window to appear; %s", self.format_scale_debug())
             self._lost_window_logged = True
         if self._last_follow_state is None:
-            if not self._force_render:
+            if self._force_render:
+                self._update_follow_visibility(True)
+                if sys.platform.startswith("linux"):
+                    self._platform_controller.apply_click_through(True)
+            else:
                 self._update_follow_visibility(False)
             return
-        if not self._force_render and not self._last_follow_state.is_foreground:
+        if self._force_render:
+            self._update_follow_visibility(True)
+            if sys.platform.startswith("linux"):
+                self._platform_controller.apply_click_through(True)
+        elif not self._last_follow_state.is_foreground:
             self._update_follow_visibility(False)
 
     def _update_follow_visibility(self, show: bool) -> None:
@@ -1371,7 +1462,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not initial_settings.follow_elite_window:
         # Ensure the overlay starts at the top-left of the primary screen (0,0)
         window.move(0, 0)
-    tracker = create_elite_window_tracker(_CLIENT_LOGGER)
+    tracker = create_elite_window_tracker(_CLIENT_LOGGER, monitor_provider=window.monitor_snapshots)
     if tracker is not None:
         window.set_window_tracker(tracker)
     else:

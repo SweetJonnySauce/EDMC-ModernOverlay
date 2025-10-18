@@ -7,7 +7,7 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import Callable, Deque, Optional, Sequence, Tuple
+from typing import Callable, Deque, Mapping, Optional, Sequence, Tuple
 
 LogFunc = Callable[[str], None]
 
@@ -24,6 +24,7 @@ class OverlayWatchdog:
         capture_output: bool = False,
         max_restarts: int = 3,
         restart_window: float = 60.0,
+        env: Optional[Mapping[str, str]] = None,
     ) -> None:
         self._command = list(command)
         self._working_dir = working_dir
@@ -32,6 +33,7 @@ class OverlayWatchdog:
         self._capture_output = capture_output
         self._max_restarts = max_restarts
         self._restart_window = restart_window
+        self._env = dict(env) if env is not None else None
 
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -99,11 +101,17 @@ class OverlayWatchdog:
 
     def _spawn_overlay(self) -> None:
         self._debug("Launching overlay client: %s" % self._format_command())
+        if self._env is not None:
+            interesting_keys = sorted(
+                key for key in self._env.keys() if key.startswith("QT_") or key.startswith("EDMC_OVERLAY")
+            )
+            self._debug("Overlay environment overrides: %s" % (", ".join(interesting_keys) or "none"))
         popen_kwargs = {
             "cwd": str(self._working_dir),
             "stdout": subprocess.PIPE if self._capture_output else subprocess.DEVNULL,
             "stderr": subprocess.PIPE if self._capture_output else subprocess.DEVNULL,
             "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            "env": self._env,
         }
         if self._capture_output:
             popen_kwargs.update(
@@ -223,6 +231,16 @@ class OverlayWatchdog:
     def set_capture_output(self, capture_output: bool) -> None:
         self._capture_output = capture_output
         self._debug(f"Capture output setting updated to {capture_output}")
+
+    def set_environment(self, env: Optional[Mapping[str, str]]) -> None:
+        self._env = dict(env) if env is not None else None
+        self._debug(
+            "Overlay environment overrides updated (%s); restart overlay to apply",
+            ", ".join(
+                key for key in sorted((self._env or {}).keys()) if key.startswith("QT_") or key.startswith("EDMC_OVERLAY")
+            )
+            or "no overrides",
+        )
 
     def _start_output_readers(self, proc: subprocess.Popen[str]) -> None:
         if not self._capture_output:

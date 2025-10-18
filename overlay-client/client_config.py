@@ -18,6 +18,7 @@ class InitialClientSettings:
     follow_x_offset: int = 0
     follow_y_offset: int = 0
     force_render: bool = False
+    force_xwayland: bool = False
 
 
 @dataclass
@@ -38,6 +39,7 @@ class DeveloperHelperConfig:
     follow_x_offset: Optional[int] = None
     follow_y_offset: Optional[int] = None
     force_render: Optional[bool] = None
+    force_xwayland: Optional[bool] = None
 
     @classmethod
     def from_payload(cls, payload: Dict[str, Any]) -> "DeveloperHelperConfig":
@@ -78,6 +80,7 @@ class DeveloperHelperConfig:
             follow_x_offset=_int(payload.get("follow_x_offset"), None),
             follow_y_offset=_int(payload.get("follow_y_offset"), None),
             force_render=_bool(payload.get("force_render"), None),
+            force_xwayland=_bool(payload.get("force_xwayland"), None),
         )
 
 
@@ -119,6 +122,7 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
     except (TypeError, ValueError):
         y_offset = defaults.follow_y_offset
     force_render = bool(data.get("force_render", defaults.force_render))
+    force_xwayland = bool(data.get("force_xwayland", defaults.force_xwayland))
 
     return InitialClientSettings(
         client_log_retention=max(1, retention),
@@ -128,4 +132,5 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         follow_x_offset=max(0, x_offset),
         follow_y_offset=max(0, y_offset),
         force_render=force_render,
+        force_xwayland=force_xwayland,
     )

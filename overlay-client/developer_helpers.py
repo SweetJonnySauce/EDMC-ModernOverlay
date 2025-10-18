@@ -70,6 +70,10 @@ class DeveloperHelperController:
                 config.follow_x_offset if config.follow_x_offset is not None else current_x,
                 config.follow_y_offset if config.follow_y_offset is not None else current_y,
             )
+        if 'platform_context' in payload:
+            window.update_platform_context(payload.get('platform_context'))
+        elif config.force_xwayland is not None:
+            window.update_platform_context({'force_xwayland': config.force_xwayland})
         if config.client_log_retention is not None:
             self.set_log_retention(config.client_log_retention)
         window.set_log_retention(self._current_log_retention)
