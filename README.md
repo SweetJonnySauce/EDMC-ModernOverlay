@@ -123,6 +123,12 @@ Modern Overlay now ships with compositor-aware helpers and multiple fallbacks. T
   cd /path/to/EDMC-ModernOverlay
   source overlay-client/.venv/bin/activate
   pip install pywayland
+  # swaymsg/hyprctl live under /usr/bin after installing sway or hyprland.
+  # Append /usr/bin to PATH (only if not already present):
+  if ! echo "$PATH" | tr ':' '\n' | grep -qx '/usr/bin'; then
+    echo 'export PATH="/usr/bin:$PATH"' >> ~/.bashrc   # adjust for zsh/fish as needed
+  fi
+  source ~/.bashrc
   ```
 - **KDE Plasma (KWin):** Install `pydbus>=0.6.0` in the client venv so the overlay can talk to KWin’s DBus scripting API when toggling click-through behaviour.
   ```bash
