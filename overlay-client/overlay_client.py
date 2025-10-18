@@ -1070,7 +1070,9 @@ class OverlayWindow(QWidget):
             self._update_follow_visibility(True)
             if sys.platform.startswith("linux"):
                 self._platform_controller.apply_click_through(True)
-        elif not self._last_follow_state.is_foreground:
+        else:
+            self._last_follow_state = None
+            self._wm_authoritative_rect = None
             self._update_follow_visibility(False)
 
     def _update_follow_visibility(self, show: bool) -> None:
