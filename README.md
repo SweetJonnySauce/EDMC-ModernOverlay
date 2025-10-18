@@ -136,8 +136,7 @@ Modern Overlay now ships with compositor-aware helpers and multiple fallbacks. T
   source overlay-client/.venv/bin/activate
   pip install pydbus
   ```
-- **GNOME Shell:** Install the companion Modern Overlay GNOME extension (documented under `overlay-client/overlay-client/`) to expose foreign window geometry and disable input. Without it, follow mode is unavailable and the overlay stays interactive.
-- **Fallbacks/XWayland:** A new preference (*Force overlay client to run via XWayland*) is available under *File → Settings → EDMC-ModernOverlay*. Enable it if your compositor cannot satisfy the native Wayland hooks yet. The plugin relaunches the client under XWayland, giving you back the X11 tracking path.
+- **XWayland mode:** The preference (*Force overlay client to run via XWayland*) under *File → Settings → EDMC-ModernOverlay* relaunches the client under XWayland. Keep this enabled on GNOME Shell (Wayland), where native layer-shell hooks are not yet available; the overlay behaves like it does on X11 and stays pinned above Elite.
   ```bash
   # Example for Debian/Ubuntu; xprop/xwininfo ship in x11-utils and swaymsg comes with sway.
   sudo apt install wmctrl x11-utils sway
