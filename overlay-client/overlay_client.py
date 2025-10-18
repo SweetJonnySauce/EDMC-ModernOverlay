@@ -98,7 +98,12 @@ class OverlayDataClient(QObject):
                 backoff = min(backoff * 1.5, 10.0)
                 continue
 
-            self.status_changed.emit(f"Connected to 127.0.0.1:{port}")
+            connection_message = f"Connected to 127.0.0.1:{port}"
+            if sys.platform.startswith("linux"):
+                session_type = os.environ.get("XDG_SESSION_TYPE")
+                if session_type:
+                    connection_message = f"{connection_message} ({session_type})"
+            self.status_changed.emit(connection_message)
             backoff = 1.0
             try:
                 while not self._stop_event.is_set():

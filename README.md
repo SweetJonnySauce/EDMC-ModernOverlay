@@ -105,6 +105,15 @@ The client expects a Python virtual environment at `overlay-client/.venv`. Creat
 6. Configure the plugin via *File → Settings → EDMC-ModernOverlay* (see “Configuration” below for option details).
 
 
+## Optional Fonts
+
+To use the Elite: Dangerous cockpit font (Eurocaps) in the overlay HUD:
+
+1. Download `EUROCAPS.TTF` from https://github.com/inorton/EDMCOverlay/blob/master/EDMCOverlay/EDMCOverlay/EUROCAPS.TTF.
+2. Place the file in `overlay-client/fonts/`. Include the font’s original licence file in the same directory if you have it.
+3. Restart the overlay client; the new font is picked up the next time it connects.
+
+
 ## Programmatic API
 
 Other plugins within EDMC can publish overlay updates without depending on socket details by using the bundled helper:
