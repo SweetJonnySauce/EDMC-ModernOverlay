@@ -227,8 +227,13 @@ class _PluginRuntime:
                 self._delete_port_file()
             else:
                 self._write_port_file()
-                self._start_watchdog()
-                self._running = True
+                if not self._start_watchdog():
+                    self._running = False
+                    self.broadcaster.stop()
+                    self._delete_port_file()
+                    _log("Overlay client launch aborted; Modern Overlay plugin remains inactive.")
+                else:
+                    self._running = True
         if not self._running:
             return PLUGIN_NAME
 
@@ -310,12 +315,20 @@ class _PluginRuntime:
         except FileNotFoundError:
             pass
 
-    def _start_watchdog(self) -> None:
+    def _start_watchdog(self) -> bool:
         overlay_script = self._locate_overlay_client()
         if not overlay_script:
             _log("Overlay client not found; watchdog disabled")
-            return
+            return False
         python_executable = self._locate_overlay_python()
+        if python_executable is None:
+            _log(
+                "Overlay client environment not found. Create overlay-client/.venv (or set EDMC_OVERLAY_PYTHON) and restart EDMC-ModernOverlay."
+            )
+            LOGGER.error(
+                "Overlay launch aborted: no overlay Python interpreter available under overlay-client/.venv or EDMC_OVERLAY_PYTHON."
+            )
+            return False
         command = [str(python_executable), str(overlay_script)]
         LOGGER.debug(
             "Attempting to start overlay client via watchdog: command=%s cwd=%s",
@@ -341,6 +354,7 @@ class _PluginRuntime:
         )
         self._update_capture_state(self._capture_enabled())
         self.watchdog.start()
+        return True
 
     def _locate_overlay_client(self) -> Optional[Path]:
         candidates = [
@@ -638,7 +652,7 @@ class _PluginRuntime:
         else:
             LOGGER.info("Overlay payload: %s", serialised)
 
-    def _locate_overlay_python(self) -> Path:
+    def _locate_overlay_python(self) -> Optional[Path]:
         env_override = os.getenv("EDMC_OVERLAY_PYTHON")
         if env_override:
             override_path = Path(env_override).expanduser()
@@ -662,8 +676,7 @@ class _PluginRuntime:
                 LOGGER.debug("Using overlay client Python interpreter at %s", candidate)
                 return candidate
 
-        LOGGER.debug("No dedicated overlay Python found; falling back to sys.executable=%s", sys.executable)
-        return Path(sys.executable)
+        return None
 
     def _detect_wayland_compositor(self) -> str:
         session = (os.environ.get("XDG_SESSION_TYPE") or "").lower()
