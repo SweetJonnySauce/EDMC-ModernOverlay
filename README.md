@@ -37,6 +37,9 @@ EDMC-ModernOverlay/
 │       ├── preferred_fonts.txt     # Optional case-insensitive priority list
 │       ├── SourceSans3-Regular.ttf
 │       └── SourceSans3-OFL.txt
+├── scripts/                        # Helper scripts for common setup tasks
+│   ├── install-eurocaps.sh         # Linux font installer helper
+│   └── install-eurocaps.bat        # Windows font installer helper
 ├── overlay_settings.json           # Sample preferences persisted by EDMC
 └── port.json                       # Last known port (written while the plugin runs)
 ```
@@ -111,6 +114,15 @@ The client expects a Python virtual environment at `overlay-client/.venv`. Creat
 ## Optional Fonts
 
 To use the Elite: Dangerous cockpit font (Eurocaps) in the overlay HUD:
+
+You can automate the download and placement with the bundled helpers:
+
+- Linux: `scripts/install-eurocaps.sh` *(optionally pass the plugin path if it isn't under `~/.local/share/EDMarketConnector/plugins/`)*
+- Windows: `scripts\install-eurocaps.bat` *(optionally pass the plugin path if it isn't under `%LOCALAPPDATA%\EDMarketConnector\plugins\`)*
+
+Both scripts verify the plugin directory, fetch `Eurocaps.ttf`, copy it into `overlay-client/fonts/`, and add it to `preferred_fonts.txt` when that file exists.
+
+To perform the steps manually instead:
 
 1. Download `EUROCAPS.TTF` from https://github.com/inorton/EDMCOverlay/blob/master/EDMCOverlay/EDMCOverlay/EUROCAPS.TTF.
 2. Place the file in `overlay-client/fonts/` and rename it to `Eurocaps.ttf` (the overlay searches case-insensitively, but keeping a consistent casing is handy). Include the original licence text alongside it if you have one.
