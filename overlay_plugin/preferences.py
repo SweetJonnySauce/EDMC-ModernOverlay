@@ -182,6 +182,7 @@ class PreferencesPanel:
         self._reset_origin = reset_origin_callback
         self._origin_reset_button = None
         self._origin_entries = []
+        self._window_size_guard = False
 
         frame = nb.Frame(parent)
         description = (
@@ -303,8 +304,18 @@ class PreferencesPanel:
         opacity_scale.pack(side="left", fill="x")
         opacity_row.grid(row=11, column=0, sticky="we")
 
+        follow_checkbox = tk.Checkbutton(
+            frame,
+            text="Follow the Elite Dangerous window position and size",
+            variable=self._var_follow_mode,
+            onvalue=True,
+            offvalue=False,
+            command=self._on_follow_toggle,
+        )
+        follow_checkbox.grid(row=12, column=0, sticky="w", pady=(10, 0))
+
         size_label = tk.Label(frame, text="Overlay window size (pixels; updates immediately):")
-        size_label.grid(row=12, column=0, sticky="w", pady=(10, 0))
+        size_label.grid(row=13, column=0, sticky="w", pady=(10, 0))
 
         size_row = tk.Frame(frame)
         width_label = tk.Label(size_row, text="Width:")
@@ -335,18 +346,9 @@ class PreferencesPanel:
         height_spin.pack(side="left", padx=(6, 0))
         height_spin.bind("<FocusOut>", self._on_window_height_event)
         height_spin.bind("<Return>", self._on_window_height_event)
-        size_row.grid(row=13, column=0, sticky="w", pady=(2, 0))
-
-        follow_checkbox = tk.Checkbutton(
-            frame,
-            text="Follow the Elite Dangerous window position and size",
-            variable=self._var_follow_mode,
-            onvalue=True,
-            offvalue=False,
-            command=self._on_follow_toggle,
-        )
-        follow_checkbox.grid(row=14, column=0, sticky="w", pady=(10, 0))
-        self._update_origin_state()
+        size_row.grid(row=14, column=0, sticky="w", pady=(2, 0))
+        self._size_controls = (size_label, size_row, width_spin, height_spin)
+        self._follow_checkbox = follow_checkbox
 
         origin_label = tk.Label(frame, text="Overlay origin (top-left in pixels):")
         origin_label.grid(row=15, column=0, sticky="w", pady=(10, 0))
@@ -369,6 +371,7 @@ class PreferencesPanel:
         origin_row.grid(row=16, column=0, sticky="w", pady=(2, 0))
         self._origin_entries.extend([origin_x_entry, origin_y_entry])
         self._origin_reset_button = reset_button
+        self._update_controls_state()
 
         xwayland_checkbox = tk.Checkbutton(
             frame,
@@ -662,6 +665,8 @@ class PreferencesPanel:
         self._apply_window_size(self._var_window_width.get(), height)
 
     def _apply_window_size(self, raw_width: Any, raw_height: Any) -> None:
+        if self._window_size_guard:
+            return
         try:
             width = int(raw_width)
         except (TypeError, ValueError):
@@ -672,10 +677,14 @@ class PreferencesPanel:
             height = self._preferences.window_height
         width = max(640, width)
         height = max(360, height)
-        self._var_window_width.set(width)
-        self._var_window_height.set(height)
-        self._preferences.window_width = width
-        self._preferences.window_height = height
+        self._window_size_guard = True
+        try:
+            if self._var_window_width.get() != width:
+                self._var_window_width.set(width)
+            if self._var_window_height.get() != height:
+                self._var_window_height.set(height)
+        finally:
+            self._window_size_guard = False
         if self._set_window_size:
             try:
                 self._set_window_size(width, height)
@@ -695,12 +704,18 @@ class PreferencesPanel:
                 except Exception as exc:
                     self._status_var.set(f"Failed to update window height: {exc}")
                     return
+            self._preferences.window_width = width
+            self._preferences.window_height = height
+        if self._set_window_size:
+            # The callback updates preferences in place; ensure local copy reflects latest values.
+            self._preferences.window_width = width
+            self._preferences.window_height = height
         self._preferences.save()
 
     def _on_follow_toggle(self) -> None:
         value = bool(self._var_follow_mode.get())
         self._preferences.follow_game_window = value
-        self._update_origin_state()
+        self._update_controls_state()
         if self._set_follow_mode:
             try:
                 self._set_follow_mode(value)
@@ -777,8 +792,9 @@ class PreferencesPanel:
             except Exception as exc:
                 self._status_var.set(f"Failed to reset origin: {exc}")
 
-    def _update_origin_state(self) -> None:
-        origin_state = "disabled" if self._var_follow_mode.get() else "normal"
+    def _update_controls_state(self) -> None:
+        follow_enabled = bool(self._var_follow_mode.get())
+        origin_state = "disabled" if follow_enabled else "normal"
         for widget in self._origin_entries:
             try:
                 widget.config(state=origin_state)
@@ -787,6 +803,12 @@ class PreferencesPanel:
         if self._origin_reset_button is not None:
             try:
                 self._origin_reset_button.config(state=origin_state)
+            except Exception:
+                pass
+        size_state = "disabled" if follow_enabled else "normal"
+        for widget in getattr(self, "_size_controls", ()):
+            try:
+                widget.config(state=size_state)
             except Exception:
                 pass
 

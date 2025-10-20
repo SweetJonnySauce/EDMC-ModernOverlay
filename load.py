@@ -527,15 +527,14 @@ class _PluginRuntime:
             height = self._preferences.window_height
         width = max(640, width)
         height = max(360, height)
-        if (
-            width == self._preferences.window_width
-            and height == self._preferences.window_height
-        ):
-            LOGGER.debug("Overlay window size unchanged at %d x %d px", width, height)
-            return
+        old_width = self._preferences.window_width
+        old_height = self._preferences.window_height
         self._preferences.window_width = width
         self._preferences.window_height = height
-        LOGGER.debug("Overlay window size set to %d x %d px", width, height)
+        if width == old_width and height == old_height:
+            LOGGER.debug("Overlay window size rebroadcast at %d x %d px", width, height)
+        else:
+            LOGGER.debug("Overlay window size set to %d x %d px", width, height)
         self._send_overlay_config()
 
     def set_window_width_preference(self, value: int) -> None:
