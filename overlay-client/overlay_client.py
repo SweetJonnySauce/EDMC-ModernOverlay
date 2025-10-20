@@ -33,6 +33,9 @@ _CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
 _CLIENT_LOGGER.setLevel(logging.DEBUG)
 _CLIENT_LOGGER.propagate = False
 
+DEFAULT_WINDOW_BASE_WIDTH = 1920
+DEFAULT_WINDOW_BASE_HEIGHT = 1080
+
 
 def _initial_platform_context(initial: InitialClientSettings) -> PlatformContext:
     force_env = os.environ.get("EDMC_OVERLAY_FORCE_XWAYLAND") == "1"
@@ -158,7 +161,8 @@ class OverlayWindow(QWidget):
     def __init__(self, initial: InitialClientSettings) -> None:
         super().__init__()
         self._font_family = self._resolve_font_family()
-        self._status = "Initialising"
+        self._status_raw = "Initialising"
+        self._status = self._status_raw
         self._state: Dict[str, Any] = {
             "message": "",
         }
@@ -179,13 +183,15 @@ class OverlayWindow(QWidget):
         self._legacy_user_scale_y: float = 1.0
         self._legacy_user_scale_x: float = 1.0
         self._auto_legacy_scale: bool = True
-        self._base_height: int = 0
-        self._base_width: int = 0
+        self._base_height: int = DEFAULT_WINDOW_BASE_HEIGHT
+        self._base_width: int = DEFAULT_WINDOW_BASE_WIDTH
         self._log_retention: int = max(1, int(initial.client_log_retention))
-        self._requested_base_height: Optional[int] = max(360, int(initial.window_height))
-        self._requested_width: Optional[int] = max(640, int(initial.window_width))
-        self._legacy_reference_width: int = max(1, int(self._requested_width or 1980))
-        self._legacy_reference_height: int = max(1, int(self._requested_base_height or 1080))
+        self._target_height_px: int = max(360, int(initial.window_height))
+        self._target_width_px: int = max(640, int(initial.window_width))
+        self._requested_base_height: Optional[int] = DEFAULT_WINDOW_BASE_HEIGHT
+        self._requested_width: Optional[int] = DEFAULT_WINDOW_BASE_WIDTH
+        self._legacy_reference_width: int = DEFAULT_WINDOW_BASE_WIDTH
+        self._legacy_reference_height: int = DEFAULT_WINDOW_BASE_HEIGHT
         self._follow_enabled: bool = bool(getattr(initial, "follow_elite_window", True))
         self._origin_x: int = max(0, int(getattr(initial, "origin_x", 0)))
         self._origin_y: int = max(0, int(getattr(initial, "origin_y", 0)))
@@ -272,10 +278,12 @@ class OverlayWindow(QWidget):
         self.status_label.setVisible(False)
 
         _CLIENT_LOGGER.debug(
-            "Overlay window initialised; log retention=%d, initial_base_height=%s, initial_width=%s; %s",
+            "Overlay window initialised; log retention=%d, base=%dx%d target=%dx%d; %s",
             self._log_retention,
-            self._requested_base_height,
-            self._requested_width,
+            self._base_width,
+            self._base_height,
+            self._target_width_px,
+            self._target_height_px,
             self.format_scale_debug(),
         )
 
@@ -558,6 +566,7 @@ class OverlayWindow(QWidget):
         width = max(self.width(), 1)
         height = max(self.height(), 1)
         target_rect = QRect(self._origin_x, self._origin_y, width, height)
+        self._move_to_screen(target_rect)
         self.setGeometry(target_rect)
         self._last_set_geometry = (
             target_rect.x(),
@@ -615,6 +624,7 @@ class OverlayWindow(QWidget):
         self.message_label.clear()
 
     def set_status_text(self, status: str) -> None:
+        self._status_raw = status
         self._status = status
         self._last_status_log = None
         self._refresh_status_label()
@@ -636,14 +646,30 @@ class OverlayWindow(QWidget):
             self.status_label.setText(text)
 
     def _compose_status_text(self) -> str:
-        base = (self._status or "").strip()
+        base = (self._status_raw or "").strip()
+        augmented = self._augment_connection_status(base)
+        self._status = augmented
         frame = self.frameGeometry()
         screen_desc = self._describe_screen(self.windowHandle().screen() if self.windowHandle() else None)
         position = f"x={frame.x()} y={frame.y()}"
         suffix = f"{position} on {screen_desc}"
-        if base:
-            return f"{base} ({suffix})"
+        if augmented:
+            return f"{augmented} ({suffix})"
         return f"Overlay position ({suffix})"
+
+    def _augment_connection_status(self, status: str) -> str:
+        base = (status or "").strip()
+        if not base.lower().startswith("connected to"):
+            return base
+        if "scale_y=" in base or "scale_x=" in base:
+            return base
+        width = max(self.width(), 1)
+        height = max(self.height(), 1)
+        scale_y = self._effective_legacy_scale_y()
+        scale_x = self._effective_legacy_scale_x()
+        metrics = f"{width}x{height}px scale_y={scale_y:.2f} scale_x={scale_x:.2f}"
+        separator = " – " if " – " not in base else " "
+        return f"{base}{separator}{metrics}"
 
     def _update_status_position_info(self) -> None:
         if not self._show_status:
@@ -725,62 +751,77 @@ class OverlayWindow(QWidget):
         self.update()
 
     def set_window_dimensions(self, width: Optional[int], height: Optional[int]) -> None:
+        def _parse_dimension(value: Optional[int], minimum: int) -> Optional[int]:
+            if value is None:
+                return None
+            try:
+                numeric = int(value)
+            except (TypeError, ValueError):
+                return None
+            return max(minimum, numeric)
+
+        target_width = _parse_dimension(width, 640)
+        target_height = _parse_dimension(height, 360)
+
         follow_locked = self._follow_enabled and (self._window_tracker is not None or self._last_follow_state is not None)
         if follow_locked:
-            if width is not None:
-                try:
-                    self._requested_width = max(640, int(width))
-                except (TypeError, ValueError):
-                    pass
-                if self._requested_width:
-                    self._legacy_reference_width = max(1, int(self._requested_width))
-            if height is not None:
-                try:
-                    self._requested_base_height = max(360, int(height))
-                except (TypeError, ValueError):
-                    pass
-                if self._requested_base_height:
-                    self._legacy_reference_height = max(1, int(self._requested_base_height))
+            if target_width is not None:
+                self._target_width_px = target_width
+            if target_height is not None:
+                self._target_height_px = target_height
             _CLIENT_LOGGER.debug(
                 "Ignoring explicit window size while follow mode is active (requested=%sx%s); %s",
-                self._requested_width,
-                self._requested_base_height,
+                self._target_width_px,
+                self._target_height_px,
                 self.format_scale_debug(),
             )
             return
 
-        size_changed = False
-        if width is not None:
-            try:
-                numeric_width = int(width)
-            except (TypeError, ValueError):
-                numeric_width = self._requested_width or self._base_width or self.width()
-            numeric_width = max(640, numeric_width)
-            if numeric_width != (self._requested_width or self._base_width):
-                size_changed = True
-            self._requested_width = numeric_width
-            self._base_width = numeric_width
-            self._legacy_reference_width = max(1, numeric_width)
-        if height is not None:
-            try:
-                numeric_height = int(height)
-            except (TypeError, ValueError):
-                numeric_height = self._requested_base_height or self._base_height or self.height()
-            numeric_height = max(360, numeric_height)
-            if numeric_height != (self._requested_base_height or self._base_height):
-                size_changed = True
-            self._requested_base_height = numeric_height
-            self._base_height = numeric_height
-            self._legacy_reference_height = max(1, numeric_height)
-        if size_changed:
-            _CLIENT_LOGGER.debug(
-                "Applied window size: width=%s, base_height=%s, scale_y=%.2f, scale_x=%.2f",
-                self._requested_width,
-                self._base_height,
-                self._effective_legacy_scale_y(),
-                self._effective_legacy_scale_x(),
+        scale_adjusted = False
+        if target_width is not None:
+            self._target_width_px = target_width
+            base_width_candidate = (
+                self._base_width
+                or self._requested_width
+                or self._legacy_reference_width
+                or target_width
             )
-            self._apply_legacy_scale()
+            base_width = max(1, int(base_width_candidate))
+            self._base_width = base_width
+            self._requested_width = base_width
+            self._legacy_reference_width = base_width
+            new_scale_x = target_width / float(base_width)
+            self.set_legacy_scale_x(new_scale_x, auto=True)
+            scale_adjusted = True
+
+        if target_height is not None:
+            self._target_height_px = target_height
+            base_height_candidate = (
+                self._base_height
+                or self._requested_base_height
+                or self._legacy_reference_height
+                or target_height
+            )
+            base_height = max(1, int(base_height_candidate))
+            self._base_height = base_height
+            self._requested_base_height = base_height
+            self._legacy_reference_height = base_height
+            new_scale_y = target_height / float(base_height)
+            self.set_legacy_scale_y(new_scale_y, auto=True)
+            scale_adjusted = True
+
+        if scale_adjusted:
+            _CLIENT_LOGGER.debug(
+                "Adjusted overlay target size to %sx%s (base=%dx%d); %s",
+                self._target_width_px,
+                self._target_height_px,
+                self._base_width,
+                self._base_height,
+                self.format_scale_debug(),
+            )
+            self._refresh_status_label()
+            if not self._follow_enabled:
+                self._apply_origin_position()
 
     def set_log_retention(self, retention: int) -> None:
         try:

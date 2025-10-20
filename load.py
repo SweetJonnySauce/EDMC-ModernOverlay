@@ -516,25 +516,41 @@ class _PluginRuntime:
         LOGGER.debug("Overlay gridline spacing set to %d px", spacing)
         self._send_overlay_config()
 
+    def set_window_size_preference(self, width_value: int, height_value: int) -> None:
+        try:
+            width = int(width_value)
+        except (TypeError, ValueError):
+            width = self._preferences.window_width
+        try:
+            height = int(height_value)
+        except (TypeError, ValueError):
+            height = self._preferences.window_height
+        width = max(640, width)
+        height = max(360, height)
+        if (
+            width == self._preferences.window_width
+            and height == self._preferences.window_height
+        ):
+            LOGGER.debug("Overlay window size unchanged at %d x %d px", width, height)
+            return
+        self._preferences.window_width = width
+        self._preferences.window_height = height
+        LOGGER.debug("Overlay window size set to %d x %d px", width, height)
+        self._send_overlay_config()
+
     def set_window_width_preference(self, value: int) -> None:
         try:
             width = int(value)
         except (TypeError, ValueError):
             width = self._preferences.window_width
-        width = max(640, width)
-        self._preferences.window_width = width
-        LOGGER.debug("Overlay window width set to %d px", width)
-        self._send_overlay_config()
+        self.set_window_size_preference(width, self._preferences.window_height)
 
     def set_window_height_preference(self, value: int) -> None:
         try:
             height = int(value)
         except (TypeError, ValueError):
             height = self._preferences.window_height
-        height = max(360, height)
-        self._preferences.window_height = height
-        LOGGER.debug("Overlay window height set to %d px", height)
-        self._send_overlay_config()
+        self.set_window_size_preference(self._preferences.window_width, height)
 
     def set_follow_mode_preference(self, value: bool) -> None:
         self._preferences.follow_game_window = bool(value)
@@ -866,6 +882,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         gridline_spacing_callback = _plugin.set_gridline_spacing_preference if _plugin else None
         window_width_callback = _plugin.set_window_width_preference if _plugin else None
         window_height_callback = _plugin.set_window_height_preference if _plugin else None
+        window_size_callback = _plugin.set_window_size_preference if _plugin else None
         horizontal_scale_callback = _plugin.set_horizontal_scale_preference if _plugin else None
         follow_mode_callback = _plugin.set_follow_mode_preference if _plugin else None
         force_render_callback = _plugin.set_force_render_preference if _plugin else None
@@ -884,6 +901,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             gridline_spacing_callback,
             window_width_callback,
             window_height_callback,
+            window_size_callback,
             horizontal_scale_callback,
             follow_mode_callback,
             force_render_callback,

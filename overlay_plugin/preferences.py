@@ -131,6 +131,7 @@ class PreferencesPanel:
         set_gridline_spacing_callback: Optional[Callable[[int], None]] = None,
         set_window_width_callback: Optional[Callable[[int], None]] = None,
         set_window_height_callback: Optional[Callable[[int], None]] = None,
+        set_window_size_callback: Optional[Callable[[int, int], None]] = None,
         set_horizontal_scale_callback: Optional[Callable[[float], None]] = None,
         set_follow_mode_callback: Optional[Callable[[bool], None]] = None,
         set_force_render_callback: Optional[Callable[[bool], None]] = None,
@@ -165,6 +166,7 @@ class PreferencesPanel:
         self._set_gridline_spacing = set_gridline_spacing_callback
         self._set_window_width = set_window_width_callback
         self._set_window_height = set_window_height_callback
+        self._set_window_size = set_window_size_callback
         self._set_horizontal_scale = set_horizontal_scale_callback
         self._legacy_scale_display = tk.StringVar(value=f"{preferences.legacy_vertical_scale:.2f}×")
         self._horizontal_scale_display = tk.StringVar(value=f"{preferences.legacy_horizontal_scale:.2f}×")
@@ -301,7 +303,7 @@ class PreferencesPanel:
         opacity_scale.pack(side="left", fill="x")
         opacity_row.grid(row=11, column=0, sticky="we")
 
-        size_label = tk.Label(frame, text="Initial overlay window size (pixels):")
+        size_label = tk.Label(frame, text="Overlay window size (pixels; updates immediately):")
         size_label.grid(row=12, column=0, sticky="w", pady=(10, 0))
 
         size_row = tk.Frame(frame)
@@ -674,18 +676,25 @@ class PreferencesPanel:
         self._var_window_height.set(height)
         self._preferences.window_width = width
         self._preferences.window_height = height
-        if self._set_window_width:
+        if self._set_window_size:
             try:
-                self._set_window_width(width)
+                self._set_window_size(width, height)
             except Exception as exc:
-                self._status_var.set(f"Failed to update window width: {exc}")
+                self._status_var.set(f"Failed to update window size: {exc}")
                 return
-        if self._set_window_height:
-            try:
-                self._set_window_height(height)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update window height: {exc}")
-                return
+        else:
+            if self._set_window_width:
+                try:
+                    self._set_window_width(width)
+                except Exception as exc:
+                    self._status_var.set(f"Failed to update window width: {exc}")
+                    return
+            if self._set_window_height:
+                try:
+                    self._set_window_height(height)
+                except Exception as exc:
+                    self._status_var.set(f"Failed to update window height: {exc}")
+                    return
         self._preferences.save()
 
     def _on_follow_toggle(self) -> None:

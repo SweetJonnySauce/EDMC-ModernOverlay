@@ -56,12 +56,12 @@ class DeveloperHelperController:
                 enabled=config.gridlines_enabled if config.gridlines_enabled is not None else window.gridlines_enabled,
                 spacing=config.gridline_spacing,
             )
-        if config.window_width is not None or config.window_height is not None:
-            window.set_window_dimensions(config.window_width, config.window_height)
         if config.show_status is not None:
             window.set_show_status(config.show_status)
         if config.follow_enabled is not None:
             window.set_follow_enabled(config.follow_enabled)
+        if config.window_width is not None or config.window_height is not None:
+            window.set_window_dimensions(config.window_width, config.window_height)
         if config.force_render is not None:
             window.set_force_render(config.force_render)
         if config.origin_x is not None or config.origin_y is not None:

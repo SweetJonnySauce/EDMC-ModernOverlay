@@ -1,10 +1,10 @@
 {
   "capture_output": true,
-  "overlay_opacity": 0.2,
+  "overlay_opacity": 0.1,
   "show_connection_status": true,
   "log_payloads": false,
-  "legacy_vertical_scale": 1.1,
-  "legacy_horizontal_scale": 1.6,
+  "legacy_vertical_scale": 1.0,
+  "legacy_horizontal_scale": 1.0,
   "client_log_retention": 5,
   "gridlines_enabled": true,
   "gridline_spacing": 100,
