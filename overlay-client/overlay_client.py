@@ -431,6 +431,13 @@ class OverlayWindow(QWidget):
                 self._saved_cursor = self.cursor()
                 self._cursor_saved = True
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            _CLIENT_LOGGER.debug(
+                "Drag initiated at pos=%s offset=%s (from %s) move_mode=%s",
+                self.frameGeometry().topLeft(),
+                self._drag_offset,
+                event.globalPosition().toPoint(),
+                self._move_mode,
+            )
             event.accept()
             return
         super().mousePressEvent(event)
@@ -452,6 +459,7 @@ class OverlayWindow(QWidget):
                 self.setCursor(self._saved_cursor)
                 self._cursor_saved = False
             self._apply_drag_state()
+            _CLIENT_LOGGER.debug("Drag finished; origin now at %s", self.frameGeometry().topLeft())
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -570,6 +578,7 @@ class OverlayWindow(QWidget):
             self._update_follow_visibility(True)
             if sys.platform.startswith("linux"):
                 self._platform_controller.apply_click_through(True)
+                self._restore_drag_interactivity()
             if self._last_follow_state:
                 self._apply_follow_state(self._last_follow_state)
         else:
@@ -653,6 +662,12 @@ class OverlayWindow(QWidget):
         enabled_flag = bool(enabled)
         if enabled_flag != self._drag_enabled:
             self._drag_enabled = enabled_flag
+            _CLIENT_LOGGER.debug(
+                "Drag enabled set to %s (platform=%s); %s",
+                self._drag_enabled,
+                QGuiApplication.platformName(),
+                self.format_scale_debug(),
+            )
             self._apply_drag_state()
 
     def set_legacy_scale_y(self, scale: float, *, auto: bool = False) -> None:
@@ -787,6 +802,7 @@ class OverlayWindow(QWidget):
         self._platform_controller.update_context(new_context)
         self._platform_controller.prepare_window(self.windowHandle())
         self._platform_controller.apply_click_through(True)
+        self._restore_drag_interactivity()
         _CLIENT_LOGGER.debug(
             "Platform context updated: session=%s compositor=%s force_xwayland=%s",
             new_context.session_type or "unknown",
@@ -797,6 +813,15 @@ class OverlayWindow(QWidget):
     # Platform integration -------------------------------------------------
 
     def _apply_drag_state(self) -> None:
+        window = self.windowHandle()
+        _CLIENT_LOGGER.debug(
+            "Applying drag state: drag_enabled=%s transparent=%s move_mode=%s window=%s flags=%s",
+            self._drag_enabled,
+            not self._drag_enabled,
+            self._move_mode,
+            bool(window),
+            hex(int(window.flags())) if window is not None else "none",
+        )
         self._set_click_through(not self._drag_enabled)
         if not self._drag_enabled:
             self._move_mode = False
@@ -842,6 +867,12 @@ class OverlayWindow(QWidget):
         if not self.isVisible():
             self.show()
         window = self.windowHandle()
+        _CLIENT_LOGGER.debug(
+            "Set click-through to %s (WA_Transparent=%s window_flag=%s)",
+            transparent,
+            self.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents),
+            hex(int(window.flags())) if window is not None else "none",
+        )
         if window is not None:
             self._platform_controller.prepare_window(window)
             self._platform_controller.apply_click_through(transparent)
@@ -849,6 +880,12 @@ class OverlayWindow(QWidget):
                 window.setFlag(Qt.WindowType.WindowTransparentForInput, transparent)
         if self.isVisible():
             self.raise_()
+
+    def _restore_drag_interactivity(self) -> None:
+        if not self._drag_enabled or self._drag_active:
+            return
+        _CLIENT_LOGGER.debug("Restoring interactive overlay input because drag is enabled; %s", self.format_scale_debug())
+        self._set_click_through(False)
 
     # Follow mode ----------------------------------------------------------
 
@@ -1063,6 +1100,7 @@ class OverlayWindow(QWidget):
                 self._update_follow_visibility(True)
                 if sys.platform.startswith("linux"):
                     self._platform_controller.apply_click_through(True)
+                    self._restore_drag_interactivity()
             else:
                 self._update_follow_visibility(False)
             return
@@ -1070,6 +1108,7 @@ class OverlayWindow(QWidget):
             self._update_follow_visibility(True)
             if sys.platform.startswith("linux"):
                 self._platform_controller.apply_click_through(True)
+                self._restore_drag_interactivity()
         else:
             self._last_follow_state = None
             self._wm_authoritative_rect = None
