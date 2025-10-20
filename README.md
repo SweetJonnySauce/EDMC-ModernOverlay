@@ -8,34 +8,37 @@ EDMC Modern Overlay is a two-part reference implementation for Elite Dangerous M
 
 ```
 EDMC-ModernOverlay/
-├── README.md                     # You're here
-├── FAQ.md                        # Extra setup and troubleshooting notes
+├── README.md                       # You're here
+├── FAQ.md                          # Extra setup and troubleshooting notes
 ├── LICENSE
-├── load.py                       # EDMC entry hook copied into the plugins dir
-├── __init__.py                   # Package marker for EDMC imports
-├── edmcoverlay.py                # Top-level legacy shim (`import edmcoverlay`)
-├── EDMCOverlay/                  # Package form of the legacy shim
+├── EDMC-ModernOverlay.code-workspace  # Optional VS Code workspace settings
+├── load.py                         # EDMC entry hook copied into the plugins dir
+├── __init__.py                     # Package marker for EDMC imports
+├── edmcoverlay.py                  # Top-level legacy shim (`import edmcoverlay`)
+├── EDMCOverlay/                    # Package form of the legacy shim
 │   ├── __init__.py
 │   └── edmcoverlay.py
-├── overlay_plugin/               # Runtime that runs inside EDMC
+├── overlay_plugin/                 # Runtime that runs inside EDMC
 │   ├── __init__.py
-│   ├── overlay_api.py            # Helper API for other plugins
-│   ├── overlay_socket_server.py  # JSON-over-TCP broadcaster
-│   ├── overlay_watchdog.py       # Subprocess supervisor for the client
-│   ├── preferences.py            # myNotebook-backed settings panel
-│   └── requirements.txt          # Runtime dependencies (standard-library-only today)
-├── overlay-client/               # Stand-alone PyQt6 overlay process
-│   ├── overlay_client.py         # Main window and socket bridge
-│   ├── client_config.py          # Bootstrap defaults and OverlayConfig parsing
-│   ├── developer_helpers.py      # Dev utilities and logging helpers
-│   ├── window_tracking.py        # Elite Dangerous window tracking helpers
-│   ├── requirements.txt          # Client dependency list (PyQt6, etc.)
-│   ├── fonts/
-│   │   ├── README.txt
-│   │   ├── preferred_fonts.txt   # Optional case-insensitive priority list
-│   │   ├── SourceSans3-Regular.ttf
-│   │   └── SourceSans3-OFL.txt
-└── overlay_settings.json         # Sample preferences written by EDMC
+│   ├── overlay_api.py              # Helper API for other plugins
+│   ├── overlay_socket_server.py    # JSON-over-TCP broadcaster
+│   ├── overlay_watchdog.py         # Subprocess supervisor for the client
+│   ├── preferences.py              # myNotebook-backed settings panel
+│   └── requirements.txt            # Runtime dependency stub (stdlib today)
+├── overlay-client/                 # Stand-alone PyQt6 overlay process
+│   ├── overlay_client.py           # Main window and socket bridge
+│   ├── client_config.py            # Bootstrap defaults and OverlayConfig parsing
+│   ├── platform_integration.py     # Window stacking/input helpers per platform
+│   ├── developer_helpers.py        # Dev utilities and logging helpers
+│   ├── window_tracking.py          # Elite Dangerous window tracking helpers
+│   ├── requirements.txt            # Client dependency list (PyQt6, etc.)
+│   └── fonts/
+│       ├── README.txt
+│       ├── preferred_fonts.txt     # Optional case-insensitive priority list
+│       ├── SourceSans3-Regular.ttf
+│       └── SourceSans3-OFL.txt
+├── overlay_settings.json           # Sample preferences persisted by EDMC
+└── port.json                       # Last known port (written while the plugin runs)
 ```
 
 ## Features
