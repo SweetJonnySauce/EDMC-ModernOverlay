@@ -5,7 +5,7 @@
 set -euo pipefail
 
 FONT_URL="https://raw.githubusercontent.com/inorton/EDMCOverlay/master/EDMCOverlay/EDMCOverlay/EUROCAPS.TTF"
-DEFAULT_PLUGIN_DIR="${HOME}/.local/share/EDMarketConnector/plugins/EDMCModernOverlay"
+DEFAULT_PLUGIN_DIR="${HOME}/.local/share/EDMarketConnector/plugins/EDMC-ModernOverlay"
 PLUGIN_DIR="${1:-$DEFAULT_PLUGIN_DIR}"
 FONT_DIR="${PLUGIN_DIR}/overlay-client/fonts"
 TARGET_FONT="${FONT_DIR}/Eurocaps.ttf"

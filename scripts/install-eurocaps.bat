@@ -4,7 +4,7 @@ REM Usage: install-eurocaps.bat [path-to-EDMC-ModernOverlay]
 
 setlocal enabledelayedexpansion
 
-set "DEFAULT_PLUGIN_DIR=%LOCALAPPDATA%\EDMarketConnector\plugins\EDMCModernOverlay"
+set "DEFAULT_PLUGIN_DIR=%LOCALAPPDATA%\EDMarketConnector\plugins\EDMC-ModernOverlay"
 if "%~1"=="" (
     set "PLUGIN_DIR=%DEFAULT_PLUGIN_DIR%"
 ) else (
