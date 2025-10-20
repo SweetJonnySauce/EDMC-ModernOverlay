@@ -443,7 +443,7 @@ class PreferencesPanel:
         legacy_rect_btn.pack(side="left", padx=(8, 0))
         legacy_row.grid(row=24, column=0, sticky="w", pady=(2, 0))
 
-        status_label = tk.Label(frame, textvariable=self._status_var, wraplength=400, justify="left", fg="#808080")
+        status_label = tk.Label(frame, textvariable=self._status_var, wraplength=400, justify="left")
         status_label.grid(row=25, column=0, sticky="w", pady=(4, 0))
 
         self._frame = frame
