@@ -380,12 +380,8 @@ class _PluginRuntime:
         return (os.environ.get("XDG_SESSION_TYPE") or "").lower() == "wayland"
 
     def _sync_force_xwayland_ui(self) -> None:
-        panel = globals().get("_prefs_panel")
-        if panel is not None:
-            try:
-                panel.sync_force_xwayland(self._preferences.force_xwayland)
-            except Exception as exc:
-                LOGGER.debug("Failed to sync preferences panel XWayland state: %s", exc)
+        # UI toggle removed; keep method for legacy callers.
+        return
 
     def _enforce_force_xwayland(
         self,
@@ -885,7 +881,6 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         horizontal_scale_callback = _plugin.set_horizontal_scale_preference if _plugin else None
         follow_mode_callback = _plugin.set_follow_mode_preference if _plugin else None
         force_render_callback = _plugin.set_force_render_preference if _plugin else None
-        force_xwayland_callback = _plugin.set_force_xwayland_preference if _plugin else None
         origin_callback = _plugin.set_origin_preference if _plugin else None
         reset_origin_callback = _plugin.reset_origin_preference if _plugin else None
         panel = PreferencesPanel(
@@ -904,11 +899,9 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             horizontal_scale_callback,
             follow_mode_callback,
             force_render_callback,
-            force_xwayland_callback,
             origin_callback,
             reset_origin_callback,
         )
-        panel.sync_force_xwayland(_preferences.force_xwayland)
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)
         return None

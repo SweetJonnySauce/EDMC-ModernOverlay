@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 
 PREFERENCES_FILE = "overlay_settings.json"
@@ -135,7 +135,6 @@ class PreferencesPanel:
         set_horizontal_scale_callback: Optional[Callable[[float], None]] = None,
         set_follow_mode_callback: Optional[Callable[[bool], None]] = None,
         set_force_render_callback: Optional[Callable[[bool], None]] = None,
-        set_force_xwayland_callback: Optional[Callable[[bool], None]] = None,
         set_origin_callback: Optional[Callable[[int, int], None]] = None,
         reset_origin_callback: Optional[Callable[[], None]] = None,
     ) -> None:
@@ -174,15 +173,16 @@ class PreferencesPanel:
         self._var_origin_x = tk.StringVar(value=str(max(0, int(getattr(preferences, "origin_x", 0)))))
         self._var_origin_y = tk.StringVar(value=str(max(0, int(getattr(preferences, "origin_y", 0)))))
         self._var_force_render = tk.BooleanVar(value=preferences.force_render)
-        self._var_force_xwayland = tk.BooleanVar(value=preferences.force_xwayland)
         self._set_follow_mode = set_follow_mode_callback
         self._set_force_render = set_force_render_callback
-        self._set_force_xwayland = set_force_xwayland_callback
         self._set_origin = set_origin_callback
         self._reset_origin = reset_origin_callback
         self._origin_reset_button = None
         self._origin_entries = []
         self._window_size_guard = False
+        self._follow_labels: List[Any] = []
+        self._follow_label_defaults: Dict[Any, Optional[str]] = {}
+        self._disabled_label_fg = "#888888"
 
         frame = nb.Frame(parent)
         description = (
@@ -319,6 +319,7 @@ class PreferencesPanel:
 
         size_row = tk.Frame(frame)
         width_label = tk.Label(size_row, text="Width:")
+        self._register_follow_label(width_label)
         width_label.pack(side="left")
         width_spin = tk.Spinbox(
             size_row,
@@ -333,6 +334,7 @@ class PreferencesPanel:
         width_spin.bind("<FocusOut>", self._on_window_width_event)
         width_spin.bind("<Return>", self._on_window_width_event)
         height_label = tk.Label(size_row, text="Height:")
+        self._register_follow_label(height_label)
         height_label.pack(side="left", padx=(12, 0))
         height_spin = tk.Spinbox(
             size_row,
@@ -351,16 +353,19 @@ class PreferencesPanel:
         self._follow_checkbox = follow_checkbox
 
         origin_label = tk.Label(frame, text="Overlay origin (top-left in pixels):")
+        self._register_follow_label(origin_label)
         origin_label.grid(row=15, column=0, sticky="w", pady=(10, 0))
 
         origin_row = tk.Frame(frame)
         origin_x_label = tk.Label(origin_row, text="X:")
+        self._register_follow_label(origin_x_label)
         origin_x_label.pack(side="left")
         origin_x_entry = tk.Entry(origin_row, width=7, textvariable=self._var_origin_x)
         origin_x_entry.pack(side="left", padx=(4, 0))
         origin_x_entry.bind("<FocusOut>", self._on_origin_entry_event)
         origin_x_entry.bind("<Return>", self._on_origin_entry_event)
         origin_y_label = tk.Label(origin_row, text="Y:")
+        self._register_follow_label(origin_y_label)
         origin_y_label.pack(side="left", padx=(12, 0))
         origin_y_entry = tk.Entry(origin_row, width=7, textvariable=self._var_origin_y)
         origin_y_entry.pack(side="left", padx=(4, 0))
@@ -373,17 +378,6 @@ class PreferencesPanel:
         self._origin_reset_button = reset_button
         self._update_controls_state()
 
-        xwayland_checkbox = tk.Checkbutton(
-            frame,
-            text="Force overlay client to run via XWayland (requires overlay restart)",
-            variable=self._var_force_xwayland,
-            onvalue=True,
-            offvalue=False,
-            command=self._on_force_xwayland_toggle,
-        )
-        xwayland_checkbox.grid(row=17, column=0, sticky="w", pady=(6, 0))
-        self._xwayland_checkbox = xwayland_checkbox
-
         force_checkbox = tk.Checkbutton(
             frame,
             text="Keep overlay visible when Elite Dangerous is not the foreground window",
@@ -392,7 +386,7 @@ class PreferencesPanel:
             offvalue=False,
             command=self._on_force_render_toggle,
         )
-        force_checkbox.grid(row=18, column=0, sticky="w", pady=(6, 0))
+        force_checkbox.grid(row=17, column=0, sticky="w", pady=(6, 0))
 
         grid_checkbox = tk.Checkbutton(
             frame,
@@ -402,7 +396,7 @@ class PreferencesPanel:
             offvalue=False,
             command=self._on_gridlines_toggle,
         )
-        grid_checkbox.grid(row=19, column=0, sticky="w", pady=(8, 0))
+        grid_checkbox.grid(row=18, column=0, sticky="w", pady=(8, 0))
 
         grid_spacing_row = tk.Frame(frame)
         grid_spacing_label = tk.Label(grid_spacing_row, text="Grid spacing (pixels):")
@@ -419,48 +413,38 @@ class PreferencesPanel:
         grid_spacing_spin.pack(side="left", padx=(6, 0))
         grid_spacing_spin.bind("<FocusOut>", self._on_gridline_spacing_event)
         grid_spacing_spin.bind("<Return>", self._on_gridline_spacing_event)
-        grid_spacing_row.grid(row=20, column=0, sticky="w", pady=(2, 0))
+        grid_spacing_row.grid(row=19, column=0, sticky="w", pady=(2, 0))
 
         test_label = tk.Label(frame, text="Send test message to overlay:")
-        test_label.grid(row=21, column=0, sticky="w", pady=(10, 0))
+        test_label.grid(row=20, column=0, sticky="w", pady=(10, 0))
 
         test_row = tk.Frame(frame)
         test_entry = tk.Entry(test_row, textvariable=self._test_var, width=50)
         send_button = tk.Button(test_row, text="Send", command=self._on_send_click)
         test_entry.pack(side="left", fill="x", expand=True)
         send_button.pack(side="left", padx=(8, 0))
-        test_row.grid(row=22, column=0, sticky="we", pady=(2, 0))
+        test_row.grid(row=21, column=0, sticky="we", pady=(2, 0))
         frame.columnconfigure(0, weight=1)
         test_row.columnconfigure(0, weight=1)
 
         legacy_label = tk.Label(frame, text="Legacy edmcoverlay compatibility:")
-        legacy_label.grid(row=23, column=0, sticky="w", pady=(10, 0))
+        legacy_label.grid(row=22, column=0, sticky="w", pady=(10, 0))
 
         legacy_row = tk.Frame(frame)
         legacy_text_btn = tk.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
         legacy_rect_btn = tk.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
         legacy_text_btn.pack(side="left")
         legacy_rect_btn.pack(side="left", padx=(8, 0))
-        legacy_row.grid(row=24, column=0, sticky="w", pady=(2, 0))
+        legacy_row.grid(row=23, column=0, sticky="w", pady=(2, 0))
 
         status_label = tk.Label(frame, textvariable=self._status_var, wraplength=400, justify="left")
-        status_label.grid(row=25, column=0, sticky="w", pady=(4, 0))
+        status_label.grid(row=24, column=0, sticky="w", pady=(4, 0))
 
         self._frame = frame
 
     @property
     def frame(self):  # pragma: no cover - Tk integration
         return self._frame
-
-    def sync_force_xwayland(self, value: bool, locked: bool = True) -> None:
-        self._var_force_xwayland.set(bool(value))
-        checkbox = getattr(self, "_xwayland_checkbox", None)
-        if checkbox is not None:
-            state = "disabled" if locked else "normal"
-            try:
-                checkbox.configure(state=state)
-            except Exception:
-                pass
 
     def apply(self) -> None:
         self._preferences.capture_output = bool(self._var_capture.get())
@@ -477,7 +461,6 @@ class PreferencesPanel:
         self._preferences.follow_game_window = bool(self._var_follow_mode.get())
         self._apply_origin_values(self._var_origin_x.get(), self._var_origin_y.get(), persist=False)
         self._preferences.force_render = bool(self._var_force_render.get())
-        self._preferences.force_xwayland = bool(self._var_force_xwayland.get())
         if self._set_status:
             try:
                 self._set_status(self._preferences.show_connection_status)
@@ -513,12 +496,6 @@ class PreferencesPanel:
                 self._set_force_render(self._preferences.force_render)
             except Exception as exc:
                 self._status_var.set(f"Failed to update force-render option: {exc}")
-                return
-        if self._set_force_xwayland:
-            try:
-                self._set_force_xwayland(self._preferences.force_xwayland)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update XWayland preference: {exc}")
                 return
         self._preferences.save()
 
@@ -735,17 +712,6 @@ class PreferencesPanel:
                 return
         self._preferences.save()
 
-    def _on_force_xwayland_toggle(self) -> None:
-        value = bool(self._var_force_xwayland.get())
-        self._preferences.force_xwayland = value
-        if self._set_force_xwayland:
-            try:
-                self._set_force_xwayland(value)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update XWayland preference: {exc}")
-                return
-        self._preferences.save()
-
     def _on_origin_entry_event(self, event) -> None:  # type: ignore[override]
         x_raw = self._var_origin_x.get()
         y_raw = self._var_origin_y.get()
@@ -792,6 +758,14 @@ class PreferencesPanel:
             except Exception as exc:
                 self._status_var.set(f"Failed to reset origin: {exc}")
 
+    def _register_follow_label(self, label) -> None:
+        try:
+            default = label.cget("foreground")
+        except Exception:
+            default = None
+        self._follow_labels.append(label)
+        self._follow_label_defaults[label] = default if default else None
+
     def _update_controls_state(self) -> None:
         follow_enabled = bool(self._var_follow_mode.get())
         origin_state = "disabled" if follow_enabled else "normal"
@@ -811,6 +785,13 @@ class PreferencesPanel:
                 widget.config(state=size_state)
             except Exception:
                 pass
+        for label in self._follow_labels:
+            default_fg = self._follow_label_defaults.get(label)
+            target = self._disabled_label_fg if follow_enabled else (default_fg if default_fg is not None else "")
+            try:
+                label.config(foreground=target)
+            except Exception:
+                continue
 
     def update_origin_fields(self, origin_x: int, origin_y: int) -> None:
         origin_x = max(0, int(origin_x))

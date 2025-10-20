@@ -1,6 +1,6 @@
 {
   "capture_output": true,
-  "overlay_opacity": 0.35,
+  "overlay_opacity": 0.05,
   "show_connection_status": true,
   "log_payloads": false,
   "legacy_vertical_scale": 1.1,
@@ -14,5 +14,5 @@
   "origin_x": 0,
   "origin_y": 0,
   "force_render": true,
-  "force_xwayland": false
+  "force_xwayland": true
 }
