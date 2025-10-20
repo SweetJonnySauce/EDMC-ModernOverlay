@@ -426,7 +426,8 @@ class _PluginRuntime:
         LOGGER.debug(
             "Applying updated preferences: capture_output=%s show_connection_status=%s log_payloads=%s "
             "legacy_vertical_scale=%.2f legacy_horizontal_scale=%.2f client_log_retention=%d gridlines_enabled=%s "
-            "gridline_spacing=%d window_width=%d window_height=%d force_xwayland=%s",
+            "gridline_spacing=%d window_width=%d window_height=%d follow_game_window=%s origin_x=%d origin_y=%d "
+            "force_render=%s force_xwayland=%s",
             self._preferences.capture_output,
             self._preferences.show_connection_status,
             self._preferences.log_payloads,
@@ -437,6 +438,10 @@ class _PluginRuntime:
             self._preferences.gridline_spacing,
             self._preferences.window_width,
             self._preferences.window_height,
+            self._preferences.follow_game_window,
+            self._preferences.origin_x,
+            self._preferences.origin_y,
+            self._preferences.force_render,
             self._preferences.force_xwayland,
         )
         if self.watchdog:
@@ -539,20 +544,28 @@ class _PluginRuntime:
         )
         self._send_overlay_config()
 
-    def set_follow_offsets_preference(self, x_value: int, y_value: int) -> None:
+    def set_origin_preference(self, x_value: int, y_value: int) -> None:
         try:
-            x_offset = int(x_value)
+            origin_x = int(x_value)
         except (TypeError, ValueError):
-            x_offset = self._preferences.follow_x_offset
+            origin_x = self._preferences.origin_x
         try:
-            y_offset = int(y_value)
+            origin_y = int(y_value)
         except (TypeError, ValueError):
-            y_offset = self._preferences.follow_y_offset
-        x_offset = max(0, x_offset)
-        y_offset = max(0, y_offset)
-        self._preferences.follow_x_offset = x_offset
-        self._preferences.follow_y_offset = y_offset
-        LOGGER.debug("Overlay follow offsets set to x=%d y=%d", x_offset, y_offset)
+            origin_y = self._preferences.origin_y
+        origin_x = max(0, origin_x)
+        origin_y = max(0, origin_y)
+        self._preferences.origin_x = origin_x
+        self._preferences.origin_y = origin_y
+        LOGGER.debug("Overlay origin preference set to x=%d y=%d", origin_x, origin_y)
+        self._preferences.save()
+        self._send_overlay_config()
+
+    def reset_origin_preference(self) -> None:
+        self._preferences.origin_x = 0
+        self._preferences.origin_y = 0
+        LOGGER.debug("Overlay origin preference reset to 0,0")
+        self._preferences.save()
         self._send_overlay_config()
 
     def set_force_render_preference(self, value: bool) -> None:
@@ -600,8 +613,8 @@ class _PluginRuntime:
             "window_width": int(self._preferences.window_width),
             "window_height": int(self._preferences.window_height),
             "follow_game_window": bool(self._preferences.follow_game_window),
-            "follow_x_offset": int(self._preferences.follow_x_offset),
-            "follow_y_offset": int(self._preferences.follow_y_offset),
+            "origin_x": int(self._preferences.origin_x),
+            "origin_y": int(self._preferences.origin_y),
             "force_render": bool(self._preferences.force_render),
             "force_xwayland": bool(self._preferences.force_xwayland),
             "platform_context": self._platform_context_payload(),
@@ -611,7 +624,7 @@ class _PluginRuntime:
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s legacy_scale_y=%.2f legacy_scale_x=%.2f client_log_retention=%d "
             "gridlines_enabled=%s gridline_spacing=%d window_width=%d window_height=%d follow_game_window=%s "
-            "follow_x_offset=%d follow_y_offset=%d force_render=%s force_xwayland=%s platform_context=%s",
+            "origin_x=%d origin_y=%d force_render=%s force_xwayland=%s platform_context=%s",
             payload["opacity"],
             payload["show_status"],
             payload["legacy_scale_y"],
@@ -622,8 +635,8 @@ class _PluginRuntime:
             payload["window_width"],
             payload["window_height"],
             payload["follow_game_window"],
-            payload["follow_x_offset"],
-            payload["follow_y_offset"],
+            payload["origin_x"],
+            payload["origin_y"],
             payload["force_render"],
             payload["force_xwayland"],
             payload["platform_context"],
@@ -855,9 +868,10 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         window_height_callback = _plugin.set_window_height_preference if _plugin else None
         horizontal_scale_callback = _plugin.set_horizontal_scale_preference if _plugin else None
         follow_mode_callback = _plugin.set_follow_mode_preference if _plugin else None
-        follow_offsets_callback = _plugin.set_follow_offsets_preference if _plugin else None
         force_render_callback = _plugin.set_force_render_preference if _plugin else None
         force_xwayland_callback = _plugin.set_force_xwayland_preference if _plugin else None
+        origin_callback = _plugin.set_origin_preference if _plugin else None
+        reset_origin_callback = _plugin.reset_origin_preference if _plugin else None
         panel = PreferencesPanel(
             parent,
             _preferences,
@@ -872,9 +886,10 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             window_height_callback,
             horizontal_scale_callback,
             follow_mode_callback,
-            follow_offsets_callback,
             force_render_callback,
             force_xwayland_callback,
+            origin_callback,
+            reset_origin_callback,
         )
         panel.sync_force_xwayland(_preferences.force_xwayland)
     except Exception as exc:
@@ -898,7 +913,7 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
             LOGGER.debug(
                 "Preferences saved: capture_output=%s show_connection_status=%s log_payloads=%s legacy_vertical_scale=%.2f "
                 "legacy_horizontal_scale=%.2f client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d "
-                "window_width=%d window_height=%d follow_game_window=%s follow_x_offset=%d follow_y_offset=%d "
+                "window_width=%d window_height=%d follow_game_window=%s origin_x=%d origin_y=%d "
                 "force_render=%s force_xwayland=%s",
                 _preferences.capture_output,
                 _preferences.show_connection_status,
@@ -911,8 +926,8 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
                 _preferences.window_width,
                 _preferences.window_height,
                 _preferences.follow_game_window,
-                _preferences.follow_x_offset,
-                _preferences.follow_y_offset,
+                _preferences.origin_x,
+                _preferences.origin_y,
                 _preferences.force_render,
                 _preferences.force_xwayland,
             )

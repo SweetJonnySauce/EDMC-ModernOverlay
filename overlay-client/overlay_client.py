@@ -187,8 +187,8 @@ class OverlayWindow(QWidget):
         self._legacy_reference_width: int = max(1, int(self._requested_width or 1980))
         self._legacy_reference_height: int = max(1, int(self._requested_base_height or 1080))
         self._follow_enabled: bool = bool(getattr(initial, "follow_elite_window", True))
-        self._follow_x_offset: int = max(0, int(getattr(initial, "follow_x_offset", 0)))
-        self._follow_y_offset: int = max(0, int(getattr(initial, "follow_y_offset", 0)))
+        self._origin_x: int = max(0, int(getattr(initial, "origin_x", 0)))
+        self._origin_y: int = max(0, int(getattr(initial, "origin_y", 0)))
         self._force_render: bool = bool(getattr(initial, "force_render", False))
         self._window_tracker: Optional[WindowTracker] = None
         self._last_follow_state: Optional[WindowState] = None
@@ -459,6 +459,10 @@ class OverlayWindow(QWidget):
                 self.setCursor(self._saved_cursor)
                 self._cursor_saved = False
             self._apply_drag_state()
+            if not self._follow_enabled:
+                frame = self.frameGeometry()
+                self._origin_x = max(0, frame.x())
+                self._origin_y = max(0, frame.y())
             _CLIENT_LOGGER.debug("Drag finished; origin now at %s", self.frameGeometry().topLeft())
             event.accept()
             return
@@ -499,10 +503,6 @@ class OverlayWindow(QWidget):
     def gridlines_enabled(self) -> bool:
         return self._gridlines_enabled
 
-    @property
-    def follow_offsets(self) -> Tuple[int, int]:
-        return self._follow_x_offset, self._follow_y_offset
-
     def set_window_tracker(self, tracker: Optional[WindowTracker]) -> None:
         self._window_tracker = tracker
         if tracker and hasattr(tracker, "set_monitor_provider"):
@@ -531,27 +531,41 @@ class OverlayWindow(QWidget):
             self._update_follow_visibility(True)
             self._sync_base_dimensions_to_widget()
             self._wm_authoritative_rect = None
+            self._apply_origin_position()
 
-    def set_follow_offsets(self, x_offset: int, y_offset: int) -> None:
+    def set_origin(self, origin_x: int, origin_y: int) -> None:
         try:
-            x_val = int(x_offset)
+            x_val = int(origin_x)
         except (TypeError, ValueError):
-            x_val = self._follow_x_offset
+            x_val = self._origin_x
         try:
-            y_val = int(y_offset)
+            y_val = int(origin_y)
         except (TypeError, ValueError):
-            y_val = self._follow_y_offset
+            y_val = self._origin_y
         x_val = max(0, x_val)
         y_val = max(0, y_val)
-        if x_val == self._follow_x_offset and y_val == self._follow_y_offset:
+        if x_val == self._origin_x and y_val == self._origin_y:
             return
-        self._follow_x_offset = x_val
-        self._follow_y_offset = y_val
-        if self._follow_enabled and self._last_follow_state:
-            self._apply_follow_state(self._last_follow_state)
+        self._origin_x = x_val
+        self._origin_y = y_val
+        if not self._follow_enabled:
+            self._apply_origin_position()
 
-    def get_follow_offsets(self) -> Tuple[int, int]:
-        return self._follow_x_offset, self._follow_y_offset
+    def get_origin(self) -> Tuple[int, int]:
+        return self._origin_x, self._origin_y
+
+    def _apply_origin_position(self) -> None:
+        width = max(self.width(), 1)
+        height = max(self.height(), 1)
+        target_rect = QRect(self._origin_x, self._origin_y, width, height)
+        self.setGeometry(target_rect)
+        self._last_set_geometry = (
+            target_rect.x(),
+            target_rect.y(),
+            target_rect.width(),
+            target_rect.height(),
+        )
+        self.raise_()
 
     def monitor_snapshots(self) -> List[MonitorSnapshot]:
         return self._platform_controller.monitors()
@@ -944,11 +958,11 @@ class OverlayWindow(QWidget):
 
         tracker_global_x = state.global_x if state.global_x is not None else state.x
         tracker_global_y = state.global_y if state.global_y is not None else state.y
-        width = max(1, state.width - 2 * self._follow_x_offset)
-        height = max(1, state.height - 2 * self._follow_y_offset)
+        width = max(1, state.width)
+        height = max(1, state.height)
         tracker_target_tuple = (
-            tracker_global_x + self._follow_x_offset,
-            tracker_global_y + self._follow_y_offset,
+            tracker_global_x,
+            tracker_global_y,
             width,
             height,
         )
@@ -974,10 +988,8 @@ class OverlayWindow(QWidget):
 
         if target_tuple != self._last_geometry_log:
             _CLIENT_LOGGER.debug(
-                "Calculated overlay geometry: target=%s offsets=(%d,%d); %s",
+                "Calculated overlay geometry: target=%s; %s",
                 target_tuple,
-                self._follow_x_offset,
-                self._follow_y_offset,
                 self.format_scale_debug(),
             )
 
@@ -1017,8 +1029,8 @@ class OverlayWindow(QWidget):
         elif self._wm_authoritative_rect and tracker_target_tuple == target_tuple:
             self._wm_authoritative_rect = None
 
-        final_global_x = target_tuple[0] - self._follow_x_offset
-        final_global_y = target_tuple[1] - self._follow_y_offset
+        final_global_x = target_tuple[0]
+        final_global_y = target_tuple[1]
 
         self._last_geometry_log = target_tuple
         self._last_follow_state = WindowState(

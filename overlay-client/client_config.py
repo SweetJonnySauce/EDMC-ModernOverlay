@@ -15,8 +15,8 @@ class InitialClientSettings:
     window_width: int = 1920
     window_height: int = 1080
     follow_elite_window: bool = True
-    follow_x_offset: int = 0
-    follow_y_offset: int = 0
+    origin_x: int = 0
+    origin_y: int = 0
     force_render: bool = False
     force_xwayland: bool = False
 
@@ -36,8 +36,8 @@ class DeveloperHelperConfig:
     window_height: Optional[int] = None
     show_status: Optional[bool] = None
     follow_enabled: Optional[bool] = None
-    follow_x_offset: Optional[int] = None
-    follow_y_offset: Optional[int] = None
+    origin_x: Optional[int] = None
+    origin_y: Optional[int] = None
     force_render: Optional[bool] = None
     force_xwayland: Optional[bool] = None
 
@@ -77,8 +77,8 @@ class DeveloperHelperConfig:
             window_height=_int(payload.get("window_height"), None),
             show_status=_bool(payload.get("show_status"), None),
             follow_enabled=_bool(payload.get("follow_game_window"), None),
-            follow_x_offset=_int(payload.get("follow_x_offset"), None),
-            follow_y_offset=_int(payload.get("follow_y_offset"), None),
+            origin_x=_int(payload.get("origin_x"), None),
+            origin_y=_int(payload.get("origin_y"), None),
             force_render=_bool(payload.get("force_render"), None),
             force_xwayland=_bool(payload.get("force_xwayland"), None),
         )
@@ -114,13 +114,13 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         height = defaults.window_height
     follow_mode = bool(data.get("follow_game_window", defaults.follow_elite_window))
     try:
-        x_offset = int(data.get("follow_x_offset", defaults.follow_x_offset))
+        origin_x = int(data.get("origin_x", defaults.origin_x))
     except (TypeError, ValueError):
-        x_offset = defaults.follow_x_offset
+        origin_x = defaults.origin_x
     try:
-        y_offset = int(data.get("follow_y_offset", defaults.follow_y_offset))
+        origin_y = int(data.get("origin_y", defaults.origin_y))
     except (TypeError, ValueError):
-        y_offset = defaults.follow_y_offset
+        origin_y = defaults.origin_y
     force_render = bool(data.get("force_render", defaults.force_render))
     force_xwayland = bool(data.get("force_xwayland", defaults.force_xwayland))
 
@@ -129,8 +129,8 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         window_width=max(640, width),
         window_height=max(360, height),
         follow_elite_window=follow_mode,
-        follow_x_offset=max(0, x_offset),
-        follow_y_offset=max(0, y_offset),
+        origin_x=max(0, origin_x),
+        origin_y=max(0, origin_y),
         force_render=force_render,
         force_xwayland=force_xwayland,
     )

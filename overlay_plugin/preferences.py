@@ -27,8 +27,8 @@ class Preferences:
     window_width: int = 1920
     window_height: int = 1080
     follow_game_window: bool = True
-    follow_x_offset: int = 0
-    follow_y_offset: int = 0
+    origin_x: int = 0
+    origin_y: int = 0
     force_render: bool = False
     force_xwayland: bool = False
 
@@ -81,15 +81,15 @@ class Preferences:
         self.window_height = max(360, height)
         self.follow_game_window = bool(data.get("follow_game_window", True))
         try:
-            follow_x = int(data.get("follow_x_offset", 0))
+            origin_x = int(data.get("origin_x", 0))
         except (TypeError, ValueError):
-            follow_x = 0
+            origin_x = 0
         try:
-            follow_y = int(data.get("follow_y_offset", 0))
+            origin_y = int(data.get("origin_y", 0))
         except (TypeError, ValueError):
-            follow_y = 0
-        self.follow_x_offset = max(0, follow_x)
-        self.follow_y_offset = max(0, follow_y)
+            origin_y = 0
+        self.origin_x = max(0, origin_x)
+        self.origin_y = max(0, origin_y)
         self.force_render = bool(data.get("force_render", False))
         self.force_xwayland = bool(data.get("force_xwayland", False))
 
@@ -107,8 +107,8 @@ class Preferences:
             "window_width": int(self.window_width),
             "window_height": int(self.window_height),
             "follow_game_window": bool(self.follow_game_window),
-            "follow_x_offset": int(self.follow_x_offset),
-            "follow_y_offset": int(self.follow_y_offset),
+            "origin_x": int(self.origin_x),
+            "origin_y": int(self.origin_y),
             "force_render": bool(self.force_render),
             "force_xwayland": bool(self.force_xwayland),
         }
@@ -133,9 +133,10 @@ class PreferencesPanel:
         set_window_height_callback: Optional[Callable[[int], None]] = None,
         set_horizontal_scale_callback: Optional[Callable[[float], None]] = None,
         set_follow_mode_callback: Optional[Callable[[bool], None]] = None,
-        set_follow_offsets_callback: Optional[Callable[[int, int], None]] = None,
         set_force_render_callback: Optional[Callable[[bool], None]] = None,
         set_force_xwayland_callback: Optional[Callable[[bool], None]] = None,
+        set_origin_callback: Optional[Callable[[int, int], None]] = None,
+        reset_origin_callback: Optional[Callable[[], None]] = None,
     ) -> None:
         import tkinter as tk
         import myNotebook as nb
@@ -168,15 +169,17 @@ class PreferencesPanel:
         self._legacy_scale_display = tk.StringVar(value=f"{preferences.legacy_vertical_scale:.2f}×")
         self._horizontal_scale_display = tk.StringVar(value=f"{preferences.legacy_horizontal_scale:.2f}×")
         self._var_follow_mode = tk.BooleanVar(value=preferences.follow_game_window)
-        self._var_follow_x_offset = tk.IntVar(value=max(0, int(preferences.follow_x_offset)))
-        self._var_follow_y_offset = tk.IntVar(value=max(0, int(preferences.follow_y_offset)))
+        self._var_origin_x = tk.StringVar(value=str(max(0, int(getattr(preferences, "origin_x", 0)))))
+        self._var_origin_y = tk.StringVar(value=str(max(0, int(getattr(preferences, "origin_y", 0)))))
         self._var_force_render = tk.BooleanVar(value=preferences.force_render)
         self._var_force_xwayland = tk.BooleanVar(value=preferences.force_xwayland)
         self._set_follow_mode = set_follow_mode_callback
-        self._set_follow_offsets = set_follow_offsets_callback
         self._set_force_render = set_force_render_callback
         self._set_force_xwayland = set_force_xwayland_callback
-        self._follow_offset_spinboxes = []
+        self._set_origin = set_origin_callback
+        self._reset_origin = reset_origin_callback
+        self._origin_reset_button = None
+        self._origin_entries = []
 
         frame = nb.Frame(parent)
         description = (
@@ -341,41 +344,29 @@ class PreferencesPanel:
             command=self._on_follow_toggle,
         )
         follow_checkbox.grid(row=14, column=0, sticky="w", pady=(10, 0))
+        self._update_origin_state()
 
-        follow_offset_row = tk.Frame(frame)
-        follow_offset_label = tk.Label(follow_offset_row, text="Overlay offsets (pixels):")
-        follow_offset_label.pack(side="left")
-        x_offset_label = tk.Label(follow_offset_row, text="X:")
-        x_offset_label.pack(side="left", padx=(12, 0))
-        x_offset_spin = tk.Spinbox(
-            follow_offset_row,
-            from_=0,
-            to=600,
-            increment=5,
-            width=5,
-            textvariable=self._var_follow_x_offset,
-            command=self._on_follow_offset_command,
-        )
-        x_offset_spin.pack(side="left", padx=(4, 0))
-        x_offset_spin.bind("<FocusOut>", self._on_follow_offset_event)
-        x_offset_spin.bind("<Return>", self._on_follow_offset_event)
-        y_offset_label = tk.Label(follow_offset_row, text="Y:")
-        y_offset_label.pack(side="left", padx=(12, 0))
-        y_offset_spin = tk.Spinbox(
-            follow_offset_row,
-            from_=0,
-            to=600,
-            increment=5,
-            width=5,
-            textvariable=self._var_follow_y_offset,
-            command=self._on_follow_offset_command,
-        )
-        y_offset_spin.pack(side="left", padx=(4, 0))
-        y_offset_spin.bind("<FocusOut>", self._on_follow_offset_event)
-        y_offset_spin.bind("<Return>", self._on_follow_offset_event)
-        self._follow_offset_spinboxes.extend([x_offset_spin, y_offset_spin])
-        follow_offset_row.grid(row=15, column=0, sticky="w", pady=(2, 0))
-        self._update_follow_offset_state()
+        origin_label = tk.Label(frame, text="Overlay origin (top-left in pixels):")
+        origin_label.grid(row=15, column=0, sticky="w", pady=(10, 0))
+
+        origin_row = tk.Frame(frame)
+        origin_x_label = tk.Label(origin_row, text="X:")
+        origin_x_label.pack(side="left")
+        origin_x_entry = tk.Entry(origin_row, width=7, textvariable=self._var_origin_x)
+        origin_x_entry.pack(side="left", padx=(4, 0))
+        origin_x_entry.bind("<FocusOut>", self._on_origin_entry_event)
+        origin_x_entry.bind("<Return>", self._on_origin_entry_event)
+        origin_y_label = tk.Label(origin_row, text="Y:")
+        origin_y_label.pack(side="left", padx=(12, 0))
+        origin_y_entry = tk.Entry(origin_row, width=7, textvariable=self._var_origin_y)
+        origin_y_entry.pack(side="left", padx=(4, 0))
+        origin_y_entry.bind("<FocusOut>", self._on_origin_entry_event)
+        origin_y_entry.bind("<Return>", self._on_origin_entry_event)
+        reset_button = tk.Button(origin_row, text="Reset origin to 0,0", command=self._on_reset_origin_click)
+        reset_button.pack(side="left", padx=(12, 0))
+        origin_row.grid(row=16, column=0, sticky="w", pady=(2, 0))
+        self._origin_entries.extend([origin_x_entry, origin_y_entry])
+        self._origin_reset_button = reset_button
 
         xwayland_checkbox = tk.Checkbutton(
             frame,
@@ -385,7 +376,7 @@ class PreferencesPanel:
             offvalue=False,
             command=self._on_force_xwayland_toggle,
         )
-        xwayland_checkbox.grid(row=16, column=0, sticky="w", pady=(6, 0))
+        xwayland_checkbox.grid(row=17, column=0, sticky="w", pady=(6, 0))
         self._xwayland_checkbox = xwayland_checkbox
 
         force_checkbox = tk.Checkbutton(
@@ -396,7 +387,7 @@ class PreferencesPanel:
             offvalue=False,
             command=self._on_force_render_toggle,
         )
-        force_checkbox.grid(row=17, column=0, sticky="w", pady=(6, 0))
+        force_checkbox.grid(row=18, column=0, sticky="w", pady=(6, 0))
 
         grid_checkbox = tk.Checkbutton(
             frame,
@@ -406,7 +397,7 @@ class PreferencesPanel:
             offvalue=False,
             command=self._on_gridlines_toggle,
         )
-        grid_checkbox.grid(row=18, column=0, sticky="w", pady=(8, 0))
+        grid_checkbox.grid(row=19, column=0, sticky="w", pady=(8, 0))
 
         grid_spacing_row = tk.Frame(frame)
         grid_spacing_label = tk.Label(grid_spacing_row, text="Grid spacing (pixels):")
@@ -423,32 +414,32 @@ class PreferencesPanel:
         grid_spacing_spin.pack(side="left", padx=(6, 0))
         grid_spacing_spin.bind("<FocusOut>", self._on_gridline_spacing_event)
         grid_spacing_spin.bind("<Return>", self._on_gridline_spacing_event)
-        grid_spacing_row.grid(row=19, column=0, sticky="w", pady=(2, 0))
+        grid_spacing_row.grid(row=20, column=0, sticky="w", pady=(2, 0))
 
         test_label = tk.Label(frame, text="Send test message to overlay:")
-        test_label.grid(row=20, column=0, sticky="w", pady=(10, 0))
+        test_label.grid(row=21, column=0, sticky="w", pady=(10, 0))
 
         test_row = tk.Frame(frame)
         test_entry = tk.Entry(test_row, textvariable=self._test_var, width=50)
         send_button = tk.Button(test_row, text="Send", command=self._on_send_click)
         test_entry.pack(side="left", fill="x", expand=True)
         send_button.pack(side="left", padx=(8, 0))
-        test_row.grid(row=21, column=0, sticky="we", pady=(2, 0))
+        test_row.grid(row=22, column=0, sticky="we", pady=(2, 0))
         frame.columnconfigure(0, weight=1)
         test_row.columnconfigure(0, weight=1)
 
         legacy_label = tk.Label(frame, text="Legacy edmcoverlay compatibility:")
-        legacy_label.grid(row=22, column=0, sticky="w", pady=(10, 0))
+        legacy_label.grid(row=23, column=0, sticky="w", pady=(10, 0))
 
         legacy_row = tk.Frame(frame)
         legacy_text_btn = tk.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
         legacy_rect_btn = tk.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
         legacy_text_btn.pack(side="left")
         legacy_rect_btn.pack(side="left", padx=(8, 0))
-        legacy_row.grid(row=23, column=0, sticky="w", pady=(2, 0))
+        legacy_row.grid(row=24, column=0, sticky="w", pady=(2, 0))
 
         status_label = tk.Label(frame, textvariable=self._status_var, wraplength=400, justify="left", fg="#808080")
-        status_label.grid(row=24, column=0, sticky="w", pady=(4, 0))
+        status_label.grid(row=25, column=0, sticky="w", pady=(4, 0))
 
         self._frame = frame
 
@@ -479,8 +470,7 @@ class PreferencesPanel:
         self._preferences.window_width = max(640, int(self._var_window_width.get()))
         self._preferences.window_height = max(360, int(self._var_window_height.get()))
         self._preferences.follow_game_window = bool(self._var_follow_mode.get())
-        self._preferences.follow_x_offset = max(0, int(self._var_follow_x_offset.get()))
-        self._preferences.follow_y_offset = max(0, int(self._var_follow_y_offset.get()))
+        self._apply_origin_values(self._var_origin_x.get(), self._var_origin_y.get(), persist=False)
         self._preferences.force_render = bool(self._var_force_render.get())
         self._preferences.force_xwayland = bool(self._var_force_xwayland.get())
         if self._set_status:
@@ -512,15 +502,6 @@ class PreferencesPanel:
                 self._set_follow_mode(self._preferences.follow_game_window)
             except Exception as exc:
                 self._status_var.set(f"Failed to update follow mode: {exc}")
-                return
-        if self._set_follow_offsets:
-            try:
-                self._set_follow_offsets(
-                    self._preferences.follow_x_offset,
-                    self._preferences.follow_y_offset,
-                )
-            except Exception as exc:
-                self._status_var.set(f"Failed to update overlay offsets: {exc}")
                 return
         if self._set_force_render:
             try:
@@ -710,49 +691,12 @@ class PreferencesPanel:
     def _on_follow_toggle(self) -> None:
         value = bool(self._var_follow_mode.get())
         self._preferences.follow_game_window = value
-        self._update_follow_offset_state()
+        self._update_origin_state()
         if self._set_follow_mode:
             try:
                 self._set_follow_mode(value)
             except Exception as exc:
                 self._status_var.set(f"Failed to update follow mode: {exc}")
-                return
-        self._preferences.save()
-
-    def _on_follow_offset_command(self) -> None:
-        self._apply_follow_offsets(self._var_follow_x_offset.get(), self._var_follow_y_offset.get())
-
-    def _on_follow_offset_event(self, event) -> None:  # type: ignore[override]
-        x_value = self._var_follow_x_offset.get()
-        y_value = self._var_follow_y_offset.get()
-        if hasattr(event, "widget") and self._follow_offset_spinboxes:
-            widget_value = event.widget.get()
-            if event.widget == self._follow_offset_spinboxes[0]:
-                x_value = widget_value
-            elif len(self._follow_offset_spinboxes) > 1 and event.widget == self._follow_offset_spinboxes[1]:
-                y_value = widget_value
-        self._apply_follow_offsets(x_value, y_value)
-
-    def _apply_follow_offsets(self, raw_x: Any, raw_y: Any) -> None:
-        try:
-            x_value = int(raw_x)
-        except (TypeError, ValueError):
-            x_value = self._preferences.follow_x_offset
-        try:
-            y_value = int(raw_y)
-        except (TypeError, ValueError):
-            y_value = self._preferences.follow_y_offset
-        x_value = max(0, x_value)
-        y_value = max(0, y_value)
-        self._var_follow_x_offset.set(x_value)
-        self._var_follow_y_offset.set(y_value)
-        self._preferences.follow_x_offset = x_value
-        self._preferences.follow_y_offset = y_value
-        if self._set_follow_offsets:
-            try:
-                self._set_follow_offsets(x_value, y_value)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update overlay offsets: {exc}")
                 return
         self._preferences.save()
 
@@ -778,13 +722,70 @@ class PreferencesPanel:
                 return
         self._preferences.save()
 
-    def _update_follow_offset_state(self) -> None:
-        state = "normal" if self._var_follow_mode.get() else "disabled"
-        for widget in self._follow_offset_spinboxes:
+    def _on_origin_entry_event(self, event) -> None:  # type: ignore[override]
+        x_raw = self._var_origin_x.get()
+        y_raw = self._var_origin_y.get()
+        if hasattr(event, "widget"):
+            widget_value = event.widget.get()
+            if event.widget == self._origin_entries[0]:
+                x_raw = widget_value
+            elif len(self._origin_entries) > 1 and event.widget == self._origin_entries[1]:
+                y_raw = widget_value
+        self._apply_origin_values(x_raw, y_raw)
+
+    def _apply_origin_values(self, raw_x: Any, raw_y: Any, persist: bool = True) -> None:
+        try:
+            origin_x = int(raw_x)
+        except (TypeError, ValueError):
+            origin_x = self._preferences.origin_x
+        try:
+            origin_y = int(raw_y)
+        except (TypeError, ValueError):
+            origin_y = self._preferences.origin_y
+        origin_x = max(0, origin_x)
+        origin_y = max(0, origin_y)
+        self._var_origin_x.set(str(origin_x))
+        self._var_origin_y.set(str(origin_y))
+        changed = (origin_x != self._preferences.origin_x) or (origin_y != self._preferences.origin_y)
+        self._preferences.origin_x = origin_x
+        self._preferences.origin_y = origin_y
+        if self._set_origin and changed:
             try:
-                widget.config(state=state)
+                self._set_origin(origin_x, origin_y)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update overlay origin: {exc}")
+                return
+        if persist:
+            self._preferences.save()
+
+    def _on_reset_origin_click(self) -> None:
+        self._var_origin_x.set("0")
+        self._var_origin_y.set("0")
+        self._apply_origin_values(0, 0)
+        if self._reset_origin:
+            try:
+                self._reset_origin()
+            except Exception as exc:
+                self._status_var.set(f"Failed to reset origin: {exc}")
+
+    def _update_origin_state(self) -> None:
+        origin_state = "disabled" if self._var_follow_mode.get() else "normal"
+        for widget in self._origin_entries:
+            try:
+                widget.config(state=origin_state)
             except Exception:
                 continue
+        if self._origin_reset_button is not None:
+            try:
+                self._origin_reset_button.config(state=origin_state)
+            except Exception:
+                pass
+
+    def update_origin_fields(self, origin_x: int, origin_y: int) -> None:
+        origin_x = max(0, int(origin_x))
+        origin_y = max(0, int(origin_y))
+        self._var_origin_x.set(str(origin_x))
+        self._var_origin_y.set(str(origin_y))
 
     def _legacy_overlay(self):
         if self._legacy_client is None:
