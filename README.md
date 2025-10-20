@@ -117,35 +117,6 @@ To use the Elite: Dangerous cockpit font (Eurocaps) in the overlay HUD:
 3. Add `Eurocaps.ttf` to `overlay-client/fonts/preferred_fonts.txt` to prioritise it over the bundled Source Sans 3, or leave the list untouched to let the overlay fall back automatically.
 4. Restart the overlay client; the new font is picked up the next time it connects.
 
-### Wayland Support
-
-Modern Overlay now ships with compositor-aware helpers and multiple fallbacks. The plugin publishes the detected session type/compositor in every `OverlayConfig` message, and all decisions are logged when EDMC logging is set to DEBUG. To get the most out of the Wayland path:
-
-- **wlroots compositors (Sway, Wayfire, Hyprland):** Install `pywayland>=0.4.15` inside `overlay-client/.venv` and ensure `swaymsg`/`hyprctl` are available on `PATH`. The client requests a layer-shell surface so the HUD stays above fullscreen apps and uses compositor-side input suppression.
-  ```bash
-  cd /path/to/EDMC-ModernOverlay
-  source overlay-client/.venv/bin/activate
-  pip install pywayland
-  # swaymsg/hyprctl live under /usr/bin after installing sway or hyprland.
-  # Append /usr/bin to PATH (only if not already present):
-  if ! echo "$PATH" | tr ':' '\n' | grep -qx '/usr/bin'; then
-    echo 'export PATH="/usr/bin:$PATH"' >> ~/.bashrc   # adjust for zsh/fish as needed
-  fi
-  source ~/.bashrc
-  ```
-- **KDE Plasma (KWin):** Install `pydbus>=0.6.0` in the client venv so the overlay can talk to KWin’s DBus scripting API when toggling click-through behaviour.
-  ```bash
-  cd /path/to/EDMC-ModernOverlay
-  source overlay-client/.venv/bin/activate
-  pip install pydbus
-  ```
-- **XWayland mode:** On Wayland sessions the overlay forces itself to launch under XWayland for compatibility. Keep this path in mind on GNOME Shell (Wayland), where native layer-shell hooks are not yet available; the overlay behaves like it does on X11 and stays pinned above Elite.
-  ```bash
-  # Example for Debian/Ubuntu; xprop/xwininfo ship in x11-utils and swaymsg comes with sway.
-  sudo apt install wmctrl x11-utils sway
-  ```
-
-
 ## Programmatic API
 
 Other plugins within EDMC can publish overlay updates without depending on socket details by using the bundled helper:
