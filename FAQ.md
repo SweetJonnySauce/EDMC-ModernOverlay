@@ -22,27 +22,30 @@ You can toggle this via the EDMC preferences panel checkbox labeled "Keep overla
 
 When running under X11/Wayland the overlay lets the compositor manage its window so it can stay synced to Elite without tearing. Most compositors only vsync tool windows reliably when the game runs in borderless/fullscreen-windowed mode. If you launch Elite in exclusive fullscreen, the overlay still tracks the game window but the compositor may not present it smoothly. Switch Elite to borderless or enable compositor vsync (e.g. Picom `--vsync`) for the best experience.
 
-## What should I know about running on Wayland?
+### Wayland Support
 
-The plugin detects your session and compositor on startup and shares that context with the overlay client. A few things to keep in mind:
+Modern Overlay now ships with compositor-aware helpers and multiple fallbacks. The plugin publishes the detected session type/compositor in every `OverlayConfig` message, and all decisions are logged when EDMC logging is set to DEBUG. To get the most out of the Wayland path:
 
-- The watchdog forces the client into XWayland whenever `XDG_SESSION_TYPE=wayland`. This keeps stacking/click-through behaviour consistent across compositors, even on GNOME where native layer-shell isn’t available yet.
-- WLRoots compositors (Sway, Wayfire, Hyprland) can take advantage of Qt Wayland layer-shell helpers when `pywayland>=0.4.15` is installed inside `overlay-client/.venv`.
-
+- **wlroots compositors (Sway, Wayfire, Hyprland):** Install `pywayland>=0.4.15` inside `overlay-client/.venv` and ensure `swaymsg`/`hyprctl` are available on `PATH`. The client requests a layer-shell surface so the HUD stays above fullscreen apps and uses compositor-side input suppression.
   ```bash
   cd /path/to/EDMC-ModernOverlay
   source overlay-client/.venv/bin/activate
   pip install pywayland
+  # swaymsg/hyprctl live under /usr/bin after installing sway or hyprland.
+  # Append /usr/bin to PATH (only if not already present):
+  if ! echo "$PATH" | tr ':' '\n' | grep -qx '/usr/bin'; then
+    echo 'export PATH="/usr/bin:$PATH"' >> ~/.bashrc   # adjust for zsh/fish as needed
+  fi
+  source ~/.bashrc
   ```
-
-  Make sure `swaymsg` or `hyprctl` is on `PATH`; the follow-mode tracker shells out to those tools. On Debian/Ubuntu, `swaymsg` ships with the `sway` package, and `hyprctl` with the `hyprland` packages.
-- KDE Plasma (KWin) uses a DBus scriptlet to toggle click-through. Install `pydbus>=0.6.0` in the same virtual environment.
-
+- **KDE Plasma (KWin):** Install `pydbus>=0.6.0` in the client venv so the overlay can talk to KWin’s DBus scripting API when toggling click-through behaviour.
   ```bash
   cd /path/to/EDMC-ModernOverlay
   source overlay-client/.venv/bin/activate
   pip install pydbus
   ```
-
-- GNOME Shell still needs the EDMC Modern Overlay GNOME extension for reliable follow mode; without it the overlay falls back to window geometry reported via XWayland.
-- If something goes wrong, crank EDMC logging up to DEBUG and check both the EDMC log and `logs/EDMC-ModernOverlay/overlay-client.log` for detailed messages about the detected compositor and any missing helpers.
+- **XWayland mode:** On Wayland sessions the overlay forces itself to launch under XWayland for compatibility. Keep this path in mind on GNOME Shell (Wayland), where native layer-shell hooks are not yet available; the overlay behaves like it does on X11 and stays pinned above Elite.
+  ```bash
+  # Example for Debian/Ubuntu; xprop/xwininfo ship in x11-utils and swaymsg comes with sway.
+  sudo apt install wmctrl x11-utils sway
+  ```
