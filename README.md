@@ -71,8 +71,6 @@ To upgrade to a newer release:
 3. Run the platform installer again (`install_windows.ps1` or `install_linux.sh`). The script automatically replaces the plugin files while keeping your existing `overlay-client/.venv`, `overlay_settings.json`, and any fonts you added under `overlay-client/fonts/`.
 4. Restart EDMarketConnector and confirm the reported version matches the release notes (the overlay status line also shows the active build).
 
-If you prefer to update manually, delete the old `EDMC-ModernOverlay` directory from the EDMC plugins folder, copy in the new release, and reuse the existing `overlay-client/.venv` by running `pip install -r overlay-client/requirements.txt` inside it to pick up dependency changes.
-
 ## Features
 
 - Background `asyncio` JSON-over-TCP broadcaster that stays off EDMC’s Tk thread and degrades gracefully if the listener cannot bind.
