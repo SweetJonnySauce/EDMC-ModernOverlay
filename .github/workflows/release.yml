@@ -64,13 +64,14 @@ jobs:
           STAGING_ROOT="$RUNNER_TEMP/release"
           cp "$GITHUB_WORKSPACE/scripts/install_linux.sh" "$STAGING_ROOT/install_linux.sh"
           cp "$GITHUB_WORKSPACE/scripts/install-eurocaps.sh" "$STAGING_ROOT/install_eurocaps.sh"
+          cp "$GITHUB_WORKSPACE/scripts/install_windows.ps1" "$STAGING_ROOT/install_windows.ps1"
           chmod +x "$STAGING_ROOT/install_linux.sh" "$STAGING_ROOT/install_eurocaps.sh"
 
       - name: Create tarball
         run: |
           STAGING_ROOT="$RUNNER_TEMP/release"
           ARCHIVE_NAME="${{ steps.vars.outputs.release_name }}.tar.gz"
-          tar -czf "dist/${ARCHIVE_NAME}" -C "$STAGING_ROOT" EDMC-ModernOverlay install_linux.sh install_eurocaps.sh
+          tar -czf "dist/${ARCHIVE_NAME}" -C "$STAGING_ROOT" EDMC-ModernOverlay install_linux.sh install_eurocaps.sh install_windows.ps1
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
