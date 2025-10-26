@@ -1,0 +1,55 @@
+name: Build Linux Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build Linux Archive
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Capture version from tag
+        id: vars
+        run: |
+          TAG_NAME="${GITHUB_REF##*/}"
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "release_name=EDMC-ModernOverlay-${TAG_NAME}-linux" >> "$GITHUB_OUTPUT"
+
+      - name: Export tracked files
+        run: |
+          STAGING_ROOT="$RUNNER_TEMP/release"
+          CODE_DIR="$STAGING_ROOT/EDMC-ModernOverlay"
+          mkdir -p "$CODE_DIR"
+          git archive HEAD | tar -x -C "$CODE_DIR"
+          rm -rf "$CODE_DIR/.github"
+          mkdir -p dist
+
+      - name: Stage install scripts at archive root
+        run: |
+          STAGING_ROOT="$RUNNER_TEMP/release"
+          CODE_DIR="$STAGING_ROOT/EDMC-ModernOverlay"
+          cp "$CODE_DIR/scripts/install_linux.sh" "$STAGING_ROOT/install_linux.sh"
+          cp "$CODE_DIR/scripts/install-eurocaps.sh" "$STAGING_ROOT/install_eurocaps.sh"
+          chmod +x "$STAGING_ROOT/install_linux.sh" "$STAGING_ROOT/install_eurocaps.sh"
+
+      - name: Create tarball
+        run: |
+          STAGING_ROOT="$RUNNER_TEMP/release"
+          ARCHIVE_NAME="${{ steps.vars.outputs.release_name }}.tar.gz"
+          tar -czf "dist/${ARCHIVE_NAME}" -C "$STAGING_ROOT" EDMC-ModernOverlay install_linux.sh install_eurocaps.sh
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag_name }}
+          name: ${{ steps.vars.outputs.release_name }}
+          files: dist/${{ steps.vars.outputs.release_name }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
