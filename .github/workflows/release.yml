@@ -14,6 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      # Prefer the release tag (for release events) or the ref name (for tag pushes);
+      # fall back to the run number if neither is present (e.g., manual dispatch).
+      VERSION: ${{ github.event.release.tag_name || github.ref_name || format('run-{0}', github.run_number) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,10 +46,16 @@ jobs:
           set -euo pipefail
           # Ensure Linux helper scripts are executable so tar preserves +x
           chmod +x dist/linux/scripts/install_linux.sh dist/linux/scripts/install-eurocaps.sh
+          # Normalize version for filenames (fallback to short SHA when empty)
+          VER="${VERSION:-}"
+          if [[ -z "$VER" ]]; then
+            shortsha="$(git rev-parse --short=7 HEAD)"
+            VER="dev-${shortsha}"
+          fi
           # Windows zip
-          (cd dist/windows && zip -r ../EDMC-ModernOverlay-windows.zip EDMC-ModernOverlay scripts)
+          (cd dist/windows && zip -r "../EDMC-ModernOverlay-windows-${VER}.zip" EDMC-ModernOverlay scripts)
           # Linux tar.gz
-          (cd dist/linux && tar -czf ../EDMC-ModernOverlay-linux.tar.gz EDMC-ModernOverlay scripts)
+          (cd dist/linux && tar -czf "../EDMC-ModernOverlay-linux-${VER}.tar.gz" EDMC-ModernOverlay scripts)
           ls -al dist
 
       - name: Upload workflow artifacts
@@ -53,8 +63,8 @@ jobs:
         with:
           name: release-bundles
           path: |
-            dist/EDMC-ModernOverlay-windows.zip
-            dist/EDMC-ModernOverlay-linux.tar.gz
+            dist/EDMC-ModernOverlay-windows-*.zip
+            dist/EDMC-ModernOverlay-linux-*.tar.gz
           if-no-files-found: error
 
       - name: Attach archives to GitHub Release
@@ -63,5 +73,5 @@ jobs:
         with:
           tag_name: ${{ github.event.release.tag_name || github.ref_name }}
           files: |
-            dist/EDMC-ModernOverlay-windows.zip
-            dist/EDMC-ModernOverlay-linux.tar.gz
+            dist/EDMC-ModernOverlay-windows-*.zip
+            dist/EDMC-ModernOverlay-linux-*.tar.gz
