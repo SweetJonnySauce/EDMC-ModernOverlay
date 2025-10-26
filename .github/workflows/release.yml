@@ -41,15 +41,29 @@ jobs:
           CODE_DIR="$STAGING_ROOT/EDMC-ModernOverlay"
           mkdir -p "$CODE_DIR"
           git archive HEAD | tar -x -C "$CODE_DIR"
-          rm -rf "$CODE_DIR/.github"
+          rm -rf \
+            "$CODE_DIR/.github" \
+            "$CODE_DIR/.git" \
+            "$CODE_DIR/.vscode" \
+            "$CODE_DIR/.gitignore" \
+            "$CODE_DIR/.codex" \
+            "$CODE_DIR"/*.code-workspace \
+            "$CODE_DIR"/*.code-workspace* \
+            "$CODE_DIR"/__pycache__ \
+            "$CODE_DIR"/__pycache__/* \
+            "$CODE_DIR"/scripts \
+            "$CODE_DIR"/README.md \
+            "$CODE_DIR"/FAQ.md
+          find "$CODE_DIR" -name '__pycache__' -type d -prune -exec rm -rf {} +
+          find "$CODE_DIR" -name '*.pyc' -delete
+          find "$CODE_DIR" -name '*.pyo' -delete
           mkdir -p dist
 
       - name: Stage install scripts at archive root
         run: |
           STAGING_ROOT="$RUNNER_TEMP/release"
-          CODE_DIR="$STAGING_ROOT/EDMC-ModernOverlay"
-          cp "$CODE_DIR/scripts/install_linux.sh" "$STAGING_ROOT/install_linux.sh"
-          cp "$CODE_DIR/scripts/install-eurocaps.sh" "$STAGING_ROOT/install_eurocaps.sh"
+          cp "$GITHUB_WORKSPACE/scripts/install_linux.sh" "$STAGING_ROOT/install_linux.sh"
+          cp "$GITHUB_WORKSPACE/scripts/install-eurocaps.sh" "$STAGING_ROOT/install_eurocaps.sh"
           chmod +x "$STAGING_ROOT/install_linux.sh" "$STAGING_ROOT/install_eurocaps.sh"
 
       - name: Create tarball
