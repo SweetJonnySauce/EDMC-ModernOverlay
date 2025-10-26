@@ -290,6 +290,8 @@ function Invoke-Main {
         }
         Ensure-ExistingInstall -DestDir $destDir -Python $python
         Update-ExistingInstall -SourceDir $sourceDir -DestDir $destDir
+        # Sanity check in case robocopy purged the venv despite exclusion rules
+        Ensure-ExistingInstall -DestDir $destDir -Python $python
     }
 
     Show-FinalNotes
