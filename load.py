@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Set
 
 if __package__:
+    from .version import __version__ as MODERN_OVERLAY_VERSION
     from .overlay_plugin.overlay_watchdog import OverlayWatchdog
     from .overlay_plugin.overlay_socket_server import WebSocketBroadcaster
     from .overlay_plugin.preferences import Preferences, PreferencesPanel
@@ -21,6 +22,7 @@ if __package__:
         unregister_publisher,
     )
 else:  # pragma: no cover - EDMC loads as top-level module
+    from version import __version__ as MODERN_OVERLAY_VERSION
     from overlay_plugin.overlay_watchdog import OverlayWatchdog
     from overlay_plugin.overlay_socket_server import WebSocketBroadcaster
     from overlay_plugin.preferences import Preferences, PreferencesPanel
@@ -31,7 +33,7 @@ else:  # pragma: no cover - EDMC loads as top-level module
     )
 
 PLUGIN_NAME = "EDMC-ModernOverlay"
-PLUGIN_VERSION = "0.1.0"
+PLUGIN_VERSION = MODERN_OVERLAY_VERSION
 LOGGER_NAME = "EDMC.ModernOverlay"
 LOG_TAG = "EDMC-ModernOverlay"
 
@@ -306,9 +308,12 @@ class _PluginRuntime:
 
     def _write_port_file(self) -> None:
         target = self.plugin_dir / "port.json"
-        data = {"port": self.broadcaster.port}
+        data = {
+            "port": self.broadcaster.port,
+            "version": PLUGIN_VERSION,
+        }
         target.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        _log(f"Wrote port.json with port {self.broadcaster.port}")
+        _log(f"Wrote port.json with port {self.broadcaster.port} (plugin version {PLUGIN_VERSION})")
 
     def _delete_port_file(self) -> None:
         try:

@@ -22,6 +22,15 @@ CLIENT_DIR = Path(__file__).resolve().parent
 if str(CLIENT_DIR) not in sys.path:
     sys.path.insert(0, str(CLIENT_DIR))
 
+ROOT_DIR = CLIENT_DIR.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+try:  # pragma: no cover - defensive fallback when running standalone
+    from version import __version__ as MODERN_OVERLAY_VERSION
+except Exception:  # pragma: no cover - fallback when module unavailable
+    MODERN_OVERLAY_VERSION = "unknown"
+
 from client_config import InitialClientSettings, load_initial_settings  # type: ignore  # noqa: E402
 from developer_helpers import DeveloperHelperController  # type: ignore  # noqa: E402
 from platform_integration import MonitorSnapshot, PlatformContext, PlatformController  # type: ignore  # noqa: E402
@@ -61,6 +70,7 @@ class OverlayDataClient(QObject):
         self._thread: Optional[threading.Thread] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._stop_event = threading.Event()
+        self._last_metadata: Dict[str, Any] = {}
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -98,11 +108,13 @@ class OverlayDataClient(QObject):
     async def _run(self) -> None:
         backoff = 1.0
         while not self._stop_event.is_set():
-            port = self._read_port()
-            if port is None:
+            metadata = self._read_port()
+            if metadata is None:
                 self.status_changed.emit("Waiting for port.json…")
                 await asyncio.sleep(self._loop_sleep)
                 continue
+            port = metadata["port"]
+            plugin_version = metadata.get("version") or MODERN_OVERLAY_VERSION
             reader = None
             writer = None
             try:
@@ -114,6 +126,8 @@ class OverlayDataClient(QObject):
                 continue
 
             connection_message = f"Connected to 127.0.0.1:{port}"
+            if plugin_version and plugin_version != "unknown":
+                connection_message = f"{connection_message} – v{plugin_version}"
             if sys.platform.startswith("linux"):
                 session_type = os.environ.get("XDG_SESSION_TYPE")
                 if session_type:
@@ -142,7 +156,7 @@ class OverlayDataClient(QObject):
             await asyncio.sleep(backoff)
             backoff = min(backoff * 1.5, 10.0)
 
-    def _read_port(self) -> Optional[int]:
+    def _read_port(self) -> Optional[Dict[str, Any]]:
         try:
             data = json.loads(self._port_file.read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -151,7 +165,9 @@ class OverlayDataClient(QObject):
             return None
         port = data.get("port")
         if isinstance(port, int) and port > 0:
-            return port
+            data["port"] = port
+            self._last_metadata = data
+            return data
         return None
 
 
