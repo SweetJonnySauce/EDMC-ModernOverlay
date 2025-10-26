@@ -37,7 +37,7 @@ EDMC Modern Overlay is a two-part implementation (plugin and overlay-client) for
   - `./install_linux.sh` (ensure it’s executable) or `bash ./install_linux.sh`
 - Follow the on-screen prompts; the installer handles the rest (except installation of the Euroscripts font).
 - The installer will:
-  - Detect (or prompt for) the EDMC plugins directory.
+  - Detect (or prompt for) the EDMC plugins directory (defaults to `~/.local/share/EDMarketConnector/plugins/`).
   - Disable legacy `EDMCOverlay*` plugins if found.
   - Copy `EDMC-ModernOverlay/` into the plugins directory.
   - Create `overlay-client/.venv` and install `overlay-client/requirements.txt` into it.
@@ -157,4 +157,3 @@ overlay.send_shape("demo-frame", "rect", "#ffffff", "#40000000", 80, 120, 420, 1
 ```
 
 Under the hood the compatibility layer forwards payloads through `send_overlay_message`, so no socket management or process monitoring is required. The overlay client understands the legacy message/rectangle schema, making migration from the original EDMCOverlay plugin largely turnkey.
-
