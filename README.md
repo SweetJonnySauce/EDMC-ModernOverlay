@@ -166,12 +166,15 @@ Under the hood the compatibility layer forwards payloads through `send_overlay_m
 ## EDMC Compliance Checklist
 
 - Implements the documented EDMC hooks (`plugin_start3`, `plugin_stop`, `plugin_prefs`, `plugin_prefs_save`, `journal_entry`); `plugin_app` explicitly returns `None`, so the Tk main thread stays idle.
-- Long-running work stays off the Tk thread. `WebSocketBroadcaster` runs on a daemon thread with its own asyncio loop, `OverlayWatchdog` supervises the client on another daemon thread, and `plugin_stop()` always stops both and removes `port.json`.
-- Plugin state lives inside the plugin directory. `Preferences` reads and writes `overlay_settings.json`, and the Tk UI built with `myNotebook` saves through `plugin_prefs_save`, including helper text when a restart of the overlay is required for stdout/stderr capture changes.
+- Long-running work stays off the Tk thread. `WebSocketBroadcaster` runs on a daemon thread with its own asyncio loop, `OverlayWatchdog` supervises the client on another daemon thread, and `plugin_stop()` stops both and removes `port.json`.
+- Plugin-owned timers are guarded by `_config_timer_lock`, keeping rebroadcast scheduling thread-safe across shutdowns and restarts.
+- Plugin state lives inside this directory. `Preferences` reads and writes `overlay_settings.json`; the Tk UI uses `myNotebook` widgets and writes through `plugin_prefs_save`, including helper text when a restart of the overlay is required for stdout/stderr capture changes.
 - Logging integrates with EDMC’s logger via `_EDMCLogHandler`; optional payload mirroring and stdout/stderr capture are preference-gated and emit additional detail only when EDMC logging is set to DEBUG.
 - The overlay client launches with the dedicated `overlay-client/.venv` interpreter (or an override via `EDMC_OVERLAY_PYTHON`), keeping EDMC’s bundled Python environment untouched.
 - Other plugins publish safely through `overlay_plugin.overlay_api.send_overlay_message`, which validates payload structure and size before handing messages to the broadcaster.
 - Platform-aware paths handle Windows-specific interpreter names and window flags while keeping Linux/macOS support intact.
+
+**Why JSON preferences?** The PyQt overlay process runs outside EDMC’s Python interpreter and reads `overlay_settings.json` directly so it can pick up the latest settings without importing EDMC modules. Storing the preferences here keeps a single source of truth that both the plugin and the external client can access.
 
 ## Development Tips
 

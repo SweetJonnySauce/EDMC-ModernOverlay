@@ -206,6 +206,7 @@ class _PluginRuntime:
         self._preferences = preferences
         self._last_config: Dict[str, Any] = {}
         self._config_timers: Set[threading.Timer] = set()
+        self._config_timer_lock = threading.Lock()
         self._enforce_force_xwayland(persist=True, update_watchdog=False, emit_config=False)
 
     # Lifecycle ------------------------------------------------------------
@@ -805,11 +806,13 @@ class _PluginRuntime:
                     self._rebroadcast_last_config()
                 finally:
                     if timer_ref is not None:
-                        self._config_timers.discard(timer_ref)
+                        with self._config_timer_lock:
+                            self._config_timers.discard(timer_ref)
 
             timer_ref = threading.Timer(delay, _callback)
             timer_ref.daemon = True
-            self._config_timers.add(timer_ref)
+            with self._config_timer_lock:
+                self._config_timers.add(timer_ref)
             timer_ref.start()
 
         for index in range(count):
@@ -824,12 +827,14 @@ class _PluginRuntime:
         self._publish_payload(dict(self._last_config))
 
     def _cancel_config_timers(self) -> None:
-        for timer in list(self._config_timers):
+        with self._config_timer_lock:
+            timers = list(self._config_timers)
+            self._config_timers.clear()
+        for timer in timers:
             try:
                 timer.cancel()
             except Exception:
                 pass
-        self._config_timers.clear()
 
 
 # EDMC hook functions ------------------------------------------------------
