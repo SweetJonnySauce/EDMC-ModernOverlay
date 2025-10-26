@@ -175,7 +175,7 @@ function Create-VenvAndInstall {
 
     $venvPath = Join-Path $overlayClient '.venv'
     if (-not (Test-Path $venvPath)) {
-        Write-Host 'Creating Python virtual environment...'
+        Write-Host "Creating Python virtual environment at '$venvPath'..."
         $args = @()
         if ($Python.PrefixArgs) {
             $args += $Python.PrefixArgs
@@ -189,9 +189,10 @@ function Create-VenvAndInstall {
         throw "Virtual environment at '$venvPath' is missing python.exe."
     }
 
-    Write-Host 'Installing overlay client requirements...'
+    $requirementsPath = Join-Path $overlayClient 'requirements.txt'
+    Write-Host "Installing overlay client requirements from '$requirementsPath' into '$venvPath'..."
     & $venvPython -m pip install --upgrade pip *> $null
-    & $venvPython -m pip install -r (Join-Path $overlayClient 'requirements.txt')
+    & $venvPython -m pip install -r $requirementsPath
 }
 
 function Copy-InitialInstall {
