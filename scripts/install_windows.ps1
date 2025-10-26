@@ -259,7 +259,12 @@ function Show-FinalNotes {
 function Invoke-Main {
     $releaseRoot = Find-ReleaseRoot
     $python = Resolve-Python
-    Write-Host "Using Python interpreter '${($python.Command)} ${($python.PrefixArgs -join ' ')}'."
+    if (-not $python -or -not ($python.PSObject.Properties["Command"]) -or -not $python.Command) {
+        throw 'Python 3 interpreter could not be resolved. Ensure Python 3 is installed and on PATH (try "py -3", "python3", or "python").'
+    }
+
+    $prefix = if ($python.PrefixArgs -and $python.PrefixArgs.Count -gt 0) { ' ' + ($python.PrefixArgs -join ' ') } else { '' }
+    Write-Host "Using Python interpreter '$($python.Command)$prefix'."
 
     $pluginDir = Detect-PluginDir
     Ensure-EdmcNotRunning
