@@ -3,6 +3,12 @@ EDMC Modern Overlay is a two-part implementation (plugin and overlay-client) for
 
 ## Installation
 
+### Prerequisites
+
+- Python 3.12+
+- Elite Dangerous Market Connector installed
+- On Windows Microsoft Visual C++ 14.0 or greater is required. Get it with "Microsoft C++ Build Tools": https://visualstudio.microsoft.com/visual-cpp-build-tools/
+
 ### Download
 - Grab the latest OS-specific archive from GitHub Releases:
   - Windows: `EDMC-ModernOverlay-windows-<version>.zip`
@@ -16,26 +22,43 @@ EDMC Modern Overlay is a two-part implementation (plugin and overlay-client) for
 ### Windows
 - Close EDMarketConnector.
 - In the extracted folder, right-click `install_windows.ps1` and choose **Run with PowerShell**.
-- Follow the on-screen prompts; the installer handles the rest.
+- Follow the on-screen prompts; the installer handles the rest (except installation of the Euroscripts font).
 - The installer will:
   - Detect (or prompt for) the EDMC plugins directory (defaults to `%LOCALAPPDATA%\EDMarketConnector\plugins`).
   - Disable legacy `EDMCOverlay*` plugins if found.
   - Copy `EDMC-ModernOverlay/` into the plugins directory.
   - Create `overlay-client\.venv` and install `overlay-client\requirements.txt` into it.
-- Optional font: `./install-eurocaps.bat` to install the Eurocaps font.
-- Start EDMarketConnector; the overlay client launches automatically. If prompted to update settings, use the EDMC preferences panel.
+- Start EDMarketConnector; the overlay client launches automatically.
 
 ### Linux
 - Close EDMarketConnector before installing.
 - Make sure you have Python 3 and venv support available (e.g. on Debian/Ubuntu: `sudo apt install python3 python3-venv`).
 - From the extracted folder, run the installer:
   - `./install_linux.sh` (ensure it’s executable) or `bash ./install_linux.sh`
+- Follow the on-screen prompts; the installer handles the rest (except installation of the Euroscripts font).
 - The installer will:
   - Detect (or prompt for) the EDMC plugins directory.
+  - Disable legacy `EDMCOverlay*` plugins if found.
   - Copy `EDMC-ModernOverlay/` into the plugins directory.
   - Create `overlay-client/.venv` and install `overlay-client/requirements.txt` into it.
-- Optional font: `./install-eurocaps.sh` installs the Eurocaps font system-wide (may require sudo depending on distro setup).
 - Start EDMarketConnector; the overlay client launches automatically.
+
+### Installing Euroscripts font
+To use the Elite: Dangerous cockpit font (Eurocaps) in the overlay HUD:
+
+You can automate the download and placement with the bundled helpers:
+
+- Linux: `scripts/install-eurocaps.sh` *(optionally pass the plugin path if it isn't under `~/.local/share/EDMarketConnector/plugins/`)*
+- Windows: `scripts\install-eurocaps.bat` *(optionally pass the plugin path if it isn't under `%LOCALAPPDATA%\EDMarketConnector\plugins\`)*
+
+Both scripts verify the plugin directory, fetch `Eurocaps.ttf`, copy it into `overlay-client/fonts/`, and add it to `preferred_fonts.txt` when that file exists.
+
+To perform the steps manually instead:
+
+1. Download `EUROCAPS.TTF` from https://github.com/inorton/EDMCOverlay/blob/master/EDMCOverlay/EDMCOverlay/EUROCAPS.TTF.
+2. Place the file in `overlay-client/fonts/` and rename it to `Eurocaps.ttf` (the overlay searches case-insensitively, but keeping a consistent casing is handy). Include the original licence text alongside it if you have one.
+3. Add `Eurocaps.ttf` to `overlay-client/fonts/preferred_fonts.txt` to prioritise it over the bundled Source Sans 3, or leave the list untouched to let the overlay fall back automatically.
+4. Restart the overlay client; the new font is picked up the next time it connects.
 
 ## Features
 
@@ -48,12 +71,6 @@ EDMC Modern Overlay is a two-part implementation (plugin and overlay-client) for
 - Public helper API (`overlay_plugin.overlay_api.send_overlay_message`) that validates and forwards payloads from other plugins.
 - Drop-in `edmcoverlay` compatibility module for legacy callers.
 - Dedicated rotating client log written under the EDMC logs directory with user-configurable retention.
-
-## Prerequisites
-
-- Python 3.12+
-- Elite Dangerous Market Connector installed
-- On Windows Microsoft Visual C++ 14.0 or greater is required. Get it with "Microsoft C++ Build Tools": https://visualstudio.microsoft.com/visual-cpp-build-tools/
 
 ## Windows Manual Setup
 If you want to set up EDMC-ModernOverlay manually on Windows, follow these steps.
@@ -105,26 +122,9 @@ The client expects a Python virtual environment at `overlay-client/.venv`. Creat
 5. Launch EDMC. The plugin starts the broadcaster, writes `port.json` when the listener is available, and supervises the overlay client. If the port is occupied, the plugin stays loaded and logs that it is running in degraded mode until the port frees up.
 6. Configure the plugin via *File → Settings → EDMC-ModernOverlay* (see “Configuration” below for option details).
 
+## Using EDMC-ModernOverlay
 
-## Optional Fonts
-
-To use the Elite: Dangerous cockpit font (Eurocaps) in the overlay HUD:
-
-You can automate the download and placement with the bundled helpers:
-
-- Linux: `scripts/install-eurocaps.sh` *(optionally pass the plugin path if it isn't under `~/.local/share/EDMarketConnector/plugins/`)*
-- Windows: `scripts\install-eurocaps.bat` *(optionally pass the plugin path if it isn't under `%LOCALAPPDATA%\EDMarketConnector\plugins\`)*
-
-Both scripts verify the plugin directory, fetch `Eurocaps.ttf`, copy it into `overlay-client/fonts/`, and add it to `preferred_fonts.txt` when that file exists.
-
-To perform the steps manually instead:
-
-1. Download `EUROCAPS.TTF` from https://github.com/inorton/EDMCOverlay/blob/master/EDMCOverlay/EDMCOverlay/EUROCAPS.TTF.
-2. Place the file in `overlay-client/fonts/` and rename it to `Eurocaps.ttf` (the overlay searches case-insensitively, but keeping a consistent casing is handy). Include the original licence text alongside it if you have one.
-3. Add `Eurocaps.ttf` to `overlay-client/fonts/preferred_fonts.txt` to prioritise it over the bundled Source Sans 3, or leave the list untouched to let the overlay fall back automatically.
-4. Restart the overlay client; the new font is picked up the next time it connects.
-
-## Programmatic API
+### Programmatic API
 
 Other plugins within EDMC can publish overlay updates without depending on socket details by using the bundled helper:
 
@@ -158,13 +158,3 @@ overlay.send_shape("demo-frame", "rect", "#ffffff", "#40000000", 80, 120, 420, 1
 
 Under the hood the compatibility layer forwards payloads through `send_overlay_message`, so no socket management or process monitoring is required. The overlay client understands the legacy message/rectangle schema, making migration from the original EDMCOverlay plugin largely turnkey.
 
-## Packaging
-
-To bundle the overlay as a single executable (optional):
-
-```bash
-pip install pyinstaller
-pyinstaller --onefile overlay-client/overlay_client.py
-```
-
-Update `OverlayWatchdog`'s command to point at the generated binary if you ship it to other commanders.
