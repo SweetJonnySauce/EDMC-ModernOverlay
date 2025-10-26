@@ -258,6 +258,12 @@ function Show-FinalNotes {
     Write-Host 'Installation complete.'
     Write-Host 'install_eurocaps.sh was not run. Execute it separately if you wish to install the Eurocaps font.'
     Write-Host ''
+    try {
+        # Final prompt so the window doesn't close immediately when double-clicked
+        Read-Host 'Install complete. Hit Enter to continue' | Out-Null
+    } catch {
+        # If input is not available (non-interactive run), ignore
+    }
 }
 
 function Invoke-Main {
