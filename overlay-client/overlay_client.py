@@ -314,22 +314,22 @@ class OverlayWindow(QWidget):
         return max(0.25, min(4.0, value))
 
     def _effective_legacy_scale_x(self) -> float:
-        return self._clamp_effective_scale(self._legacy_auto_scale_x * self._legacy_user_scale_x)
+        return self._clamp_effective_scale(self._legacy_user_scale_x)
 
     def _effective_legacy_scale_y(self) -> float:
-        return self._clamp_effective_scale(self._legacy_auto_scale_y * self._legacy_user_scale_y)
+        return self._clamp_effective_scale(self._legacy_user_scale_y)
 
     def format_scale_debug(self) -> str:
         return (
-            "scale_x={:.2f} (auto={:.2f} user={:.2f}) "
-            "scale_y={:.2f} (auto={:.2f} user={:.2f})"
+            "scale_x={:.2f} (user={:.2f} auto={:.2f}) "
+            "scale_y={:.2f} (user={:.2f} auto={:.2f})"
         ).format(
             self._effective_legacy_scale_x(),
-            self._legacy_auto_scale_x,
             self._legacy_user_scale_x,
+            self._legacy_auto_scale_x,
             self._effective_legacy_scale_y(),
-            self._legacy_auto_scale_y,
             self._legacy_user_scale_y,
+            self._legacy_auto_scale_y,
         )
 
     def showEvent(self, event) -> None:  # type: ignore[override]
@@ -687,8 +687,8 @@ class OverlayWindow(QWidget):
             return base
         width = max(self.width(), 1)
         height = max(self.height(), 1)
-        scale_y = max(0.25, min(4.0, float(self._legacy_auto_scale_y)))
-        scale_x = max(0.25, min(4.0, float(self._legacy_auto_scale_x)))
+        scale_y = self._effective_legacy_scale_y()
+        scale_x = self._effective_legacy_scale_x()
         metrics = f"{width}x{height}px scale_y={scale_y:.2f} scale_x={scale_x:.2f}"
         separator = " – " if " – " not in base else " "
         return f"{base}{separator}{metrics}"
