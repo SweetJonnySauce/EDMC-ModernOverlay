@@ -1,6 +1,6 @@
 # Frequently Asked Questions
 
-## Project Layout
+## How is the Project Laid Out?
 
 ```
 EDMC-ModernOverlay/
@@ -36,11 +36,11 @@ EDMC-ModernOverlay/
 ├── scripts/                        # Helper scripts for common setup tasks
 │   ├── install-eurocaps.sh         # Linux font installer helper
 │   └── install-eurocaps.bat        # Windows font installer helper
-├── overlay_settings.json           # Sample preferences persisted by EDMC
+├── overlay_settings.json           # Preferences persisted by the plugin and used by the overlay-client
 └── port.json                       # Last known port (written while the plugin runs)
 ```
 
-## EDMC Compliance Checklist
+## Does the plug in follow EDMC guidelines for good plugin development?
 
 - Implements the documented EDMC hooks (`plugin_start3`, `plugin_stop`, `plugin_prefs`, `plugin_prefs_save`, `journal_entry`); `plugin_app` explicitly returns `None`, so the Tk main thread stays idle.
 - Long-running work stays off the Tk thread. `WebSocketBroadcaster` runs on a daemon thread with its own asyncio loop, `OverlayWatchdog` supervises the client on another daemon thread, and `plugin_stop()` stops both and removes `port.json`.
@@ -51,7 +51,11 @@ EDMC-ModernOverlay/
 - Other plugins publish safely through `overlay_plugin.overlay_api.send_overlay_message`, which validates payload structure and size before handing messages to the broadcaster.
 - Platform-aware paths handle Windows-specific interpreter names and window flags while keeping Linux/macOS support intact.
 
-**Why JSON preferences?** The PyQt overlay process runs outside EDMC’s Python interpreter and reads `overlay_settings.json` directly so it can pick up the latest settings without importing EDMC modules. Storing the preferences here keeps a single source of truth that both the plugin and the external client can access.
+**Why are JSON preferences handled outside of EDMC?** The PyQt overlay process runs outside EDMC’s Python interpreter and reads `overlay_settings.json` directly so it can pick up the latest settings without importing EDMC modules. Storing the preferences here keeps a single source of truth that both the plugin and the external client can access.
+
+## Why isn't the Eurocaps font installed automatically?
+
+Eurocaps is available to redistribute, but its licence requires explicit user acceptance and may need elevated permissions when installed system-wide. To keep the release archive clean and avoid modifying your fonts without consent, the plugin only offers helper scripts that download and place `Eurocaps.ttf` inside `overlay-client/fonts/`. You can decide whether to keep the font local to the plugin or install it globally—see “Installing Euroscripts font” in `README.md` for the exact steps.
 
 ## PowerShell says scripts are disabled. How do I run `install_windows.ps1`?
 
@@ -82,7 +86,7 @@ Run these checks after the installer finishes (replace paths if you customised t
 
 ## Why does the overlay stay visible when I alt‑tab out of Elite Dangerous on Windows?
 
-The overlay hides itself when the game window is not foreground. This behavior is controlled by the `force_render` setting:
+The overlay hides itself when the game window is not foreground. This behavior is controlled by the `force_render` setting.
 
 - `force_render = false` (default): overlay hides when Elite is not the active/foreground window.
 - `force_render = true`: overlay remains visible even if Elite loses focus.

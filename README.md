@@ -60,6 +60,8 @@ To perform the steps manually instead:
 3. Add `Eurocaps.ttf` to `overlay-client/fonts/preferred_fonts.txt` to prioritise it over the bundled Source Sans 3, or leave the list untouched to let the overlay fall back automatically.
 4. Restart the overlay client; the new font is picked up the next time it connects.
 
+Need the reasoning behind the optional install? See [Why isn't the Eurocaps font installed automatically?](FAQ.md#why-isnt-the-eurocaps-font-installed-automatically).
+
 ## Features
 
 - Background `asyncio` JSON-over-TCP broadcaster that stays off EDMC’s Tk thread and degrades gracefully if the listener cannot bind.
