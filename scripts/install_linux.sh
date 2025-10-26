@@ -44,16 +44,34 @@ require_command() {
 detect_plugins_dir() {
     local base="${XDG_DATA_HOME:-$HOME/.local/share}"
     local candidate="${base}/EDMarketConnector/plugins"
-    if [[ ! -d "$candidate" ]]; then
+    if [[ -d "$candidate" ]]; then
+        echo "✅ Detected EDMarketConnector plugins directory at '$candidate'."
+        if prompt_yes_no "Use this directory?"; then
+            PLUGIN_DIR="$(cd "$candidate" && pwd)"
+            echo "✅ Using plugin directory: $PLUGIN_DIR"
+            return
+        fi
+    else
         echo "⚠️  EDMarketConnector plugin directory not found at '$candidate'."
+    fi
+
+    while true; do
         read -r -p "Enter the path to your EDMarketConnector plugins directory: " candidate
-    fi
-    if [[ ! -d "$candidate" ]]; then
-        echo "Creating plugin directory at '$candidate'."
-        mkdir -p "$candidate"
-    fi
-    PLUGIN_DIR="$(cd "$candidate" && pwd)"
-    echo "✅ Using plugin directory: $PLUGIN_DIR"
+        [[ -z "$candidate" ]] && { echo "❌ Path cannot be empty."; continue; }
+        if [[ -d "$candidate" ]]; then
+            PLUGIN_DIR="$(cd "$candidate" && pwd)"
+            echo "✅ Using plugin directory: $PLUGIN_DIR"
+            return
+        fi
+        echo "⚠️  Directory '$candidate' does not exist."
+        if prompt_yes_no "Create this directory?"; then
+            mkdir -p "$candidate"
+            PLUGIN_DIR="$(cd "$candidate" && pwd)"
+            echo "✅ Created and using plugin directory: $PLUGIN_DIR"
+            return
+        fi
+        echo "Please provide a valid directory."
+    done
 }
 
 ensure_edmc_not_running() {
@@ -217,6 +235,12 @@ main() {
     if [[ ! -d "$dest_dir" ]]; then
         copy_initial_install "$src_dir" "$PLUGIN_DIR"
     else
+        echo "⚠️  An existing installation was detected at '$dest_dir'."
+        echo "    Plugin files will be replaced while preserving the existing overlay-client/.venv."
+        if ! prompt_yes_no "Proceed with updating the installation?"; then
+            echo "❌ Installation aborted by user to protect the existing virtual environment." >&2
+            exit 1
+        fi
         ensure_existing_install "$dest_dir"
         rsync_update_plugin "$src_dir" "$dest_dir"
     fi
