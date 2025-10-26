@@ -139,9 +139,12 @@ class PreferencesPanel:
         reset_origin_callback: Optional[Callable[[], None]] = None,
     ) -> None:
         import tkinter as tk
+        from tkinter import ttk
         import myNotebook as nb
 
         self._preferences = preferences
+        self._style = ttk.Style()
+        self._frame_style, self._spinbox_style, self._scale_style = self._init_theme_styles(nb)
         self._var_capture = tk.BooleanVar(value=preferences.capture_output)
         self._var_opacity = tk.DoubleVar(value=preferences.overlay_opacity)
         self._var_show_status = tk.BooleanVar(value=preferences.show_connection_status)
@@ -189,7 +192,7 @@ class PreferencesPanel:
             "Capture overlay stdout/stderr when EDMC logging is set to DEBUG "
             "(useful for troubleshooting). Changes require restarting the overlay."
         )
-        checkbox = tk.Checkbutton(
+        checkbox = nb.Checkbutton(
             frame,
             text="Enable overlay stdout/stderr capture",
             variable=self._var_capture,
@@ -197,11 +200,11 @@ class PreferencesPanel:
             offvalue=False,
             command=self._on_capture_toggle,
         )
-        helper = tk.Label(frame, text=description, wraplength=400, justify="left")
+        helper = nb.Label(frame, text=description, wraplength=400, justify="left")
         checkbox.grid(row=0, column=0, sticky="w")
         helper.grid(row=1, column=0, sticky="w", pady=(2, 0))
 
-        status_checkbox = tk.Checkbutton(
+        status_checkbox = nb.Checkbutton(
             frame,
             text="Show connection status message at bottom of overlay",
             variable=self._var_show_status,
@@ -211,7 +214,7 @@ class PreferencesPanel:
         )
         status_checkbox.grid(row=2, column=0, sticky="w", pady=(10, 0))
 
-        log_checkbox = tk.Checkbutton(
+        log_checkbox = nb.Checkbutton(
             frame,
             text="Send overlay payloads to the EDMC log",
             variable=self._var_log_payloads,
@@ -221,67 +224,69 @@ class PreferencesPanel:
         )
         log_checkbox.grid(row=3, column=0, sticky="w", pady=(4, 0))
 
-        retention_label = tk.Label(frame, text="Overlay client log files to keep (rotate when current file grows).")
+        retention_label = nb.Label(frame, text="Overlay client log files to keep (rotate when current file grows).")
         retention_label.grid(row=4, column=0, sticky="w", pady=(6, 0))
 
-        retention_row = tk.Frame(frame)
-        retention_spin = tk.Spinbox(
+        retention_row = ttk.Frame(frame, style=self._frame_style)
+        retention_spin = ttk.Spinbox(
             retention_row,
             from_=1,
             to=20,
             width=5,
             textvariable=self._var_log_retention,
+            increment=1,
+            style=self._spinbox_style,
         )
         retention_spin.pack(side="left")
-        retention_helper = tk.Label(retention_row, text="(applies next time the overlay restarts)")
+        retention_helper = nb.Label(retention_row, text="(applies next time the overlay restarts)")
         retention_helper.pack(side="left", padx=(8, 0))
         retention_row.grid(row=5, column=0, sticky="w")
 
-        legacy_scale_label = tk.Label(
+        legacy_scale_label = nb.Label(
             frame,
             text="Legacy overlay vertical scale (1.00× keeps original spacing).",
         )
         legacy_scale_label.grid(row=6, column=0, sticky="w", pady=(10, 0))
 
-        legacy_scale_row = tk.Frame(frame)
-        legacy_scale = tk.Scale(
+        legacy_scale_row = ttk.Frame(frame, style=self._frame_style)
+        legacy_scale = ttk.Scale(
             legacy_scale_row,
             variable=self._var_legacy_scale,
             from_=0.5,
             to=2.0,
-            resolution=0.05,
             orient=tk.HORIZONTAL,
             length=250,
             command=self._on_legacy_scale_change,
+            style=self._scale_style,
         )
         legacy_scale.pack(side="left", fill="x", expand=True)
-        legacy_scale_value_label = tk.Label(legacy_scale_row, textvariable=self._legacy_scale_display, width=6, anchor="w")
+        legacy_scale_value_label = nb.Label(legacy_scale_row, textvariable=self._legacy_scale_display, width=6, anchor="w")
         legacy_scale_value_label.pack(side="left", padx=(8, 0))
         legacy_scale_row.grid(row=7, column=0, sticky="we")
 
-        horizontal_scale_label = tk.Label(
+        horizontal_scale_label = nb.Label(
             frame,
             text="Legacy overlay horizontal scale (1.00× keeps original width).",
         )
         horizontal_scale_label.grid(row=8, column=0, sticky="w", pady=(10, 0))
 
-        horizontal_scale_row = tk.Frame(frame)
-        horizontal_scale = tk.Scale(
+        horizontal_scale_row = ttk.Frame(frame, style=self._frame_style)
+        horizontal_scale = ttk.Scale(
             horizontal_scale_row,
             variable=self._var_horizontal_scale,
             from_=0.5,
             to=2.0,
-            resolution=0.05,
             orient=tk.HORIZONTAL,
             length=250,
             command=self._on_horizontal_scale_change,
+            style=self._scale_style,
         )
         horizontal_scale.pack(side="left", fill="x", expand=True)
-        horizontal_scale_value_label = tk.Label(horizontal_scale_row, textvariable=self._horizontal_scale_display, width=6, anchor="w")
+        horizontal_scale_value_label = nb.Label(horizontal_scale_row, textvariable=self._horizontal_scale_display, width=6, anchor="w")
         horizontal_scale_value_label.pack(side="left", padx=(8, 0))
         horizontal_scale_row.grid(row=9, column=0, sticky="we")
 
-        opacity_label = tk.Label(
+        opacity_label = nb.Label(
             frame,
             text=(
                 "Overlay background opacity (0.0 transparent – 1.0 opaque). "
@@ -290,21 +295,21 @@ class PreferencesPanel:
         )
         opacity_label.grid(row=10, column=0, sticky="w", pady=(10, 0))
 
-        opacity_row = tk.Frame(frame)
-        opacity_scale = tk.Scale(
+        opacity_row = ttk.Frame(frame, style=self._frame_style)
+        opacity_scale = ttk.Scale(
             opacity_row,
             variable=self._var_opacity,
             from_=0.0,
             to=1.0,
-            resolution=0.05,
             orient=tk.HORIZONTAL,
             length=250,
             command=self._on_opacity_change,
+            style=self._scale_style,
         )
         opacity_scale.pack(side="left", fill="x")
         opacity_row.grid(row=11, column=0, sticky="we")
 
-        follow_checkbox = tk.Checkbutton(
+        follow_checkbox = nb.Checkbutton(
             frame,
             text="Follow the Elite Dangerous window position and size",
             variable=self._var_follow_mode,
@@ -314,14 +319,14 @@ class PreferencesPanel:
         )
         follow_checkbox.grid(row=12, column=0, sticky="w", pady=(10, 0))
 
-        size_label = tk.Label(frame, text="Overlay window size (pixels; updates immediately):")
+        size_label = nb.Label(frame, text="Overlay window size (pixels; updates immediately):")
         size_label.grid(row=13, column=0, sticky="w", pady=(10, 0))
 
-        size_row = tk.Frame(frame)
-        width_label = tk.Label(size_row, text="Width:")
+        size_row = ttk.Frame(frame, style=self._frame_style)
+        width_label = nb.Label(size_row, text="Width:")
         self._register_follow_label(width_label)
         width_label.pack(side="left")
-        width_spin = tk.Spinbox(
+        width_spin = ttk.Spinbox(
             size_row,
             from_=640,
             to=3840,
@@ -329,14 +334,15 @@ class PreferencesPanel:
             width=6,
             textvariable=self._var_window_width,
             command=self._on_window_width_command,
+            style=self._spinbox_style,
         )
         width_spin.pack(side="left", padx=(6, 0))
         width_spin.bind("<FocusOut>", self._on_window_width_event)
         width_spin.bind("<Return>", self._on_window_width_event)
-        height_label = tk.Label(size_row, text="Height:")
+        height_label = nb.Label(size_row, text="Height:")
         self._register_follow_label(height_label)
         height_label.pack(side="left", padx=(12, 0))
-        height_spin = tk.Spinbox(
+        height_spin = ttk.Spinbox(
             size_row,
             from_=360,
             to=2160,
@@ -344,6 +350,7 @@ class PreferencesPanel:
             width=6,
             textvariable=self._var_window_height,
             command=self._on_window_height_command,
+            style=self._spinbox_style,
         )
         height_spin.pack(side="left", padx=(6, 0))
         height_spin.bind("<FocusOut>", self._on_window_height_event)
@@ -352,33 +359,33 @@ class PreferencesPanel:
         self._size_controls = (size_label, size_row, width_spin, height_spin)
         self._follow_checkbox = follow_checkbox
 
-        origin_label = tk.Label(frame, text="Overlay origin (top-left in pixels):")
+        origin_label = nb.Label(frame, text="Overlay origin (top-left in pixels):")
         self._register_follow_label(origin_label)
         origin_label.grid(row=15, column=0, sticky="w", pady=(10, 0))
 
-        origin_row = tk.Frame(frame)
-        origin_x_label = tk.Label(origin_row, text="X:")
+        origin_row = ttk.Frame(frame, style=self._frame_style)
+        origin_x_label = nb.Label(origin_row, text="X:")
         self._register_follow_label(origin_x_label)
         origin_x_label.pack(side="left")
-        origin_x_entry = tk.Entry(origin_row, width=7, textvariable=self._var_origin_x)
+        origin_x_entry = nb.EntryMenu(origin_row, width=7, textvariable=self._var_origin_x)
         origin_x_entry.pack(side="left", padx=(4, 0))
         origin_x_entry.bind("<FocusOut>", self._on_origin_entry_event)
         origin_x_entry.bind("<Return>", self._on_origin_entry_event)
-        origin_y_label = tk.Label(origin_row, text="Y:")
+        origin_y_label = nb.Label(origin_row, text="Y:")
         self._register_follow_label(origin_y_label)
         origin_y_label.pack(side="left", padx=(12, 0))
-        origin_y_entry = tk.Entry(origin_row, width=7, textvariable=self._var_origin_y)
+        origin_y_entry = nb.EntryMenu(origin_row, width=7, textvariable=self._var_origin_y)
         origin_y_entry.pack(side="left", padx=(4, 0))
         origin_y_entry.bind("<FocusOut>", self._on_origin_entry_event)
         origin_y_entry.bind("<Return>", self._on_origin_entry_event)
-        reset_button = tk.Button(origin_row, text="Reset origin to 0,0", command=self._on_reset_origin_click)
+        reset_button = nb.Button(origin_row, text="Reset origin to 0,0", command=self._on_reset_origin_click)
         reset_button.pack(side="left", padx=(12, 0))
         origin_row.grid(row=16, column=0, sticky="w", pady=(2, 0))
         self._origin_entries.extend([origin_x_entry, origin_y_entry])
         self._origin_reset_button = reset_button
         self._update_controls_state()
 
-        force_checkbox = tk.Checkbutton(
+        force_checkbox = nb.Checkbutton(
             frame,
             text="Keep overlay visible when Elite Dangerous is not the foreground window",
             variable=self._var_force_render,
@@ -388,7 +395,7 @@ class PreferencesPanel:
         )
         force_checkbox.grid(row=17, column=0, sticky="w", pady=(6, 0))
 
-        grid_checkbox = tk.Checkbutton(
+        grid_checkbox = nb.Checkbutton(
             frame,
             text="Show light gridlines over the overlay background",
             variable=self._var_gridlines_enabled,
@@ -398,10 +405,10 @@ class PreferencesPanel:
         )
         grid_checkbox.grid(row=18, column=0, sticky="w", pady=(8, 0))
 
-        grid_spacing_row = tk.Frame(frame)
-        grid_spacing_label = tk.Label(grid_spacing_row, text="Grid spacing (pixels):")
+        grid_spacing_row = ttk.Frame(frame, style=self._frame_style)
+        grid_spacing_label = nb.Label(grid_spacing_row, text="Grid spacing (pixels):")
         grid_spacing_label.pack(side="left")
-        grid_spacing_spin = tk.Spinbox(
+        grid_spacing_spin = ttk.Spinbox(
             grid_spacing_row,
             from_=10,
             to=400,
@@ -409,35 +416,36 @@ class PreferencesPanel:
             width=5,
             textvariable=self._var_gridline_spacing,
             command=self._on_gridline_spacing_command,
+            style=self._spinbox_style,
         )
         grid_spacing_spin.pack(side="left", padx=(6, 0))
         grid_spacing_spin.bind("<FocusOut>", self._on_gridline_spacing_event)
         grid_spacing_spin.bind("<Return>", self._on_gridline_spacing_event)
         grid_spacing_row.grid(row=19, column=0, sticky="w", pady=(2, 0))
 
-        test_label = tk.Label(frame, text="Send test message to overlay:")
+        test_label = nb.Label(frame, text="Send test message to overlay:")
         test_label.grid(row=20, column=0, sticky="w", pady=(10, 0))
 
-        test_row = tk.Frame(frame)
-        test_entry = tk.Entry(test_row, textvariable=self._test_var, width=50)
-        send_button = tk.Button(test_row, text="Send", command=self._on_send_click)
+        test_row = ttk.Frame(frame, style=self._frame_style)
+        test_entry = nb.EntryMenu(test_row, textvariable=self._test_var, width=50)
+        send_button = nb.Button(test_row, text="Send", command=self._on_send_click)
         test_entry.pack(side="left", fill="x", expand=True)
         send_button.pack(side="left", padx=(8, 0))
         test_row.grid(row=21, column=0, sticky="we", pady=(2, 0))
         frame.columnconfigure(0, weight=1)
         test_row.columnconfigure(0, weight=1)
 
-        legacy_label = tk.Label(frame, text="Legacy edmcoverlay compatibility:")
+        legacy_label = nb.Label(frame, text="Legacy edmcoverlay compatibility:")
         legacy_label.grid(row=22, column=0, sticky="w", pady=(10, 0))
 
-        legacy_row = tk.Frame(frame)
-        legacy_text_btn = tk.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
-        legacy_rect_btn = tk.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
+        legacy_row = ttk.Frame(frame, style=self._frame_style)
+        legacy_text_btn = nb.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
+        legacy_rect_btn = nb.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
         legacy_text_btn.pack(side="left")
         legacy_rect_btn.pack(side="left", padx=(8, 0))
         legacy_row.grid(row=23, column=0, sticky="w", pady=(2, 0))
 
-        status_label = tk.Label(frame, textvariable=self._status_var, wraplength=400, justify="left")
+        status_label = nb.Label(frame, textvariable=self._status_var, wraplength=400, justify="left")
         status_label.grid(row=24, column=0, sticky="w", pady=(4, 0))
 
         self._frame = frame
@@ -445,6 +453,37 @@ class PreferencesPanel:
     @property
     def frame(self):  # pragma: no cover - Tk integration
         return self._frame
+
+    def _init_theme_styles(self, nb) -> tuple[str, str, str]:
+        bg = getattr(nb, "PAGEBG", None)
+        fg = getattr(nb, "PAGEFG", None)
+        if not bg:
+            bg = self._style.lookup("nb.TFrame", "background")
+        if not bg:
+            bg = self._style.lookup("TFrame", "background") or self._style.lookup("TNotebook", "background") or "#ffffff"
+        if not fg:
+            fg = self._style.lookup("nb.TLabel", "foreground")
+        if not fg:
+            fg = self._style.lookup("TLabel", "foreground") or "#000000"
+
+        frame_style = "ModernOverlay.TFrame"
+        spinbox_style = "ModernOverlay.TSpinbox"
+        scale_style = "ModernOverlay.Horizontal.TScale"
+
+        self._style.configure(frame_style, background=bg)
+        self._style.configure(spinbox_style, background=bg, foreground=fg, fieldbackground=bg)
+        self._style.map(spinbox_style, fieldbackground=[("disabled", bg)], foreground=[("disabled", fg)])
+
+        trough = self._style.lookup("Horizontal.TScale", "troughcolor") or self._style.lookup("TScale", "troughcolor") or "#d9d9d9"
+        self._style.configure(scale_style, background=bg, troughcolor=trough)
+
+        return frame_style, spinbox_style, scale_style
+
+    @staticmethod
+    def _round_to_step(value: float, step: float) -> float:
+        if step <= 0:
+            return value
+        return round(value / step) * step
 
     def apply(self) -> None:
         self._preferences.capture_output = bool(self._var_capture.get())
@@ -527,6 +566,7 @@ class PreferencesPanel:
         except (TypeError, ValueError):
             numeric = 0.0
         numeric = max(0.0, min(1.0, numeric))
+        numeric = self._round_to_step(numeric, 0.05)
         self._var_opacity.set(numeric)
         if self._set_opacity:
             try:
@@ -565,6 +605,7 @@ class PreferencesPanel:
         except (TypeError, ValueError):
             numeric = 1.0
         numeric = max(0.5, min(2.0, numeric))
+        numeric = self._round_to_step(numeric, 0.05)
         self._var_legacy_scale.set(numeric)
         self._legacy_scale_display.set(f"{numeric:.2f}×")
         self._preferences.legacy_vertical_scale = numeric
@@ -582,6 +623,7 @@ class PreferencesPanel:
         except (TypeError, ValueError):
             numeric = 1.0
         numeric = max(0.5, min(2.0, numeric))
+        numeric = self._round_to_step(numeric, 0.05)
         self._var_horizontal_scale.set(numeric)
         self._horizontal_scale_display.set(f"{numeric:.2f}×")
         self._preferences.legacy_horizontal_scale = numeric
