@@ -451,20 +451,52 @@ class _PluginRuntime:
         self._update_capture_state(self._capture_enabled())
         self._send_overlay_config()
 
-    def send_test_message(self, message: str) -> None:
+    def send_test_message(self, message: str, x: Optional[int] = None, y: Optional[int] = None) -> None:
         text = message.strip()
         if not text:
             raise ValueError("Message is empty")
         if not self._running:
             raise RuntimeError("Overlay is not running")
-        payload = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "event": "TestMessage",
-            "message": text,
-        }
+        payload: Dict[str, Any]
+        if x is None and y is None:
+            payload = {
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "event": "TestMessage",
+                "message": text,
+            }
+        else:
+            if x is None or y is None:
+                raise ValueError("Both X and Y coordinates are required when specifying a position")
+            try:
+                x_val = max(0, int(x))
+                y_val = max(0, int(y))
+            except (TypeError, ValueError):
+                raise ValueError("Coordinates must be integers") from None
+            payload = {
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "event": "LegacyOverlay",
+                "type": "message",
+                "id": f"test-{datetime.utcnow().strftime('%H%M%S%f')}",
+                "text": text,
+                "color": "#ffffff",
+                "x": x_val,
+                "y": y_val,
+                "ttl": 5,
+                "size": "normal",
+            }
         if not send_overlay_message(payload):
             raise RuntimeError("Failed to send test message via overlay API")
-        LOGGER.debug("Sent test message to overlay via API: %s", text)
+        if payload.get("event") == "LegacyOverlay":
+            LOGGER.debug(
+                "Sent positioned test overlay message: text=%s x=%s y=%s ttl=%s size=%s",
+                text,
+                payload["x"],
+                payload["y"],
+                payload["ttl"],
+                payload["size"],
+            )
+        else:
+            LOGGER.debug("Sent test message to overlay via API: %s", text)
 
     def preview_overlay_opacity(self, value: float) -> None:
         try:

@@ -174,6 +174,8 @@ class OverlayDataClient(QObject):
 class OverlayWindow(QWidget):
     """Transparent overlay that renders CMDR and location info."""
 
+    _WM_OVERRIDE_TTL = 1.25  # seconds
+
     def __init__(self, initial: InitialClientSettings) -> None:
         super().__init__()
         self._font_family = self._resolve_font_family()
@@ -224,6 +226,8 @@ class OverlayWindow(QWidget):
         self._last_set_geometry: Optional[Tuple[int, int, int, int]] = None
         self._last_visibility_state: Optional[bool] = None
         self._wm_authoritative_rect: Optional[Tuple[int, int, int, int]] = None
+        self._wm_override_tracker: Optional[Tuple[int, int, int, int]] = None
+        self._wm_override_timestamp: float = 0.0
         self._transient_parent_id: Optional[str] = None
         self._transient_parent_window: Optional[QWindow] = None
         self._fullscreen_hint_logged: bool = False
@@ -515,11 +519,10 @@ class OverlayWindow(QWidget):
                 and self._last_set_geometry is not None
                 and (frame.x(), frame.y(), frame.width(), frame.height()) != self._last_set_geometry
             ):
-                self._wm_authoritative_rect = (frame.x(), frame.y(), frame.width(), frame.height())
-                _CLIENT_LOGGER.debug(
-                    "Recorded WM authoritative rect from moveEvent: %s; %s",
-                    self._wm_authoritative_rect,
-                    self.format_scale_debug(),
+                self._set_wm_override(
+                    (frame.x(), frame.y(), frame.width(), frame.height()),
+                    tracker_tuple=None,
+                    reason="moveEvent delta",
                 )
             self._last_move_log = current
             self._update_status_position_info()
@@ -557,7 +560,7 @@ class OverlayWindow(QWidget):
             self._stop_tracking()
             self._update_follow_visibility(True)
             self._sync_base_dimensions_to_widget()
-            self._wm_authoritative_rect = None
+            self._clear_wm_override(reason="follow disabled")
             self._apply_window_dimensions(force=True)
 
     def set_origin(self, origin_x: int, origin_y: int) -> None:
@@ -959,6 +962,35 @@ class OverlayWindow(QWidget):
         if self._tracking_timer.isActive():
             self._tracking_timer.stop()
 
+    def _set_wm_override(
+        self,
+        rect: Tuple[int, int, int, int],
+        tracker_tuple: Optional[Tuple[int, int, int, int]],
+        reason: str,
+    ) -> None:
+        self._wm_authoritative_rect = rect
+        self._wm_override_tracker = tracker_tuple
+        self._wm_override_timestamp = time.monotonic()
+        _CLIENT_LOGGER.debug(
+            "Recorded WM authoritative rect (%s): actual=%s tracker=%s; %s",
+            reason,
+            rect,
+            tracker_tuple,
+            self.format_scale_debug(),
+        )
+
+    def _clear_wm_override(self, reason: str) -> None:
+        if self._wm_authoritative_rect is None:
+            return
+        _CLIENT_LOGGER.debug(
+            "Clearing WM authoritative rect (%s); %s",
+            reason,
+            self.format_scale_debug(),
+        )
+        self._wm_authoritative_rect = None
+        self._wm_override_tracker = None
+        self._wm_override_timestamp = 0.0
+
     def _suspend_follow(self, delay: float = 0.75) -> None:
         self._follow_resume_at = max(self._follow_resume_at, time.monotonic() + max(0.0, delay))
 
@@ -1013,15 +1045,22 @@ class OverlayWindow(QWidget):
             height,
         )
 
+        now = time.monotonic()
         target_tuple = tracker_target_tuple
-        if self._wm_authoritative_rect and tracker_target_tuple != self._wm_authoritative_rect:
-            target_tuple = self._wm_authoritative_rect
-        elif self._wm_authoritative_rect and tracker_target_tuple == self._wm_authoritative_rect:
-            _CLIENT_LOGGER.debug(
-                "Tracker target realigned with WM authoritative rect; clearing override; %s",
-                self.format_scale_debug(),
+        if self._wm_authoritative_rect is not None:
+            tracker_changed = (
+                self._wm_override_tracker is not None
+                and tracker_target_tuple != self._wm_override_tracker
             )
-            self._wm_authoritative_rect = None
+            override_expired = (now - self._wm_override_timestamp) >= self._WM_OVERRIDE_TTL
+            if tracker_target_tuple == self._wm_authoritative_rect:
+                self._clear_wm_override(reason="tracker realigned with WM")
+            elif tracker_changed:
+                self._clear_wm_override(reason="tracker changed")
+            elif override_expired:
+                self._clear_wm_override(reason="override timeout")
+            else:
+                target_tuple = self._wm_authoritative_rect
 
         target_rect = QRect(*target_tuple)
         current_rect = self.frameGeometry()
@@ -1039,10 +1078,7 @@ class OverlayWindow(QWidget):
                 self.format_scale_debug(),
             )
 
-        needs_geometry_update = (
-            self._wm_authoritative_rect is None
-            and actual_tuple != target_tuple
-        )
+        needs_geometry_update = actual_tuple != target_tuple
 
         if needs_geometry_update:
             _CLIENT_LOGGER.debug("Applying geometry via setGeometry: target=%s; %s", target_tuple, self.format_scale_debug())
@@ -1069,11 +1105,11 @@ class OverlayWindow(QWidget):
                 target_tuple,
                 self.format_scale_debug(),
             )
-            self._wm_authoritative_rect = actual_tuple
+            self._set_wm_override(actual_tuple, tracker_target_tuple, reason="geometry mismatch")
             target_tuple = actual_tuple
             target_rect = QRect(*target_tuple)
         elif self._wm_authoritative_rect and tracker_target_tuple == target_tuple:
-            self._wm_authoritative_rect = None
+            self._clear_wm_override(reason="tracker matched actual")
 
         final_global_x = target_tuple[0]
         final_global_y = target_tuple[1]
@@ -1169,7 +1205,7 @@ class OverlayWindow(QWidget):
                 self._restore_drag_interactivity()
         else:
             self._last_follow_state = None
-            self._wm_authoritative_rect = None
+            self._clear_wm_override(reason="follow state lost")
             self._update_follow_visibility(False)
 
     def _update_follow_visibility(self, show: bool) -> None:

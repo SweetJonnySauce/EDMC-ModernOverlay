@@ -158,6 +158,8 @@ class PreferencesPanel:
         self._var_window_height = tk.IntVar(value=max(360, int(preferences.window_height)))
         self._send_test = send_test_callback
         self._test_var = tk.StringVar()
+        self._test_x_var = tk.StringVar()
+        self._test_y_var = tk.StringVar()
         self._status_var = tk.StringVar(value="")
         self._legacy_client = None
         self._set_opacity = set_opacity_callback
@@ -427,9 +429,17 @@ class PreferencesPanel:
         test_label.grid(row=20, column=0, sticky="w", pady=(10, 0))
 
         test_row = ttk.Frame(frame, style=self._frame_style)
-        test_entry = nb.EntryMenu(test_row, textvariable=self._test_var, width=50)
+        test_entry = nb.EntryMenu(test_row, textvariable=self._test_var, width=40)
+        x_label = nb.Label(test_row, text="X:")
+        x_entry = nb.EntryMenu(test_row, textvariable=self._test_x_var, width=6)
+        y_label = nb.Label(test_row, text="Y:")
+        y_entry = nb.EntryMenu(test_row, textvariable=self._test_y_var, width=6)
         send_button = nb.Button(test_row, text="Send", command=self._on_send_click)
         test_entry.pack(side="left", fill="x", expand=True)
+        x_label.pack(side="left", padx=(8, 2))
+        x_entry.pack(side="left")
+        y_label.pack(side="left", padx=(8, 2))
+        y_entry.pack(side="left")
         send_button.pack(side="left", padx=(8, 0))
         test_row.grid(row=21, column=0, sticky="we", pady=(2, 0))
         frame.columnconfigure(0, weight=1)
@@ -548,12 +558,38 @@ class PreferencesPanel:
         if not self._send_test:
             self._status_var.set("Overlay not running; message not sent.")
             return
+        x_raw = self._test_x_var.get().strip()
+        y_raw = self._test_y_var.get().strip()
+        x_val: Optional[int] = None
+        y_val: Optional[int] = None
+        if x_raw or y_raw:
+            if not x_raw or not y_raw:
+                self._status_var.set("Provide both X and Y coordinates or leave both blank.")
+                return
+            try:
+                x_val = max(0, int(float(x_raw)))
+            except (TypeError, ValueError):
+                self._status_var.set("X coordinate must be a number.")
+                return
+            try:
+                y_val = max(0, int(float(y_raw)))
+            except (TypeError, ValueError):
+                self._status_var.set("Y coordinate must be a number.")
+                return
+            self._test_x_var.set(str(x_val))
+            self._test_y_var.set(str(y_val))
         try:
-            self._send_test(message)
+            if x_val is None and y_val is None:
+                self._send_test(message)
+            else:
+                self._send_test(message, x_val, y_val)
         except Exception as exc:  # pragma: no cover - defensive UI handler
             self._status_var.set(f"Failed to send message: {exc}")
             return
-        self._status_var.set("Test message sent to overlay.")
+        if x_val is None or y_val is None:
+            self._status_var.set("Test message sent to overlay.")
+        else:
+            self._status_var.set(f"Test message sent to overlay at ({x_val}, {y_val}).")
 
     def _on_capture_toggle(self) -> None:
         value = bool(self._var_capture.get())
