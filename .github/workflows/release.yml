@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*'
+  release:
+    types:
+      - published
 
 jobs:
   build:
@@ -17,8 +20,16 @@ jobs:
 
       - name: Capture version from tag
         id: vars
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          TAG_NAME="${GITHUB_REF##*/}"
+          # If triggered by a release event, github.event.release.tag_name is set.
+          # Otherwise (tag push), fall back to GITHUB_REF.
+          if [ -n "${RELEASE_TAG}" ]; then
+            TAG_NAME="${RELEASE_TAG}"
+          else
+            TAG_NAME="${GITHUB_REF##*/}"
+          fi
           echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
           echo "release_name=EDMC-ModernOverlay-${TAG_NAME}-linux" >> "$GITHUB_OUTPUT"
 
