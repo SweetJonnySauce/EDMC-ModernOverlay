@@ -222,12 +222,15 @@ function Update-ExistingInstall {
     }
 
     Write-Host 'Updating existing Modern Overlay installation...'
+    # Preserve the destination virtualenv and user-installed Eurocaps font during mirror.
+    $excludeVenvDest = Join-Path $DestDir 'overlay-client\.venv'
+    $excludeEurocapsDest = Join-Path $DestDir 'overlay-client\fonts\EUROCAPS.ttf'
     $args = @(
         $SourceDir,
         $DestDir,
         '/MIR',
-        '/XD', 'overlay-client\.venv',
-        '/XF', 'overlay-client\fonts\EUROCAPS.ttf'
+        '/XD', $excludeVenvDest,
+        '/XF', $excludeEurocapsDest
     )
 
     & robocopy @args | Out-Null
