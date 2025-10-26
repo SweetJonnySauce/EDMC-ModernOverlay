@@ -4,6 +4,48 @@ Warning: This is not your normal EDMC plugin and should be considered a prototyp
 
 EDMC Modern Overlay is a two-part reference implementation for Elite Dangerous Market Connector (EDMC). It streams journal data from EDMC over a lightweight TCP socket and displays a transparent, click-through PyQt6 heads-up display on your desktop.
 
+## Installation
+
+### Download
+- Grab the latest OS-specific archive from GitHub Releases:
+  - Windows: `EDMC-ModernOverlay-windows-<version>.zip`
+  - Linux: `EDMC-ModernOverlay-linux-<version>.tar.gz`
+- Extract the archive to a folder of your choice. The extracted folder contains:
+  - `EDMC-ModernOverlay/` (the plugin and overlay client code)
+  - Platform install helpers at the archive root (not under `scripts/`):
+    - Windows: `install_windows.ps1`, `install-eurocaps.bat`
+    - Linux: `install_linux.sh`, `install-eurocaps.sh`
+
+### Windows
+- Close EDMarketConnector before installing.
+- Open PowerShell in the extracted folder and run one of:
+  - `powershell -ExecutionPolicy Bypass -File .\install_windows.ps1` (one-off, does not change your policy)
+  - `Set-ExecutionPolicy -Scope Process Bypass -Force; .\install_windows.ps1`
+  - If you prefer no bypass, right‑click the ZIP before extracting and Unblock it, or run `Unblock-File .\install_windows.ps1`, then `./install_windows.ps1`.
+- The installer will:
+  - Detect (or prompt for) the EDMC plugins directory (defaults to `%LOCALAPPDATA%\EDMarketConnector\plugins`).
+  - Disable legacy `EDMCOverlay*` plugins if found.
+  - Copy `EDMC-ModernOverlay/` into the plugins directory.
+  - Create `overlay-client\.venv` and install `overlay-client\requirements.txt` into it.
+- Optional font: `./install-eurocaps.bat` to install the Eurocaps font.
+- Start EDMarketConnector; the overlay client launches automatically. If prompted to update settings, use the EDMC preferences panel.
+
+Quick checks:
+- `Test-Path "$env:LOCALAPPDATA\EDMarketConnector\plugins\EDMC-ModernOverlay\overlay-client\.venv\Scripts\python.exe"`
+- `Get-Content "$env:LOCALAPPDATA\EDMarketConnector\plugins\EDMC-ModernOverlay\port.json"` (when the plugin is running)
+
+### Linux
+- Close EDMarketConnector before installing.
+- Make sure you have Python 3 and venv support available (e.g. on Debian/Ubuntu: `sudo apt install python3 python3-venv`).
+- From the extracted folder, run the installer:
+  - `./install_linux.sh` (ensure it’s executable) or `bash ./install_linux.sh`
+- The installer will:
+  - Detect (or prompt for) the EDMC plugins directory.
+  - Copy `EDMC-ModernOverlay/` into the plugins directory.
+  - Create `overlay-client/.venv` and install `overlay-client/requirements.txt` into it.
+- Optional font: `./install-eurocaps.sh` installs the Eurocaps font system-wide (may require sudo depending on distro setup).
+- Start EDMarketConnector; the overlay client launches automatically.
+
 ## Project Layout
 
 ```
