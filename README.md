@@ -1,5 +1,5 @@
 # EDMC Modern Overlay
-EDMC Modern Overlay is a two-part implementation (plugin and overlay-client) for Elite Dangerous Market Connector (EDMC). It streams data from EDMC plugins over a lightweight TCP socket and displays a transparent, click-through PyQt6 heads-up display on the Elite Dangrous game.
+EDMC Modern Overlay is a cross-platform (Windows, Linux X11, Linux Wayland), two-part implementation (plugin and overlay-client) for Elite Dangerous Market Connector (EDMC). It streams data from EDMC plugins over a lightweight TCP socket and displays a transparent, click-through PyQt6 heads-up display on the Elite Dangrous game. It has been tested on Ubuntu 24.04.03 LTS (X11, and some Wayland) and Windows 10.
 
 ## Installation
 
@@ -159,3 +159,11 @@ overlay.send_shape("demo-frame", "rect", "#ffffff", "#40000000", 80, 120, 420, 1
 ```
 
 Under the hood the compatibility layer forwards payloads through `send_overlay_message`, so no socket management or process monitoring is required. The overlay client understands the legacy message/rectangle schema, making migration from the original EDMCOverlay plugin largely turnkey.
+
+## Thanks
+
+Special thanks to [inorton](https://github.com/inorton) for the original [EDMCOverlay](https://github.com/inorton/EDMCOverlay) development.
+
+## Blame
+
+This EDMC plugin is an experiment in using AI for ground up development. It was developed on VSCode using Codex (gpt-5-codex) for 100% of the code.

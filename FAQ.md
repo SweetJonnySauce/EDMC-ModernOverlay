@@ -4,16 +4,26 @@
 
 ```
 EDMC-ModernOverlay/
-├── README.md                       # You're here
-├── FAQ.md                          # Extra setup and troubleshooting notes
-├── LICENSE
-├── EDMC-ModernOverlay.code-workspace  # Optional VS Code workspace settings
-├── load.py                         # EDMC entry hook copied into the plugins dir
+├── README.md                       # Install & usage guide
+├── FAQ.md                          # Expanded setup and troubleshooting notes
+├── DEV.md                          # Development tips and versioning details
+├── LICENSE                         # Project licensing
+├── .gitignore                      # Ignore rules (see note on respecting them)
+├── EDMC-ModernOverlay.code-workspace  # Optional VS Code workspace definition
+├── .codex/
+│   └── agents.md                   # Codex CLI agent metadata
+├── .github/
+│   └── workflows/
+│       └── release.yml             # GitHub Actions release pipeline
+├── .vscode/
+│   ├── launch.json                 # Recommended debug configuration
+│   └── settings.json               # Workspace settings
 ├── __init__.py                     # Package marker for EDMC imports
-├── edmcoverlay.py                  # Top-level legacy shim (`import edmcoverlay`)
+├── edmcoverlay.py                  # Legacy shim module (`import edmcoverlay`)
 ├── EDMCOverlay/                    # Package form of the legacy shim
 │   ├── __init__.py
 │   └── edmcoverlay.py
+├── load.py                         # EDMC entry hook copied into the plugins dir
 ├── overlay_plugin/                 # Runtime that runs inside EDMC
 │   ├── __init__.py
 │   ├── overlay_api.py              # Helper API for other plugins
@@ -33,11 +43,12 @@ EDMC-ModernOverlay/
 │       ├── preferred_fonts.txt     # Optional case-insensitive priority list
 │       ├── SourceSans3-Regular.ttf
 │       └── SourceSans3-OFL.txt
+├── overlay_settings.json           # Sample preferences persisted by the plugin
 ├── scripts/                        # Helper scripts for common setup tasks
 │   ├── install-eurocaps.sh         # Linux font installer helper
-│   └── install-eurocaps.bat        # Windows font installer helper
-├── overlay_settings.json           # Preferences persisted by the plugin and used by the overlay-client
-└── port.json                       # Last known port (written while the plugin runs)
+│   ├── install-eurocaps.bat        # Windows font installer helper
+│   └── install_linux.sh            # Linux installer wrapper
+└── version.py                      # Central version metadata for releases
 ```
 
 ## Does the plug in follow EDMC guidelines for good plugin development?
@@ -55,7 +66,7 @@ EDMC-ModernOverlay/
 
 ## Why isn't the Eurocaps font installed automatically?
 
-Eurocaps is available to redistribute, but its licence requires explicit user acceptance and may need elevated permissions when installed system-wide. To keep the release archive clean and avoid modifying your fonts without consent, the plugin only offers helper scripts that download and place `Eurocaps.ttf` inside `overlay-client/fonts/`. You can decide whether to keep the font local to the plugin or install it globally—see “Installing Euroscripts font” in `README.md` for the exact steps.
+The license for Eurocaps is ambiguous at best. The best I can tell, Eurocaps is one of Typodermic’s freeware fonts and the author distributes it under their standard “Font Software for Desktop End User License Agreement (v230123), see https://typodermicfonts.com/end-user-license-agreement. A free compatible font is provided with the plugin and includes the license. It is your decision if you want to copy the Eurocaps font.
 
 ## PowerShell says scripts are disabled. How do I run `install_windows.ps1`?
 
