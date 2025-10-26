@@ -33,7 +33,7 @@ jobs:
             TAG_NAME="${GITHUB_REF##*/}"
           fi
           echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
-          echo "release_name=EDMC-ModernOverlay-${TAG_NAME}-linux" >> "$GITHUB_OUTPUT"
+          echo "release_name=EDMC-ModernOverlay-${TAG_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Export tracked files
         run: |
