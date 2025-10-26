@@ -1,8 +1,5 @@
 # EDMC Modern Overlay
-
-Warning: This is not your normal EDMC plugin and should be considered a prototype. It has only been tested on Ubuntu at this time. It has **not** been tested with edmcovelay2 loading at the same time, so stability gremlins may be present.
-
-EDMC Modern Overlay is a two-part reference implementation for Elite Dangerous Market Connector (EDMC). It streams journal data from EDMC over a lightweight TCP socket and displays a transparent, click-through PyQt6 heads-up display on your desktop.
+EDMC Modern Overlay is a two-part implementation (plugin and overlay-client) for Elite Dangerous Market Connector (EDMC). It streams data from EDMC plugins over a lightweight TCP socket and displays a transparent, click-through PyQt6 heads-up display on the Elite Dangrous game.
 
 ## Installation
 
@@ -12,7 +9,7 @@ EDMC Modern Overlay is a two-part reference implementation for Elite Dangerous M
   - Linux: `EDMC-ModernOverlay-linux-<version>.tar.gz`
 - Extract the archive to a folder of your choice. The extracted folder contains:
   - `EDMC-ModernOverlay/` (the plugin and overlay client code)
-  - Platform install helpers at the archive root (not under `scripts/`):
+  - Platform install helpers at the archive root:
     - Windows: `install_windows.ps1`, `install-eurocaps.bat`
     - Linux: `install_linux.sh`, `install-eurocaps.sh`
 
