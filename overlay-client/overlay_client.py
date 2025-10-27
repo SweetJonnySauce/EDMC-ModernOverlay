@@ -1399,6 +1399,51 @@ class OverlayWindow(QWidget):
             elif kind == "rect":
                 self._paint_legacy_rect(painter, item)
 
+    def _legacy_coordinate_scale_factors(self) -> Tuple[float, float]:
+        base_width = float(
+            self._legacy_reference_width
+            if self._legacy_reference_width and self._legacy_reference_width > 0
+            else DEFAULT_WINDOW_BASE_WIDTH
+        )
+        base_height = float(
+            self._legacy_reference_height
+            if self._legacy_reference_height and self._legacy_reference_height > 0
+            else DEFAULT_WINDOW_BASE_HEIGHT
+        )
+        user_scale_x = self._effective_legacy_scale_x()
+        user_scale_y = self._effective_legacy_scale_y()
+
+        window = self.windowHandle()
+        try:
+            device_ratio = window.devicePixelRatio() if window is not None else self.devicePixelRatioF()
+        except Exception:
+            device_ratio = 1.0
+        if device_ratio <= 0.0:
+            device_ratio = 1.0
+
+        physical_width: Optional[int] = None
+        physical_height: Optional[int] = None
+        if window is not None:
+            screen = window.screen()
+            if screen is not None:
+                try:
+                    geometry = screen.geometry()
+                    physical_width = geometry.width()
+                    physical_height = geometry.height()
+                except Exception:
+                    physical_width = None
+                    physical_height = None
+        if physical_width is None or physical_height is None:
+            frame = self.frameGeometry()
+            physical_width = frame.width()
+            physical_height = frame.height()
+
+        logical_width = max(float(physical_width) / device_ratio, 1.0)
+        logical_height = max(float(physical_height) / device_ratio, 1.0)
+        scale_x = user_scale_x * (logical_width / max(base_width, 1.0))
+        scale_y = user_scale_y * (logical_height / max(base_height, 1.0))
+        return scale_x, scale_y
+
     def _paint_legacy_message(self, painter: QPainter, item: Dict[str, Any]) -> None:
         color = QColor(str(item.get("color", "white")))
         size = str(item.get("size", "normal")).lower()
@@ -1406,27 +1451,12 @@ class OverlayWindow(QWidget):
         font.setWeight(QFont.Weight.Normal)
         painter.setPen(color)
         painter.setFont(font)
-        scale_x = self._effective_legacy_scale_x()
-        scale_y = self._effective_legacy_scale_y()
-        base_width = (
-            float(self._legacy_reference_width)
-            if self._legacy_reference_width and self._legacy_reference_width > 0
-            else float(DEFAULT_WINDOW_BASE_WIDTH)
-        )
-        base_height = (
-            float(self._legacy_reference_height)
-            if self._legacy_reference_height and self._legacy_reference_height > 0
-            else float(DEFAULT_WINDOW_BASE_HEIGHT)
-        )
-        scale_x *= max(0.01, float(self.width()) / max(base_width, 1.0))
-        scale_y *= max(0.01, float(self.height()) / max(base_height, 1.0))
+        scale_x, scale_y = self._legacy_coordinate_scale_factors()
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
-        scaled_left = raw_left * scale_x
-        scaled_top = raw_top * scale_y
-        x = int(round(scaled_left))
+        x = int(round(raw_left * scale_x))
         metrics = painter.fontMetrics()
-        baseline = int(round(scaled_top + metrics.ascent()))
+        baseline = int(round(raw_top * scale_y + metrics.ascent()))
         painter.drawText(x, baseline, str(item.get("text", "")))
 
     def _paint_legacy_rect(self, painter: QPainter, item: Dict[str, Any]) -> None:
@@ -1453,22 +1483,7 @@ class OverlayWindow(QWidget):
 
         painter.setPen(pen)
         painter.setBrush(brush)
-        scale_x = self._effective_legacy_scale_x()
-        scale_y = self._effective_legacy_scale_y()
-        base_width = (
-            float(self._legacy_reference_width)
-            if self._legacy_reference_width and self._legacy_reference_width > 0
-            else float(DEFAULT_WINDOW_BASE_WIDTH)
-        )
-        base_height = (
-            float(self._legacy_reference_height)
-            if self._legacy_reference_height and self._legacy_reference_height > 0
-            else float(DEFAULT_WINDOW_BASE_HEIGHT)
-        )
-        scale_x *= max(0.01, float(self.width()) / max(base_width, 1.0))
-        scale_y *= max(0.01, float(self.height()) / max(base_height, 1.0))
-        scale_x = self._effective_legacy_scale_x()
-        scale_y = self._effective_legacy_scale_y()
+        scale_x, scale_y = self._legacy_coordinate_scale_factors()
         x = int(round(float(item.get("x", 0)) * scale_x))
         y = int(round(float(item.get("y", 0)) * scale_y))
         w = int(round(float(item.get("w", 0)) * scale_x))
