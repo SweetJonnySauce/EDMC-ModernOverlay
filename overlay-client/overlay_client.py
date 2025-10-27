@@ -206,6 +206,7 @@ class OverlayWindow(QWidget):
         self._last_screen_name: Optional[str] = None
         self._last_set_geometry: Optional[Tuple[int, int, int, int]] = None
         self._last_visibility_state: Optional[bool] = None
+        self._last_raw_window_log: Optional[Tuple[int, int, int, int]] = None
         self._wm_authoritative_rect: Optional[Tuple[int, int, int, int]] = None
         self._wm_override_tracker: Optional[Tuple[int, int, int, int]] = None
         self._wm_override_timestamp: float = 0.0
@@ -972,6 +973,15 @@ class OverlayWindow(QWidget):
             width,
             height,
         )
+        if tracker_target_tuple != self._last_raw_window_log:
+            _CLIENT_LOGGER.debug(
+                "Raw tracker window geometry: pos=(%d,%d) size=%dx%d",
+                tracker_global_x,
+                tracker_global_y,
+                width,
+                height,
+            )
+            self._last_raw_window_log = tracker_target_tuple
 
         now = time.monotonic()
         target_tuple = tracker_target_tuple
@@ -1381,16 +1391,23 @@ class OverlayWindow(QWidget):
                 int(round(width_px)),
                 int(round(height_px)),
             ),
-            "scale_x={:.2f} scale_y={:.2f} diag={:.2f}".format(scale_x, scale_y, diagonal_scale),
-            "font scale={:.2f}".format(self._font_scale_diag),
-            "font bounds={:.1f}-{:.1f}".format(self._font_min_point, self._font_max_point),
-            "fonts: message={:.1f} status={:.1f} legacy={:.1f}".format(
-                self._debug_message_point_size,
-                self._debug_status_point_size,
-                self._debug_legacy_point_size,
-            ),
-            "legacy sizes: {}".format(legacy_sizes_str),
         ]
+        if self._last_raw_window_log is not None:
+            raw_x, raw_y, raw_w, raw_h = self._last_raw_window_log
+            info_lines.append("raw pos=({},{}) size={}x{}".format(raw_x, raw_y, raw_w, raw_h))
+        info_lines.extend(
+            [
+                "scale_x={:.2f} scale_y={:.2f} diag={:.2f}".format(scale_x, scale_y, diagonal_scale),
+                "font scale={:.2f}".format(self._font_scale_diag),
+                "font bounds={:.1f}-{:.1f}".format(self._font_min_point, self._font_max_point),
+                "fonts: message={:.1f} status={:.1f} legacy={:.1f}".format(
+                    self._debug_message_point_size,
+                    self._debug_status_point_size,
+                    self._debug_legacy_point_size,
+                ),
+                "legacy sizes: {}".format(legacy_sizes_str),
+            ]
+        )
         painter.save()
         debug_font = QFont(self._font_family, 10)
         painter.setFont(debug_font)
