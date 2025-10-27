@@ -1207,11 +1207,33 @@ class OverlayWindow(QWidget):
     def _paint_legacy_message(self, painter: QPainter, item: Dict[str, Any]) -> None:
         color = QColor(str(item.get("color", "white")))
         size = str(item.get("size", "normal")).lower()
-        font = QFont(self._font_family, 18 if size == "large" else 14)
+        base_sizes = {
+            "small": 12.0,
+            "normal": 14.0,
+            "large": 18.0,
+            "huge": 24.0,
+        }
+        base_point_size = base_sizes.get(size, 14.0)
+        scale_x, scale_y = self._legacy_coordinate_scale_factors()
+        scaled_point_size = max(8.0, min(48.0, base_point_size * scale_y))
+        font = QFont(self._font_family)
+        font.setPointSizeF(scaled_point_size)
         font.setWeight(QFont.Weight.Normal)
         painter.setPen(color)
+        if self._last_logged_scale != (round(scale_x, 4), round(scale_y, 4)):
+            width_px, height_px = self._current_physical_size()
+            _CLIENT_LOGGER.debug(
+                "Legacy text draw: size=%s base_pt=%.1f scaled_pt=%.1f scale_x=%.2f scale_y=%.2f window=%dx%d px",
+                size,
+                base_point_size,
+                scaled_point_size,
+                scale_x,
+                scale_y,
+                int(round(width_px)),
+                int(round(height_px)),
+            )
+            self._last_logged_scale = (round(scale_x, 4), round(scale_y, 4))
         painter.setFont(font)
-        scale_x, scale_y = self._legacy_coordinate_scale_factors()
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
         x = int(round(raw_left * scale_x))
