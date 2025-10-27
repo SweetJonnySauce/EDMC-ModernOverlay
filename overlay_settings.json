@@ -1,18 +1,11 @@
 {
   "capture_output": false,
-  "overlay_opacity": 0.25,
+  "overlay_opacity": 0.14545454545454545,
   "show_connection_status": true,
   "log_payloads": false,
-  "legacy_vertical_scale": 1.0,
-  "legacy_horizontal_scale": 1.0,
   "client_log_retention": 5,
   "gridlines_enabled": true,
   "gridline_spacing": 100,
-  "window_width": 1280,
-  "window_height": 720,
-  "follow_game_window": true,
-  "origin_x": 0,
-  "origin_y": 0,
   "force_render": true,
   "force_xwayland": false
 }
