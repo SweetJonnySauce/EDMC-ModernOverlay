@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect
+from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect, QSize
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QCursor, QFontDatabase, QGuiApplication, QWindow
 from PyQt6.QtWidgets import QApplication, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
@@ -210,6 +210,8 @@ class OverlayWindow(QWidget):
         self._wm_authoritative_rect: Optional[Tuple[int, int, int, int]] = None
         self._wm_override_tracker: Optional[Tuple[int, int, int, int]] = None
         self._wm_override_timestamp: float = 0.0
+        self._wm_override_reason: Optional[str] = None
+        self._wm_override_classification: Optional[str] = None
         self._enforcing_follow_size: bool = False
         self._transient_parent_id: Optional[str] = None
         self._transient_parent_window: Optional[QWindow] = None
@@ -519,6 +521,7 @@ class OverlayWindow(QWidget):
                     (frame.x(), frame.y(), frame.width(), frame.height()),
                     tracker_tuple=None,
                     reason="moveEvent delta",
+                    classification="wm_intervention",
                 )
             self._last_move_log = current
             self._update_status_position_info()
@@ -900,13 +903,17 @@ class OverlayWindow(QWidget):
         rect: Tuple[int, int, int, int],
         tracker_tuple: Optional[Tuple[int, int, int, int]],
         reason: str,
+        classification: str = "wm_intervention",
     ) -> None:
         self._wm_authoritative_rect = rect
         self._wm_override_tracker = tracker_tuple
         self._wm_override_timestamp = time.monotonic()
+        self._wm_override_reason = reason
+        self._wm_override_classification = classification
         _CLIENT_LOGGER.debug(
-            "Recorded WM authoritative rect (%s): actual=%s tracker=%s; %s",
+            "Recorded WM authoritative rect (%s, classification=%s): actual=%s tracker=%s; %s",
             reason,
+            classification,
             rect,
             tracker_tuple,
             self.format_scale_debug(),
@@ -923,6 +930,8 @@ class OverlayWindow(QWidget):
         self._wm_authoritative_rect = None
         self._wm_override_tracker = None
         self._wm_override_timestamp = 0.0
+        self._wm_override_reason = None
+        self._wm_override_classification = None
 
     def _suspend_follow(self, delay: float = 0.75) -> None:
         self._follow_resume_at = max(self._follow_resume_at, time.monotonic() + max(0.0, delay))
@@ -994,7 +1003,10 @@ class OverlayWindow(QWidget):
                 self._wm_override_tracker is not None
                 and tracker_target_tuple != self._wm_override_tracker
             )
-            override_expired = (now - self._wm_override_timestamp) >= self._WM_OVERRIDE_TTL
+            override_expired = (
+                self._wm_override_classification not in ("layout", "layout_constraint")
+                and (now - self._wm_override_timestamp) >= self._WM_OVERRIDE_TTL
+            )
             if tracker_target_tuple == self._wm_authoritative_rect:
                 self._clear_wm_override(reason="tracker realigned with WM")
             elif tracker_changed:
@@ -1047,7 +1059,36 @@ class OverlayWindow(QWidget):
                 target_tuple,
                 self.format_scale_debug(),
             )
-            self._set_wm_override(actual_tuple, tracker_target_tuple, reason="geometry mismatch")
+            classification = self._classify_geometry_override(target_tuple, actual_tuple)
+            if classification == "layout":
+                try:
+                    size_hint = self.sizeHint()
+                except Exception:
+                    size_hint = None
+                try:
+                    min_hint = self.minimumSizeHint()
+                except Exception:
+                    min_hint = None
+                _CLIENT_LOGGER.debug(
+                    "Adopting layout-constrained geometry from WM: tracker=%s actual=%s sizeHint=%s minimumSizeHint=%s",
+                    tracker_target_tuple,
+                    actual_tuple,
+                    size_hint,
+                    min_hint,
+                )
+            else:
+                _CLIENT_LOGGER.debug(
+                    "Adopting WM authoritative geometry: tracker=%s actual=%s (classification=%s)",
+                    tracker_target_tuple,
+                    actual_tuple,
+                    classification,
+                )
+            self._set_wm_override(
+                actual_tuple,
+                tracker_target_tuple,
+                reason="geometry mismatch",
+                classification=classification,
+            )
             target_tuple = actual_tuple
             target_rect = QRect(*target_tuple)
         elif self._wm_authoritative_rect and tracker_target_tuple == target_tuple:
@@ -1209,6 +1250,57 @@ class OverlayWindow(QWidget):
         width_px, height_px = self._current_physical_size()
         self._base_width = max(int(round(width_px)), 1)
         self._base_height = max(int(round(height_px)), 1)
+
+    def _classify_geometry_override(
+        self,
+        tracker_tuple: Tuple[int, int, int, int],
+        actual_tuple: Tuple[int, int, int, int],
+    ) -> str:
+        """Identify whether a WM override stems from internal layout constraints."""
+        try:
+            min_hint = self.minimumSizeHint()
+        except Exception:
+            min_hint = None
+        try:
+            size_hint = self.sizeHint()
+        except Exception:
+            size_hint = None
+        return self._compute_geometry_override_classification(tracker_tuple, actual_tuple, min_hint, size_hint)
+
+    @staticmethod
+    def _compute_geometry_override_classification(
+        tracker_tuple: Tuple[int, int, int, int],
+        actual_tuple: Tuple[int, int, int, int],
+        min_hint: Optional[QSize],
+        size_hint: Optional[QSize],
+        *,
+        tolerance: int = 2,
+    ) -> str:
+        tracker_width = tracker_tuple[2]
+        tracker_height = tracker_tuple[3]
+        actual_width = actual_tuple[2]
+        actual_height = actual_tuple[3]
+        width_diff = actual_width - tracker_width
+        height_diff = actual_height - tracker_height
+
+        if width_diff < 0 or height_diff < 0:
+            return "wm_intervention"
+
+        min_width = max(
+            min_hint.width() if isinstance(min_hint, QSize) else 0,
+            size_hint.width() if isinstance(size_hint, QSize) else 0,
+        )
+        min_height = max(
+            min_hint.height() if isinstance(min_hint, QSize) else 0,
+            size_hint.height() if isinstance(size_hint, QSize) else 0,
+        )
+
+        width_constrained = width_diff > 0 and min_width > 0 and actual_width >= (min_width - tolerance)
+        height_constrained = height_diff > 0 and min_height > 0 and actual_height >= (min_height - tolerance)
+
+        if width_constrained or height_constrained:
+            return "layout"
+        return "wm_intervention"
 
     # Legacy overlay handling ---------------------------------------------
 
