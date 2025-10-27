@@ -17,7 +17,6 @@ from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QCursor, QFontDatabase, QGuiApplication, QWindow
 from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
-
 CLIENT_DIR = Path(__file__).resolve().parent
 if str(CLIENT_DIR) not in sys.path:
     sys.path.insert(0, str(CLIENT_DIR))
@@ -36,7 +35,6 @@ from developer_helpers import DeveloperHelperController  # type: ignore  # noqa:
 from platform_integration import MonitorSnapshot, PlatformContext, PlatformController  # type: ignore  # noqa: E402
 from window_tracking import WindowState, WindowTracker, create_elite_window_tracker  # type: ignore  # noqa: E402
 
-
 _LOGGER_NAME = "EDMC.ModernOverlay.Client"
 _CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
 _CLIENT_LOGGER.setLevel(logging.DEBUG)
@@ -44,7 +42,6 @@ _CLIENT_LOGGER.propagate = False
 
 DEFAULT_WINDOW_BASE_WIDTH = 1920
 DEFAULT_WINDOW_BASE_HEIGHT = 1080
-
 
 def _initial_platform_context(initial: InitialClientSettings) -> PlatformContext:
     force_env = os.environ.get("EDMC_OVERLAY_FORCE_XWAYLAND") == "1"
@@ -55,7 +52,6 @@ def _initial_platform_context(initial: InitialClientSettings) -> PlatformContext
         compositor=compositor,
         force_xwayland=bool(initial.force_xwayland or force_env),
     )
-
 
 class OverlayDataClient(QObject):
     """Async TCP client that forwards messages to the Qt thread."""
@@ -169,7 +165,6 @@ class OverlayDataClient(QObject):
             self._last_metadata = data
             return data
         return None
-
 
 class OverlayWindow(QWidget):
     """Transparent overlay that renders CMDR and location info."""
@@ -1283,6 +1278,18 @@ class OverlayWindow(QWidget):
     def _sync_base_dimensions_to_widget(self) -> None:
         scale_x = self._effective_legacy_scale_x()
         scale_y = self._effective_legacy_scale_y()
+        base_width = (
+            float(self._legacy_reference_width)
+            if self._legacy_reference_width and self._legacy_reference_width > 0
+            else float(DEFAULT_WINDOW_BASE_WIDTH)
+        )
+        base_height = (
+            float(self._legacy_reference_height)
+            if self._legacy_reference_height and self._legacy_reference_height > 0
+            else float(DEFAULT_WINDOW_BASE_HEIGHT)
+        )
+        scale_x *= max(0.01, float(self.width()) / max(base_width, 1.0))
+        scale_y *= max(0.01, float(self.height()) / max(base_height, 1.0))
         current_width = max(self.width(), 1)
         current_height = max(self.height(), 1)
         self._base_width = max(int(round(current_width / scale_x)), 1)
@@ -1401,6 +1408,18 @@ class OverlayWindow(QWidget):
         painter.setFont(font)
         scale_x = self._effective_legacy_scale_x()
         scale_y = self._effective_legacy_scale_y()
+        base_width = (
+            float(self._legacy_reference_width)
+            if self._legacy_reference_width and self._legacy_reference_width > 0
+            else float(DEFAULT_WINDOW_BASE_WIDTH)
+        )
+        base_height = (
+            float(self._legacy_reference_height)
+            if self._legacy_reference_height and self._legacy_reference_height > 0
+            else float(DEFAULT_WINDOW_BASE_HEIGHT)
+        )
+        scale_x *= max(0.01, float(self.width()) / max(base_width, 1.0))
+        scale_y *= max(0.01, float(self.height()) / max(base_height, 1.0))
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
         scaled_left = raw_left * scale_x
@@ -1434,6 +1453,20 @@ class OverlayWindow(QWidget):
 
         painter.setPen(pen)
         painter.setBrush(brush)
+        scale_x = self._effective_legacy_scale_x()
+        scale_y = self._effective_legacy_scale_y()
+        base_width = (
+            float(self._legacy_reference_width)
+            if self._legacy_reference_width and self._legacy_reference_width > 0
+            else float(DEFAULT_WINDOW_BASE_WIDTH)
+        )
+        base_height = (
+            float(self._legacy_reference_height)
+            if self._legacy_reference_height and self._legacy_reference_height > 0
+            else float(DEFAULT_WINDOW_BASE_HEIGHT)
+        )
+        scale_x *= max(0.01, float(self.width()) / max(base_width, 1.0))
+        scale_y *= max(0.01, float(self.height()) / max(base_height, 1.0))
         scale_x = self._effective_legacy_scale_x()
         scale_y = self._effective_legacy_scale_y()
         x = int(round(float(item.get("x", 0)) * scale_x))
@@ -1579,7 +1612,6 @@ class OverlayWindow(QWidget):
         _CLIENT_LOGGER.warning("Preferred fonts unavailable; falling back to %s", default_family)
         return default_family
 
-
 def resolve_port_file(args_port: Optional[str]) -> Path:
     if args_port:
         return Path(args_port).expanduser().resolve()
@@ -1587,7 +1619,6 @@ def resolve_port_file(args_port: Optional[str]) -> Path:
     if env_override:
         return Path(env_override).expanduser().resolve()
     return (Path(__file__).resolve().parent.parent / "port.json").resolve()
-
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="EDMC Modern Overlay client")
@@ -1655,7 +1686,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     data_client.stop()
     _CLIENT_LOGGER.info("Overlay client exiting with code %s", exit_code)
     return int(exit_code)
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
