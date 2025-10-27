@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QCursor, QFontDatabase, QGuiApplication, QWindow
-from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 CLIENT_DIR = Path(__file__).resolve().parent
 if str(CLIENT_DIR) not in sys.path:
@@ -272,6 +272,8 @@ class OverlayWindow(QWidget):
         self.status_label.setStyleSheet("color: white; background: transparent;")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
         self.status_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.status_label.setWordWrap(True)
+        self.status_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         self._debug_message_point_size = message_font.pointSizeF()
         self._debug_status_point_size = status_font.pointSizeF()
@@ -682,9 +684,10 @@ class OverlayWindow(QWidget):
         screen_desc = self._describe_screen(self.windowHandle().screen() if self.windowHandle() else None)
         position = f"x={frame.x()} y={frame.y()}"
         suffix = f"{position} on {screen_desc}"
+        suffix_line = f"position: {suffix}"
         if augmented:
-            return f"{augmented} ({suffix})"
-        return f"Overlay position ({suffix})"
+            return "\n".join((augmented, suffix_line))
+        return "\n".join(("Overlay position", suffix_line))
 
     def _augment_connection_status(self, status: str) -> str:
         base = (status or "").strip()
@@ -695,8 +698,9 @@ class OverlayWindow(QWidget):
         width_px, height_px = self._current_physical_size()
         scale_x, scale_y = self._legacy_scale()
         metrics = f"{int(round(width_px))}x{int(round(height_px))}px scale_x={scale_x:.2f} scale_y={scale_y:.2f}"
-        separator = " – " if " – " not in base else " "
-        return f"{base}{separator}{metrics}"
+        if metrics in base:
+            return base
+        return "\n".join((base, metrics))
 
     def _update_status_position_info(self) -> None:
         if not self._show_status:
