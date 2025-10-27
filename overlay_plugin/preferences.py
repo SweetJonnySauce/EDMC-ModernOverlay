@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 
 PREFERENCES_FILE = "overlay_settings.json"
@@ -19,16 +19,9 @@ class Preferences:
     overlay_opacity: float = 0.0
     show_connection_status: bool = False
     log_payloads: bool = False
-    legacy_vertical_scale: float = 1.0
-    legacy_horizontal_scale: float = 1.0
     client_log_retention: int = 5
     gridlines_enabled: bool = False
     gridline_spacing: int = 120
-    window_width: int = 1920
-    window_height: int = 1080
-    follow_game_window: bool = True
-    origin_x: int = 0
-    origin_y: int = 0
     force_render: bool = False
     force_xwayland: bool = False
 
@@ -51,14 +44,6 @@ class Preferences:
         self.show_connection_status = bool(data.get("show_connection_status", False))
         self.log_payloads = bool(data.get("log_payloads", False))
         try:
-            self.legacy_vertical_scale = float(data.get("legacy_vertical_scale", 1.0))
-        except (TypeError, ValueError):
-            self.legacy_vertical_scale = 1.0
-        try:
-            self.legacy_horizontal_scale = float(data.get("legacy_horizontal_scale", 1.0))
-        except (TypeError, ValueError):
-            self.legacy_horizontal_scale = 1.0
-        try:
             retention = int(data.get("client_log_retention", 5))
         except (TypeError, ValueError):
             retention = 5
@@ -69,27 +54,6 @@ class Preferences:
         except (TypeError, ValueError):
             spacing = 120
         self.gridline_spacing = max(10, spacing)
-        try:
-            width = int(data.get("window_width", 1920))
-        except (TypeError, ValueError):
-            width = 1920
-        try:
-            height = int(data.get("window_height", 1080))
-        except (TypeError, ValueError):
-            height = 1080
-        self.window_width = max(640, width)
-        self.window_height = max(360, height)
-        self.follow_game_window = bool(data.get("follow_game_window", True))
-        try:
-            origin_x = int(data.get("origin_x", 0))
-        except (TypeError, ValueError):
-            origin_x = 0
-        try:
-            origin_y = int(data.get("origin_y", 0))
-        except (TypeError, ValueError):
-            origin_y = 0
-        self.origin_x = max(0, origin_x)
-        self.origin_y = max(0, origin_y)
         self.force_render = bool(data.get("force_render", False))
         self.force_xwayland = bool(data.get("force_xwayland", False))
 
@@ -99,16 +63,9 @@ class Preferences:
             "overlay_opacity": float(self.overlay_opacity),
             "show_connection_status": bool(self.show_connection_status),
             "log_payloads": bool(self.log_payloads),
-            "legacy_vertical_scale": float(self.legacy_vertical_scale),
-            "legacy_horizontal_scale": float(self.legacy_horizontal_scale),
             "client_log_retention": int(self.client_log_retention),
             "gridlines_enabled": bool(self.gridlines_enabled),
             "gridline_spacing": int(self.gridline_spacing),
-            "window_width": int(self.window_width),
-            "window_height": int(self.window_height),
-            "follow_game_window": bool(self.follow_game_window),
-            "origin_x": int(self.origin_x),
-            "origin_y": int(self.origin_y),
             "force_render": bool(self.force_render),
             "force_xwayland": bool(self.force_xwayland),
         }
@@ -122,21 +79,13 @@ class PreferencesPanel:
         self,
         parent,
         preferences: Preferences,
-        send_test_callback: Optional[Callable[[str], None]] = None,
+        send_test_callback: Optional[Callable[[str, Optional[int], Optional[int]], None]] = None,
         set_opacity_callback: Optional[Callable[[float], None]] = None,
         set_status_callback: Optional[Callable[[bool], None]] = None,
         set_log_payloads_callback: Optional[Callable[[bool], None]] = None,
-        set_legacy_scale_callback: Optional[Callable[[float], None]] = None,
         set_gridlines_enabled_callback: Optional[Callable[[bool], None]] = None,
         set_gridline_spacing_callback: Optional[Callable[[int], None]] = None,
-        set_window_width_callback: Optional[Callable[[int], None]] = None,
-        set_window_height_callback: Optional[Callable[[int], None]] = None,
-        set_window_size_callback: Optional[Callable[[int, int], None]] = None,
-        set_horizontal_scale_callback: Optional[Callable[[float], None]] = None,
-        set_follow_mode_callback: Optional[Callable[[bool], None]] = None,
         set_force_render_callback: Optional[Callable[[bool], None]] = None,
-        set_origin_callback: Optional[Callable[[int, int], None]] = None,
-        reset_origin_callback: Optional[Callable[[], None]] = None,
     ) -> None:
         import tkinter as tk
         from tkinter import ttk
@@ -149,51 +98,26 @@ class PreferencesPanel:
         self._var_opacity = tk.DoubleVar(value=preferences.overlay_opacity)
         self._var_show_status = tk.BooleanVar(value=preferences.show_connection_status)
         self._var_log_payloads = tk.BooleanVar(value=preferences.log_payloads)
-        self._var_legacy_scale = tk.DoubleVar(value=preferences.legacy_vertical_scale)
-        self._var_horizontal_scale = tk.DoubleVar(value=preferences.legacy_horizontal_scale)
-        self._var_log_retention = tk.IntVar(value=max(1, int(preferences.client_log_retention)))
         self._var_gridlines_enabled = tk.BooleanVar(value=preferences.gridlines_enabled)
         self._var_gridline_spacing = tk.IntVar(value=max(10, int(preferences.gridline_spacing)))
-        self._var_window_width = tk.IntVar(value=max(640, int(preferences.window_width)))
-        self._var_window_height = tk.IntVar(value=max(360, int(preferences.window_height)))
+        self._var_force_render = tk.BooleanVar(value=preferences.force_render)
+
         self._send_test = send_test_callback
+        self._set_opacity = set_opacity_callback
+        self._set_status = set_status_callback
+        self._set_log_payloads = set_log_payloads_callback
+        self._set_gridlines_enabled = set_gridlines_enabled_callback
+        self._set_gridline_spacing = set_gridline_spacing_callback
+        self._set_force_render = set_force_render_callback
+
+        self._legacy_client = None
         self._test_var = tk.StringVar()
         self._test_x_var = tk.StringVar()
         self._test_y_var = tk.StringVar()
         self._status_var = tk.StringVar(value="")
-        self._legacy_client = None
-        self._set_opacity = set_opacity_callback
-        self._set_status = set_status_callback
-        self._set_log_payloads = set_log_payloads_callback
-        self._set_legacy_scale = set_legacy_scale_callback
-        self._set_gridlines_enabled = set_gridlines_enabled_callback
-        self._set_gridline_spacing = set_gridline_spacing_callback
-        self._set_window_width = set_window_width_callback
-        self._set_window_height = set_window_height_callback
-        self._set_window_size = set_window_size_callback
-        self._set_horizontal_scale = set_horizontal_scale_callback
-        self._legacy_scale_display = tk.StringVar(value=f"{preferences.legacy_vertical_scale:.2f}×")
-        self._horizontal_scale_display = tk.StringVar(value=f"{preferences.legacy_horizontal_scale:.2f}×")
-        self._var_follow_mode = tk.BooleanVar(value=preferences.follow_game_window)
-        self._var_origin_x = tk.StringVar(value=str(max(0, int(getattr(preferences, "origin_x", 0)))))
-        self._var_origin_y = tk.StringVar(value=str(max(0, int(getattr(preferences, "origin_y", 0)))))
-        self._var_force_render = tk.BooleanVar(value=preferences.force_render)
-        self._set_follow_mode = set_follow_mode_callback
-        self._set_force_render = set_force_render_callback
-        self._set_origin = set_origin_callback
-        self._reset_origin = reset_origin_callback
-        self._origin_reset_button = None
-        self._origin_entries = []
-        self._window_size_guard = False
-        self._follow_labels: List[Any] = []
-        self._follow_label_defaults: Dict[Any, Optional[str]] = {}
-        self._disabled_label_fg = "#888888"
 
         frame = nb.Frame(parent)
-        description = (
-            "Capture overlay stdout/stderr when EDMC logging is set to DEBUG "
-            "(useful for troubleshooting). Changes require restarting the overlay."
-        )
+
         checkbox = nb.Checkbutton(
             frame,
             text="Enable overlay stdout/stderr capture",
@@ -202,7 +126,15 @@ class PreferencesPanel:
             offvalue=False,
             command=self._on_capture_toggle,
         )
-        helper = nb.Label(frame, text=description, wraplength=400, justify="left")
+        helper = nb.Label(
+            frame,
+            text=(
+                "Capture overlay stdout/stderr when EDMC logging is set to DEBUG "
+                "(useful for troubleshooting). Changes require restarting the overlay."
+            ),
+            wraplength=400,
+            justify="left",
+        )
         checkbox.grid(row=0, column=0, sticky="w")
         helper.grid(row=1, column=0, sticky="w", pady=(2, 0))
 
@@ -226,76 +158,30 @@ class PreferencesPanel:
         )
         log_checkbox.grid(row=3, column=0, sticky="w", pady=(4, 0))
 
-        retention_label = nb.Label(frame, text="Overlay client log files to keep (rotate when current file grows).")
-        retention_label.grid(row=4, column=0, sticky="w", pady=(6, 0))
-
         retention_row = ttk.Frame(frame, style=self._frame_style)
+        retention_label = nb.Label(retention_row, text="Overlay client log files to keep (rotate when current file grows).")
+        retention_label.pack(side="left")
+        self._retention_var = tk.IntVar(value=int(self._preferences.client_log_retention))
         retention_spin = ttk.Spinbox(
             retention_row,
             from_=1,
             to=20,
-            width=5,
-            textvariable=self._var_log_retention,
             increment=1,
+            width=5,
+            command=self._on_log_retention_command,
+            textvariable=self._retention_var,
             style=self._spinbox_style,
         )
-        retention_spin.pack(side="left")
-        retention_helper = nb.Label(retention_row, text="(applies next time the overlay restarts)")
-        retention_helper.pack(side="left", padx=(8, 0))
-        retention_row.grid(row=5, column=0, sticky="w")
-
-        legacy_scale_label = nb.Label(
-            frame,
-            text="Legacy overlay vertical scale (1.00× keeps original spacing).",
-        )
-        legacy_scale_label.grid(row=6, column=0, sticky="w", pady=(10, 0))
-
-        legacy_scale_row = ttk.Frame(frame, style=self._frame_style)
-        legacy_scale = ttk.Scale(
-            legacy_scale_row,
-            variable=self._var_legacy_scale,
-            from_=0.5,
-            to=2.0,
-            orient=tk.HORIZONTAL,
-            length=250,
-            command=self._on_legacy_scale_change,
-            style=self._scale_style,
-        )
-        legacy_scale.pack(side="left", fill="x", expand=True)
-        legacy_scale_value_label = nb.Label(legacy_scale_row, textvariable=self._legacy_scale_display, width=6, anchor="w")
-        legacy_scale_value_label.pack(side="left", padx=(8, 0))
-        legacy_scale_row.grid(row=7, column=0, sticky="we")
-
-        horizontal_scale_label = nb.Label(
-            frame,
-            text="Legacy overlay horizontal scale (1.00× keeps original width).",
-        )
-        horizontal_scale_label.grid(row=8, column=0, sticky="w", pady=(10, 0))
-
-        horizontal_scale_row = ttk.Frame(frame, style=self._frame_style)
-        horizontal_scale = ttk.Scale(
-            horizontal_scale_row,
-            variable=self._var_horizontal_scale,
-            from_=0.5,
-            to=2.0,
-            orient=tk.HORIZONTAL,
-            length=250,
-            command=self._on_horizontal_scale_change,
-            style=self._scale_style,
-        )
-        horizontal_scale.pack(side="left", fill="x", expand=True)
-        horizontal_scale_value_label = nb.Label(horizontal_scale_row, textvariable=self._horizontal_scale_display, width=6, anchor="w")
-        horizontal_scale_value_label.pack(side="left", padx=(8, 0))
-        horizontal_scale_row.grid(row=9, column=0, sticky="we")
+        retention_spin.pack(side="left", padx=(6, 0))
+        retention_spin.bind("<FocusOut>", self._on_log_retention_event)
+        retention_spin.bind("<Return>", self._on_log_retention_event)
+        retention_row.grid(row=4, column=0, sticky="w", pady=(6, 0))
 
         opacity_label = nb.Label(
             frame,
-            text=(
-                "Overlay background opacity (0.0 transparent – 1.0 opaque). "
-                "Alt+drag is enabled when opacity > 0.5."
-            ),
+            text="Overlay background opacity (0.0 transparent – 1.0 opaque). Alt+drag is enabled when opacity > 0.5.",
         )
-        opacity_label.grid(row=10, column=0, sticky="w", pady=(10, 0))
+        opacity_label.grid(row=5, column=0, sticky="w", pady=(10, 0))
 
         opacity_row = ttk.Frame(frame, style=self._frame_style)
         opacity_scale = ttk.Scale(
@@ -309,83 +195,7 @@ class PreferencesPanel:
             style=self._scale_style,
         )
         opacity_scale.pack(side="left", fill="x")
-        opacity_row.grid(row=11, column=0, sticky="we")
-
-        follow_checkbox = nb.Checkbutton(
-            frame,
-            text="Follow the Elite Dangerous window position and size",
-            variable=self._var_follow_mode,
-            onvalue=True,
-            offvalue=False,
-            command=self._on_follow_toggle,
-        )
-        follow_checkbox.grid(row=12, column=0, sticky="w", pady=(10, 0))
-
-        size_label = nb.Label(frame, text="Overlay window size (pixels; updates immediately):")
-        size_label.grid(row=13, column=0, sticky="w", pady=(10, 0))
-
-        size_row = ttk.Frame(frame, style=self._frame_style)
-        width_label = nb.Label(size_row, text="Width:")
-        self._register_follow_label(width_label)
-        width_label.pack(side="left")
-        width_spin = ttk.Spinbox(
-            size_row,
-            from_=640,
-            to=3840,
-            increment=20,
-            width=6,
-            textvariable=self._var_window_width,
-            command=self._on_window_width_command,
-            style=self._spinbox_style,
-        )
-        width_spin.pack(side="left", padx=(6, 0))
-        width_spin.bind("<FocusOut>", self._on_window_width_event)
-        width_spin.bind("<Return>", self._on_window_width_event)
-        height_label = nb.Label(size_row, text="Height:")
-        self._register_follow_label(height_label)
-        height_label.pack(side="left", padx=(12, 0))
-        height_spin = ttk.Spinbox(
-            size_row,
-            from_=360,
-            to=2160,
-            increment=20,
-            width=6,
-            textvariable=self._var_window_height,
-            command=self._on_window_height_command,
-            style=self._spinbox_style,
-        )
-        height_spin.pack(side="left", padx=(6, 0))
-        height_spin.bind("<FocusOut>", self._on_window_height_event)
-        height_spin.bind("<Return>", self._on_window_height_event)
-        size_row.grid(row=14, column=0, sticky="w", pady=(2, 0))
-        self._size_controls = (size_label, size_row, width_spin, height_spin)
-        self._follow_checkbox = follow_checkbox
-
-        origin_label = nb.Label(frame, text="Overlay origin (top-left in pixels):")
-        self._register_follow_label(origin_label)
-        origin_label.grid(row=15, column=0, sticky="w", pady=(10, 0))
-
-        origin_row = ttk.Frame(frame, style=self._frame_style)
-        origin_x_label = nb.Label(origin_row, text="X:")
-        self._register_follow_label(origin_x_label)
-        origin_x_label.pack(side="left")
-        origin_x_entry = nb.EntryMenu(origin_row, width=7, textvariable=self._var_origin_x)
-        origin_x_entry.pack(side="left", padx=(4, 0))
-        origin_x_entry.bind("<FocusOut>", self._on_origin_entry_event)
-        origin_x_entry.bind("<Return>", self._on_origin_entry_event)
-        origin_y_label = nb.Label(origin_row, text="Y:")
-        self._register_follow_label(origin_y_label)
-        origin_y_label.pack(side="left", padx=(12, 0))
-        origin_y_entry = nb.EntryMenu(origin_row, width=7, textvariable=self._var_origin_y)
-        origin_y_entry.pack(side="left", padx=(4, 0))
-        origin_y_entry.bind("<FocusOut>", self._on_origin_entry_event)
-        origin_y_entry.bind("<Return>", self._on_origin_entry_event)
-        reset_button = nb.Button(origin_row, text="Reset origin to 0,0", command=self._on_reset_origin_click)
-        reset_button.pack(side="left", padx=(12, 0))
-        origin_row.grid(row=16, column=0, sticky="w", pady=(2, 0))
-        self._origin_entries.extend([origin_x_entry, origin_y_entry])
-        self._origin_reset_button = reset_button
-        self._update_controls_state()
+        opacity_row.grid(row=6, column=0, sticky="we")
 
         force_checkbox = nb.Checkbutton(
             frame,
@@ -395,7 +205,7 @@ class PreferencesPanel:
             offvalue=False,
             command=self._on_force_render_toggle,
         )
-        force_checkbox.grid(row=17, column=0, sticky="w", pady=(6, 0))
+        force_checkbox.grid(row=7, column=0, sticky="w", pady=(10, 0))
 
         grid_checkbox = nb.Checkbutton(
             frame,
@@ -405,7 +215,7 @@ class PreferencesPanel:
             offvalue=False,
             command=self._on_gridlines_toggle,
         )
-        grid_checkbox.grid(row=18, column=0, sticky="w", pady=(8, 0))
+        grid_checkbox.grid(row=8, column=0, sticky="w", pady=(8, 0))
 
         grid_spacing_row = ttk.Frame(frame, style=self._frame_style)
         grid_spacing_label = nb.Label(grid_spacing_row, text="Grid spacing (pixels):")
@@ -423,10 +233,10 @@ class PreferencesPanel:
         grid_spacing_spin.pack(side="left", padx=(6, 0))
         grid_spacing_spin.bind("<FocusOut>", self._on_gridline_spacing_event)
         grid_spacing_spin.bind("<Return>", self._on_gridline_spacing_event)
-        grid_spacing_row.grid(row=19, column=0, sticky="w", pady=(2, 0))
+        grid_spacing_row.grid(row=9, column=0, sticky="w", pady=(2, 0))
 
         test_label = nb.Label(frame, text="Send test message to overlay:")
-        test_label.grid(row=20, column=0, sticky="w", pady=(10, 0))
+        test_label.grid(row=10, column=0, sticky="w", pady=(10, 0))
 
         test_row = ttk.Frame(frame, style=self._frame_style)
         test_entry = nb.EntryMenu(test_row, textvariable=self._test_var, width=40)
@@ -441,22 +251,22 @@ class PreferencesPanel:
         y_label.pack(side="left", padx=(8, 2))
         y_entry.pack(side="left")
         send_button.pack(side="left", padx=(8, 0))
-        test_row.grid(row=21, column=0, sticky="we", pady=(2, 0))
+        test_row.grid(row=11, column=0, sticky="we", pady=(2, 0))
         frame.columnconfigure(0, weight=1)
         test_row.columnconfigure(0, weight=1)
 
         legacy_label = nb.Label(frame, text="Legacy edmcoverlay compatibility:")
-        legacy_label.grid(row=22, column=0, sticky="w", pady=(10, 0))
+        legacy_label.grid(row=12, column=0, sticky="w", pady=(10, 0))
 
         legacy_row = ttk.Frame(frame, style=self._frame_style)
         legacy_text_btn = nb.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
         legacy_rect_btn = nb.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
         legacy_text_btn.pack(side="left")
         legacy_rect_btn.pack(side="left", padx=(8, 0))
-        legacy_row.grid(row=23, column=0, sticky="w", pady=(2, 0))
+        legacy_row.grid(row=13, column=0, sticky="w", pady=(2, 0))
 
         status_label = nb.Label(frame, textvariable=self._status_var, wraplength=400, justify="left")
-        status_label.grid(row=24, column=0, sticky="w", pady=(4, 0))
+        status_label.grid(row=14, column=0, sticky="w", pady=(4, 0))
 
         self._frame = frame
 
@@ -464,91 +274,126 @@ class PreferencesPanel:
     def frame(self):  # pragma: no cover - Tk integration
         return self._frame
 
-    def _init_theme_styles(self, nb) -> tuple[str, str, str]:
-        bg = getattr(nb, "PAGEBG", None)
-        fg = getattr(nb, "PAGEFG", None)
-        if not bg:
-            bg = self._style.lookup("nb.TFrame", "background")
-        if not bg:
-            bg = self._style.lookup("TFrame", "background") or self._style.lookup("TNotebook", "background") or "#ffffff"
-        if not fg:
-            fg = self._style.lookup("nb.TLabel", "foreground")
-        if not fg:
-            fg = self._style.lookup("TLabel", "foreground") or "#000000"
-
-        frame_style = "ModernOverlay.TFrame"
-        spinbox_style = "ModernOverlay.TSpinbox"
-        scale_style = "ModernOverlay.Horizontal.TScale"
-
-        self._style.configure(frame_style, background=bg)
-        self._style.configure(spinbox_style, background=bg, foreground=fg, fieldbackground=bg)
-        self._style.map(spinbox_style, fieldbackground=[("disabled", bg)], foreground=[("disabled", fg)])
-
-        trough = self._style.lookup("Horizontal.TScale", "troughcolor") or self._style.lookup("TScale", "troughcolor") or "#d9d9d9"
-        self._style.configure(scale_style, background=bg, troughcolor=trough)
-
-        return frame_style, spinbox_style, scale_style
-
-    @staticmethod
-    def _round_to_step(value: float, step: float) -> float:
-        if step <= 0:
-            return value
-        return round(value / step) * step
-
     def apply(self) -> None:
-        self._preferences.capture_output = bool(self._var_capture.get())
-        self._preferences.overlay_opacity = float(self._var_opacity.get())
-        self._preferences.show_connection_status = bool(self._var_show_status.get())
-        self._preferences.log_payloads = bool(self._var_log_payloads.get())
-        self._preferences.legacy_vertical_scale = float(self._var_legacy_scale.get())
-        self._preferences.legacy_horizontal_scale = float(self._var_horizontal_scale.get())
-        self._preferences.client_log_retention = max(1, int(self._var_log_retention.get()))
-        self._preferences.gridlines_enabled = bool(self._var_gridlines_enabled.get())
-        self._preferences.gridline_spacing = max(10, int(self._var_gridline_spacing.get()))
-        self._preferences.window_width = max(640, int(self._var_window_width.get()))
-        self._preferences.window_height = max(360, int(self._var_window_height.get()))
-        self._preferences.follow_game_window = bool(self._var_follow_mode.get())
-        self._apply_origin_values(self._var_origin_x.get(), self._var_origin_y.get(), persist=False)
-        self._preferences.force_render = bool(self._var_force_render.get())
+        self._preferences.save()
+
+    def _init_theme_styles(self, nb):
+        try:
+            bg = nb.PAGEBG
+            fg = nb.PAGEFG
+        except AttributeError:
+            bg = fg = None
+        frame_style = "OverlayPrefs.TFrame"
+        spin_style = "OverlayPrefs.TSpinbox"
+        scale_style = "OverlayPrefs.Horizontal.TScale"
+        self._style.configure(frame_style, background=bg)
+        self._style.configure(spin_style, arrowsize=12)
+        if bg is not None and fg is not None:
+            self._style.configure(spin_style, fieldbackground=bg, foreground=fg, background=bg)
+            self._style.configure(scale_style, background=bg)
+        return frame_style, spin_style, scale_style
+
+    def _on_capture_toggle(self) -> None:
+        value = bool(self._var_capture.get())
+        self._preferences.capture_output = value
+        self._preferences.save()
+
+    def _on_opacity_change(self, value: str) -> None:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            numeric = 0.0
+        numeric = max(0.0, min(1.0, numeric))
+        self._var_opacity.set(numeric)
+        self._preferences.overlay_opacity = numeric
+        if self._set_opacity:
+            try:
+                self._set_opacity(numeric)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update opacity: {exc}")
+                return
+        self._preferences.save()
+
+    def _on_show_status_toggle(self) -> None:
+        value = bool(self._var_show_status.get())
+        self._preferences.show_connection_status = value
         if self._set_status:
             try:
-                self._set_status(self._preferences.show_connection_status)
+                self._set_status(value)
             except Exception as exc:
                 self._status_var.set(f"Failed to update connection status: {exc}")
                 return
+        self._preferences.save()
+
+    def _on_log_payload_toggle(self) -> None:
+        value = bool(self._var_log_payloads.get())
+        self._preferences.log_payloads = value
         if self._set_log_payloads:
             try:
-                self._set_log_payloads(self._preferences.log_payloads)
+                self._set_log_payloads(value)
             except Exception as exc:
                 self._status_var.set(f"Failed to update payload logging: {exc}")
                 return
-        if self._set_legacy_scale:
-            try:
-                self._set_legacy_scale(self._preferences.legacy_vertical_scale)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update legacy scale: {exc}")
-                return
-        if self._set_horizontal_scale:
-            try:
-                self._set_horizontal_scale(self._preferences.legacy_horizontal_scale)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update horizontal scale: {exc}")
-                return
-        if self._set_follow_mode:
-            try:
-                self._set_follow_mode(self._preferences.follow_game_window)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update follow mode: {exc}")
-                return
+        self._preferences.save()
+
+    def _on_log_retention_command(self) -> None:
+        self._apply_log_retention()
+
+    def _on_log_retention_event(self, _event) -> None:  # pragma: no cover - Tk event
+        self._apply_log_retention()
+
+    def _apply_log_retention(self) -> None:
+        try:
+            value = int(self._retention_var.get())
+        except Exception:
+            value = self._preferences.client_log_retention
+        value = max(1, value)
+        self._preferences.client_log_retention = value
+        self._preferences.save()
+
+    def _on_force_render_toggle(self) -> None:
+        value = bool(self._var_force_render.get())
+        self._preferences.force_render = value
         if self._set_force_render:
             try:
-                self._set_force_render(self._preferences.force_render)
+                self._set_force_render(value)
             except Exception as exc:
                 self._status_var.set(f"Failed to update force-render option: {exc}")
                 return
         self._preferences.save()
 
-    # UI Callbacks --------------------------------------------------------
+    def _on_gridlines_toggle(self) -> None:
+        enabled = bool(self._var_gridlines_enabled.get())
+        self._preferences.gridlines_enabled = enabled
+        if self._set_gridlines_enabled:
+            try:
+                self._set_gridlines_enabled(enabled)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update gridlines: {exc}")
+                return
+        self._preferences.save()
+
+    def _on_gridline_spacing_command(self) -> None:
+        self._apply_gridline_spacing()
+
+    def _on_gridline_spacing_event(self, _event) -> None:  # pragma: no cover - Tk event
+        self._apply_gridline_spacing()
+
+    def _apply_gridline_spacing(self) -> None:
+        try:
+            spacing = int(self._var_gridline_spacing.get())
+        except (TypeError, ValueError):
+            spacing = self._preferences.gridline_spacing
+        spacing = max(10, spacing)
+        self._var_gridline_spacing.set(spacing)
+        self._preferences.gridline_spacing = spacing
+        if self._set_gridline_spacing:
+            try:
+                self._set_gridline_spacing(spacing)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update grid spacing: {exc}")
+                return
+        self._preferences.save()
 
     def _on_send_click(self) -> None:
         message = self._test_var.get().strip()
@@ -579,8 +424,8 @@ class PreferencesPanel:
             self._test_x_var.set(str(x_val))
             self._test_y_var.set(str(y_val))
         try:
-            if x_val is None and y_val is None:
-                self._send_test(message)
+            if x_val is None or y_val is None:
+                self._send_test(message, None, None)  # type: ignore[arg-type]
             else:
                 self._send_test(message, x_val, y_val)
         except Exception as exc:  # pragma: no cover - defensive UI handler
@@ -591,298 +436,11 @@ class PreferencesPanel:
         else:
             self._status_var.set(f"Test message sent to overlay at ({x_val}, {y_val}).")
 
-    def _on_capture_toggle(self) -> None:
-        value = bool(self._var_capture.get())
-        self._preferences.capture_output = value
-        self._preferences.save()
-
-    def _on_opacity_change(self, value: str) -> None:
-        try:
-            numeric = float(value)
-        except (TypeError, ValueError):
-            numeric = 0.0
-        numeric = max(0.0, min(1.0, numeric))
-        numeric = self._round_to_step(numeric, 0.05)
-        self._var_opacity.set(numeric)
-        if self._set_opacity:
-            try:
-                self._set_opacity(numeric)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update opacity: {exc}")
-                return
-        self._preferences.overlay_opacity = numeric
-        self._preferences.save()
-
-    def _on_show_status_toggle(self) -> None:
-        value = bool(self._var_show_status.get())
-        self._preferences.show_connection_status = value
-        if self._set_status:
-            try:
-                self._set_status(value)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update connection status: {exc}")
-                return
-        self._preferences.save()
-
-    def _on_log_payload_toggle(self) -> None:
-        value = bool(self._var_log_payloads.get())
-        self._preferences.log_payloads = value
-        if self._set_log_payloads:
-            try:
-                self._set_log_payloads(value)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update payload logging: {exc}")
-                return
-        self._preferences.save()
-
-    def _on_legacy_scale_change(self, value: str) -> None:
-        try:
-            numeric = float(value)
-        except (TypeError, ValueError):
-            numeric = 1.0
-        numeric = max(0.5, min(2.0, numeric))
-        numeric = self._round_to_step(numeric, 0.05)
-        self._var_legacy_scale.set(numeric)
-        self._legacy_scale_display.set(f"{numeric:.2f}×")
-        self._preferences.legacy_vertical_scale = numeric
-        if self._set_legacy_scale:
-            try:
-                self._set_legacy_scale(numeric)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update legacy scale: {exc}")
-                return
-        self._preferences.save()
-
-    def _on_horizontal_scale_change(self, value: str) -> None:
-        try:
-            numeric = float(value)
-        except (TypeError, ValueError):
-            numeric = 1.0
-        numeric = max(0.5, min(2.0, numeric))
-        numeric = self._round_to_step(numeric, 0.05)
-        self._var_horizontal_scale.set(numeric)
-        self._horizontal_scale_display.set(f"{numeric:.2f}×")
-        self._preferences.legacy_horizontal_scale = numeric
-        if self._set_horizontal_scale:
-            try:
-                self._set_horizontal_scale(numeric)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update horizontal scale: {exc}")
-                return
-        self._preferences.save()
-
-    def _on_gridlines_toggle(self) -> None:
-        enabled = bool(self._var_gridlines_enabled.get())
-        self._preferences.gridlines_enabled = enabled
-        if self._set_gridlines_enabled:
-            try:
-                self._set_gridlines_enabled(enabled)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update gridlines: {exc}")
-                return
-        self._preferences.save()
-
-    def _on_gridline_spacing_command(self) -> None:
-        self._apply_gridline_spacing(self._var_gridline_spacing.get())
-
-    def _on_gridline_spacing_event(self, event) -> None:  # type: ignore[override]
-        widget_value = event.widget.get() if hasattr(event, "widget") else self._var_gridline_spacing.get()
-        self._apply_gridline_spacing(widget_value)
-
-    def _apply_gridline_spacing(self, raw_value: Any) -> None:
-        try:
-            spacing = int(raw_value)
-        except (TypeError, ValueError):
-            spacing = self._preferences.gridline_spacing
-        spacing = max(10, spacing)
-        self._var_gridline_spacing.set(spacing)
-        self._preferences.gridline_spacing = spacing
-        if self._set_gridline_spacing:
-            try:
-                self._set_gridline_spacing(spacing)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update grid spacing: {exc}")
-                return
-        self._preferences.save()
-
-    def _on_window_width_command(self) -> None:
-        self._apply_window_size(self._var_window_width.get(), self._var_window_height.get())
-
-    def _on_window_width_event(self, event) -> None:  # type: ignore[override]
-        width = event.widget.get() if hasattr(event, "widget") else self._var_window_width.get()
-        self._apply_window_size(width, self._var_window_height.get())
-
-    def _on_window_height_command(self) -> None:
-        self._apply_window_size(self._var_window_width.get(), self._var_window_height.get())
-
-    def _on_window_height_event(self, event) -> None:  # type: ignore[override]
-        height = event.widget.get() if hasattr(event, "widget") else self._var_window_height.get()
-        self._apply_window_size(self._var_window_width.get(), height)
-
-    def _apply_window_size(self, raw_width: Any, raw_height: Any) -> None:
-        if self._window_size_guard:
-            return
-        try:
-            width = int(raw_width)
-        except (TypeError, ValueError):
-            width = self._preferences.window_width
-        try:
-            height = int(raw_height)
-        except (TypeError, ValueError):
-            height = self._preferences.window_height
-        width = max(640, width)
-        height = max(360, height)
-        self._window_size_guard = True
-        try:
-            if self._var_window_width.get() != width:
-                self._var_window_width.set(width)
-            if self._var_window_height.get() != height:
-                self._var_window_height.set(height)
-        finally:
-            self._window_size_guard = False
-        if self._set_window_size:
-            try:
-                self._set_window_size(width, height)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update window size: {exc}")
-                return
-        else:
-            if self._set_window_width:
-                try:
-                    self._set_window_width(width)
-                except Exception as exc:
-                    self._status_var.set(f"Failed to update window width: {exc}")
-                    return
-            if self._set_window_height:
-                try:
-                    self._set_window_height(height)
-                except Exception as exc:
-                    self._status_var.set(f"Failed to update window height: {exc}")
-                    return
-            self._preferences.window_width = width
-            self._preferences.window_height = height
-        if self._set_window_size:
-            # The callback updates preferences in place; ensure local copy reflects latest values.
-            self._preferences.window_width = width
-            self._preferences.window_height = height
-        self._preferences.save()
-
-    def _on_follow_toggle(self) -> None:
-        value = bool(self._var_follow_mode.get())
-        self._preferences.follow_game_window = value
-        self._update_controls_state()
-        if self._set_follow_mode:
-            try:
-                self._set_follow_mode(value)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update follow mode: {exc}")
-                return
-        self._preferences.save()
-
-    def _on_force_render_toggle(self) -> None:
-        value = bool(self._var_force_render.get())
-        self._preferences.force_render = value
-        if self._set_force_render:
-            try:
-                self._set_force_render(value)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update force-render option: {exc}")
-                return
-        self._preferences.save()
-
-    def _on_origin_entry_event(self, event) -> None:  # type: ignore[override]
-        x_raw = self._var_origin_x.get()
-        y_raw = self._var_origin_y.get()
-        if hasattr(event, "widget"):
-            widget_value = event.widget.get()
-            if event.widget == self._origin_entries[0]:
-                x_raw = widget_value
-            elif len(self._origin_entries) > 1 and event.widget == self._origin_entries[1]:
-                y_raw = widget_value
-        self._apply_origin_values(x_raw, y_raw)
-
-    def _apply_origin_values(self, raw_x: Any, raw_y: Any, persist: bool = True) -> None:
-        try:
-            origin_x = int(raw_x)
-        except (TypeError, ValueError):
-            origin_x = self._preferences.origin_x
-        try:
-            origin_y = int(raw_y)
-        except (TypeError, ValueError):
-            origin_y = self._preferences.origin_y
-        origin_x = max(0, origin_x)
-        origin_y = max(0, origin_y)
-        self._var_origin_x.set(str(origin_x))
-        self._var_origin_y.set(str(origin_y))
-        changed = (origin_x != self._preferences.origin_x) or (origin_y != self._preferences.origin_y)
-        self._preferences.origin_x = origin_x
-        self._preferences.origin_y = origin_y
-        if self._set_origin and changed:
-            try:
-                self._set_origin(origin_x, origin_y)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update overlay origin: {exc}")
-                return
-        if persist:
-            self._preferences.save()
-
-    def _on_reset_origin_click(self) -> None:
-        self._var_origin_x.set("0")
-        self._var_origin_y.set("0")
-        self._apply_origin_values(0, 0)
-        if self._reset_origin:
-            try:
-                self._reset_origin()
-            except Exception as exc:
-                self._status_var.set(f"Failed to reset origin: {exc}")
-
-    def _register_follow_label(self, label) -> None:
-        try:
-            default = label.cget("foreground")
-        except Exception:
-            default = None
-        self._follow_labels.append(label)
-        self._follow_label_defaults[label] = default if default else None
-
-    def _update_controls_state(self) -> None:
-        follow_enabled = bool(self._var_follow_mode.get())
-        origin_state = "disabled" if follow_enabled else "normal"
-        for widget in self._origin_entries:
-            try:
-                widget.config(state=origin_state)
-            except Exception:
-                continue
-        if self._origin_reset_button is not None:
-            try:
-                self._origin_reset_button.config(state=origin_state)
-            except Exception:
-                pass
-        size_state = "disabled" if follow_enabled else "normal"
-        for widget in getattr(self, "_size_controls", ()):
-            try:
-                widget.config(state=size_state)
-            except Exception:
-                pass
-        for label in self._follow_labels:
-            default_fg = self._follow_label_defaults.get(label)
-            target = self._disabled_label_fg if follow_enabled else (default_fg if default_fg is not None else "")
-            try:
-                label.config(foreground=target)
-            except Exception:
-                continue
-
-    def update_origin_fields(self, origin_x: int, origin_y: int) -> None:
-        origin_x = max(0, int(origin_x))
-        origin_y = max(0, int(origin_y))
-        self._var_origin_x.set(str(origin_x))
-        self._var_origin_y.set(str(origin_y))
-
     def _legacy_overlay(self):
         if self._legacy_client is None:
             try:
                 from EDMCOverlay import edmcoverlay
             except ImportError:
-                from . import overlay_api  # pragma: no cover - fallback
                 self._status_var.set("Legacy API not available.")
                 return None
             self._legacy_client = edmcoverlay.Overlay()

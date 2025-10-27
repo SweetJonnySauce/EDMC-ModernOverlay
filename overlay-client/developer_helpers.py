@@ -36,10 +36,8 @@ class DeveloperHelperController:
 
     def apply_initial_window_state(self, window: "OverlayWindow", initial: InitialClientSettings) -> None:
         window.set_log_retention(self._current_log_retention)
-        window.set_origin(initial.origin_x, initial.origin_y)
         window.set_force_render(initial.force_render)
-        window.set_follow_enabled(initial.follow_elite_window)
-        window.set_window_dimensions(initial.window_width, initial.window_height)
+        window.set_follow_enabled(True)
 
     def apply_config(self, window: "OverlayWindow", payload: Dict[str, Any]) -> None:
         config = DeveloperHelperConfig.from_payload(payload)
@@ -47,10 +45,6 @@ class DeveloperHelperController:
             window.set_background_opacity(config.background_opacity)
         if config.enable_drag is not None:
             window.set_drag_enabled(config.enable_drag)
-        if config.legacy_scale_y is not None:
-            window.set_legacy_scale_y(config.legacy_scale_y)
-        if config.legacy_scale_x is not None:
-            window.set_legacy_scale_x(config.legacy_scale_x)
         if config.gridlines_enabled is not None or config.gridline_spacing is not None:
             window.set_gridlines(
                 enabled=config.gridlines_enabled if config.gridlines_enabled is not None else window.gridlines_enabled,
@@ -58,18 +52,8 @@ class DeveloperHelperController:
             )
         if config.show_status is not None:
             window.set_show_status(config.show_status)
-        if config.follow_enabled is not None:
-            window.set_follow_enabled(config.follow_enabled)
-        if config.window_width is not None or config.window_height is not None:
-            window.set_window_dimensions(config.window_width, config.window_height)
         if config.force_render is not None:
             window.set_force_render(config.force_render)
-        if config.origin_x is not None or config.origin_y is not None:
-            current_origin_x, current_origin_y = window.get_origin()
-            window.set_origin(
-                config.origin_x if config.origin_x is not None else current_origin_x,
-                config.origin_y if config.origin_y is not None else current_origin_y,
-            )
         if 'platform_context' in payload:
             window.update_platform_context(payload.get('platform_context'))
         elif config.force_xwayland is not None:

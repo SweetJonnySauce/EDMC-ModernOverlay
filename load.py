@@ -427,22 +427,15 @@ class _PluginRuntime:
         self._enforce_force_xwayland(persist=True, update_watchdog=True, emit_config=False)
         LOGGER.debug(
             "Applying updated preferences: capture_output=%s show_connection_status=%s log_payloads=%s "
-            "legacy_vertical_scale=%.2f legacy_horizontal_scale=%.2f client_log_retention=%d gridlines_enabled=%s "
-            "gridline_spacing=%d window_width=%d window_height=%d follow_game_window=%s origin_x=%d origin_y=%d "
+            "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d overlay_opacity=%.2f "
             "force_render=%s force_xwayland=%s",
             self._preferences.capture_output,
             self._preferences.show_connection_status,
             self._preferences.log_payloads,
-            self._preferences.legacy_vertical_scale,
-            self._preferences.legacy_horizontal_scale,
             self._preferences.client_log_retention,
             self._preferences.gridlines_enabled,
             self._preferences.gridline_spacing,
-            self._preferences.window_width,
-            self._preferences.window_height,
-            self._preferences.follow_game_window,
-            self._preferences.origin_x,
-            self._preferences.origin_y,
+            self._preferences.overlay_opacity,
             self._preferences.force_render,
             self._preferences.force_xwayland,
         )
@@ -515,26 +508,6 @@ class _PluginRuntime:
         LOGGER.debug("Overlay payload logging %s", "enabled" if self._preferences.log_payloads else "disabled")
         self._send_overlay_config()
 
-    def set_legacy_scale_preference(self, value: float) -> None:
-        try:
-            scale = float(value)
-        except (TypeError, ValueError):
-            scale = 1.0
-        scale = max(0.5, min(2.0, scale))
-        self._preferences.legacy_vertical_scale = scale
-        LOGGER.debug("Legacy overlay vertical scale set to %.2fx", scale)
-        self._send_overlay_config()
-
-    def set_horizontal_scale_preference(self, value: float) -> None:
-        try:
-            scale = float(value)
-        except (TypeError, ValueError):
-            scale = 1.0
-        scale = max(0.5, min(2.0, scale))
-        self._preferences.legacy_horizontal_scale = scale
-        LOGGER.debug("Legacy overlay horizontal scale set to %.2fx", scale)
-        self._send_overlay_config()
-
     def set_gridlines_enabled_preference(self, value: bool) -> None:
         self._preferences.gridlines_enabled = bool(value)
         LOGGER.debug("Overlay gridlines %s", "enabled" if self._preferences.gridlines_enabled else "disabled")
@@ -548,73 +521,6 @@ class _PluginRuntime:
         spacing = max(10, spacing)
         self._preferences.gridline_spacing = spacing
         LOGGER.debug("Overlay gridline spacing set to %d px", spacing)
-        self._send_overlay_config()
-
-    def set_window_size_preference(self, width_value: int, height_value: int) -> None:
-        try:
-            width = int(width_value)
-        except (TypeError, ValueError):
-            width = self._preferences.window_width
-        try:
-            height = int(height_value)
-        except (TypeError, ValueError):
-            height = self._preferences.window_height
-        width = max(640, width)
-        height = max(360, height)
-        old_width = self._preferences.window_width
-        old_height = self._preferences.window_height
-        self._preferences.window_width = width
-        self._preferences.window_height = height
-        if width == old_width and height == old_height:
-            LOGGER.debug("Overlay window size rebroadcast at %d x %d px", width, height)
-        else:
-            LOGGER.debug("Overlay window size set to %d x %d px", width, height)
-        self._send_overlay_config()
-
-    def set_window_width_preference(self, value: int) -> None:
-        try:
-            width = int(value)
-        except (TypeError, ValueError):
-            width = self._preferences.window_width
-        self.set_window_size_preference(width, self._preferences.window_height)
-
-    def set_window_height_preference(self, value: int) -> None:
-        try:
-            height = int(value)
-        except (TypeError, ValueError):
-            height = self._preferences.window_height
-        self.set_window_size_preference(self._preferences.window_width, height)
-
-    def set_follow_mode_preference(self, value: bool) -> None:
-        self._preferences.follow_game_window = bool(value)
-        LOGGER.debug(
-            "Overlay follow mode %s",
-            "enabled" if self._preferences.follow_game_window else "disabled",
-        )
-        self._send_overlay_config()
-
-    def set_origin_preference(self, x_value: int, y_value: int) -> None:
-        try:
-            origin_x = int(x_value)
-        except (TypeError, ValueError):
-            origin_x = self._preferences.origin_x
-        try:
-            origin_y = int(y_value)
-        except (TypeError, ValueError):
-            origin_y = self._preferences.origin_y
-        origin_x = max(0, origin_x)
-        origin_y = max(0, origin_y)
-        self._preferences.origin_x = origin_x
-        self._preferences.origin_y = origin_y
-        LOGGER.debug("Overlay origin preference set to x=%d y=%d", origin_x, origin_y)
-        self._preferences.save()
-        self._send_overlay_config()
-
-    def reset_origin_preference(self) -> None:
-        self._preferences.origin_x = 0
-        self._preferences.origin_y = 0
-        LOGGER.debug("Overlay origin preference reset to 0,0")
-        self._preferences.save()
         self._send_overlay_config()
 
     def set_force_render_preference(self, value: bool) -> None:
@@ -654,40 +560,23 @@ class _PluginRuntime:
             "opacity": float(self._preferences.overlay_opacity),
             "enable_drag": bool(self._preferences.overlay_opacity > 0.5),
             "show_status": bool(self._preferences.show_connection_status),
-            "legacy_scale_y": float(self._preferences.legacy_vertical_scale),
-            "legacy_scale_x": float(self._preferences.legacy_horizontal_scale),
             "client_log_retention": int(self._preferences.client_log_retention),
             "gridlines_enabled": bool(self._preferences.gridlines_enabled),
             "gridline_spacing": int(self._preferences.gridline_spacing),
-            "window_width": int(self._preferences.window_width),
-            "window_height": int(self._preferences.window_height),
-            "follow_game_window": bool(self._preferences.follow_game_window),
-            "origin_x": int(self._preferences.origin_x),
-            "origin_y": int(self._preferences.origin_y),
             "force_render": bool(self._preferences.force_render),
-            "force_xwayland": bool(self._preferences.force_xwayland),
             "platform_context": self._platform_context_payload(),
         }
         self._last_config = dict(payload)
         self._publish_payload(payload)
         LOGGER.debug(
-            "Published overlay config: opacity=%s show_status=%s legacy_scale_y=%.2f legacy_scale_x=%.2f client_log_retention=%d "
-            "gridlines_enabled=%s gridline_spacing=%d window_width=%d window_height=%d follow_game_window=%s "
-            "origin_x=%d origin_y=%d force_render=%s force_xwayland=%s platform_context=%s",
+            "Published overlay config: opacity=%s show_status=%s client_log_retention=%d gridlines_enabled=%s "
+            "gridline_spacing=%d force_render=%s platform_context=%s",
             payload["opacity"],
             payload["show_status"],
-            payload["legacy_scale_y"],
-            payload["legacy_scale_x"],
             payload["client_log_retention"],
             payload["gridlines_enabled"],
             payload["gridline_spacing"],
-            payload["window_width"],
-            payload["window_height"],
-            payload["follow_game_window"],
-            payload["origin_x"],
-            payload["origin_y"],
             payload["force_render"],
-            payload["force_xwayland"],
             payload["platform_context"],
         )
         if rebroadcast:
@@ -914,17 +803,9 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
     try:
         status_callback = _plugin.set_show_status_preference if _plugin else None
         log_callback = _plugin.set_log_payload_preference if _plugin else None
-        legacy_scale_callback = _plugin.set_legacy_scale_preference if _plugin else None
         gridlines_enabled_callback = _plugin.set_gridlines_enabled_preference if _plugin else None
         gridline_spacing_callback = _plugin.set_gridline_spacing_preference if _plugin else None
-        window_width_callback = _plugin.set_window_width_preference if _plugin else None
-        window_height_callback = _plugin.set_window_height_preference if _plugin else None
-        window_size_callback = _plugin.set_window_size_preference if _plugin else None
-        horizontal_scale_callback = _plugin.set_horizontal_scale_preference if _plugin else None
-        follow_mode_callback = _plugin.set_follow_mode_preference if _plugin else None
         force_render_callback = _plugin.set_force_render_preference if _plugin else None
-        origin_callback = _plugin.set_origin_preference if _plugin else None
-        reset_origin_callback = _plugin.reset_origin_preference if _plugin else None
         panel = PreferencesPanel(
             parent,
             _preferences,
@@ -932,17 +813,9 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             opacity_callback,
             status_callback,
             log_callback,
-            legacy_scale_callback,
             gridlines_enabled_callback,
             gridline_spacing_callback,
-            window_width_callback,
-            window_height_callback,
-            window_size_callback,
-            horizontal_scale_callback,
-            follow_mode_callback,
             force_render_callback,
-            origin_callback,
-            reset_origin_callback,
         )
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)
@@ -963,23 +836,15 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
         _prefs_panel.apply()
         if _preferences:
             LOGGER.debug(
-                "Preferences saved: capture_output=%s show_connection_status=%s log_payloads=%s legacy_vertical_scale=%.2f "
-                "legacy_horizontal_scale=%.2f client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d "
-                "window_width=%d window_height=%d follow_game_window=%s origin_x=%d origin_y=%d "
+                "Preferences saved: capture_output=%s show_connection_status=%s log_payloads=%s "
+                "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d "
                 "force_render=%s force_xwayland=%s",
                 _preferences.capture_output,
                 _preferences.show_connection_status,
                 _preferences.log_payloads,
-                _preferences.legacy_vertical_scale,
-                _preferences.legacy_horizontal_scale,
                 _preferences.client_log_retention,
                 _preferences.gridlines_enabled,
                 _preferences.gridline_spacing,
-                _preferences.window_width,
-                _preferences.window_height,
-                _preferences.follow_game_window,
-                _preferences.origin_x,
-                _preferences.origin_y,
                 _preferences.force_render,
                 _preferences.force_xwayland,
             )

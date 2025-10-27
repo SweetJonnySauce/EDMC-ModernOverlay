@@ -5,7 +5,6 @@ import argparse
 import asyncio
 import json
 import logging
-import math
 import os
 import sys
 import threading
@@ -40,8 +39,8 @@ _CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
 _CLIENT_LOGGER.setLevel(logging.DEBUG)
 _CLIENT_LOGGER.propagate = False
 
-DEFAULT_WINDOW_BASE_WIDTH = 1920
-DEFAULT_WINDOW_BASE_HEIGHT = 1080
+DEFAULT_WINDOW_BASE_WIDTH = 1280
+DEFAULT_WINDOW_BASE_HEIGHT = 720
 
 def _initial_platform_context(initial: InitialClientSettings) -> PlatformContext:
     force_env = os.environ.get("EDMC_OVERLAY_FORCE_XWAYLAND") == "1"
@@ -191,23 +190,9 @@ class OverlayWindow(QWidget):
         self._saved_cursor: QCursor = self.cursor()
         self._transparent_input_supported = hasattr(Qt.WindowType, "WindowTransparentForInput")
         self._show_status: bool = False
-        self._legacy_auto_scale_y: float = 1.0
-        self._legacy_auto_scale_x: float = 1.0
-        self._legacy_user_scale_y: float = 1.0
-        self._legacy_user_scale_x: float = 1.0
-        self._auto_legacy_scale: bool = True
         self._base_height: int = DEFAULT_WINDOW_BASE_HEIGHT
         self._base_width: int = DEFAULT_WINDOW_BASE_WIDTH
         self._log_retention: int = max(1, int(initial.client_log_retention))
-        self._target_height_px: int = max(360, int(initial.window_height))
-        self._target_width_px: int = max(640, int(initial.window_width))
-        self._requested_base_height: Optional[int] = DEFAULT_WINDOW_BASE_HEIGHT
-        self._requested_width: Optional[int] = DEFAULT_WINDOW_BASE_WIDTH
-        self._legacy_reference_width: int = DEFAULT_WINDOW_BASE_WIDTH
-        self._legacy_reference_height: int = DEFAULT_WINDOW_BASE_HEIGHT
-        self._follow_enabled: bool = bool(getattr(initial, "follow_elite_window", True))
-        self._origin_x: int = max(0, int(getattr(initial, "origin_x", 0)))
-        self._origin_y: int = max(0, int(getattr(initial, "origin_y", 0)))
         self._force_render: bool = bool(getattr(initial, "force_render", False))
         self._window_tracker: Optional[WindowTracker] = None
         self._last_follow_state: Optional[WindowState] = None
@@ -227,6 +212,8 @@ class OverlayWindow(QWidget):
         self._transient_parent_id: Optional[str] = None
         self._transient_parent_window: Optional[QWindow] = None
         self._fullscreen_hint_logged: bool = False
+        self._follow_enabled: bool = True
+        self._last_logged_scale: Optional[Tuple[float, float]] = None
         self._platform_context = _initial_platform_context(initial)
         self._platform_controller = PlatformController(self, _CLIENT_LOGGER, self._platform_context)
         _CLIENT_LOGGER.debug(
@@ -293,83 +280,43 @@ class OverlayWindow(QWidget):
         self.setLayout(layout)
         self.status_label.setVisible(False)
 
+        width_px, height_px = self._current_physical_size()
         _CLIENT_LOGGER.debug(
-            "Overlay window initialised; log retention=%d, base=%dx%d target=%dx%d; %s",
+            "Overlay window initialised; log retention=%d size=%.0fx%.0fpx; %s",
             self._log_retention,
-            self._base_width,
-            self._base_height,
-            self._target_width_px,
-            self._target_height_px,
+            width_px,
+            height_px,
             self.format_scale_debug(),
         )
-        if not self._follow_enabled:
-            self._apply_window_dimensions(force=True)
 
-    @staticmethod
-    def _clamp_effective_scale(value: float) -> float:
-        return max(0.25, min(4.0, value))
+    def _current_physical_size(self) -> Tuple[float, float]:
+        frame = self.frameGeometry()
+        width = max(frame.width(), 1)
+        height = max(frame.height(), 1)
+        ratio = 1.0
+        window = self.windowHandle()
+        if window is not None:
+            try:
+                ratio = window.devicePixelRatio()
+            except Exception:
+                ratio = 1.0
+        if ratio <= 0.0:
+            ratio = 1.0
+        return width * ratio, height * ratio
 
-    def _effective_legacy_scale_x(self) -> float:
-        return self._clamp_effective_scale(self._legacy_user_scale_x)
-
-    def _effective_legacy_scale_y(self) -> float:
-        return self._clamp_effective_scale(self._legacy_user_scale_y)
+    def _legacy_scale(self) -> Tuple[float, float]:
+        width_px, height_px = self._current_physical_size()
+        scale_x = width_px / float(DEFAULT_WINDOW_BASE_WIDTH)
+        scale_y = height_px / float(DEFAULT_WINDOW_BASE_HEIGHT)
+        return max(scale_x, 0.01), max(scale_y, 0.01)
 
     def format_scale_debug(self) -> str:
-        return (
-            "scale_x={:.2f} (user={:.2f} auto={:.2f}) "
-            "scale_y={:.2f} (user={:.2f} auto={:.2f})"
-        ).format(
-            self._effective_legacy_scale_x(),
-            self._legacy_user_scale_x,
-            self._legacy_auto_scale_x,
-            self._effective_legacy_scale_y(),
-            self._legacy_user_scale_y,
-            self._legacy_auto_scale_y,
-        )
+        width_px, height_px = self._current_physical_size()
+        scale_x, scale_y = self._legacy_scale()
+        return "size={:.0f}x{:.0f}px scale_x={:.2f} scale_y={:.2f}".format(width_px, height_px, scale_x, scale_y)
 
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
-        if self._base_height <= 0 or self._base_width <= 0:
-            raw_height = self.height()
-            raw_width = self.width()
-            if self._requested_base_height is not None and self._requested_base_height > 0:
-                self._base_height = self._requested_base_height
-                base_source = "requested"
-            else:
-                if raw_height <= 0:
-                    raw_height = 1
-                self._base_height = raw_height
-                base_source = "layout"
-            if self._base_width <= 0:
-                if self._requested_width is not None and self._requested_width > 0:
-                    self._base_width = self._requested_width
-                else:
-                    if raw_width <= 0:
-                        raw_width = 1
-                    self._base_width = max(raw_width, 1)
-            effective_scale_y = self._effective_legacy_scale_y()
-            effective_scale_x = self._effective_legacy_scale_x()
-            target_height = max(int(round(self._base_height * effective_scale_y)), 1)
-            target_width = max(int(round(self._base_width * effective_scale_x)), 1)
-            _CLIENT_LOGGER.debug(
-                "Initial window height established: raw_height=%s base_source=%s base_height=%s "
-                "auto_scale_y=%.2f user_scale_y=%.2f effective_scale_y=%.2f target_height=%s base_width=%s "
-                "auto_scale_x=%.2f user_scale_x=%.2f effective_scale_x=%.2f target_width=%s",
-                raw_height,
-                base_source,
-                self._base_height,
-                self._legacy_auto_scale_y,
-                self._legacy_user_scale_y,
-                effective_scale_y,
-                target_height,
-                self._base_width,
-                self._legacy_auto_scale_x,
-                self._legacy_user_scale_x,
-                effective_scale_x,
-                target_width,
-            )
-        self._apply_window_dimensions()
         self._apply_legacy_scale()
         self._platform_controller.prepare_window(self.windowHandle())
         _CLIENT_LOGGER.debug(
@@ -502,11 +449,7 @@ class OverlayWindow(QWidget):
                 self.setCursor(self._saved_cursor)
                 self._cursor_saved = False
             self._apply_drag_state()
-            if not self._follow_enabled:
-                frame = self.frameGeometry()
-                self._origin_x = max(0, frame.x())
-                self._origin_y = max(0, frame.y())
-            _CLIENT_LOGGER.debug("Drag finished; origin now at %s", self.frameGeometry().topLeft())
+            _CLIENT_LOGGER.debug("Drag finished; overlay frame=%s", self.frameGeometry())
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -559,56 +502,29 @@ class OverlayWindow(QWidget):
             self._stop_tracking()
 
     def set_follow_enabled(self, enabled: bool) -> None:
-        flag = bool(enabled)
-        if flag == self._follow_enabled:
+        if not enabled:
+            _CLIENT_LOGGER.debug("Follow mode cannot be disabled; ignoring request.")
             return
-        self._follow_enabled = flag
-        if flag:
-            self._lost_window_logged = False
-            self._suspend_follow(0.5)
-            self._start_tracking()
-            self._update_follow_visibility(True)
-        else:
-            self._stop_tracking()
-            self._update_follow_visibility(True)
-            self._sync_base_dimensions_to_widget()
-            self._clear_wm_override(reason="follow disabled")
-            self._apply_window_dimensions(force=True)
+        if self._follow_enabled:
+            return
+        self._follow_enabled = True
+        self._lost_window_logged = False
+        self._suspend_follow(0.5)
+        self._start_tracking()
+        self._update_follow_visibility(True)
 
     def set_origin(self, origin_x: int, origin_y: int) -> None:
-        try:
-            x_val = int(origin_x)
-        except (TypeError, ValueError):
-            x_val = self._origin_x
-        try:
-            y_val = int(origin_y)
-        except (TypeError, ValueError):
-            y_val = self._origin_y
-        x_val = max(0, x_val)
-        y_val = max(0, y_val)
-        if x_val == self._origin_x and y_val == self._origin_y:
-            return
-        self._origin_x = x_val
-        self._origin_y = y_val
-        if not self._follow_enabled:
-            self._apply_origin_position()
+        _CLIENT_LOGGER.debug(
+            "Ignoring origin request (%s,%s); overlay position follows game window.",
+            origin_x,
+            origin_y,
+        )
 
     def get_origin(self) -> Tuple[int, int]:
-        return self._origin_x, self._origin_y
+        return 0, 0
 
     def _apply_origin_position(self) -> None:
-        width = max(self.width(), 1)
-        height = max(self.height(), 1)
-        target_rect = QRect(self._origin_x, self._origin_y, width, height)
-        self._move_to_screen(target_rect)
-        self.setGeometry(target_rect)
-        self._last_set_geometry = (
-            target_rect.x(),
-            target_rect.y(),
-            target_rect.width(),
-            target_rect.height(),
-        )
-        self.raise_()
+        return
 
     def monitor_snapshots(self) -> List[MonitorSnapshot]:
         return self._platform_controller.monitors()
@@ -697,11 +613,9 @@ class OverlayWindow(QWidget):
             return base
         if "scale_y=" in base or "scale_x=" in base:
             return base
-        width = max(self.width(), 1)
-        height = max(self.height(), 1)
-        scale_y = self._effective_legacy_scale_y()
-        scale_x = self._effective_legacy_scale_x()
-        metrics = f"{width}x{height}px scale_y={scale_y:.2f} scale_x={scale_x:.2f}"
+        width_px, height_px = self._current_physical_size()
+        scale_x, scale_y = self._legacy_scale()
+        metrics = f"{int(round(width_px))}x{int(round(height_px))}px scale_x={scale_x:.2f} scale_y={scale_y:.2f}"
         separator = " – " if " – " not in base else " "
         return f"{base}{separator}{metrics}"
 
@@ -745,34 +659,10 @@ class OverlayWindow(QWidget):
             self._apply_drag_state()
 
     def set_legacy_scale_y(self, scale: float, *, auto: bool = False) -> None:
-        try:
-            value = float(scale)
-        except (TypeError, ValueError):
-            value = 1.0
-        value = max(0.5, min(2.0, value))
-        if auto:
-            if not math.isclose(value, self._legacy_auto_scale_y, rel_tol=1e-4):
-                self._legacy_auto_scale_y = value
-                self._apply_legacy_scale()
-            return
-        if not math.isclose(value, self._legacy_user_scale_y, rel_tol=1e-4):
-            self._legacy_user_scale_y = value
-            self._apply_legacy_scale()
+        _CLIENT_LOGGER.debug("Legacy scale control ignored (requested scale_y=%s)", scale)
 
     def set_legacy_scale_x(self, scale: float, *, auto: bool = False) -> None:
-        try:
-            value = float(scale)
-        except (TypeError, ValueError):
-            value = 1.0
-        value = max(0.5, min(2.0, value))
-        if auto:
-            if not math.isclose(value, self._legacy_auto_scale_x, rel_tol=1e-4):
-                self._legacy_auto_scale_x = value
-                self._apply_legacy_scale()
-            return
-        if not math.isclose(value, self._legacy_user_scale_x, rel_tol=1e-4):
-            self._legacy_user_scale_x = value
-            self._apply_legacy_scale()
+        _CLIENT_LOGGER.debug("Legacy scale control ignored (requested scale_x=%s)", scale)
 
     def set_gridlines(self, *, enabled: bool, spacing: Optional[int] = None) -> None:
         self._gridlines_enabled = bool(enabled)
@@ -785,63 +675,11 @@ class OverlayWindow(QWidget):
         self.update()
 
     def set_window_dimensions(self, width: Optional[int], height: Optional[int]) -> None:
-        def _parse_dimension(value: Optional[int], minimum: int) -> Optional[int]:
-            if value is None:
-                return None
-            try:
-                numeric = int(value)
-            except (TypeError, ValueError):
-                return None
-            return max(minimum, numeric)
-
-        target_width = _parse_dimension(width, 640)
-        target_height = _parse_dimension(height, 360)
-
-        follow_locked = self._follow_enabled and (self._window_tracker is not None or self._last_follow_state is not None)
-        if follow_locked:
-            if target_width is not None:
-                self._target_width_px = target_width
-            if target_height is not None:
-                self._target_height_px = target_height
-            _CLIENT_LOGGER.debug(
-                "Ignoring explicit window size while follow mode is active (requested=%sx%s); %s",
-                self._target_width_px,
-                self._target_height_px,
-                self.format_scale_debug(),
-            )
-            return
-
-        size_updated = False
-        if target_width is not None:
-            if target_width != self._target_width_px:
-                size_updated = True
-            self._target_width_px = target_width
-            self._requested_width = target_width
-            self._legacy_reference_width = DEFAULT_WINDOW_BASE_WIDTH
-            auto_scale_x = target_width / float(DEFAULT_WINDOW_BASE_WIDTH)
-            self.set_legacy_scale_x(auto_scale_x, auto=True)
-
-        if target_height is not None:
-            if target_height != self._target_height_px:
-                size_updated = True
-            self._target_height_px = target_height
-            self._requested_base_height = target_height
-            self._legacy_reference_height = DEFAULT_WINDOW_BASE_HEIGHT
-            auto_scale_y = target_height / float(DEFAULT_WINDOW_BASE_HEIGHT)
-            self.set_legacy_scale_y(auto_scale_y, auto=True)
-
-        if size_updated:
-            self._base_width = DEFAULT_WINDOW_BASE_WIDTH
-            self._base_height = DEFAULT_WINDOW_BASE_HEIGHT
-            self._apply_window_dimensions()
-            _CLIENT_LOGGER.debug(
-                "Applied overlay window size: width=%s height=%s scale_y=%.2f scale_x=%.2f",
-                self._target_width_px,
-                self._target_height_px,
-                self._effective_legacy_scale_y(),
-                self._effective_legacy_scale_x(),
-            )
-            self._refresh_status_label()
+        _CLIENT_LOGGER.debug(
+            "Ignoring explicit window size request (%s x %s); overlay follows game window geometry.",
+            width,
+            height,
+        )
 
     def set_log_retention(self, retention: int) -> None:
         try:
@@ -1276,61 +1114,25 @@ class OverlayWindow(QWidget):
             return str(screen)
 
     def _sync_base_dimensions_to_widget(self) -> None:
-        scale_x = self._effective_legacy_scale_x()
-        scale_y = self._effective_legacy_scale_y()
-        base_width = (
-            float(self._legacy_reference_width)
-            if self._legacy_reference_width and self._legacy_reference_width > 0
-            else float(DEFAULT_WINDOW_BASE_WIDTH)
-        )
-        base_height = (
-            float(self._legacy_reference_height)
-            if self._legacy_reference_height and self._legacy_reference_height > 0
-            else float(DEFAULT_WINDOW_BASE_HEIGHT)
-        )
-        scale_x *= max(0.01, float(self.width()) / max(base_width, 1.0))
-        scale_y *= max(0.01, float(self.height()) / max(base_height, 1.0))
-        current_width = max(self.width(), 1)
-        current_height = max(self.height(), 1)
-        self._base_width = max(int(round(current_width / scale_x)), 1)
-        self._base_height = max(int(round(current_height / scale_y)), 1)
-        self._requested_width = self._base_width
-        self._requested_base_height = self._base_height
-        self.setMinimumWidth(current_width)
-        self.setMinimumHeight(current_height)
+        width_px, height_px = self._current_physical_size()
+        self._base_width = max(int(round(width_px)), 1)
+        self._base_height = max(int(round(height_px)), 1)
 
     # Legacy overlay handling ---------------------------------------------
 
     def _update_auto_legacy_scale(self, width: int, height: int) -> None:
-        if not self._auto_legacy_scale:
-            return
-        ref_width = max(1, self._legacy_reference_width)
-        ref_height = max(1, self._legacy_reference_height)
-        desired_scale_x = width / ref_width if ref_width else 1.0
-        desired_scale_y = height / ref_height if ref_height else 1.0
-        clamped_scale_x = max(0.5, min(2.0, desired_scale_x))
-        clamped_scale_y = max(0.5, min(2.0, desired_scale_y))
-        updated = False
-        if not math.isclose(clamped_scale_x, self._legacy_auto_scale_x, rel_tol=1e-4):
-            self._legacy_auto_scale_x = clamped_scale_x
-            updated = True
-        if not math.isclose(clamped_scale_y, self._legacy_auto_scale_y, rel_tol=1e-4):
-            self._legacy_auto_scale_y = clamped_scale_y
-            updated = True
-        if updated:
-            self._base_width = ref_width
-            self._base_height = ref_height
-            self._requested_width = ref_width
-            self._requested_base_height = ref_height
-            self._apply_legacy_scale()
+        scale_x, scale_y = self._legacy_scale()
+        current = (round(scale_x, 4), round(scale_y, 4))
+        if self._last_logged_scale != current:
+            width_px, height_px = self._current_physical_size()
             _CLIENT_LOGGER.debug(
-                "Auto legacy scale adjusted using reference=%dx%d actual=%dx%d; %s",
-                ref_width,
-                ref_height,
-                width,
-                height,
-                self.format_scale_debug(),
+                "Overlay scaling updated: window=%dx%d px scale_x=%.2f scale_y=%.2f",
+                int(round(width_px)),
+                int(round(height_px)),
+                scale_x,
+                scale_y,
             )
+            self._last_logged_scale = current
 
     def _handle_legacy(self, payload: Dict[str, Any]) -> None:
         item_type = payload.get("type")
@@ -1400,49 +1202,7 @@ class OverlayWindow(QWidget):
                 self._paint_legacy_rect(painter, item)
 
     def _legacy_coordinate_scale_factors(self) -> Tuple[float, float]:
-        base_width = float(
-            self._legacy_reference_width
-            if self._legacy_reference_width and self._legacy_reference_width > 0
-            else DEFAULT_WINDOW_BASE_WIDTH
-        )
-        base_height = float(
-            self._legacy_reference_height
-            if self._legacy_reference_height and self._legacy_reference_height > 0
-            else DEFAULT_WINDOW_BASE_HEIGHT
-        )
-        user_scale_x = self._effective_legacy_scale_x()
-        user_scale_y = self._effective_legacy_scale_y()
-
-        window = self.windowHandle()
-        try:
-            device_ratio = window.devicePixelRatio() if window is not None else self.devicePixelRatioF()
-        except Exception:
-            device_ratio = 1.0
-        if device_ratio <= 0.0:
-            device_ratio = 1.0
-
-        physical_width: Optional[int] = None
-        physical_height: Optional[int] = None
-        if window is not None:
-            screen = window.screen()
-            if screen is not None:
-                try:
-                    geometry = screen.geometry()
-                    physical_width = geometry.width()
-                    physical_height = geometry.height()
-                except Exception:
-                    physical_width = None
-                    physical_height = None
-        if physical_width is None or physical_height is None:
-            frame = self.frameGeometry()
-            physical_width = frame.width()
-            physical_height = frame.height()
-
-        logical_width = max(float(physical_width) / device_ratio, 1.0)
-        logical_height = max(float(physical_height) / device_ratio, 1.0)
-        scale_x = user_scale_x * (logical_width / max(base_width, 1.0))
-        scale_y = user_scale_y * (logical_height / max(base_height, 1.0))
-        return scale_x, scale_y
+        return self._legacy_scale()
 
     def _paint_legacy_message(self, painter: QPainter, item: Dict[str, Any]) -> None:
         color = QColor(str(item.get("color", "white")))
@@ -1496,31 +1256,11 @@ class OverlayWindow(QWidget):
         )
 
     def _apply_legacy_scale(self) -> None:
-        if self._base_height <= 0:
-            self._base_height = DEFAULT_WINDOW_BASE_HEIGHT
-        if self._base_width <= 0:
-            self._base_width = DEFAULT_WINDOW_BASE_WIDTH
-        if self._follow_enabled and (self._window_tracker is not None or self._last_follow_state is not None):
-            self._sync_base_dimensions_to_widget()
         self.update()
         self._refresh_status_label()
 
     def _apply_window_dimensions(self, *, force: bool = False) -> None:
-        follow_locked = self._follow_enabled and (self._window_tracker is not None or self._last_follow_state is not None)
-        if follow_locked and not force:
-            return
-        target_width = max(1, int(round(self._target_width_px)))
-        target_height = max(1, int(round(self._target_height_px)))
-        self.setMinimumWidth(target_width)
-        self.setMinimumHeight(target_height)
-        self.resize(target_width, target_height)
-        self._requested_width = target_width
-        self._requested_base_height = target_height
-        if not follow_locked or force:
-            self._apply_origin_position()
-        else:
-            self.update()
-        self._refresh_status_label()
+        return
 
     def _resolve_font_family(self) -> str:
         fonts_dir = Path(__file__).resolve().parent / "fonts"
@@ -1648,28 +1388,24 @@ def main(argv: Optional[list[str]] = None) -> int:
     _CLIENT_LOGGER.info("Starting overlay client (pid=%s)", os.getpid())
     _CLIENT_LOGGER.debug("Resolved port file path to %s", port_file)
     _CLIENT_LOGGER.debug(
-        "Loaded initial settings from %s: retention=%d width=%d height=%d",
+        "Loaded initial settings from %s: retention=%d force_render=%s force_xwayland=%s",
         settings_path,
         initial_settings.client_log_retention,
-        initial_settings.window_width,
-        initial_settings.window_height,
+        initial_settings.force_render,
+        initial_settings.force_xwayland,
     )
 
     app = QApplication(sys.argv)
     data_client = OverlayDataClient(port_file)
     window = OverlayWindow(initial_settings)
     helper.apply_initial_window_state(window, initial_settings)
-    window.resize(initial_settings.window_width, initial_settings.window_height)
-    if not initial_settings.follow_elite_window:
-        # Ensure the overlay starts at the top-left of the primary screen (0,0)
-        window.move(0, 0)
     tracker = create_elite_window_tracker(_CLIENT_LOGGER, monitor_provider=window.monitor_snapshots)
     if tracker is not None:
         window.set_window_tracker(tracker)
     else:
-        _CLIENT_LOGGER.info("Window tracker unavailable; follow mode disabled")
+        _CLIENT_LOGGER.info("Window tracker unavailable; overlay will remain stationary")
     _CLIENT_LOGGER.debug(
-        "Overlay window created, sized to %dx%d, moved to (0,0); %s",
+        "Overlay window created; size=%dx%d; %s",
         window.width(),
         window.height(),
         window.format_scale_debug(),
