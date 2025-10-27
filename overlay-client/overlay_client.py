@@ -228,6 +228,7 @@ class OverlayWindow(QWidget):
         self._wm_authoritative_rect: Optional[Tuple[int, int, int, int]] = None
         self._wm_override_tracker: Optional[Tuple[int, int, int, int]] = None
         self._wm_override_timestamp: float = 0.0
+        self._enforcing_follow_size: bool = False
         self._transient_parent_id: Optional[str] = None
         self._transient_parent_window: Optional[QWindow] = None
         self._fullscreen_hint_logged: bool = False
@@ -447,6 +448,22 @@ class OverlayWindow(QWidget):
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
         size = event.size()
+        if self._enforcing_follow_size:
+            self._enforcing_follow_size = False
+            self._update_auto_legacy_scale(max(size.width(), 1), max(size.height(), 1))
+            return
+        expected_size: Optional[Tuple[int, int]] = None
+        if (
+            self._follow_enabled
+            and self._last_set_geometry is not None
+            and (self._window_tracker is not None or self._last_follow_state is not None)
+        ):
+            expected_size = (self._last_set_geometry[2], self._last_set_geometry[3])
+        if expected_size and (size.width(), size.height()) != expected_size:
+            self._enforcing_follow_size = True
+            target_rect = QRect(*self._last_set_geometry)
+            self.setGeometry(target_rect)
+            return
         self._update_auto_legacy_scale(max(size.width(), 1), max(size.height(), 1))
 
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
