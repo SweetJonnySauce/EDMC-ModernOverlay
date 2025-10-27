@@ -1253,10 +1253,21 @@ class OverlayWindow(QWidget):
         painter.setFont(font)
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
+        text = str(item.get("text", ""))
         x = int(round(raw_left * scale_x))
         metrics = painter.fontMetrics()
+        text_width = metrics.horizontalAdvance(text)
+        margin = 12
+        max_x = self.width() - text_width - margin
+        min_x = margin
+        if max_x < min_x:
+            max_x = min_x
+        if x < min_x:
+            x = min_x
+        elif x > max_x:
+            x = max_x
         baseline = int(round(raw_top * scale_y + metrics.ascent()))
-        painter.drawText(x, baseline, str(item.get("text", "")))
+        painter.drawText(x, baseline, text)
 
     def _paint_legacy_rect(self, painter: QPainter, item: Dict[str, Any]) -> None:
         border_spec = str(item.get("color", "white"))
@@ -1307,6 +1318,7 @@ class OverlayWindow(QWidget):
             for label, base in size_labels
         )
         info_lines = [
+            "overlay={}x{}".format(self.width(), self.height()),
             "frame={}x{} phys={}x{}".format(
                 frame.width(),
                 frame.height(),
