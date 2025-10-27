@@ -1209,13 +1209,14 @@ class OverlayWindow(QWidget):
         size = str(item.get("size", "normal")).lower()
         base_sizes = {
             "small": 6.0,
-            "normal": 8.0,
-            "large": 10.0,
-            "huge": 12.0,
+            "normal": 10.0,
+            "large": 12.0,
+            "huge": 14.0,
         }
-        base_point_size = base_sizes.get(size, 14.0)
+        base_point_size = base_sizes.get(size, 10.0)
         scale_x, scale_y = self._legacy_coordinate_scale_factors()
-        scaled_point_size = max(8.0, min(48.0, base_point_size * scale_y))
+        diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
+        scaled_point_size = max(6.0, min(42.0, base_point_size * diagonal_scale))
         font = QFont(self._font_family)
         font.setPointSizeF(scaled_point_size)
         font.setWeight(QFont.Weight.Normal)
