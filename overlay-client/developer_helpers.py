@@ -39,6 +39,7 @@ class DeveloperHelperController:
         window.set_force_render(initial.force_render)
         window.set_follow_enabled(True)
         window.set_debug_overlay(initial.show_debug_overlay)
+        window.set_font_bounds(initial.min_font_point, initial.max_font_point)
 
     def apply_config(self, window: "OverlayWindow", payload: Dict[str, Any]) -> None:
         config = DeveloperHelperConfig.from_payload(payload)
@@ -57,6 +58,8 @@ class DeveloperHelperController:
             window.set_force_render(config.force_render)
         if config.show_debug_overlay is not None:
             window.set_debug_overlay(config.show_debug_overlay)
+        if config.min_font_point is not None or config.max_font_point is not None:
+            window.set_font_bounds(config.min_font_point, config.max_font_point)
         if 'platform_context' in payload:
             window.update_platform_context(payload.get('platform_context'))
         elif config.force_xwayland is not None:

@@ -273,9 +273,14 @@ class OverlayWindow(QWidget):
         self.status_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
         self._debug_message_point_size = message_font.pointSizeF()
+        self._debug_status_point_size = status_font.pointSizeF()
         self._debug_legacy_point_size = 0.0
         self._show_debug_overlay = bool(getattr(initial, "show_debug_overlay", False))
         self._font_scale_diag = 1.0
+        min_font = getattr(initial, "min_font_point", 6.0)
+        max_font = getattr(initial, "max_font_point", 24.0)
+        self._font_min_point = max(1.0, min(float(min_font), 48.0))
+        self._font_max_point = max(self._font_min_point, min(float(max_font), 72.0))
 
         layout = QVBoxLayout()
         layout.addWidget(self.message_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -317,7 +322,16 @@ class OverlayWindow(QWidget):
         scale_y = height_px / float(DEFAULT_WINDOW_BASE_HEIGHT)
         return max(scale_x, 0.01), max(scale_y, 0.01)
 
-    def _scaled_point_size(self, base_point: float, clamp_min: float = 6.0, clamp_max: float = 36.0) -> float:
+    def _scaled_point_size(
+        self,
+        base_point: float,
+        clamp_min: Optional[float] = None,
+        clamp_max: Optional[float] = None,
+    ) -> float:
+        if clamp_min is None:
+            clamp_min = self._font_min_point
+        if clamp_max is None:
+            clamp_max = self._font_max_point
         diagonal_scale = self._font_scale_diag
         if diagonal_scale <= 0.0:
             scale_x, scale_y = self._legacy_scale()
@@ -593,6 +607,38 @@ class OverlayWindow(QWidget):
         self._show_debug_overlay = flag
         _CLIENT_LOGGER.debug("Debug overlay %s", "enabled" if flag else "disabled")
         self.update()
+
+    def set_font_bounds(self, min_point: Optional[float], max_point: Optional[float]) -> None:
+        changed = False
+        if min_point is not None:
+            try:
+                min_value = float(min_point)
+            except (TypeError, ValueError):
+                min_value = self._font_min_point
+            min_value = max(1.0, min(min_value, 48.0))
+            if not math.isclose(min_value, self._font_min_point, rel_tol=1e-3):
+                self._font_min_point = min_value
+                changed = True
+        if max_point is not None:
+            try:
+                max_value = float(max_point)
+            except (TypeError, ValueError):
+                max_value = self._font_max_point
+            max_value = max(self._font_min_point, min(max_value, 72.0))
+            if not math.isclose(max_value, self._font_max_point, rel_tol=1e-3):
+                self._font_max_point = max_value
+                changed = True
+        if self._font_max_point < self._font_min_point:
+            self._font_max_point = self._font_min_point
+            changed = True
+        if changed:
+            _CLIENT_LOGGER.debug(
+                "Font bounds updated: min=%.1f max=%.1f",
+                self._font_min_point,
+                self._font_max_point,
+            )
+            self._update_label_fonts()
+            self.update()
 
     def display_message(self, message: str, *, ttl: Optional[float] = None) -> None:
         self._message_clear_timer.stop()
@@ -1336,8 +1382,11 @@ class OverlayWindow(QWidget):
                 int(round(height_px)),
             ),
             "scale_x={:.2f} scale_y={:.2f} diag={:.2f}".format(scale_x, scale_y, diagonal_scale),
-            "fonts: message={:.1f} legacy={:.1f}".format(
+            "font scale={:.2f}".format(self._font_scale_diag),
+            "font bounds={:.1f}-{:.1f}".format(self._font_min_point, self._font_max_point),
+            "fonts: message={:.1f} status={:.1f} legacy={:.1f}".format(
                 self._debug_message_point_size,
+                self._debug_status_point_size,
                 self._debug_legacy_point_size,
             ),
             "legacy sizes: {}".format(legacy_sizes_str),

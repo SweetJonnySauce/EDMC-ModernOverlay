@@ -428,7 +428,7 @@ class _PluginRuntime:
         LOGGER.debug(
             "Applying updated preferences: capture_output=%s show_connection_status=%s log_payloads=%s "
             "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d overlay_opacity=%.2f "
-            "force_render=%s force_xwayland=%s debug_overlay=%s",
+            "force_render=%s force_xwayland=%s debug_overlay=%s font_min=%.1f font_max=%.1f",
             self._preferences.capture_output,
             self._preferences.show_connection_status,
             self._preferences.log_payloads,
@@ -439,6 +439,8 @@ class _PluginRuntime:
             self._preferences.force_render,
             self._preferences.force_xwayland,
             self._preferences.show_debug_overlay,
+            self._preferences.min_font_point,
+            self._preferences.max_font_point,
         )
         if self.watchdog:
             self.watchdog.set_capture_output(self._capture_enabled())
@@ -537,6 +539,30 @@ class _PluginRuntime:
         LOGGER.debug("Overlay debug overlay %s", "enabled" if self._preferences.show_debug_overlay else "disabled")
         self._send_overlay_config()
 
+    def set_min_font_preference(self, value: float) -> None:
+        try:
+            minimum = float(value)
+        except (TypeError, ValueError):
+            minimum = self._preferences.min_font_point
+        minimum = max(1.0, min(minimum, 48.0))
+        if minimum != self._preferences.min_font_point:
+            if minimum > self._preferences.max_font_point:
+                self._preferences.max_font_point = minimum
+            self._preferences.min_font_point = minimum
+            LOGGER.debug("Overlay minimum font point set to %.1f", minimum)
+            self._send_overlay_config()
+
+    def set_max_font_preference(self, value: float) -> None:
+        try:
+            maximum = float(value)
+        except (TypeError, ValueError):
+            maximum = self._preferences.max_font_point
+        maximum = max(self._preferences.min_font_point, min(maximum, 72.0))
+        if maximum != self._preferences.max_font_point:
+            self._preferences.max_font_point = maximum
+            LOGGER.debug("Overlay maximum font point set to %.1f", maximum)
+            self._send_overlay_config()
+
     def set_force_xwayland_preference(self, value: bool) -> None:
         desired = self._desired_force_xwayland()
         if bool(value) != desired:
@@ -571,13 +597,15 @@ class _PluginRuntime:
             "gridline_spacing": int(self._preferences.gridline_spacing),
             "force_render": bool(self._preferences.force_render),
             "show_debug_overlay": bool(self._preferences.show_debug_overlay),
+            "min_font_point": float(self._preferences.min_font_point),
+            "max_font_point": float(self._preferences.max_font_point),
             "platform_context": self._platform_context_payload(),
         }
         self._last_config = dict(payload)
         self._publish_payload(payload)
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s client_log_retention=%d gridlines_enabled=%s "
-            "gridline_spacing=%d force_render=%s debug_overlay=%s platform_context=%s",
+            "gridline_spacing=%d force_render=%s debug_overlay=%s font_min=%.1f font_max=%.1f platform_context=%s",
             payload["opacity"],
             payload["show_status"],
             payload["client_log_retention"],
@@ -585,6 +613,8 @@ class _PluginRuntime:
             payload["gridline_spacing"],
             payload["force_render"],
             payload["show_debug_overlay"],
+            payload["min_font_point"],
+            payload["max_font_point"],
             payload["platform_context"],
         )
         if rebroadcast:
@@ -815,6 +845,8 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         gridline_spacing_callback = _plugin.set_gridline_spacing_preference if _plugin else None
         force_render_callback = _plugin.set_force_render_preference if _plugin else None
         debug_overlay_callback = _plugin.set_debug_overlay_preference if _plugin else None
+        font_min_callback = _plugin.set_min_font_preference if _plugin else None
+        font_max_callback = _plugin.set_max_font_preference if _plugin else None
         panel = PreferencesPanel(
             parent,
             _preferences,
@@ -826,6 +858,8 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             gridline_spacing_callback,
             force_render_callback,
             debug_overlay_callback,
+            font_min_callback,
+            font_max_callback,
         )
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)
@@ -848,7 +882,7 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
             LOGGER.debug(
                 "Preferences saved: capture_output=%s show_connection_status=%s log_payloads=%s "
                 "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d "
-                "force_render=%s force_xwayland=%s debug_overlay=%s",
+                "force_render=%s force_xwayland=%s debug_overlay=%s font_min=%.1f font_max=%.1f",
                 _preferences.capture_output,
                 _preferences.show_connection_status,
                 _preferences.log_payloads,
@@ -858,6 +892,8 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
                 _preferences.force_render,
                 _preferences.force_xwayland,
                 _preferences.show_debug_overlay,
+                _preferences.min_font_point,
+                _preferences.max_font_point,
             )
         if _plugin:
             _plugin.on_preferences_updated()
