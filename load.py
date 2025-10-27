@@ -428,7 +428,7 @@ class _PluginRuntime:
         LOGGER.debug(
             "Applying updated preferences: capture_output=%s show_connection_status=%s log_payloads=%s "
             "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d overlay_opacity=%.2f "
-            "force_render=%s force_xwayland=%s",
+            "force_render=%s force_xwayland=%s debug_overlay=%s",
             self._preferences.capture_output,
             self._preferences.show_connection_status,
             self._preferences.log_payloads,
@@ -438,6 +438,7 @@ class _PluginRuntime:
             self._preferences.overlay_opacity,
             self._preferences.force_render,
             self._preferences.force_xwayland,
+            self._preferences.show_debug_overlay,
         )
         if self.watchdog:
             self.watchdog.set_capture_output(self._capture_enabled())
@@ -531,6 +532,11 @@ class _PluginRuntime:
         )
         self._send_overlay_config()
 
+    def set_debug_overlay_preference(self, value: bool) -> None:
+        self._preferences.show_debug_overlay = bool(value)
+        LOGGER.debug("Overlay debug overlay %s", "enabled" if self._preferences.show_debug_overlay else "disabled")
+        self._send_overlay_config()
+
     def set_force_xwayland_preference(self, value: bool) -> None:
         desired = self._desired_force_xwayland()
         if bool(value) != desired:
@@ -564,19 +570,21 @@ class _PluginRuntime:
             "gridlines_enabled": bool(self._preferences.gridlines_enabled),
             "gridline_spacing": int(self._preferences.gridline_spacing),
             "force_render": bool(self._preferences.force_render),
+            "show_debug_overlay": bool(self._preferences.show_debug_overlay),
             "platform_context": self._platform_context_payload(),
         }
         self._last_config = dict(payload)
         self._publish_payload(payload)
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s client_log_retention=%d gridlines_enabled=%s "
-            "gridline_spacing=%d force_render=%s platform_context=%s",
+            "gridline_spacing=%d force_render=%s debug_overlay=%s platform_context=%s",
             payload["opacity"],
             payload["show_status"],
             payload["client_log_retention"],
             payload["gridlines_enabled"],
             payload["gridline_spacing"],
             payload["force_render"],
+            payload["show_debug_overlay"],
             payload["platform_context"],
         )
         if rebroadcast:
@@ -806,6 +814,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         gridlines_enabled_callback = _plugin.set_gridlines_enabled_preference if _plugin else None
         gridline_spacing_callback = _plugin.set_gridline_spacing_preference if _plugin else None
         force_render_callback = _plugin.set_force_render_preference if _plugin else None
+        debug_overlay_callback = _plugin.set_debug_overlay_preference if _plugin else None
         panel = PreferencesPanel(
             parent,
             _preferences,
@@ -816,6 +825,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             gridlines_enabled_callback,
             gridline_spacing_callback,
             force_render_callback,
+            debug_overlay_callback,
         )
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)
@@ -838,7 +848,7 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
             LOGGER.debug(
                 "Preferences saved: capture_output=%s show_connection_status=%s log_payloads=%s "
                 "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d "
-                "force_render=%s force_xwayland=%s",
+                "force_render=%s force_xwayland=%s debug_overlay=%s",
                 _preferences.capture_output,
                 _preferences.show_connection_status,
                 _preferences.log_payloads,
@@ -847,6 +857,7 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
                 _preferences.gridline_spacing,
                 _preferences.force_render,
                 _preferences.force_xwayland,
+                _preferences.show_debug_overlay,
             )
         if _plugin:
             _plugin.on_preferences_updated()

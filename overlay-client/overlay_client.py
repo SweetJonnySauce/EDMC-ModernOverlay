@@ -214,7 +214,7 @@ class OverlayWindow(QWidget):
         self._transient_parent_window: Optional[QWindow] = None
         self._fullscreen_hint_logged: bool = False
         self._follow_enabled: bool = True
-        self._last_logged_scale: Optional[Tuple[float, float]] = None
+        self._last_logged_scale: Optional[Tuple[float, float, float]] = None
         self._platform_context = _initial_platform_context(initial)
         self._platform_controller = PlatformController(self, _CLIENT_LOGGER, self._platform_context)
         _CLIENT_LOGGER.debug(
@@ -271,6 +271,10 @@ class OverlayWindow(QWidget):
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
         self.status_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
+        self._debug_message_point_size = message_font.pointSizeF()
+        self._debug_legacy_point_size = 0.0
+        self._show_debug_overlay = bool(getattr(initial, "show_debug_overlay", False))
+
         layout = QVBoxLayout()
         layout.addWidget(self.message_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         layout.addStretch(1)
@@ -310,6 +314,15 @@ class OverlayWindow(QWidget):
         scale_x = width_px / float(DEFAULT_WINDOW_BASE_WIDTH)
         scale_y = height_px / float(DEFAULT_WINDOW_BASE_HEIGHT)
         return max(scale_x, 0.01), max(scale_y, 0.01)
+
+    def _update_message_font(self, diagonal_scale: float) -> None:
+        base_point = 12.0
+        target_point = max(6.0, min(36.0, base_point * diagonal_scale))
+        if not math.isclose(target_point, self._debug_message_point_size, rel_tol=1e-3):
+            font = self.message_label.font()
+            font.setPointSizeF(target_point)
+            self.message_label.setFont(font)
+            self._debug_message_point_size = target_point
 
     def format_scale_debug(self) -> str:
         width_px, height_px = self._current_physical_size()
@@ -383,6 +396,8 @@ class OverlayWindow(QWidget):
                 painter.drawText(2, baseline, text)
             painter.restore()
         self._paint_legacy(painter)
+        if self._show_debug_overlay:
+            self._paint_debug_overlay(painter)
         painter.end()
         super().paintEvent(event)
 
@@ -562,6 +577,14 @@ class OverlayWindow(QWidget):
                 and not self._last_follow_state.is_foreground
             ):
                 self._update_follow_visibility(False)
+
+    def set_debug_overlay(self, enabled: bool) -> None:
+        flag = bool(enabled)
+        if flag == self._show_debug_overlay:
+            return
+        self._show_debug_overlay = flag
+        _CLIENT_LOGGER.debug("Debug overlay %s", "enabled" if flag else "disabled")
+        self.update()
 
     def display_message(self, message: str, *, ttl: Optional[float] = None) -> None:
         self._message_clear_timer.stop()
@@ -1123,15 +1146,19 @@ class OverlayWindow(QWidget):
 
     def _update_auto_legacy_scale(self, width: int, height: int) -> None:
         scale_x, scale_y = self._legacy_scale()
-        current = (round(scale_x, 4), round(scale_y, 4))
+        diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
+        self._update_message_font(diagonal_scale)
+        current = (round(scale_x, 4), round(scale_y, 4), round(diagonal_scale, 4))
         if self._last_logged_scale != current:
             width_px, height_px = self._current_physical_size()
             _CLIENT_LOGGER.debug(
-                "Overlay scaling updated: window=%dx%d px scale_x=%.2f scale_y=%.2f",
+                "Overlay scaling updated: window=%dx%d px scale_x=%.2f scale_y=%.2f diag=%.2f message_pt=%.1f",
                 int(round(width_px)),
                 int(round(height_px)),
                 scale_x,
                 scale_y,
+                diagonal_scale,
+                self._debug_message_point_size,
             )
             self._last_logged_scale = current
 
@@ -1217,24 +1244,12 @@ class OverlayWindow(QWidget):
         base_point_size = base_sizes.get(size, 10.0)
         scale_x, scale_y = self._legacy_coordinate_scale_factors()
         diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
-        scaled_point_size = max(6.0, min(42.0, base_point_size * diagonal_scale))
+        scaled_point_size = max(6.0, min(36.0, base_point_size * diagonal_scale))
         font = QFont(self._font_family)
         font.setPointSizeF(scaled_point_size)
         font.setWeight(QFont.Weight.Normal)
         painter.setPen(color)
-        if self._last_logged_scale != (round(scale_x, 4), round(scale_y, 4)):
-            width_px, height_px = self._current_physical_size()
-            _CLIENT_LOGGER.debug(
-                "Legacy text draw: size=%s base_pt=%.1f scaled_pt=%.1f scale_x=%.2f scale_y=%.2f window=%dx%d px",
-                size,
-                base_point_size,
-                scaled_point_size,
-                scale_x,
-                scale_y,
-                int(round(width_px)),
-                int(round(height_px)),
-            )
-            self._last_logged_scale = (round(scale_x, 4), round(scale_y, 4))
+        self._debug_legacy_point_size = scaled_point_size
         painter.setFont(font)
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
@@ -1278,6 +1293,57 @@ class OverlayWindow(QWidget):
             w,
             h,
         )
+
+    def _paint_debug_overlay(self, painter: QPainter) -> None:
+        if not self._show_debug_overlay:
+            return
+        frame = self.frameGeometry()
+        scale_x, scale_y = self._legacy_coordinate_scale_factors()
+        diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
+        width_px, height_px = self._current_physical_size()
+        size_labels = [("S", 6.0), ("N", 10.0), ("L", 12.0), ("H", 14.0)]
+        legacy_sizes_str = " ".join(
+            "{}={:.1f}".format(label, max(6.0, min(36.0, base * diagonal_scale)))
+            for label, base in size_labels
+        )
+        info_lines = [
+            "frame={}x{} phys={}x{}".format(
+                frame.width(),
+                frame.height(),
+                int(round(width_px)),
+                int(round(height_px)),
+            ),
+            "scale_x={:.2f} scale_y={:.2f} diag={:.2f}".format(scale_x, scale_y, diagonal_scale),
+            "fonts: message={:.1f} legacy={:.1f}".format(
+                self._debug_message_point_size,
+                self._debug_legacy_point_size,
+            ),
+            "legacy sizes: {}".format(legacy_sizes_str),
+        ]
+        painter.save()
+        debug_font = QFont(self._font_family, 10)
+        painter.setFont(debug_font)
+        metrics = painter.fontMetrics()
+        line_height = metrics.height()
+        text_width = max(metrics.horizontalAdvance(line) for line in info_lines)
+        padding = 6
+        rect = QRect(
+            4,
+            4,
+            text_width + padding * 2,
+            line_height * len(info_lines) + padding * 2,
+        )
+        painter.setBrush(QColor(0, 0, 0, 160))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(rect, 6, 6)
+        painter.setPen(QColor(220, 220, 220))
+        for index, line in enumerate(info_lines):
+            painter.drawText(
+                rect.left() + padding,
+                rect.top() + padding + metrics.ascent() + index * line_height,
+                line,
+            )
+        painter.restore()
 
     def _apply_legacy_scale(self) -> None:
         self.update()

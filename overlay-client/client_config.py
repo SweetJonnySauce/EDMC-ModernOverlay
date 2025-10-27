@@ -14,6 +14,7 @@ class InitialClientSettings:
     client_log_retention: int = 5
     force_render: bool = False
     force_xwayland: bool = False
+    show_debug_overlay: bool = False
 
 
 @dataclass
@@ -28,6 +29,7 @@ class DeveloperHelperConfig:
     show_status: Optional[bool] = None
     force_render: Optional[bool] = None
     force_xwayland: Optional[bool] = None
+    show_debug_overlay: Optional[bool] = None
 
     @classmethod
     def from_payload(cls, payload: Dict[str, Any]) -> "DeveloperHelperConfig":
@@ -62,6 +64,7 @@ class DeveloperHelperConfig:
             show_status=_bool(payload.get("show_status"), None),
             force_render=_bool(payload.get("force_render"), None),
             force_xwayland=_bool(payload.get("force_xwayland"), None),
+            show_debug_overlay=_bool(payload.get("show_debug_overlay"), None),
         )
 
 
@@ -85,9 +88,11 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         retention = defaults.client_log_retention
     force_render = bool(data.get("force_render", defaults.force_render))
     force_xwayland = bool(data.get("force_xwayland", defaults.force_xwayland))
+    show_debug_overlay = bool(data.get("show_debug_overlay", defaults.show_debug_overlay))
 
     return InitialClientSettings(
         client_log_retention=max(1, retention),
         force_render=force_render,
         force_xwayland=force_xwayland,
+        show_debug_overlay=show_debug_overlay,
     )

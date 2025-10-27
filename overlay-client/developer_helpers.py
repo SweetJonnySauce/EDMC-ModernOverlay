@@ -38,6 +38,7 @@ class DeveloperHelperController:
         window.set_log_retention(self._current_log_retention)
         window.set_force_render(initial.force_render)
         window.set_follow_enabled(True)
+        window.set_debug_overlay(initial.show_debug_overlay)
 
     def apply_config(self, window: "OverlayWindow", payload: Dict[str, Any]) -> None:
         config = DeveloperHelperConfig.from_payload(payload)
@@ -54,6 +55,8 @@ class DeveloperHelperController:
             window.set_show_status(config.show_status)
         if config.force_render is not None:
             window.set_force_render(config.force_render)
+        if config.show_debug_overlay is not None:
+            window.set_debug_overlay(config.show_debug_overlay)
         if 'platform_context' in payload:
             window.update_platform_context(payload.get('platform_context'))
         elif config.force_xwayland is not None:
