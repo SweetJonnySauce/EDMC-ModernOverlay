@@ -265,6 +265,7 @@ class OverlayWindow(QWidget):
         self.message_label.setWordWrap(True)
         self.message_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.message_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._base_message_point_size = message_font.pointSizeF()
         self.status_label = QLabel(self._status)
         self.status_label.setFont(status_font)
         self.status_label.setStyleSheet("color: white; background: transparent;")
@@ -274,6 +275,7 @@ class OverlayWindow(QWidget):
         self._debug_message_point_size = message_font.pointSizeF()
         self._debug_legacy_point_size = 0.0
         self._show_debug_overlay = bool(getattr(initial, "show_debug_overlay", False))
+        self._font_scale_diag = 1.0
 
         layout = QVBoxLayout()
         layout.addWidget(self.message_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -315,9 +317,15 @@ class OverlayWindow(QWidget):
         scale_y = height_px / float(DEFAULT_WINDOW_BASE_HEIGHT)
         return max(scale_x, 0.01), max(scale_y, 0.01)
 
-    def _update_message_font(self, diagonal_scale: float) -> None:
-        base_point = 12.0
-        target_point = max(6.0, min(36.0, base_point * diagonal_scale))
+    def _scaled_point_size(self, base_point: float, clamp_min: float = 6.0, clamp_max: float = 36.0) -> float:
+        diagonal_scale = self._font_scale_diag
+        if diagonal_scale <= 0.0:
+            scale_x, scale_y = self._legacy_scale()
+            diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
+        return max(clamp_min, min(clamp_max, base_point * diagonal_scale))
+
+    def _update_message_font(self) -> None:
+        target_point = self._scaled_point_size(self._base_message_point_size)
         if not math.isclose(target_point, self._debug_message_point_size, rel_tol=1e-3):
             font = self.message_label.font()
             font.setPointSizeF(target_point)
@@ -1147,7 +1155,8 @@ class OverlayWindow(QWidget):
     def _update_auto_legacy_scale(self, width: int, height: int) -> None:
         scale_x, scale_y = self._legacy_scale()
         diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
-        self._update_message_font(diagonal_scale)
+        self._font_scale_diag = diagonal_scale
+        self._update_message_font()
         current = (round(scale_x, 4), round(scale_y, 4), round(diagonal_scale, 4))
         if self._last_logged_scale != current:
             width_px, height_px = self._current_physical_size()
@@ -1243,8 +1252,7 @@ class OverlayWindow(QWidget):
         }
         base_point_size = base_sizes.get(size, 10.0)
         scale_x, scale_y = self._legacy_coordinate_scale_factors()
-        diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
-        scaled_point_size = max(6.0, min(36.0, base_point_size * diagonal_scale))
+        scaled_point_size = self._scaled_point_size(base_point_size)
         font = QFont(self._font_family)
         font.setPointSizeF(scaled_point_size)
         font.setWeight(QFont.Weight.Normal)
@@ -1310,11 +1318,13 @@ class OverlayWindow(QWidget):
             return
         frame = self.frameGeometry()
         scale_x, scale_y = self._legacy_coordinate_scale_factors()
-        diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
+        diagonal_scale = self._font_scale_diag
+        if diagonal_scale <= 0.0:
+            diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
         width_px, height_px = self._current_physical_size()
         size_labels = [("S", 6.0), ("N", 10.0), ("L", 12.0), ("H", 14.0)]
         legacy_sizes_str = " ".join(
-            "{}={:.1f}".format(label, max(6.0, min(36.0, base * diagonal_scale)))
+            "{}={:.1f}".format(label, self._scaled_point_size(base))
             for label, base in size_labels
         )
         info_lines = [
