@@ -1,6 +1,6 @@
 {
   "capture_output": false,
-  "overlay_opacity": 0.1,
+  "overlay_opacity": 0.09545454545454546,
   "show_connection_status": true,
   "log_payloads": false,
   "client_log_retention": 5,
