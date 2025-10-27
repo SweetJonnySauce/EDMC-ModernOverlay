@@ -1208,10 +1208,10 @@ class OverlayWindow(QWidget):
         color = QColor(str(item.get("color", "white")))
         size = str(item.get("size", "normal")).lower()
         base_sizes = {
-            "small": 12.0,
-            "normal": 14.0,
-            "large": 18.0,
-            "huge": 24.0,
+            "small": 8.0,
+            "normal": 12.0,
+            "large": 14.0,
+            "huge": 16.0,
         }
         base_point_size = base_sizes.get(size, 14.0)
         scale_x, scale_y = self._legacy_coordinate_scale_factors()
