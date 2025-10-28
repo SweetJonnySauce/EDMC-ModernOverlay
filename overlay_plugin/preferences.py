@@ -22,6 +22,7 @@ class Preferences:
     show_connection_status: bool = False
     show_ed_bandwidth: bool = False
     show_ed_fps: bool = False
+    debug_overlay_corner: str = "NW"
     log_payloads: bool = False
     client_log_retention: int = 5
     gridlines_enabled: bool = False
@@ -51,6 +52,10 @@ class Preferences:
         self.show_connection_status = bool(data.get("show_connection_status", False))
         self.show_ed_bandwidth = bool(data.get("show_ed_bandwidth", False))
         self.show_ed_fps = bool(data.get("show_ed_fps", False))
+        corner_value = str(data.get("debug_overlay_corner", "NW")) if data.get("debug_overlay_corner") is not None else "NW"
+        self.debug_overlay_corner = corner_value.strip().upper() if corner_value else "NW"
+        if self.debug_overlay_corner not in {"NW", "NE", "SW", "SE"}:
+            self.debug_overlay_corner = "NW"
         self.log_payloads = bool(data.get("log_payloads", False))
         try:
             retention = int(data.get("client_log_retention", 5))
@@ -84,6 +89,7 @@ class Preferences:
             "show_connection_status": bool(self.show_connection_status),
             "show_ed_bandwidth": bool(self.show_ed_bandwidth),
             "show_ed_fps": bool(self.show_ed_fps),
+            "debug_overlay_corner": str(self.debug_overlay_corner or "NW"),
             "log_payloads": bool(self.log_payloads),
             "client_log_retention": int(self.client_log_retention),
             "gridlines_enabled": bool(self.gridlines_enabled),
@@ -112,6 +118,7 @@ class PreferencesPanel:
         send_test_callback: Optional[Callable[[str, Optional[int], Optional[int]], None]] = None,
         set_opacity_callback: Optional[Callable[[float], None]] = None,
         set_status_callback: Optional[Callable[[bool], None]] = None,
+        set_debug_overlay_corner_callback: Optional[Callable[[str], None]] = None,
         set_status_bandwidth_callback: Optional[Callable[[bool], None]] = None,
         set_status_fps_callback: Optional[Callable[[bool], None]] = None,
         set_log_payloads_callback: Optional[Callable[[bool], None]] = None,
@@ -134,6 +141,7 @@ class PreferencesPanel:
         self._var_show_status = tk.BooleanVar(value=preferences.show_connection_status)
         self._var_show_status_bandwidth = tk.BooleanVar(value=preferences.show_ed_bandwidth)
         self._var_show_status_fps = tk.BooleanVar(value=preferences.show_ed_fps)
+        self._var_debug_overlay_corner = tk.StringVar(value=(preferences.debug_overlay_corner or "NW"))
         self._var_log_payloads = tk.BooleanVar(value=preferences.log_payloads)
         self._var_gridlines_enabled = tk.BooleanVar(value=preferences.gridlines_enabled)
         self._var_gridline_spacing = tk.IntVar(value=max(10, int(preferences.gridline_spacing)))
@@ -142,6 +150,7 @@ class PreferencesPanel:
         self._send_test = send_test_callback
         self._set_opacity = set_opacity_callback
         self._set_status = set_status_callback
+        self._set_debug_overlay_corner = set_debug_overlay_corner_callback
         self._set_status_bandwidth = set_status_bandwidth_callback
         self._set_status_fps = set_status_fps_callback
         self._set_log_payloads = set_log_payloads_callback
@@ -236,6 +245,20 @@ class PreferencesPanel:
         )
         debug_checkbox.grid(row=4, column=0, sticky="w", pady=(6, 0))
 
+        corner_row = ttk.Frame(frame, style=self._frame_style)
+        corner_label = nb.Label(corner_row, text="Debug overlay corner:")
+        corner_label.pack(side="left")
+        for label, value in (("NW", "NW"), ("NE", "NE"), ("SW", "SW"), ("SE", "SE")):
+            rb = nb.Radiobutton(
+                corner_row,
+                text=label,
+                value=value,
+                variable=self._var_debug_overlay_corner,
+                command=self._on_debug_overlay_corner_change,
+            )
+            rb.pack(side="left", padx=(6, 0))
+        corner_row.grid(row=5, column=0, sticky="w", pady=(4, 0))
+
         retention_row = ttk.Frame(frame, style=self._frame_style)
         retention_label = nb.Label(retention_row, text="Overlay client log files to keep (rotate when current file grows).")
         retention_label.pack(side="left")
@@ -253,7 +276,7 @@ class PreferencesPanel:
         retention_spin.pack(side="left", padx=(6, 0))
         retention_spin.bind("<FocusOut>", self._on_log_retention_event)
         retention_spin.bind("<Return>", self._on_log_retention_event)
-        retention_row.grid(row=5, column=0, sticky="w", pady=(6, 0))
+        retention_row.grid(row=6, column=0, sticky="w", pady=(6, 0))
 
         font_row = ttk.Frame(frame, style=self._frame_style)
         font_label = nb.Label(font_row, text="Font scaling bounds (pt):")
@@ -285,13 +308,13 @@ class PreferencesPanel:
         max_spin.pack(side="left")
         max_spin.bind("<FocusOut>", self._on_font_bounds_event)
         max_spin.bind("<Return>", self._on_font_bounds_event)
-        font_row.grid(row=6, column=0, sticky="w", pady=(6, 0))
+        font_row.grid(row=7, column=0, sticky="w", pady=(6, 0))
 
         opacity_label = nb.Label(
             frame,
             text="Overlay background opacity (0.0 transparent – 1.0 opaque). Alt+drag is enabled when opacity > 0.5.",
         )
-        opacity_label.grid(row=7, column=0, sticky="w", pady=(10, 0))
+        opacity_label.grid(row=8, column=0, sticky="w", pady=(10, 0))
 
         opacity_row = ttk.Frame(frame, style=self._frame_style)
         opacity_scale = ttk.Scale(
@@ -305,7 +328,7 @@ class PreferencesPanel:
             style=self._scale_style,
         )
         opacity_scale.pack(side="left", fill="x")
-        opacity_row.grid(row=8, column=0, sticky="we")
+        opacity_row.grid(row=9, column=0, sticky="we")
 
         force_checkbox = nb.Checkbutton(
             frame,
@@ -315,7 +338,7 @@ class PreferencesPanel:
             offvalue=False,
             command=self._on_force_render_toggle,
         )
-        force_checkbox.grid(row=9, column=0, sticky="w", pady=(10, 0))
+        force_checkbox.grid(row=10, column=0, sticky="w", pady=(10, 0))
 
         grid_checkbox = nb.Checkbutton(
             frame,
@@ -325,7 +348,7 @@ class PreferencesPanel:
             offvalue=False,
             command=self._on_gridlines_toggle,
         )
-        grid_checkbox.grid(row=10, column=0, sticky="w", pady=(8, 0))
+        grid_checkbox.grid(row=11, column=0, sticky="w", pady=(8, 0))
 
         grid_spacing_row = ttk.Frame(frame, style=self._frame_style)
         grid_spacing_label = nb.Label(grid_spacing_row, text="Grid spacing (pixels):")
@@ -343,10 +366,10 @@ class PreferencesPanel:
         grid_spacing_spin.pack(side="left", padx=(6, 0))
         grid_spacing_spin.bind("<FocusOut>", self._on_gridline_spacing_event)
         grid_spacing_spin.bind("<Return>", self._on_gridline_spacing_event)
-        grid_spacing_row.grid(row=11, column=0, sticky="w", pady=(2, 0))
+        grid_spacing_row.grid(row=12, column=0, sticky="w", pady=(2, 0))
 
         test_label = nb.Label(frame, text="Send test message to overlay:")
-        test_label.grid(row=12, column=0, sticky="w", pady=(10, 0))
+        test_label.grid(row=13, column=0, sticky="w", pady=(10, 0))
 
         test_row = ttk.Frame(frame, style=self._frame_style)
         test_entry = nb.EntryMenu(test_row, textvariable=self._test_var, width=40)
@@ -361,22 +384,22 @@ class PreferencesPanel:
         y_label.pack(side="left", padx=(8, 2))
         y_entry.pack(side="left")
         send_button.pack(side="left", padx=(8, 0))
-        test_row.grid(row=13, column=0, sticky="we", pady=(2, 0))
+        test_row.grid(row=14, column=0, sticky="we", pady=(2, 0))
         frame.columnconfigure(0, weight=1)
         test_row.columnconfigure(0, weight=1)
 
         legacy_label = nb.Label(frame, text="Legacy edmcoverlay compatibility:")
-        legacy_label.grid(row=14, column=0, sticky="w", pady=(10, 0))
+        legacy_label.grid(row=15, column=0, sticky="w", pady=(10, 0))
 
         legacy_row = ttk.Frame(frame, style=self._frame_style)
         legacy_text_btn = nb.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
         legacy_rect_btn = nb.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
         legacy_text_btn.pack(side="left")
         legacy_rect_btn.pack(side="left", padx=(8, 0))
-        legacy_row.grid(row=15, column=0, sticky="w", pady=(2, 0))
+        legacy_row.grid(row=16, column=0, sticky="w", pady=(2, 0))
 
         status_label = nb.Label(frame, textvariable=self._status_var, wraplength=400, justify="left")
-        status_label.grid(row=16, column=0, sticky="w", pady=(4, 0))
+        status_label.grid(row=17, column=0, sticky="w", pady=(4, 0))
 
         self._frame = frame
 
@@ -444,6 +467,7 @@ class PreferencesPanel:
             except Exception as exc:
                 self._status_var.set(f"Failed to update bandwidth overlay setting: {exc}")
                 return
+        self._preferences.save()
 
     def _on_status_fps_toggle(self) -> None:
         value = bool(self._var_show_status_fps.get())
@@ -454,6 +478,20 @@ class PreferencesPanel:
             except Exception as exc:
                 self._status_var.set(f"Failed to update FPS overlay setting: {exc}")
                 return
+        self._preferences.save()
+
+    def _on_debug_overlay_corner_change(self) -> None:
+        value = (self._var_debug_overlay_corner.get() or "NW").upper()
+        if value not in {"NW", "NE", "SW", "SE"}:
+            value = "NW"
+        self._preferences.debug_overlay_corner = value
+        if self._set_debug_overlay_corner:
+            try:
+                self._set_debug_overlay_corner(value)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update debug overlay corner: {exc}")
+                return
+        self._preferences.save()
 
     def _on_log_payload_toggle(self) -> None:
         value = bool(self._var_log_payloads.get())

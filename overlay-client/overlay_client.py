@@ -270,7 +270,8 @@ class OverlayWindow(QWidget):
         self._debug_status_point_size = message_font.pointSizeF()
         self._debug_legacy_point_size = 0.0
         self._show_debug_overlay = bool(getattr(initial, "show_debug_overlay", False))
-        self._status_bottom_margin: int = 20
+        self._status_bottom_margin = self._coerce_non_negative(getattr(initial, "status_bottom_margin", 20), default=20)
+        self._debug_overlay_corner: str = self._normalise_debug_corner(getattr(initial, "debug_overlay_corner", "NW"))
         self._font_scale_diag = 1.0
         min_font = getattr(initial, "min_font_point", 6.0)
         max_font = getattr(initial, "max_font_point", 24.0)
@@ -660,11 +661,7 @@ class OverlayWindow(QWidget):
             self._dismiss_overlay_status_message()
 
     def set_status_bottom_margin(self, margin: Optional[int]) -> None:
-        try:
-            value = int(margin) if margin is not None else self._status_bottom_margin
-        except (TypeError, ValueError):
-            value = self._status_bottom_margin
-        value = max(0, value)
+        value = self._coerce_non_negative(margin, default=self._status_bottom_margin)
         if value == self._status_bottom_margin:
             return
         self._status_bottom_margin = value
@@ -672,18 +669,29 @@ class OverlayWindow(QWidget):
         if self._show_status and self._status:
             self._show_overlay_status_message(self._status)
 
+    def set_debug_overlay_corner(self, corner: Optional[str]) -> None:
+        normalised = self._normalise_debug_corner(corner)
+        if normalised == self._debug_overlay_corner:
+            return
+        self._debug_overlay_corner = normalised
+        _CLIENT_LOGGER.debug("Debug overlay corner updated to %s", self._debug_overlay_corner)
+        if self._show_debug_overlay:
+            self.update()
+
     def _show_overlay_status_message(self, status: str) -> None:
         message = (status or "").strip()
         if not message:
             return
         bottom_margin = max(0, self._status_bottom_margin)
+        x_pos = 10
+        y_pos = max(0, DEFAULT_WINDOW_BASE_HEIGHT - bottom_margin)
         payload = {
             "type": "message",
             "id": "__status_banner__",
             "text": message,
             "color": "#ffffff",
-            "x": 10,
-            "y": max(0, DEFAULT_WINDOW_BASE_HEIGHT - bottom_margin),
+            "x": x_pos,
+            "y": y_pos,
             "ttl": 0,
             "size": "normal",
         }
@@ -704,6 +712,20 @@ class OverlayWindow(QWidget):
             "ttl": 0,
         }
         self.handle_legacy_payload(payload)
+
+    def _normalise_debug_corner(self, corner: Optional[str]) -> str:
+        if not corner:
+            return "NW"
+        value = str(corner).strip().upper()
+        return value if value in {"NW", "NE", "SW", "SE"} else "NW"
+
+    @staticmethod
+    def _coerce_non_negative(value: Optional[int], *, default: int) -> int:
+        try:
+            numeric = int(value) if value is not None else default
+        except (TypeError, ValueError):
+            numeric = default
+        return max(0, numeric)
 
     def set_background_opacity(self, opacity: float) -> None:
         try:
@@ -1517,12 +1539,20 @@ class OverlayWindow(QWidget):
         line_height = metrics.height()
         text_width = max(metrics.horizontalAdvance(line) for line in info_lines)
         padding = 6
-        rect = QRect(
-            4,
-            4,
-            text_width + padding * 2,
-            line_height * len(info_lines) + padding * 2,
-        )
+        panel_width = text_width + padding * 2
+        panel_height = line_height * len(info_lines) + padding * 2
+        rect = QRect(0, 0, panel_width, panel_height)
+        margin = 10
+        corner = self._debug_overlay_corner
+        if corner in {"NW", "SW"}:
+            left = margin
+        else:
+            left = max(margin, self.width() - panel_width - margin)
+        if corner in {"NW", "NE"}:
+            top = margin
+        else:
+            top = max(margin, self.height() - panel_height - margin)
+        rect.moveTo(left, top)
         painter.setBrush(QColor(0, 0, 0, 160))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(rect, 6, 6)

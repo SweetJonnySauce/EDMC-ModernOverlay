@@ -18,6 +18,8 @@ class InitialClientSettings:
     min_font_point: float = 6.0
     max_font_point: float = 24.0
     status_bottom_margin: int = 20
+    debug_overlay_corner: str = "NW"
+    status_corner: str = "SW"
 
 
 @dataclass
@@ -36,6 +38,8 @@ class DeveloperHelperConfig:
     min_font_point: Optional[float] = None
     max_font_point: Optional[float] = None
     status_bottom_margin: Optional[int] = None
+    debug_overlay_corner: Optional[str] = None
+    status_corner: Optional[str] = None
 
     @classmethod
     def from_payload(cls, payload: Dict[str, Any]) -> "DeveloperHelperConfig":
@@ -61,6 +65,17 @@ class DeveloperHelperConfig:
                 return fallback
             return bool(value)
 
+        def _str(value: Any, fallback: Optional[str]) -> Optional[str]:
+            if value is None:
+                return fallback
+            try:
+                text = str(value).strip().upper()
+                if text in {"NW", "NE", "SW", "SE"}:
+                    return text
+                return fallback
+            except Exception:
+                return fallback
+
         return cls(
             background_opacity=_float(payload.get("opacity"), None),
             enable_drag=_bool(payload.get("enable_drag"), None),
@@ -74,6 +89,7 @@ class DeveloperHelperConfig:
             min_font_point=_float(payload.get("min_font_point"), None),
             max_font_point=_float(payload.get("max_font_point"), None),
             status_bottom_margin=_int(payload.get("status_bottom_margin"), None),
+            debug_overlay_corner=_str(payload.get("debug_overlay_corner"), None),
         )
 
 
@@ -113,6 +129,9 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
     except (TypeError, ValueError):
         bottom_margin = defaults.status_bottom_margin
     bottom_margin = max(0, bottom_margin)
+    corner_value = str(data.get("debug_overlay_corner", defaults.debug_overlay_corner) or "NW").strip().upper()
+    if corner_value not in {"NW", "NE", "SW", "SE"}:
+        corner_value = defaults.debug_overlay_corner
 
     return InitialClientSettings(
         client_log_retention=max(1, retention),
@@ -122,4 +141,5 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         min_font_point=min_font,
         max_font_point=max_font,
         status_bottom_margin=bottom_margin,
+        debug_overlay_corner=corner_value,
     )
