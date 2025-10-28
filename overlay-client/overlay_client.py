@@ -121,9 +121,12 @@ class OverlayDataClient(QObject):
                 backoff = min(backoff * 1.5, 10.0)
                 continue
 
-            connection_message = f"Connected to 127.0.0.1:{port}"
-            if plugin_version and plugin_version != "unknown":
-                connection_message = f"{connection_message} – v{plugin_version}"
+            script_label = MODERN_OVERLAY_VERSION if MODERN_OVERLAY_VERSION and MODERN_OVERLAY_VERSION != "unknown" else "unknown"
+            if script_label != "unknown" and not script_label.lower().startswith("v"):
+                script_label = f"v{script_label}"
+            connection_prefix = script_label if script_label != "unknown" else "unknown"
+            connection_message = f"{connection_prefix} - Connected to 127.0.0.1:{port}"
+            _CLIENT_LOGGER.debug("Status banner updated: %s", connection_message)
             self.status_changed.emit(connection_message)
             backoff = 1.0
             try:
@@ -254,8 +257,6 @@ class OverlayWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
 
-        status_font = QFont(self._font_family, 18)
-        status_font.setWeight(QFont.Weight.Normal)
         message_font = QFont(self._font_family, 16)
         message_font.setWeight(QFont.Weight.Normal)
         self.message_label = QLabel("")
@@ -265,16 +266,9 @@ class OverlayWindow(QWidget):
         self.message_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.message_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._base_message_point_size = message_font.pointSizeF()
-        self.status_label = QLabel(self._status)
-        self.status_label.setFont(status_font)
-        self.status_label.setStyleSheet("color: white; background: transparent;")
-        self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
-        self.status_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.status_label.setWordWrap(True)
-        self.status_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         self._debug_message_point_size = message_font.pointSizeF()
-        self._debug_status_point_size = status_font.pointSizeF()
+        self._debug_status_point_size = message_font.pointSizeF()
         self._debug_legacy_point_size = 0.0
         self._show_debug_overlay = bool(getattr(initial, "show_debug_overlay", False))
         self._font_scale_diag = 1.0
@@ -286,12 +280,9 @@ class OverlayWindow(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(self.message_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         layout.addStretch(1)
-        layout.addWidget(self.status_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
-        # Raise the bottom status label ~10px further by increasing bottom margin
         layout.setContentsMargins(20, 20, 20, 40)
         self._apply_drag_state()
         self.setLayout(layout)
-        self.status_label.setVisible(False)
 
         width_px, height_px = self._current_physical_size()
         _CLIENT_LOGGER.debug(
@@ -520,7 +511,6 @@ class OverlayWindow(QWidget):
                     classification="wm_intervention",
                 )
             self._last_move_log = current
-            self._update_status_position_info()
 
     # External control -----------------------------------------------------
 
@@ -657,58 +647,50 @@ class OverlayWindow(QWidget):
         self._status_raw = status
         self._status = status
         self._last_status_log = None
-        self._refresh_status_label()
-        self._update_status_visibility()
+        if self._show_status:
+            self._show_overlay_status_message(status)
 
     def set_show_status(self, show: bool) -> None:
-        self._show_status = bool(show)
-        if not self._show_status:
-            self.status_label.clear()
-            self._last_status_log = None
-        self._refresh_status_label()
-        self._update_status_visibility()
-
-    def _refresh_status_label(self) -> None:
-        if not self._show_status:
+        flag = bool(show)
+        if flag == self._show_status:
             return
-        text = self._compose_status_text()
-        if text != self.status_label.text():
-            self.status_label.setText(text)
+        self._show_status = flag
+        if flag:
+            self._show_overlay_status_message(self._status_raw)
+        else:
+            self._dismiss_overlay_status_message()
 
-    def _compose_status_text(self) -> str:
-        base = (self._status_raw or "").strip()
-        augmented = self._augment_connection_status(base)
-        self._status = augmented
-        frame = self.frameGeometry()
-        if augmented and augmented.lower().startswith("connected to"):
-            return augmented
-        suffix_line = f"position: x={frame.x()} y={frame.y()}"
-        if augmented:
-            return "\n".join((augmented, suffix_line))
-        return "\n".join(("Overlay position", suffix_line))
-
-    def _augment_connection_status(self, status: str) -> str:
-        base = (status or "").strip()
-        if not base.lower().startswith("connected to"):
-            return base
-        return base
-
-    def _update_status_position_info(self) -> None:
-        if not self._show_status:
+    def _show_overlay_status_message(self, status: str) -> None:
+        message = (status or "").strip()
+        if not message:
             return
-        frame = self.frameGeometry()
-        current = (frame.x(), frame.y())
-        if current != self._last_status_log:
-            screen_desc = self._describe_screen(self.windowHandle().screen() if self.windowHandle() else None)
-            _CLIENT_LOGGER.debug(
-                "Updating status position info: pos=(%d,%d) monitor=%s; %s",
-                frame.x(),
-                frame.y(),
-                screen_desc,
-                self.format_scale_debug(),
-            )
-            self._last_status_log = current
-        self._refresh_status_label()
+        payload = {
+            "type": "message",
+            "id": "__status_banner__",
+            "text": message,
+            "color": "#ffffff",
+            "x": 10,
+            "y": DEFAULT_WINDOW_BASE_HEIGHT - 20,
+            "ttl": 0,
+            "size": "normal",
+        }
+        _CLIENT_LOGGER.debug(
+            "Legacy status message dispatched: text='%s' ttl=%s x=%s y=%s",
+            message,
+            payload["ttl"],
+            payload["x"],
+            payload["y"],
+        )
+        self.handle_legacy_payload(payload)
+
+    def _dismiss_overlay_status_message(self) -> None:
+        payload = {
+            "type": "message",
+            "id": "__status_banner__",
+            "text": "",
+            "ttl": 0,
+        }
+        self.handle_legacy_payload(payload)
 
     def set_background_opacity(self, opacity: float) -> None:
         try:
@@ -765,12 +747,6 @@ class OverlayWindow(QWidget):
 
     def handle_legacy_payload(self, payload: Dict[str, Any]) -> None:
         self._handle_legacy(payload)
-
-    def _update_status_visibility(self) -> None:
-        should_display = bool(self._show_status)
-        if self.status_label.isVisible() != should_display:
-            _CLIENT_LOGGER.debug("Overlay status label visibility set to %s; %s", should_display, self.format_scale_debug())
-        self.status_label.setVisible(should_display)
 
     def update_platform_context(self, context_payload: Optional[Dict[str, Any]]) -> None:
         if context_payload is None:
@@ -838,7 +814,7 @@ class OverlayWindow(QWidget):
 
     def _set_click_through(self, transparent: bool) -> None:
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, transparent)
-        for child_name in ("message_label", "status_label"):
+        for child_name in ("message_label",):
             child = getattr(self, child_name, None)
             if child is not None:
                 try:
@@ -1548,7 +1524,6 @@ class OverlayWindow(QWidget):
 
     def _apply_legacy_scale(self) -> None:
         self.update()
-        self._refresh_status_label()
 
     def _apply_window_dimensions(self, *, force: bool = False) -> None:
         return
