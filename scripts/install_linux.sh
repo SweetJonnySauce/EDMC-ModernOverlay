@@ -134,6 +134,46 @@ disable_conflicting_plugins() {
     fi
 }
 
+ensure_system_packages() {
+    local packages=(
+        libxcb-cursor0
+        libxkbcommon-x11-0
+    )
+
+    if ! command -v dpkg-query >/dev/null 2>&1; then
+        echo "⚠️  Skipping system package check because 'dpkg-query' is unavailable."
+        echo "    Please ensure the following packages are installed manually: ${packages[*]}"
+        return
+    fi
+
+    local missing=()
+    for pkg in "${packages[@]}"; do
+        if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+            missing+=("$pkg")
+        fi
+    done
+
+    if (( ${#missing[@]} == 0 )); then
+        echo "✅ Required system packages already installed: ${packages[*]}"
+        return
+    fi
+
+    echo "📦 Modern Overlay requires the following system packages:"
+    printf '    %s\n' "${packages[@]}"
+    echo "⚠️  Missing packages detected: ${missing[*]}"
+    echo "    This step will run 'sudo apt-get update' followed by 'sudo apt-get install -y ${missing[*]}'."
+    if ! prompt_yes_no "Install missing system packages now?"; then
+        echo "❌ Installation cannot continue without required system packages." >&2
+        exit 1
+    fi
+
+    require_command sudo
+    echo "ℹ️  Running 'sudo apt-get update'..."
+    sudo apt-get update
+    echo "ℹ️  Running 'sudo apt-get install -y ${missing[*]}'..."
+    sudo apt-get install -y "${missing[@]}"
+}
+
 create_venv_and_install() {
     local target="$1"
     pushd "$target" >/dev/null
@@ -155,22 +195,6 @@ create_venv_and_install() {
     pip install -r overlay-client/requirements.txt
     deactivate
 
-    local missing_packages=()
-    if command -v dpkg >/dev/null 2>&1; then
-        for pkg in libxcb-cursor0 libxkbcommon-x11-0; do
-            if ! dpkg -s "$pkg" >/dev/null 2>&1; then
-                missing_packages+=("$pkg")
-            fi
-        done
-        if (( ${#missing_packages[@]} )); then
-            echo "📦 Installing system packages: ${missing_packages[*]}"
-            require_command sudo
-            sudo apt-get update
-            sudo apt-get install -y "${missing_packages[@]}"
-        fi
-    else
-        echo "⚠️  Skipping system package check because 'dpkg' is unavailable."
-    fi
     popd >/dev/null
 }
 
@@ -222,6 +246,7 @@ main() {
     require_command python3 "python3"
     detect_plugins_dir
     ensure_edmc_not_running
+    ensure_system_packages
     disable_conflicting_plugins
 
     local src_dir="${RELEASE_ROOT}/EDMC-ModernOverlay"
@@ -246,6 +271,7 @@ main() {
     fi
 
     final_notes
+    read -r -p $'Install finished, hit Enter to continue...'
 }
 
 main "$@"
