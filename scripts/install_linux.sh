@@ -174,6 +174,17 @@ ensure_system_packages() {
     sudo apt-get install -y "${missing[@]}"
 }
 
+maybe_install_wayland_deps() {
+    if ! prompt_yes_no "Install Wayland (XWayland) helper packages (wmctrl, x11-utils)?"; then
+        echo "ℹ️  Skipping Wayland/X11 helper packages."
+        return
+    fi
+
+    require_command sudo
+    echo "ℹ️  Running 'sudo apt-get install -y wmctrl x11-utils'..."
+    sudo apt-get install -y wmctrl x11-utils
+}
+
 create_venv_and_install() {
     local target="$1"
     pushd "$target" >/dev/null
@@ -247,6 +258,7 @@ main() {
     detect_plugins_dir
     ensure_edmc_not_running
     ensure_system_packages
+    maybe_install_wayland_deps
     disable_conflicting_plugins
 
     local src_dir="${RELEASE_ROOT}/EDMC-ModernOverlay"
