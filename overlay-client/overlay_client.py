@@ -1392,18 +1392,23 @@ class OverlayWindow(QWidget):
     def _legacy_coordinate_scale_factors(self) -> Tuple[float, float]:
         return self._legacy_scale()
 
+    def _legacy_preset_point_size(self, preset: str) -> float:
+        """Return the scaled font size for a legacy preset relative to normal."""
+        normal_point = self._scaled_point_size(10.0)
+        offsets = {
+            "small": -2.0,
+            "normal": 0.0,
+            "large": 2.0,
+            "huge": 4.0,
+        }
+        target = normal_point + offsets.get(preset.lower(), 0.0)
+        return max(1.0, target)
+
     def _paint_legacy_message(self, painter: QPainter, item: Dict[str, Any]) -> None:
         color = QColor(str(item.get("color", "white")))
         size = str(item.get("size", "normal")).lower()
-        base_sizes = {
-            "small": 6.0,
-            "normal": 10.0,
-            "large": 12.0,
-            "huge": 14.0,
-        }
-        base_point_size = base_sizes.get(size, 10.0)
+        scaled_point_size = self._legacy_preset_point_size(size)
         scale_x, scale_y = self._legacy_coordinate_scale_factors()
-        scaled_point_size = self._scaled_point_size(base_point_size)
         font = QFont(self._font_family)
         font.setPointSizeF(scaled_point_size)
         font.setWeight(QFont.Weight.Normal)
@@ -1473,10 +1478,10 @@ class OverlayWindow(QWidget):
         if diagonal_scale <= 0.0:
             diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
         width_px, height_px = self._current_physical_size()
-        size_labels = [("S", 6.0), ("N", 10.0), ("L", 12.0), ("H", 14.0)]
+        size_labels = [("S", "small"), ("N", "normal"), ("L", "large"), ("H", "huge")]
         legacy_sizes_str = " ".join(
-            "{}={:.1f}".format(label, self._scaled_point_size(base))
-            for label, base in size_labels
+            "{}={:.1f}".format(label, self._legacy_preset_point_size(name))
+            for label, name in size_labels
         )
         monitor_desc = self._last_screen_name or self._describe_screen(self.windowHandle().screen() if self.windowHandle() else None)
         monitor_lines = [
