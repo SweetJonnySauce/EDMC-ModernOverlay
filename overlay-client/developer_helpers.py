@@ -42,6 +42,7 @@ class DeveloperHelperController:
         window.set_font_bounds(initial.min_font_point, initial.max_font_point)
         window.set_status_bottom_margin(initial.status_bottom_margin)
         window.set_debug_overlay_corner(getattr(initial, "debug_overlay_corner", "NW"))
+        window.set_title_bar_compensation(initial.title_bar_enabled, initial.title_bar_height)
 
     def apply_config(self, window: "OverlayWindow", payload: Dict[str, Any]) -> None:
         config = DeveloperHelperConfig.from_payload(payload)
@@ -62,6 +63,8 @@ class DeveloperHelperController:
             window.set_debug_overlay_corner(config.debug_overlay_corner)
         if config.force_render is not None:
             window.set_force_render(config.force_render)
+        if config.title_bar_enabled is not None or config.title_bar_height is not None:
+            window.set_title_bar_compensation(config.title_bar_enabled, config.title_bar_height)
         if config.show_debug_overlay is not None:
             window.set_debug_overlay(config.show_debug_overlay)
         if config.min_font_point is not None or config.max_font_point is not None:

@@ -224,6 +224,8 @@ class OverlayWindow(QWidget):
             self._platform_context.compositor or "unknown",
             self._platform_context.force_xwayland,
         )
+        self._title_bar_enabled: bool = bool(getattr(initial, "title_bar_enabled", False))
+        self._title_bar_height: int = self._coerce_non_negative(getattr(initial, "title_bar_height", 0), default=0)
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -765,6 +767,38 @@ class OverlayWindow(QWidget):
             self._gridline_spacing = max(10, numeric)
         self.update()
 
+    def set_title_bar_compensation(self, enabled: Optional[bool], height: Optional[int]) -> None:
+        changed = False
+        if enabled is not None:
+            flag = bool(enabled)
+            if flag != self._title_bar_enabled:
+                self._title_bar_enabled = flag
+                changed = True
+        if height is not None:
+            try:
+                numeric = int(height)
+            except (TypeError, ValueError):
+                numeric = self._title_bar_height
+            numeric = max(0, numeric)
+            if numeric != self._title_bar_height:
+                self._title_bar_height = numeric
+                changed = True
+        if changed:
+            if self._wm_authoritative_rect is not None:
+                self._clear_wm_override(reason="title_bar_compensation_changed")
+            _CLIENT_LOGGER.debug(
+                "Title bar compensation updated: enabled=%s height=%d",
+                self._title_bar_enabled,
+                self._title_bar_height,
+            )
+            self._follow_resume_at = 0.0
+            if self._follow_enabled and self._window_tracker is not None:
+                self._refresh_follow_geometry()
+            elif self._last_follow_state is not None:
+                self._apply_follow_state(self._last_follow_state)
+            else:
+                self.update()
+
     def set_window_dimensions(self, width: Optional[int], height: Optional[int]) -> None:
         _CLIENT_LOGGER.debug(
             "Ignoring explicit window size request (%s x %s); overlay follows game window geometry.",
@@ -972,6 +1006,18 @@ class OverlayWindow(QWidget):
             self._last_tracker_state = tracker_key
         self._apply_follow_state(state)
 
+    def _apply_title_bar_offset(self, geometry: Tuple[int, int, int, int]) -> Tuple[int, int, int, int]:
+        if not self._title_bar_enabled or self._title_bar_height <= 0:
+            return geometry
+        x, y, width, height = geometry
+        if height <= 1:
+            return geometry
+        offset = min(self._title_bar_height, max(0, height - 1))
+        if offset <= 0:
+            return geometry
+        adjusted_height = max(1, height - offset)
+        return (x, y + offset, width, adjusted_height)
+
     def _apply_follow_state(self, state: WindowState) -> None:
         self._lost_window_logged = False
 
@@ -985,6 +1031,7 @@ class OverlayWindow(QWidget):
             width,
             height,
         )
+        desired_tuple = self._apply_title_bar_offset(tracker_target_tuple)
         if tracker_target_tuple != self._last_raw_window_log:
             _CLIENT_LOGGER.debug(
                 "Raw tracker window geometry: pos=(%d,%d) size=%dx%d",
@@ -996,7 +1043,7 @@ class OverlayWindow(QWidget):
             self._last_raw_window_log = tracker_target_tuple
 
         now = time.monotonic()
-        target_tuple = tracker_target_tuple
+        target_tuple = desired_tuple
         if self._wm_authoritative_rect is not None:
             tracker_changed = (
                 self._wm_override_tracker is not None

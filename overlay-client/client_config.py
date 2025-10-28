@@ -20,6 +20,8 @@ class InitialClientSettings:
     status_bottom_margin: int = 20
     debug_overlay_corner: str = "NW"
     status_corner: str = "SW"
+    title_bar_enabled: bool = False
+    title_bar_height: int = 0
 
 
 @dataclass
@@ -40,6 +42,8 @@ class DeveloperHelperConfig:
     status_bottom_margin: Optional[int] = None
     debug_overlay_corner: Optional[str] = None
     status_corner: Optional[str] = None
+    title_bar_enabled: Optional[bool] = None
+    title_bar_height: Optional[int] = None
 
     @classmethod
     def from_payload(cls, payload: Dict[str, Any]) -> "DeveloperHelperConfig":
@@ -90,6 +94,8 @@ class DeveloperHelperConfig:
             max_font_point=_float(payload.get("max_font_point"), None),
             status_bottom_margin=_int(payload.get("status_bottom_margin"), None),
             debug_overlay_corner=_str(payload.get("debug_overlay_corner"), None),
+            title_bar_enabled=_bool(payload.get("title_bar_enabled"), None),
+            title_bar_height=_int(payload.get("title_bar_height"), None),
         )
 
 
@@ -132,6 +138,12 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
     corner_value = str(data.get("debug_overlay_corner", defaults.debug_overlay_corner) or "NW").strip().upper()
     if corner_value not in {"NW", "NE", "SW", "SE"}:
         corner_value = defaults.debug_overlay_corner
+    title_bar_enabled = bool(data.get("title_bar_enabled", defaults.title_bar_enabled))
+    try:
+        bar_height = int(data.get("title_bar_height", defaults.title_bar_height))
+    except (TypeError, ValueError):
+        bar_height = defaults.title_bar_height
+    bar_height = max(0, bar_height)
 
     return InitialClientSettings(
         client_log_retention=max(1, retention),
@@ -142,4 +154,6 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         max_font_point=max_font,
         status_bottom_margin=bottom_margin,
         debug_overlay_corner=corner_value,
+        title_bar_enabled=title_bar_enabled,
+        title_bar_height=bar_height,
     )

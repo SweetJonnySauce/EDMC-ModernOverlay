@@ -553,6 +553,21 @@ class _PluginRuntime:
         )
         self._send_overlay_config()
 
+    def set_title_bar_compensation_preference(self, enabled: bool, height: int) -> None:
+        self._preferences.title_bar_enabled = bool(enabled)
+        try:
+            numeric_height = int(height)
+        except (TypeError, ValueError):
+            numeric_height = self._preferences.title_bar_height
+        numeric_height = max(0, numeric_height)
+        self._preferences.title_bar_height = numeric_height
+        LOGGER.debug(
+            "Overlay title bar compensation updated: enabled=%s height=%d",
+            self._preferences.title_bar_enabled,
+            self._preferences.title_bar_height,
+        )
+        self._send_overlay_config()
+
     def set_debug_overlay_preference(self, value: bool) -> None:
         self._preferences.show_debug_overlay = bool(value)
         LOGGER.debug("Overlay debug overlay %s", "enabled" if self._preferences.show_debug_overlay else "disabled")
@@ -616,6 +631,8 @@ class _PluginRuntime:
             "gridlines_enabled": bool(self._preferences.gridlines_enabled),
             "gridline_spacing": int(self._preferences.gridline_spacing),
             "force_render": bool(self._preferences.force_render),
+            "title_bar_enabled": bool(self._preferences.title_bar_enabled),
+            "title_bar_height": int(self._preferences.title_bar_height),
             "show_debug_overlay": bool(self._preferences.show_debug_overlay),
             "min_font_point": float(self._preferences.min_font_point),
             "max_font_point": float(self._preferences.max_font_point),
@@ -625,7 +642,7 @@ class _PluginRuntime:
         self._publish_payload(payload)
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s debug_overlay_corner=%s status_bottom_margin=%s client_log_retention=%d gridlines_enabled=%s "
-            "gridline_spacing=%d force_render=%s debug_overlay=%s font_min=%.1f font_max=%.1f platform_context=%s",
+            "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s font_min=%.1f font_max=%.1f platform_context=%s",
             payload["opacity"],
             payload["show_status"],
             payload["debug_overlay_corner"],
@@ -634,6 +651,8 @@ class _PluginRuntime:
             payload["gridlines_enabled"],
             payload["gridline_spacing"],
             payload["force_render"],
+            payload["title_bar_enabled"],
+            payload["title_bar_height"],
             payload["show_debug_overlay"],
             payload["min_font_point"],
             payload["max_font_point"],
@@ -869,6 +888,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         gridlines_enabled_callback = _plugin.set_gridlines_enabled_preference if _plugin else None
         gridline_spacing_callback = _plugin.set_gridline_spacing_preference if _plugin else None
         force_render_callback = _plugin.set_force_render_preference if _plugin else None
+        title_bar_config_callback = _plugin.set_title_bar_compensation_preference if _plugin else None
         debug_overlay_callback = _plugin.set_debug_overlay_preference if _plugin else None
         font_min_callback = _plugin.set_min_font_preference if _plugin else None
         font_max_callback = _plugin.set_max_font_preference if _plugin else None
@@ -885,6 +905,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             gridlines_enabled_callback,
             gridline_spacing_callback,
             force_render_callback,
+            title_bar_config_callback,
             debug_overlay_callback,
             font_min_callback,
             font_max_callback,
@@ -910,7 +931,8 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
             LOGGER.debug(
                 "Preferences saved: capture_output=%s show_connection_status=%s log_payloads=%s "
                 "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d "
-                "force_render=%s force_xwayland=%s debug_overlay=%s font_min=%.1f font_max=%.1f",
+                "force_render=%s title_bar_enabled=%s title_bar_height=%d force_xwayland=%s "
+                "debug_overlay=%s font_min=%.1f font_max=%.1f",
                 _preferences.capture_output,
                 _preferences.show_connection_status,
                 _preferences.log_payloads,
@@ -918,6 +940,8 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
                 _preferences.gridlines_enabled,
                 _preferences.gridline_spacing,
                 _preferences.force_render,
+                _preferences.title_bar_enabled,
+                _preferences.title_bar_height,
                 _preferences.force_xwayland,
                 _preferences.show_debug_overlay,
                 _preferences.min_font_point,

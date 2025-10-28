@@ -32,6 +32,8 @@ class Preferences:
     show_debug_overlay: bool = False
     min_font_point: float = 6.0
     max_font_point: float = 24.0
+    title_bar_enabled: bool = False
+    title_bar_height: int = 0
 
     def __post_init__(self) -> None:
         self.plugin_dir = Path(self.plugin_dir)
@@ -81,6 +83,12 @@ class Preferences:
             max_font = 24.0
         self.min_font_point = max(1.0, min(min_font, 48.0))
         self.max_font_point = max(self.min_font_point, min(max_font, 72.0))
+        self.title_bar_enabled = bool(data.get("title_bar_enabled", False))
+        try:
+            bar_height = int(data.get("title_bar_height", 0))
+        except (TypeError, ValueError):
+            bar_height = 0
+        self.title_bar_height = max(0, bar_height)
 
     def save(self) -> None:
         payload: Dict[str, Any] = {
@@ -100,6 +108,8 @@ class Preferences:
             "min_font_point": float(self.min_font_point),
             "max_font_point": float(self.max_font_point),
             "status_bottom_margin": int(self.status_bottom_margin()),
+            "title_bar_enabled": bool(self.title_bar_enabled),
+            "title_bar_height": int(self.title_bar_height),
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -125,6 +135,7 @@ class PreferencesPanel:
         set_gridlines_enabled_callback: Optional[Callable[[bool], None]] = None,
         set_gridline_spacing_callback: Optional[Callable[[int], None]] = None,
         set_force_render_callback: Optional[Callable[[bool], None]] = None,
+        set_title_bar_config_callback: Optional[Callable[[bool, int], None]] = None,
         set_debug_overlay_callback: Optional[Callable[[bool], None]] = None,
         set_font_min_callback: Optional[Callable[[float], None]] = None,
         set_font_max_callback: Optional[Callable[[float], None]] = None,
@@ -146,6 +157,8 @@ class PreferencesPanel:
         self._var_gridlines_enabled = tk.BooleanVar(value=preferences.gridlines_enabled)
         self._var_gridline_spacing = tk.IntVar(value=max(10, int(preferences.gridline_spacing)))
         self._var_force_render = tk.BooleanVar(value=preferences.force_render)
+        self._var_title_bar_enabled = tk.BooleanVar(value=preferences.title_bar_enabled)
+        self._var_title_bar_height = tk.IntVar(value=int(preferences.title_bar_height))
 
         self._send_test = send_test_callback
         self._set_opacity = set_opacity_callback
@@ -157,11 +170,13 @@ class PreferencesPanel:
         self._set_gridlines_enabled = set_gridlines_enabled_callback
         self._set_gridline_spacing = set_gridline_spacing_callback
         self._set_force_render = set_force_render_callback
+        self._set_title_bar_config = set_title_bar_config_callback
         self._set_debug_overlay = set_debug_overlay_callback
         self._set_font_min = set_font_min_callback
         self._set_font_max = set_font_max_callback
 
         self._legacy_client = None
+        self._title_bar_height_spin = None
         self._test_var = tk.StringVar()
         self._test_x_var = tk.StringVar()
         self._test_y_var = tk.StringVar()
@@ -340,6 +355,36 @@ class PreferencesPanel:
         )
         force_checkbox.grid(row=10, column=0, sticky="w", pady=(10, 0))
 
+        title_bar_row = ttk.Frame(frame, style=self._frame_style)
+        title_bar_checkbox = nb.Checkbutton(
+            title_bar_row,
+            text="Compensate for Elite Dangerous title bar",
+            variable=self._var_title_bar_enabled,
+            onvalue=True,
+            offvalue=False,
+            command=self._on_title_bar_toggle,
+        )
+        title_bar_checkbox.pack(side="left")
+        title_bar_height_label = nb.Label(title_bar_row, text="Height (px):")
+        title_bar_height_label.pack(side="left", padx=(12, 4))
+        title_bar_height_spin = ttk.Spinbox(
+            title_bar_row,
+            from_=0,
+            to=200,
+            increment=1,
+            width=4,
+            textvariable=self._var_title_bar_height,
+            command=self._on_title_bar_height_command,
+            style=self._spinbox_style,
+        )
+        title_bar_height_spin.pack(side="left")
+        title_bar_height_spin.bind("<FocusOut>", self._on_title_bar_height_event)
+        title_bar_height_spin.bind("<Return>", self._on_title_bar_height_event)
+        if not self._var_title_bar_enabled.get():
+            title_bar_height_spin.state(["disabled"])
+        self._title_bar_height_spin = title_bar_height_spin
+        title_bar_row.grid(row=11, column=0, sticky="w", pady=(6, 0))
+
         grid_checkbox = nb.Checkbutton(
             frame,
             text="Show light gridlines over the overlay background",
@@ -348,7 +393,7 @@ class PreferencesPanel:
             offvalue=False,
             command=self._on_gridlines_toggle,
         )
-        grid_checkbox.grid(row=11, column=0, sticky="w", pady=(8, 0))
+        grid_checkbox.grid(row=12, column=0, sticky="w", pady=(8, 0))
 
         grid_spacing_row = ttk.Frame(frame, style=self._frame_style)
         grid_spacing_label = nb.Label(grid_spacing_row, text="Grid spacing (pixels):")
@@ -366,10 +411,10 @@ class PreferencesPanel:
         grid_spacing_spin.pack(side="left", padx=(6, 0))
         grid_spacing_spin.bind("<FocusOut>", self._on_gridline_spacing_event)
         grid_spacing_spin.bind("<Return>", self._on_gridline_spacing_event)
-        grid_spacing_row.grid(row=12, column=0, sticky="w", pady=(2, 0))
+        grid_spacing_row.grid(row=13, column=0, sticky="w", pady=(2, 0))
 
         test_label = nb.Label(frame, text="Send test message to overlay:")
-        test_label.grid(row=13, column=0, sticky="w", pady=(10, 0))
+        test_label.grid(row=14, column=0, sticky="w", pady=(10, 0))
 
         test_row = ttk.Frame(frame, style=self._frame_style)
         test_entry = nb.EntryMenu(test_row, textvariable=self._test_var, width=40)
@@ -384,22 +429,22 @@ class PreferencesPanel:
         y_label.pack(side="left", padx=(8, 2))
         y_entry.pack(side="left")
         send_button.pack(side="left", padx=(8, 0))
-        test_row.grid(row=14, column=0, sticky="we", pady=(2, 0))
+        test_row.grid(row=15, column=0, sticky="we", pady=(2, 0))
         frame.columnconfigure(0, weight=1)
         test_row.columnconfigure(0, weight=1)
 
         legacy_label = nb.Label(frame, text="Legacy edmcoverlay compatibility:")
-        legacy_label.grid(row=15, column=0, sticky="w", pady=(10, 0))
+        legacy_label.grid(row=16, column=0, sticky="w", pady=(10, 0))
 
         legacy_row = ttk.Frame(frame, style=self._frame_style)
         legacy_text_btn = nb.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
         legacy_rect_btn = nb.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
         legacy_text_btn.pack(side="left")
         legacy_rect_btn.pack(side="left", padx=(8, 0))
-        legacy_row.grid(row=16, column=0, sticky="w", pady=(2, 0))
+        legacy_row.grid(row=17, column=0, sticky="w", pady=(2, 0))
 
         status_label = nb.Label(frame, textvariable=self._status_var, wraplength=400, justify="left")
-        status_label.grid(row=17, column=0, sticky="w", pady=(4, 0))
+        status_label.grid(row=18, column=0, sticky="w", pady=(4, 0))
 
         self._frame = frame
 
@@ -529,6 +574,47 @@ class PreferencesPanel:
                 self._status_var.set(f"Failed to update force-render option: {exc}")
                 return
         self._preferences.save()
+
+    def _on_title_bar_toggle(self) -> None:
+        enabled = bool(self._var_title_bar_enabled.get())
+        height = self._apply_title_bar_height()
+        self._preferences.title_bar_enabled = enabled
+        if self._title_bar_height_spin is not None:
+            if enabled:
+                self._title_bar_height_spin.state(["!disabled"])
+            else:
+                self._title_bar_height_spin.state(["disabled"])
+        if self._set_title_bar_config:
+            try:
+                self._set_title_bar_config(enabled, height)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update title bar compensation: {exc}")
+                return
+        self._preferences.save()
+
+    def _on_title_bar_height_command(self) -> None:
+        self._apply_title_bar_height(update_remote=True)
+
+    def _on_title_bar_height_event(self, _event) -> None:  # pragma: no cover - Tk event
+        self._apply_title_bar_height(update_remote=True)
+
+    def _apply_title_bar_height(self, update_remote: bool = False) -> int:
+        try:
+            value = int(self._var_title_bar_height.get())
+        except Exception:
+            value = self._preferences.title_bar_height
+        value = max(0, value)
+        self._var_title_bar_height.set(value)
+        self._preferences.title_bar_height = value
+        if update_remote and self._set_title_bar_config:
+            try:
+                self._set_title_bar_config(bool(self._var_title_bar_enabled.get()), value)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update title bar height: {exc}")
+                return value
+        if update_remote:
+            self._preferences.save()
+        return value
 
     def _on_debug_overlay_toggle(self) -> None:
         value = bool(self._var_debug_overlay.get())
