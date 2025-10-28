@@ -4,6 +4,9 @@
 
 set -euo pipefail
 
+echo "This script will download and install the Eurocaps cockpit font into the Modern Overlay plugin."
+read -r -p "Press Enter to continue or Ctrl+C to abort..."
+
 FONT_URL="https://raw.githubusercontent.com/inorton/EDMCOverlay/master/EDMCOverlay/EDMCOverlay/EUROCAPS.TTF"
 DEFAULT_PLUGIN_DIR="${HOME}/.local/share/EDMarketConnector/plugins/EDMC-ModernOverlay"
 PLUGIN_DIR="${1:-$DEFAULT_PLUGIN_DIR}"
@@ -58,3 +61,4 @@ else
 fi
 
 echo "Done. Restart the overlay client to pick up the new font."
+read -r -p "Installation complete. Hit enter to continue"
