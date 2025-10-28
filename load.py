@@ -504,6 +504,17 @@ class _PluginRuntime:
 
     def set_show_status_preference(self, value: bool) -> None:
         self._preferences.show_connection_status = bool(value)
+        self._preferences.save()
+        self._send_overlay_config()
+
+    def set_status_bandwidth_preference(self, value: bool) -> None:
+        self._preferences.show_ed_bandwidth = bool(value)
+        self._preferences.save()
+        self._send_overlay_config()
+
+    def set_status_fps_preference(self, value: bool) -> None:
+        self._preferences.show_ed_fps = bool(value)
+        self._preferences.save()
         self._send_overlay_config()
 
     def set_log_payload_preference(self, value: bool) -> None:
@@ -592,6 +603,7 @@ class _PluginRuntime:
             "opacity": float(self._preferences.overlay_opacity),
             "enable_drag": bool(self._preferences.overlay_opacity > 0.5),
             "show_status": bool(self._preferences.show_connection_status),
+            "status_bottom_margin": int(self._preferences.status_bottom_margin()),
             "client_log_retention": int(self._preferences.client_log_retention),
             "gridlines_enabled": bool(self._preferences.gridlines_enabled),
             "gridline_spacing": int(self._preferences.gridline_spacing),
@@ -604,10 +616,11 @@ class _PluginRuntime:
         self._last_config = dict(payload)
         self._publish_payload(payload)
         LOGGER.debug(
-            "Published overlay config: opacity=%s show_status=%s client_log_retention=%d gridlines_enabled=%s "
+            "Published overlay config: opacity=%s show_status=%s status_bottom_margin=%s client_log_retention=%d gridlines_enabled=%s "
             "gridline_spacing=%d force_render=%s debug_overlay=%s font_min=%.1f font_max=%.1f platform_context=%s",
             payload["opacity"],
             payload["show_status"],
+            payload["status_bottom_margin"],
             payload["client_log_retention"],
             payload["gridlines_enabled"],
             payload["gridline_spacing"],
@@ -840,6 +853,8 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
     opacity_callback = _plugin.preview_overlay_opacity if _plugin else None
     try:
         status_callback = _plugin.set_show_status_preference if _plugin else None
+        status_bandwidth_callback = _plugin.set_status_bandwidth_preference if _plugin else None
+        status_fps_callback = _plugin.set_status_fps_preference if _plugin else None
         log_callback = _plugin.set_log_payload_preference if _plugin else None
         gridlines_enabled_callback = _plugin.set_gridlines_enabled_preference if _plugin else None
         gridline_spacing_callback = _plugin.set_gridline_spacing_preference if _plugin else None
@@ -853,6 +868,8 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             send_callback,
             opacity_callback,
             status_callback,
+            status_bandwidth_callback,
+            status_fps_callback,
             log_callback,
             gridlines_enabled_callback,
             gridline_spacing_callback,

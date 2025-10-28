@@ -2,6 +2,8 @@
   "capture_output": false,
   "overlay_opacity": 0.0,
   "show_connection_status": true,
+  "show_ed_bandwidth": true,
+  "show_ed_fps": true,
   "log_payloads": false,
   "client_log_retention": 5,
   "gridlines_enabled": true,
@@ -10,5 +12,6 @@
   "force_xwayland": false,
   "show_debug_overlay": true,
   "min_font_point": 6.0,
-  "max_font_point": 18.0
+  "max_font_point": 16.0,
+  "status_bottom_margin": 54
 }

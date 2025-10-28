@@ -201,7 +201,6 @@ class OverlayWindow(QWidget):
         self._last_tracker_state: Optional[Tuple[str, int, int, int, int]] = None
         self._last_geometry_log: Optional[Tuple[int, int, int, int]] = None
         self._last_move_log: Optional[Tuple[int, int]] = None
-        self._last_status_log: Optional[Tuple[int, int]] = None
         self._last_screen_name: Optional[str] = None
         self._last_set_geometry: Optional[Tuple[int, int, int, int]] = None
         self._last_visibility_state: Optional[bool] = None
@@ -271,6 +270,7 @@ class OverlayWindow(QWidget):
         self._debug_status_point_size = message_font.pointSizeF()
         self._debug_legacy_point_size = 0.0
         self._show_debug_overlay = bool(getattr(initial, "show_debug_overlay", False))
+        self._status_bottom_margin: int = 20
         self._font_scale_diag = 1.0
         min_font = getattr(initial, "min_font_point", 6.0)
         max_font = getattr(initial, "max_font_point", 24.0)
@@ -646,7 +646,6 @@ class OverlayWindow(QWidget):
     def set_status_text(self, status: str) -> None:
         self._status_raw = status
         self._status = status
-        self._last_status_log = None
         if self._show_status:
             self._show_overlay_status_message(status)
 
@@ -660,17 +659,31 @@ class OverlayWindow(QWidget):
         else:
             self._dismiss_overlay_status_message()
 
+    def set_status_bottom_margin(self, margin: Optional[int]) -> None:
+        try:
+            value = int(margin) if margin is not None else self._status_bottom_margin
+        except (TypeError, ValueError):
+            value = self._status_bottom_margin
+        value = max(0, value)
+        if value == self._status_bottom_margin:
+            return
+        self._status_bottom_margin = value
+        _CLIENT_LOGGER.debug("Status bottom margin updated to %spx", self._status_bottom_margin)
+        if self._show_status and self._status:
+            self._show_overlay_status_message(self._status)
+
     def _show_overlay_status_message(self, status: str) -> None:
         message = (status or "").strip()
         if not message:
             return
+        bottom_margin = max(0, self._status_bottom_margin)
         payload = {
             "type": "message",
             "id": "__status_banner__",
             "text": message,
             "color": "#ffffff",
             "x": 10,
-            "y": DEFAULT_WINDOW_BASE_HEIGHT - 20,
+            "y": max(0, DEFAULT_WINDOW_BASE_HEIGHT - bottom_margin),
             "ttl": 0,
             "size": "normal",
         }

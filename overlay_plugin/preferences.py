@@ -8,6 +8,8 @@ from typing import Any, Callable, Dict, Optional
 
 
 PREFERENCES_FILE = "overlay_settings.json"
+STATUS_BASE_MARGIN = 20
+STATUS_SLOT_MARGIN = 17
 
 
 @dataclass
@@ -18,6 +20,8 @@ class Preferences:
     capture_output: bool = True
     overlay_opacity: float = 0.0
     show_connection_status: bool = False
+    show_ed_bandwidth: bool = False
+    show_ed_fps: bool = False
     log_payloads: bool = False
     client_log_retention: int = 5
     gridlines_enabled: bool = False
@@ -45,6 +49,8 @@ class Preferences:
         self.capture_output = bool(data.get("capture_output", True))
         self.overlay_opacity = float(data.get("overlay_opacity", 0.0))
         self.show_connection_status = bool(data.get("show_connection_status", False))
+        self.show_ed_bandwidth = bool(data.get("show_ed_bandwidth", False))
+        self.show_ed_fps = bool(data.get("show_ed_fps", False))
         self.log_payloads = bool(data.get("log_payloads", False))
         try:
             retention = int(data.get("client_log_retention", 5))
@@ -76,6 +82,8 @@ class Preferences:
             "capture_output": bool(self.capture_output),
             "overlay_opacity": float(self.overlay_opacity),
             "show_connection_status": bool(self.show_connection_status),
+            "show_ed_bandwidth": bool(self.show_ed_bandwidth),
+            "show_ed_fps": bool(self.show_ed_fps),
             "log_payloads": bool(self.log_payloads),
             "client_log_retention": int(self.client_log_retention),
             "gridlines_enabled": bool(self.gridlines_enabled),
@@ -85,8 +93,13 @@ class Preferences:
             "show_debug_overlay": bool(self.show_debug_overlay),
             "min_font_point": float(self.min_font_point),
             "max_font_point": float(self.max_font_point),
+            "status_bottom_margin": int(self.status_bottom_margin()),
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def status_bottom_margin(self) -> int:
+        slots = int(bool(self.show_ed_bandwidth)) + int(bool(self.show_ed_fps))
+        return STATUS_BASE_MARGIN + STATUS_SLOT_MARGIN * slots
 
 
 class PreferencesPanel:
@@ -99,6 +112,8 @@ class PreferencesPanel:
         send_test_callback: Optional[Callable[[str, Optional[int], Optional[int]], None]] = None,
         set_opacity_callback: Optional[Callable[[float], None]] = None,
         set_status_callback: Optional[Callable[[bool], None]] = None,
+        set_status_bandwidth_callback: Optional[Callable[[bool], None]] = None,
+        set_status_fps_callback: Optional[Callable[[bool], None]] = None,
         set_log_payloads_callback: Optional[Callable[[bool], None]] = None,
         set_gridlines_enabled_callback: Optional[Callable[[bool], None]] = None,
         set_gridline_spacing_callback: Optional[Callable[[int], None]] = None,
@@ -117,6 +132,8 @@ class PreferencesPanel:
         self._var_capture = tk.BooleanVar(value=preferences.capture_output)
         self._var_opacity = tk.DoubleVar(value=preferences.overlay_opacity)
         self._var_show_status = tk.BooleanVar(value=preferences.show_connection_status)
+        self._var_show_status_bandwidth = tk.BooleanVar(value=preferences.show_ed_bandwidth)
+        self._var_show_status_fps = tk.BooleanVar(value=preferences.show_ed_fps)
         self._var_log_payloads = tk.BooleanVar(value=preferences.log_payloads)
         self._var_gridlines_enabled = tk.BooleanVar(value=preferences.gridlines_enabled)
         self._var_gridline_spacing = tk.IntVar(value=max(10, int(preferences.gridline_spacing)))
@@ -125,6 +142,8 @@ class PreferencesPanel:
         self._send_test = send_test_callback
         self._set_opacity = set_opacity_callback
         self._set_status = set_status_callback
+        self._set_status_bandwidth = set_status_bandwidth_callback
+        self._set_status_fps = set_status_fps_callback
         self._set_log_payloads = set_log_payloads_callback
         self._set_gridlines_enabled = set_gridlines_enabled_callback
         self._set_gridline_spacing = set_gridline_spacing_callback
@@ -164,15 +183,38 @@ class PreferencesPanel:
         checkbox.grid(row=0, column=0, sticky="w")
         helper.grid(row=1, column=0, sticky="w", pady=(2, 0))
 
+        status_row = ttk.Frame(frame, style=self._frame_style)
         status_checkbox = nb.Checkbutton(
-            frame,
+            status_row,
             text="Show connection status message at bottom of overlay",
             variable=self._var_show_status,
             onvalue=True,
             offvalue=False,
             command=self._on_show_status_toggle,
         )
-        status_checkbox.grid(row=2, column=0, sticky="w", pady=(10, 0))
+        status_checkbox.pack(side="left")
+
+        bandwidth_checkbox = nb.Checkbutton(
+            status_row,
+            text="ED Bandwidth is showing",
+            variable=self._var_show_status_bandwidth,
+            onvalue=True,
+            offvalue=False,
+            command=self._on_status_bandwidth_toggle,
+        )
+        bandwidth_checkbox.pack(side="left", padx=(16, 0))
+
+        fps_checkbox = nb.Checkbutton(
+            status_row,
+            text="ED FPS is showing",
+            variable=self._var_show_status_fps,
+            onvalue=True,
+            offvalue=False,
+            command=self._on_status_fps_toggle,
+        )
+        fps_checkbox.pack(side="left", padx=(16, 0))
+
+        status_row.grid(row=2, column=0, sticky="w", pady=(10, 0))
 
         log_checkbox = nb.Checkbutton(
             frame,
@@ -392,6 +434,26 @@ class PreferencesPanel:
                 self._status_var.set(f"Failed to update connection status: {exc}")
                 return
         self._preferences.save()
+
+    def _on_status_bandwidth_toggle(self) -> None:
+        value = bool(self._var_show_status_bandwidth.get())
+        self._preferences.show_ed_bandwidth = value
+        if self._set_status_bandwidth:
+            try:
+                self._set_status_bandwidth(value)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update bandwidth overlay setting: {exc}")
+                return
+
+    def _on_status_fps_toggle(self) -> None:
+        value = bool(self._var_show_status_fps.get())
+        self._preferences.show_ed_fps = value
+        if self._set_status_fps:
+            try:
+                self._set_status_fps(value)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update FPS overlay setting: {exc}")
+                return
 
     def _on_log_payload_toggle(self) -> None:
         value = bool(self._var_log_payloads.get())

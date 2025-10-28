@@ -17,6 +17,7 @@ class InitialClientSettings:
     show_debug_overlay: bool = False
     min_font_point: float = 6.0
     max_font_point: float = 24.0
+    status_bottom_margin: int = 20
 
 
 @dataclass
@@ -34,6 +35,7 @@ class DeveloperHelperConfig:
     show_debug_overlay: Optional[bool] = None
     min_font_point: Optional[float] = None
     max_font_point: Optional[float] = None
+    status_bottom_margin: Optional[int] = None
 
     @classmethod
     def from_payload(cls, payload: Dict[str, Any]) -> "DeveloperHelperConfig":
@@ -71,6 +73,7 @@ class DeveloperHelperConfig:
             show_debug_overlay=_bool(payload.get("show_debug_overlay"), None),
             min_font_point=_float(payload.get("min_font_point"), None),
             max_font_point=_float(payload.get("max_font_point"), None),
+            status_bottom_margin=_int(payload.get("status_bottom_margin"), None),
         )
 
 
@@ -105,6 +108,11 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         max_font = defaults.max_font_point
     min_font = max(1.0, min(min_font, 48.0))
     max_font = max(min_font, min(max_font, 72.0))
+    try:
+        bottom_margin = int(data.get("status_bottom_margin", defaults.status_bottom_margin))
+    except (TypeError, ValueError):
+        bottom_margin = defaults.status_bottom_margin
+    bottom_margin = max(0, bottom_margin)
 
     return InitialClientSettings(
         client_log_retention=max(1, retention),
@@ -113,4 +121,5 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         show_debug_overlay=show_debug_overlay,
         min_font_point=min_font,
         max_font_point=max_font,
+        status_bottom_margin=bottom_margin,
     )
