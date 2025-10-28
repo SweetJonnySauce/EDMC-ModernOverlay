@@ -40,3 +40,14 @@ def test_classifies_wm_when_hints_do_not_require_growth() -> None:
     classification = OverlayWindow._compute_geometry_override_classification(tracker, actual, min_hint, size_hint)
 
     assert classification == "wm_intervention"
+
+
+def test_classifies_layout_for_fractional_follow_sizes() -> None:
+    tracker = (100, 200, 1285, 719)
+    actual = (100, 200, 1292, 723)
+    min_hint = QSize(1290, 720)
+    size_hint = QSize(1292, 723)
+
+    classification = OverlayWindow._compute_geometry_override_classification(tracker, actual, min_hint, size_hint, tolerance=3)
+
+    assert classification == "layout"

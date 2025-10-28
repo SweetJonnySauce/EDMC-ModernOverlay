@@ -124,10 +124,6 @@ class OverlayDataClient(QObject):
             connection_message = f"Connected to 127.0.0.1:{port}"
             if plugin_version and plugin_version != "unknown":
                 connection_message = f"{connection_message} – v{plugin_version}"
-            if sys.platform.startswith("linux"):
-                session_type = os.environ.get("XDG_SESSION_TYPE")
-                if session_type:
-                    connection_message = f"{connection_message} ({session_type})"
             self.status_changed.emit(connection_message)
             backoff = 1.0
             try:
@@ -684,10 +680,9 @@ class OverlayWindow(QWidget):
         augmented = self._augment_connection_status(base)
         self._status = augmented
         frame = self.frameGeometry()
-        screen_desc = self._describe_screen(self.windowHandle().screen() if self.windowHandle() else None)
-        position = f"x={frame.x()} y={frame.y()}"
-        suffix = f"{position} on {screen_desc}"
-        suffix_line = f"position: {suffix}"
+        if augmented and augmented.lower().startswith("connected to"):
+            return augmented
+        suffix_line = f"position: x={frame.x()} y={frame.y()}"
         if augmented:
             return "\n".join((augmented, suffix_line))
         return "\n".join(("Overlay position", suffix_line))
@@ -696,14 +691,7 @@ class OverlayWindow(QWidget):
         base = (status or "").strip()
         if not base.lower().startswith("connected to"):
             return base
-        if "scale_y=" in base or "scale_x=" in base:
-            return base
-        width_px, height_px = self._current_physical_size()
-        scale_x, scale_y = self._legacy_scale()
-        metrics = f"{int(round(width_px))}x{int(round(height_px))}px scale_x={scale_x:.2f} scale_y={scale_y:.2f}"
-        if metrics in base:
-            return base
-        return "\n".join((base, metrics))
+        return base
 
     def _update_status_position_info(self) -> None:
         if not self._show_status:
@@ -1479,9 +1467,36 @@ class OverlayWindow(QWidget):
             "{}={:.1f}".format(label, self._scaled_point_size(base))
             for label, base in size_labels
         )
-        info_lines = [
-            "overlay={}x{}".format(self.width(), self.height()),
-            "frame={}x{} phys={}x{}".format(
+        monitor_desc = self._last_screen_name or self._describe_screen(self.windowHandle().screen() if self.windowHandle() else None)
+        monitor_lines = [
+            "Monitor:",
+            f"  active={monitor_desc or 'unknown'}",
+        ]
+        if self._last_follow_state is not None:
+            monitor_lines.append(
+                "  tracker=({},{}) {}x{}".format(
+                    self._last_follow_state.x,
+                    self._last_follow_state.y,
+                    self._last_follow_state.width,
+                    self._last_follow_state.height,
+                )
+            )
+        if self._wm_authoritative_rect is not None and self._wm_override_classification is not None:
+            rect = self._wm_authoritative_rect
+            monitor_lines.append(
+                "  wm_rect=({},{}) {}x{} [{}]".format(
+                    rect[0],
+                    rect[1],
+                    rect[2],
+                    rect[3],
+                    self._wm_override_classification,
+                )
+            )
+
+        overlay_lines = [
+            "Overlay:",
+            "  widget={}x{}".format(self.width(), self.height()),
+            "  frame={}x{} phys={}x{}".format(
                 frame.width(),
                 frame.height(),
                 int(round(width_px)),
@@ -1490,20 +1505,22 @@ class OverlayWindow(QWidget):
         ]
         if self._last_raw_window_log is not None:
             raw_x, raw_y, raw_w, raw_h = self._last_raw_window_log
-            info_lines.append("raw pos=({},{}) size={}x{}".format(raw_x, raw_y, raw_w, raw_h))
-        info_lines.extend(
-            [
-                "scale_x={:.2f} scale_y={:.2f} diag={:.2f}".format(scale_x, scale_y, diagonal_scale),
-                "font scale={:.2f}".format(self._font_scale_diag),
-                "font bounds={:.1f}-{:.1f}".format(self._font_min_point, self._font_max_point),
-                "fonts: message={:.1f} status={:.1f} legacy={:.1f}".format(
-                    self._debug_message_point_size,
-                    self._debug_status_point_size,
-                    self._debug_legacy_point_size,
-                ),
-                "legacy sizes: {}".format(legacy_sizes_str),
-            ]
-        )
+            overlay_lines.append("  raw=({},{}) {}x{}".format(raw_x, raw_y, raw_w, raw_h))
+
+        font_lines = [
+            "Fonts:",
+            "  scale_x={:.2f} scale_y={:.2f} diag={:.2f}".format(scale_x, scale_y, diagonal_scale),
+            "  ui_scale={:.2f}".format(self._font_scale_diag),
+            "  bounds={:.1f}-{:.1f}".format(self._font_min_point, self._font_max_point),
+            "  message={:.1f} status={:.1f} legacy={:.1f}".format(
+                self._debug_message_point_size,
+                self._debug_status_point_size,
+                self._debug_legacy_point_size,
+            ),
+            "  legacy presets: {}".format(legacy_sizes_str),
+        ]
+
+        info_lines = monitor_lines + [""] + overlay_lines + [""] + font_lines
         painter.save()
         debug_font = QFont(self._font_family, 10)
         painter.setFont(debug_font)
