@@ -609,7 +609,6 @@ class _PluginRuntime:
         payload = {
             "event": "OverlayConfig",
             "opacity": float(self._preferences.overlay_opacity),
-            "enable_drag": bool(self._preferences.overlay_opacity > 0.5),
             "show_status": bool(self._preferences.show_connection_status),
             "debug_overlay_corner": str(self._preferences.debug_overlay_corner or "NW"),
             "status_bottom_margin": int(self._preferences.status_bottom_margin()),

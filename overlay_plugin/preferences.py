@@ -312,7 +312,7 @@ class PreferencesPanel:
 
         opacity_label = nb.Label(
             frame,
-            text="Overlay background opacity (0.0 transparent – 1.0 opaque). Alt+drag is enabled when opacity > 0.5.",
+            text="Overlay background opacity (0.0 transparent – 1.0 opaque).",
         )
         opacity_label.grid(row=8, column=0, sticky="w", pady=(10, 0))
 
