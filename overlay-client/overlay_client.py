@@ -648,9 +648,19 @@ class OverlayWindow(QWidget):
 
     def set_status_text(self, status: str) -> None:
         self._status_raw = status
-        self._status = status
+        self._status = self._format_status_message(status)
         if self._show_status:
-            self._show_overlay_status_message(status)
+            self._show_overlay_status_message(self._status)
+
+    def _format_status_message(self, status: str) -> str:
+        message = status or ""
+        if "Connected to 127.0.0.1:" not in message:
+            return message
+        platform_label = self._platform_controller.platform_label()
+        suffix = f" on {platform_label}"
+        if message.endswith(suffix):
+            return message
+        return f"{message}{suffix}"
 
     def set_show_status(self, show: bool) -> None:
         flag = bool(show)
@@ -658,7 +668,7 @@ class OverlayWindow(QWidget):
             return
         self._show_status = flag
         if flag:
-            self._show_overlay_status_message(self._status_raw)
+            self._show_overlay_status_message(self._status)
         else:
             self._dismiss_overlay_status_message()
 
@@ -841,6 +851,9 @@ class OverlayWindow(QWidget):
             new_context.compositor or "unknown",
             new_context.force_xwayland,
         )
+        self._status = self._format_status_message(self._status_raw)
+        if self._show_status and self._status:
+            self._show_overlay_status_message(self._status)
 
     # Platform integration -------------------------------------------------
 

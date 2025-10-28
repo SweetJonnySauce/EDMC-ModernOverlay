@@ -266,3 +266,25 @@ class PlatformController:
 
     def monitors(self) -> List[MonitorSnapshot]:
         return self._integration.monitors()
+
+    def platform_label(self) -> str:
+        """Return a human-readable platform label for status messages."""
+        if sys.platform.startswith("win"):
+            return "Windows"
+        session = (self._context.session_type or "").lower()
+        if not session:
+            session = (os.environ.get("XDG_SESSION_TYPE") or "").lower()
+        platform_name = (QGuiApplication.platformName() or self._platform_name or "").lower()
+        if session == "wayland" and (self._context.force_xwayland or platform_name.startswith("xcb")):
+            return "Wayland (XWayland)"
+        if platform_name.startswith("wayland"):
+            return "Wayland"
+        if session == "wayland":
+            return "Wayland"
+        if self._context.force_xwayland:
+            return "X11"
+        if session == "x11":
+            return "X11"
+        if platform_name.startswith("xcb"):
+            return "X11"
+        return "Wayland"
