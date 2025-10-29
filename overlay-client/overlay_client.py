@@ -7,11 +7,12 @@ import json
 import logging
 import math
 import os
+import queue
 import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect, QSize
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QCursor, QFontDatabase, QGuiApplication, QWindow
@@ -70,6 +71,8 @@ class OverlayDataClient(QObject):
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._stop_event = threading.Event()
         self._last_metadata: Dict[str, Any] = {}
+        self._outgoing: Optional[asyncio.Queue[Optional[Dict[str, Any]]]] = None
+        self._pending: "queue.Queue[Dict[str, Any]]" = queue.Queue(maxsize=32)
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -86,6 +89,23 @@ class OverlayDataClient(QObject):
             self._thread.join(timeout=5.0)
         self._loop = None
         self._thread = None
+        self._outgoing = None
+
+    def send_cli_payload(self, payload: Mapping[str, Any]) -> bool:
+        message = dict(payload)
+        loop = self._loop
+        queue_ref = self._outgoing
+        if loop is not None and queue_ref is not None:
+            try:
+                loop.call_soon_threadsafe(queue_ref.put_nowait, message)
+                return True
+            except Exception:
+                pass
+        try:
+            self._pending.put_nowait(message)
+        except queue.Full:
+            return False
+        return True
 
     # Background thread ----------------------------------------------------
 
@@ -132,6 +152,18 @@ class OverlayDataClient(QObject):
             _CLIENT_LOGGER.debug("Status banner updated: %s", connection_message)
             self.status_changed.emit(connection_message)
             backoff = 1.0
+            outgoing_queue: asyncio.Queue[Optional[Dict[str, Any]]] = asyncio.Queue()
+            self._outgoing = outgoing_queue
+            while not self._pending.empty():
+                try:
+                    pending_payload = self._pending.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    outgoing_queue.put_nowait(pending_payload)
+                except asyncio.QueueFull:
+                    break
+            sender_task = asyncio.create_task(self._flush_outgoing(writer, outgoing_queue))
             try:
                 while not self._stop_event.is_set():
                     line = await reader.readline()
@@ -145,6 +177,15 @@ class OverlayDataClient(QObject):
             except Exception as exc:
                 self.status_changed.emit(f"Disconnected: {exc}")
             finally:
+                self._outgoing = None
+                try:
+                    outgoing_queue.put_nowait(None)
+                except Exception:
+                    pass
+                try:
+                    await sender_task
+                except Exception:
+                    pass
                 if writer is not None:
                     try:
                         writer.close()
@@ -153,6 +194,28 @@ class OverlayDataClient(QObject):
                         pass
             await asyncio.sleep(backoff)
             backoff = min(backoff * 1.5, 10.0)
+
+    async def _flush_outgoing(
+        self,
+        writer: asyncio.StreamWriter,
+        queue_ref: "asyncio.Queue[Optional[Dict[str, Any]]]",
+    ) -> None:
+        while not self._stop_event.is_set():
+            try:
+                payload = await queue_ref.get()
+            except Exception:
+                break
+            if payload is None:
+                break
+            try:
+                serialised = json.dumps(payload, ensure_ascii=False)
+            except Exception:
+                continue
+            try:
+                writer.write(serialised.encode("utf-8") + b"\n")
+                await writer.drain()
+            except Exception:
+                break
 
     def _read_port(self) -> Optional[Dict[str, Any]]:
         try:
@@ -198,6 +261,7 @@ class OverlayWindow(QWidget):
         self._log_retention: int = max(1, int(initial.client_log_retention))
         self._force_render: bool = bool(getattr(initial, "force_render", False))
         self._window_tracker: Optional[WindowTracker] = None
+        self._data_client: Optional[OverlayDataClient] = None
         self._last_follow_state: Optional[WindowState] = None
         self._follow_resume_at: float = 0.0
         self._lost_window_logged: bool = False
@@ -343,6 +407,32 @@ class OverlayWindow(QWidget):
             font.setPointSizeF(target_point)
             self.message_label.setFont(font)
             self._debug_message_point_size = target_point
+            self._publish_metrics()
+
+    def _publish_metrics(self) -> None:
+        client = self._data_client
+        if client is None:
+            return
+        width_px, height_px = self._current_physical_size()
+        scale_x, scale_y = self._legacy_scale()
+        frame = self.frameGeometry()
+        payload = {
+            "cli": "overlay_metrics",
+            "width": int(round(width_px)),
+            "height": int(round(height_px)),
+            "frame": {
+                "x": int(frame.x()),
+                "y": int(frame.y()),
+                "width": int(frame.width()),
+                "height": int(frame.height()),
+            },
+            "scale": {
+                "legacy_x": float(scale_x),
+                "legacy_y": float(scale_y),
+            },
+            "device_pixel_ratio": float(self.devicePixelRatioF()),
+        }
+        client.send_cli_payload(payload)
 
     def format_scale_debug(self) -> str:
         width_px, height_px = self._current_physical_size()
@@ -366,6 +456,7 @@ class OverlayWindow(QWidget):
         if screen is not None:
             geometry = screen.geometry()
             self._update_auto_legacy_scale(max(geometry.width(), 1), max(geometry.height(), 1))
+        self._publish_metrics()
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
         painter = QPainter(self)
@@ -443,6 +534,7 @@ class OverlayWindow(QWidget):
             self.setGeometry(target_rect)
             return
         self._update_auto_legacy_scale(max(size.width(), 1), max(size.height(), 1))
+        self._publish_metrics()
 
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
         if (
@@ -523,6 +615,20 @@ class OverlayWindow(QWidget):
     @property
     def gridlines_enabled(self) -> bool:
         return self._gridlines_enabled
+
+    def set_data_client(self, client: OverlayDataClient) -> None:
+        self._data_client = client
+        self._publish_metrics()
+        if self._window_tracker and hasattr(self._window_tracker, "set_monitor_provider"):
+            try:
+                self._window_tracker.set_monitor_provider(self.monitor_snapshots)  # type: ignore[attr-defined]
+            except Exception as exc:
+                _CLIENT_LOGGER.debug("Window tracker rejected monitor provider hook: %s", exc)
+        if self._window_tracker and self._follow_enabled:
+            self._start_tracking()
+            self._refresh_follow_geometry()
+        else:
+            self._stop_tracking()
 
     def set_window_tracker(self, tracker: Optional[WindowTracker]) -> None:
         self._window_tracker = tracker
@@ -1776,6 +1882,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     app = QApplication(sys.argv)
     data_client = OverlayDataClient(port_file)
     window = OverlayWindow(initial_settings)
+    window.set_data_client(data_client)
     helper.apply_initial_window_state(window, initial_settings)
     tracker = create_elite_window_tracker(_CLIENT_LOGGER, monitor_provider=window.monitor_snapshots)
     if tracker is not None:
