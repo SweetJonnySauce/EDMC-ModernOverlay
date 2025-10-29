@@ -78,6 +78,11 @@ class DeveloperHelperController:
         window.set_log_retention(self._current_log_retention)
 
     def handle_legacy_payload(self, window: "OverlayWindow", payload: Dict[str, Any]) -> None:
+        if payload.get("type") == "shape" and payload.get("shape") == "vect":
+            points = payload.get("vector")
+            if not isinstance(points, list) or len(points) < 2:
+                self._logger.warning("Vector payload ignored: requires at least two points (%s)", points)
+                return
         window.handle_legacy_payload(payload)
 
     def set_log_retention(self, retention: int) -> None:

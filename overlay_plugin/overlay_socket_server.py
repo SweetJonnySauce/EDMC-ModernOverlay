@@ -160,7 +160,12 @@ class SocketBroadcaster:
                 try:
                     response = self.ingest_callback(message)
                 except Exception as exc:
-                    self.log(f"CLI payload handler raised error: {exc}")
+                    meta = message.get("meta", {}) if isinstance(message, dict) else {}
+                    self.log(
+                        "CLI payload handler raised error: %s (meta=%s)",
+                        exc,
+                        meta,
+                    )
                     response = {"status": "error", "error": str(exc)}
                 if response is not None:
                     self._clients.discard((reader, writer))

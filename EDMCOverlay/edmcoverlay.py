@@ -172,6 +172,7 @@ class Overlay:
             }
 
         if shape:
+            shape_lower = shape.lower()
             payload: Dict[str, Any] = {
                 "type": "shape",
                 "shape": shape,
@@ -185,8 +186,14 @@ class Overlay:
                 "ttl": ttl,
             }
             vector = _lookup("vector", "Vector")
-            if isinstance(vector, list):
+            if shape_lower == "vect":
+                if not isinstance(vector, list) or len(vector) < 2:
+                    LOGGER.warning("Dropping vect payload with insufficient points: id=%s vector=%s", item_id, vector)
+                    return None
                 payload["vector"] = vector
+            else:
+                if isinstance(vector, list):
+                    payload["vector"] = vector
             return payload
 
         if ttl <= 0 and item_id:

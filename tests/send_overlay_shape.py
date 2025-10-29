@@ -153,6 +153,11 @@ def main(argv: list[str] | None = None) -> None:
     payload = _compose_payload(args.x, args.y, args.length, args.angle, args.ttl)
     _print_step(f"Prepared LegacyOverlay shape payload id={payload['payload']['id']}.")
 
+    # Add CLI helper info so the developer overlay helper can report diagnostics
+    payload.setdefault("meta", {})
+    payload["meta"]["source"] = "send_overlay_shape"
+    payload["meta"]["description"] = "Developer-initiated vector payload"
+
     response = _send_payload(port, payload)
     if response.get("status") == "ok":
         _print_step(
