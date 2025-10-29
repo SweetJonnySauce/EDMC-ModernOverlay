@@ -393,10 +393,17 @@ class OverlayWindow(QWidget):
             ratio = 1.0
         return width * ratio, height * ratio
 
-    def _legacy_scale(self) -> Tuple[float, float]:
-        width_px, height_px = self._current_physical_size()
-        scale_x = width_px / float(DEFAULT_WINDOW_BASE_WIDTH)
-        scale_y = height_px / float(DEFAULT_WINDOW_BASE_HEIGHT)
+    def _legacy_scale(self, *, use_physical: bool = True) -> Tuple[float, float]:
+        width = max(self.width(), 1)
+        height = max(self.height(), 1)
+        scale_x = width / float(DEFAULT_WINDOW_BASE_WIDTH)
+        scale_y = height / float(DEFAULT_WINDOW_BASE_HEIGHT)
+        if use_physical:
+            ratio = self.devicePixelRatioF()
+            if ratio <= 0.0:
+                ratio = 1.0
+            scale_x *= ratio
+            scale_y *= ratio
         return max(scale_x, 0.01), max(scale_y, 0.01)
 
     def _scaled_point_size(
@@ -1224,6 +1231,7 @@ class OverlayWindow(QWidget):
 
         scale_y = normalisation_info[2] if normalisation_info is not None else 1.0
         desired_tuple = self._apply_title_bar_offset(tracker_qt_tuple, scale_y=scale_y)
+        desired_tuple = self._apply_aspect_guard(desired_tuple)
 
         now = time.monotonic()
         target_tuple = desired_tuple
@@ -1537,6 +1545,30 @@ class OverlayWindow(QWidget):
         screen_name = screen.name() or screen.manufacturer() or "unknown"
         return converted, (screen_name, float(scale_x), float(scale_y), device_ratio)
 
+    def _apply_aspect_guard(self, geometry: Tuple[int, int, int, int]) -> Tuple[int, int, int, int]:
+        x, y, width, height = geometry
+        if width <= 0 or height <= 0:
+            return geometry
+        base_ratio = DEFAULT_WINDOW_BASE_WIDTH / float(DEFAULT_WINDOW_BASE_HEIGHT)
+        current_ratio = width / float(height)
+        ratio_delta = abs(current_ratio - base_ratio) / base_ratio
+        if ratio_delta >= 0.12:
+            return geometry
+        expected_height = int(round(width * DEFAULT_WINDOW_BASE_HEIGHT / float(DEFAULT_WINDOW_BASE_WIDTH)))
+        tolerance = max(2, int(round(expected_height * 0.01)))
+        if height > expected_height + tolerance:
+            adjusted = (x, y, width, expected_height)
+            _CLIENT_LOGGER.debug(
+                "Aspect guard trimmed overlay height: width=%d height=%d expected=%d tolerance=%d -> adjusted=%s",
+                width,
+                height,
+                expected_height,
+                tolerance,
+                adjusted,
+            )
+            return adjusted
+        return geometry
+
     def _describe_screen(self, screen) -> str:
         if screen is None:
             return "unknown"
@@ -1642,7 +1674,7 @@ class OverlayWindow(QWidget):
                 self._paint_legacy_vector(painter, item.data)
 
     def _legacy_coordinate_scale_factors(self) -> Tuple[float, float]:
-        return self._legacy_scale()
+        return self._legacy_scale(use_physical=False)
 
     def _legacy_preset_point_size(self, preset: str) -> float:
         """Return the scaled font size for a legacy preset relative to normal."""
@@ -1678,6 +1710,19 @@ class OverlayWindow(QWidget):
         min_x = margin
         if max_x < min_x:
             max_x = min_x
+        available_width = max(1, self.width() - (2 * margin))
+        if text_width > available_width:
+            shrink_ratio = available_width / float(text_width)
+            adjusted_point = max(4.0, scaled_point_size * shrink_ratio)
+            if adjusted_point < font.pointSizeF() - 0.1:
+                font.setPointSizeF(adjusted_point)
+                painter.setFont(font)
+                metrics = painter.fontMetrics()
+                text_width = metrics.horizontalAdvance(text)
+                max_x = self.width() - text_width - margin
+                if max_x < min_x:
+                    max_x = min_x
+                self._debug_legacy_point_size = adjusted_point
         if x < min_x:
             x = min_x
         elif x > max_x:
