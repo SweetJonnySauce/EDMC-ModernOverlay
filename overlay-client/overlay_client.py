@@ -34,6 +34,8 @@ from client_config import InitialClientSettings, load_initial_settings  # type: 
 from developer_helpers import DeveloperHelperController  # type: ignore  # noqa: E402
 from platform_integration import MonitorSnapshot, PlatformContext, PlatformController  # type: ignore  # noqa: E402
 from window_tracking import WindowState, WindowTracker, create_elite_window_tracker  # type: ignore  # noqa: E402
+from legacy_store import LegacyItemStore, LegacyItem  # type: ignore  # noqa: E402
+from legacy_processor import process_legacy_payload  # type: ignore  # noqa: E402
 
 _LOGGER_NAME = "EDMC.ModernOverlay.Client"
 _CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
@@ -178,7 +180,7 @@ class OverlayWindow(QWidget):
         self._state: Dict[str, Any] = {
             "message": "",
         }
-        self._legacy_items: Dict[str, Dict[str, Any]] = {}
+        self._legacy_items = LegacyItemStore()
         self._background_opacity: float = 0.0
         self._gridlines_enabled: bool = False
         self._gridline_spacing: int = 120
@@ -1383,87 +1385,20 @@ class OverlayWindow(QWidget):
             self._last_logged_scale = current
 
     def _handle_legacy(self, payload: Dict[str, Any]) -> None:
-        item_type = payload.get("type")
-        item_id = payload.get("id")
-        if item_type == "clear_all":
-            self._legacy_items.clear()
+        if process_legacy_payload(self._legacy_items, payload):
             self.update()
-            return
-        if item_type in {"legacy_clear", "clear"}:
-            if isinstance(item_id, str) and item_id:
-                self._legacy_items.pop(item_id, None)
-                self.update()
-            return
-        if not isinstance(item_id, str):
-            return
-
-        ttl = max(int(payload.get("ttl", 4)), 0)
-        expiry: Optional[float] = None if ttl <= 0 else time.monotonic() + ttl
-
-        if item_type == "message":
-            text = payload.get("text", "")
-            if not text:
-                self._legacy_items.pop(item_id, None)
-                self.update()
-                return
-            item = {
-                "kind": "message",
-                "text": text,
-                "color": payload.get("color", "white"),
-                "x": int(payload.get("x", 0)),
-                "y": int(payload.get("y", 0)),
-                "size": payload.get("size", "normal"),
-                "expiry": expiry,
-            }
-            self._legacy_items[item_id] = item
-            self.update()
-            return
-
-        if item_type == "shape" and payload.get("shape") == "rect":
-            fill = payload.get("fill") or "#00000000"
-            item = {
-                "kind": "rect",
-                "color": payload.get("color", "white"),
-                "fill": fill,
-                "x": int(payload.get("x", 0)),
-                "y": int(payload.get("y", 0)),
-                "w": int(payload.get("w", 0)),
-                "h": int(payload.get("h", 0)),
-                "expiry": expiry,
-            }
-            self._legacy_items[item_id] = item
-            self.update()
-            return
-
-        if item_type == "shape":
-            shape_name = str(payload.get("shape") or "").lower()
-            item = {
-                "kind": f"shape:{shape_name}" if shape_name else "shape",
-                "payload": dict(payload),
-                "expiry": expiry,
-            }
-            self._legacy_items[item_id] = item
-            self.update()
-            return
-
-        if item_type == "raw":
-            return
 
     def _purge_legacy(self) -> None:
         now = time.monotonic()
-        expired = [key for key, item in self._legacy_items.items() if item.get("expiry") is not None and item["expiry"] < now]
-        for key in expired:
-            self._legacy_items.pop(key, None)
-        if expired:
+        if self._legacy_items.purge_expired(now):
             self.update()
 
     def _paint_legacy(self, painter: QPainter) -> None:
         for item in self._legacy_items.values():
-            kind = item.get("kind")
-            if kind == "message":
-                self._paint_legacy_message(painter, item)
-            elif kind == "rect":
-                self._paint_legacy_rect(painter, item)
+            if item.kind == "message":
+                self._paint_legacy_message(painter, item.data)
+            elif item.kind == "rect":
+                self._paint_legacy_rect(painter, item.data)
 
     def _legacy_coordinate_scale_factors(self) -> Tuple[float, float]:
         return self._legacy_scale()

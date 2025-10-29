@@ -38,11 +38,12 @@ def _load_json(path: Path) -> Dict[str, Any]:
 
 def _ensure_log_payload_enabled(settings: Dict[str, Any]) -> None:
     if not bool(settings.get("log_payloads", False)):
-        _fail(
-            "overlay_settings.json reports log_payloads=false. Enable 'Send overlay payloads to the EDMC log' "
-            "in the ModernOverlay preferences and try again."
+        _print_step(
+            "WARNING: log_payloads=false. Overlay payloads will not be mirrored to the EDMC log."
+            " Enable 'Send overlay payloads to the EDMC log' in the preferences to see log entries."
         )
-    _print_step("Detected log_payloads=true (log mirroring enabled).")
+    else:
+        _print_step("Detected log_payloads=true (log mirroring enabled).")
 
 
 def _ensure_overlay_client_running() -> None:
