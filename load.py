@@ -16,21 +16,25 @@ if __package__:
     from .overlay_plugin.overlay_watchdog import OverlayWatchdog
     from .overlay_plugin.overlay_socket_server import WebSocketBroadcaster
     from .overlay_plugin.preferences import Preferences, PreferencesPanel
+    from .overlay_plugin.legacy_tcp_server import LegacyOverlayTCPServer
     from .overlay_plugin.overlay_api import (
         register_publisher,
         send_overlay_message,
         unregister_publisher,
     )
+    from .EDMCOverlay.edmcoverlay import normalise_legacy_payload
 else:  # pragma: no cover - EDMC loads as top-level module
     from version import __version__ as MODERN_OVERLAY_VERSION
     from overlay_plugin.overlay_watchdog import OverlayWatchdog
     from overlay_plugin.overlay_socket_server import WebSocketBroadcaster
     from overlay_plugin.preferences import Preferences, PreferencesPanel
+    from overlay_plugin.legacy_tcp_server import LegacyOverlayTCPServer
     from overlay_plugin.overlay_api import (
         register_publisher,
         send_overlay_message,
         unregister_publisher,
     )
+    from EDMCOverlay.edmcoverlay import normalise_legacy_payload
 
 PLUGIN_NAME = "EDMC-ModernOverlay"
 PLUGIN_VERSION = MODERN_OVERLAY_VERSION
@@ -195,6 +199,7 @@ class _PluginRuntime:
         self.plugin_dir = Path(plugin_dir)
         self.broadcaster = WebSocketBroadcaster(log=_log, ingest_callback=self._handle_cli_payload)
         self.watchdog: Optional[OverlayWatchdog] = None
+        self._legacy_tcp_server: Optional[LegacyOverlayTCPServer] = None
         self._lock = threading.Lock()
         self._running = False
         self._legacy_conflict = False
@@ -241,6 +246,7 @@ class _PluginRuntime:
             return PLUGIN_NAME
 
         register_publisher(self._publish_external)
+        self._start_legacy_tcp_server()
         self._send_overlay_config(rebroadcast=True)
         _log("Plugin started")
         return PLUGIN_NAME
@@ -253,6 +259,7 @@ class _PluginRuntime:
         unregister_publisher()
         _log("Plugin stopping")
         self._cancel_config_timers()
+        self._stop_legacy_tcp_server()
         if self.watchdog:
             if self.watchdog.stop():
                 LOGGER.debug("Overlay watchdog stopped and client terminated cleanly")
@@ -620,6 +627,46 @@ class _PluginRuntime:
         message.setdefault("raw", original_payload)
         self._publish_payload(message)
         return True
+
+    def _start_legacy_tcp_server(self) -> None:
+        if self._legacy_tcp_server is not None:
+            return
+        server = LegacyOverlayTCPServer(
+            host="127.0.0.1",
+            port=5010,
+            log=_log,
+            handler=self._handle_legacy_tcp_payload,
+        )
+        if server.start():
+            self._legacy_tcp_server = server
+        else:
+            self._legacy_tcp_server = None
+
+    def _stop_legacy_tcp_server(self) -> None:
+        server = self._legacy_tcp_server
+        if not server:
+            return
+        try:
+            server.stop()
+        except Exception as exc:
+            LOGGER.debug("Legacy overlay compatibility server shutdown error: %s", exc)
+        self._legacy_tcp_server = None
+
+    def _handle_legacy_tcp_payload(self, payload: Mapping[str, Any]) -> bool:
+        if not self._running:
+            return False
+        raw_payload = dict(payload)
+        normalised = normalise_legacy_payload(raw_payload)
+        if normalised is None:
+            LOGGER.debug("Legacy overlay payload dropped (unable to normalise): %s", raw_payload)
+            return False
+        message: Dict[str, Any] = {
+            "event": "LegacyOverlay",
+            **normalised,
+            "legacy_raw": raw_payload,
+        }
+        message.setdefault("timestamp", datetime.now(UTC).isoformat())
+        return self._publish_external(message)
 
     def _handle_cli_payload(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         try:

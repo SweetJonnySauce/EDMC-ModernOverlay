@@ -13,6 +13,96 @@ except Exception:  # pragma: no cover - EDMC will make this available at runtime
 LOGGER = logging.getLogger("EDMC.ModernOverlay.Legacy")
 
 
+def _legacy_coerce_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _legacy_coerce_str(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    stringified = str(value)
+    return stringified if stringified else None
+
+
+def normalise_legacy_payload(message: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    """Translate raw legacy overlay payloads into structured events."""
+
+    msg = dict(message)
+
+    def _lookup(*keys: str) -> Any:
+        for key in keys:
+            if key in msg:
+                return msg[key]
+        return None
+
+    item_id = _legacy_coerce_str(_lookup("id", "Id"))
+    text = _lookup("text", "Text")
+    shape = _legacy_coerce_str(_lookup("shape", "Shape"))
+    ttl = _legacy_coerce_int(_lookup("ttl", "TTL"), default=4)
+
+    if text is not None and text != "":
+        return {
+            "type": "message",
+            "id": item_id or "",
+            "text": str(text),
+            "color": _lookup("color", "Color") or "white",
+            "size": _lookup("size", "Size") or "normal",
+            "x": _legacy_coerce_int(_lookup("x", "X"), 0),
+            "y": _legacy_coerce_int(_lookup("y", "Y"), 0),
+            "ttl": ttl,
+        }
+
+    if shape:
+        shape_lower = shape.lower()
+        payload: Dict[str, Any] = {
+            "type": "shape",
+            "shape": shape,
+            "id": item_id or "",
+            "color": _lookup("color", "Color") or "white",
+            "fill": _lookup("fill", "Fill"),
+            "x": _legacy_coerce_int(_lookup("x", "X"), 0),
+            "y": _legacy_coerce_int(_lookup("y", "Y"), 0),
+            "w": _legacy_coerce_int(_lookup("w", "W"), 0),
+            "h": _legacy_coerce_int(_lookup("h", "H"), 0),
+            "ttl": ttl,
+        }
+        vector = _lookup("vector", "Vector")
+        if shape_lower == "vect":
+            if not isinstance(vector, list) or len(vector) < 2:
+                LOGGER.warning("Dropping vect payload with insufficient points: id=%s vector=%s", item_id, vector)
+                return None
+            payload["vector"] = vector
+        else:
+            if isinstance(vector, list):
+                payload["vector"] = vector
+        return payload
+
+    if ttl <= 0 and item_id:
+        return {
+            "type": "legacy_clear",
+            "id": item_id,
+            "ttl": ttl,
+        }
+
+    if item_id and text == "":
+        return {
+            "type": "message",
+            "id": item_id,
+            "text": "",
+            "color": _lookup("color", "Color") or "white",
+            "size": _lookup("size", "Size") or "normal",
+            "x": _legacy_coerce_int(_lookup("x", "X"), 0),
+            "y": _legacy_coerce_int(_lookup("y", "Y"), 0),
+            "ttl": ttl,
+        }
+
+    raw_value = dict(msg)
+    return {"type": "raw", "raw": raw_value, "id": item_id or "", "ttl": ttl}
+
+
 def trace(msg: str) -> str:
     LOGGER.debug("Legacy trace: %s", msg)
     return msg
@@ -117,17 +207,11 @@ class Overlay:
 
     @staticmethod
     def _coerce_int(value: Any, default: int = 0) -> int:
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return default
+        return _legacy_coerce_int(value, default)
 
     @staticmethod
     def _coerce_str(value: Any) -> Optional[str]:
-        if value is None:
-            return None
-        stringified = str(value)
-        return stringified if stringified else None
+        return _legacy_coerce_str(value)
 
     def _handle_command(self, command: Any) -> None:
         command_str = self._coerce_str(command)
@@ -148,76 +232,8 @@ class Overlay:
         message.
         """
 
-        def _lookup(*keys: str) -> Any:
-            for key in keys:
-                if key in msg:
-                    return msg[key]
-            return None
-
-        item_id = self._coerce_str(_lookup("id", "Id"))
-        text = _lookup("text", "Text")
-        shape = self._coerce_str(_lookup("shape", "Shape"))
-        ttl = self._coerce_int(_lookup("ttl", "TTL"), default=4)
-
-        if text is not None and text != "":
-            return {
-                "type": "message",
-                "id": item_id or "",
-                "text": str(text),
-                "color": _lookup("color", "Color") or "white",
-                "size": _lookup("size", "Size") or "normal",
-                "x": self._coerce_int(_lookup("x", "X"), 0),
-                "y": self._coerce_int(_lookup("y", "Y"), 0),
-                "ttl": ttl,
-            }
-
-        if shape:
-            shape_lower = shape.lower()
-            payload: Dict[str, Any] = {
-                "type": "shape",
-                "shape": shape,
-                "id": item_id or "",
-                "color": _lookup("color", "Color") or "white",
-                "fill": _lookup("fill", "Fill"),
-                "x": self._coerce_int(_lookup("x", "X"), 0),
-                "y": self._coerce_int(_lookup("y", "Y"), 0),
-                "w": self._coerce_int(_lookup("w", "W"), 0),
-                "h": self._coerce_int(_lookup("h", "H"), 0),
-                "ttl": ttl,
-            }
-            vector = _lookup("vector", "Vector")
-            if shape_lower == "vect":
-                if not isinstance(vector, list) or len(vector) < 2:
-                    LOGGER.warning("Dropping vect payload with insufficient points: id=%s vector=%s", item_id, vector)
-                    return None
-                payload["vector"] = vector
-            else:
-                if isinstance(vector, list):
-                    payload["vector"] = vector
-            return payload
-
-        if ttl <= 0 and item_id:
-            return {
-                "type": "legacy_clear",
-                "id": item_id,
-                "ttl": ttl,
-            }
-
-        if item_id and text == "":
-            return {
-                "type": "message",
-                "id": item_id,
-                "text": "",
-                "color": _lookup("color", "Color") or "white",
-                "size": _lookup("size", "Size") or "normal",
-                "x": self._coerce_int(_lookup("x", "X"), 0),
-                "y": self._coerce_int(_lookup("y", "Y"), 0),
-                "ttl": ttl,
-            }
-
-        raw_value = dict(msg)
-        return {"type": "raw", "raw": raw_value, "id": item_id or "", "ttl": ttl}
+        return normalise_legacy_payload(msg)
 
 
 # Backwards compatibility: some callers import `Overlay` at module level
-__all__ = ["Overlay", "ensure_service", "trace"]
+__all__ = ["Overlay", "ensure_service", "trace", "normalise_legacy_payload"]
