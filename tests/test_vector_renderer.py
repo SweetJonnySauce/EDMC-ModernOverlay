@@ -46,12 +46,13 @@ def test_render_vector_generates_lines_and_markers():
             {"x": 0, "y": 0},
             {"x": 10, "y": 0, "color": "red"},
             {"x": 10, "y": 10, "marker": "circle", "text": "Target"},
+            {"x": 5, "y": 15, "marker": "cross", "color": "green"},
         ],
     }
     render_vector(adapter, data, scale_x=2.0, scale_y=1.0)
 
     ops = [op for op, _ in adapter.operations if op == "line"]
-    assert len(ops) == 2
+    assert len(ops) == 3
 
     # First line should end at scaled (20,0)
     first_line = next(val for op, val in adapter.operations if op == "line")
@@ -60,3 +61,4 @@ def test_render_vector_generates_lines_and_markers():
     # Final operations should include circle marker and text
     assert any(op == "circle" for op, _ in adapter.operations)
     assert any(op == "text" for op, _ in adapter.operations)
+    assert any(op == "cross" for op, _ in adapter.operations)
