@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 import threading
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Set
 
@@ -193,7 +193,7 @@ class _PluginRuntime:
 
     def __init__(self, plugin_dir: str, preferences: Preferences) -> None:
         self.plugin_dir = Path(plugin_dir)
-        self.broadcaster = WebSocketBroadcaster(log=_log)
+        self.broadcaster = WebSocketBroadcaster(log=_log, ingest_callback=self._handle_cli_payload)
         self.watchdog: Optional[OverlayWatchdog] = None
         self._lock = threading.Lock()
         self._running = False
@@ -456,7 +456,7 @@ class _PluginRuntime:
         payload: Dict[str, Any]
         if x is None and y is None:
             payload = {
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": datetime.now(UTC).isoformat(),
                 "event": "TestMessage",
                 "message": text,
             }
@@ -468,11 +468,12 @@ class _PluginRuntime:
                 y_val = max(0, int(y))
             except (TypeError, ValueError):
                 raise ValueError("Coordinates must be integers") from None
+            current_time = datetime.now(UTC)
             payload = {
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": current_time.isoformat(),
                 "event": "LegacyOverlay",
                 "type": "message",
-                "id": f"test-{datetime.utcnow().strftime('%H%M%S%f')}",
+                "id": f"test-{current_time.strftime('%H%M%S%f')}",
                 "text": text,
                 "color": "#ffffff",
                 "x": x_val,
@@ -620,6 +621,53 @@ class _PluginRuntime:
         self._publish_payload(message)
         return True
 
+    def _handle_cli_payload(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        try:
+            if not isinstance(payload, Mapping):
+                raise ValueError("Payload must be an object")
+            command = payload.get("cli")
+            if command == "legacy_overlay":
+                legacy_payload = payload.get("payload")
+                if not isinstance(legacy_payload, Mapping):
+                    raise ValueError("Legacy overlay payload missing 'payload' object")
+                message = dict(legacy_payload)
+                message.setdefault("event", "LegacyOverlay")
+                message.setdefault("timestamp", datetime.now(UTC).isoformat())
+                payload_type = str(message.get("type") or "message").lower()
+                if payload_type == "message":
+                    text = str(message.get("text") or "").strip()
+                    if not text:
+                        raise ValueError("LegacyOverlay message text is empty")
+                    message["type"] = "message"
+                    message["text"] = text
+                elif payload_type == "shape":
+                    shape_name = str(message.get("shape") or "").strip().lower()
+                    if not shape_name:
+                        raise ValueError("LegacyOverlay shape payload requires 'shape'")
+                    message["type"] = "shape"
+                    message["shape"] = shape_name
+                    if shape_name == "vect":
+                        vector = message.get("vector")
+                        if not isinstance(vector, list) or len(vector) < 2:
+                            raise ValueError("Vector shape payload requires a 'vector' list with at least two points")
+                else:
+                    raise ValueError(f"Unsupported LegacyOverlay payload type: {payload_type}")
+                self._publish_payload(message)
+                return {"status": "ok"}
+            if command == "test_message":
+                text = str(payload.get("message") or "").strip()
+                if not text:
+                    raise ValueError("Test message text is empty")
+                x = payload.get("x")
+                y = payload.get("y")
+                self.send_test_message(text, x=x, y=y)
+                return {"status": "ok"}
+            raise ValueError(f"Unsupported CLI command: {command!r}")
+        except Exception as exc:
+            _log(f"CLI payload rejected: {exc}")
+            return {"status": "error", "error": str(exc)}
+
+
     def _send_overlay_config(self, rebroadcast: bool = False) -> None:
         payload = {
             "event": "OverlayConfig",
@@ -681,6 +729,15 @@ class _PluginRuntime:
             LOGGER.info("Overlay payload [%s]: %s", event, serialised)
         else:
             LOGGER.info("Overlay payload: %s", serialised)
+        legacy_raw = None
+        if isinstance(payload, Mapping):
+            legacy_raw = payload.get("legacy_raw")
+        if legacy_raw is not None:
+            try:
+                legacy_serialised = json.dumps(legacy_raw, ensure_ascii=False, sort_keys=True)
+            except (TypeError, ValueError):
+                legacy_serialised = repr(legacy_raw)
+            LOGGER.info("Overlay legacy_raw: %s", legacy_serialised)
 
     def _locate_overlay_python(self) -> Optional[Path]:
         env_override = os.getenv("EDMC_OVERLAY_PYTHON")

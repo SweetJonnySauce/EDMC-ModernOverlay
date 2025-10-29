@@ -42,11 +42,18 @@ class Overlay:
     def send_raw(self, msg: Dict[str, Any]) -> None:
         if not isinstance(msg, dict):
             raise TypeError("send_raw expects a dict payload")
+        original_message = dict(msg)
         command = msg.get("command")
-        if command == "exit":
-            send_overlay_message({"event": "LegacyOverlay", "type": "clear_all"})
+        if command is not None:
+            self._handle_command(command)
             return
-        self._emit_payload({"type": "raw", "raw": dict(msg)})
+
+        payload = self._normalise_raw_payload(dict(msg))
+        if payload is None:
+            LOGGER.debug("Legacy raw payload dropped (unable to normalise): %s", msg)
+            return
+        payload.setdefault("legacy_raw", original_message)
+        self._emit_payload(payload)
 
     def send_message(
         self,
@@ -107,6 +114,102 @@ class Overlay:
         }
         if not send_overlay_message(message):
             raise RuntimeError("EDMC-ModernOverlay is not available to accept messages")
+
+    @staticmethod
+    def _coerce_int(value: Any, default: int = 0) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _coerce_str(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        stringified = str(value)
+        return stringified if stringified else None
+
+    def _handle_command(self, command: Any) -> None:
+        command_str = self._coerce_str(command)
+        if not command_str:
+            return
+        lowered = command_str.lower()
+        if lowered == "exit":
+            send_overlay_message({"event": "LegacyOverlay", "type": "clear_all"})
+            return
+        if lowered == "noop":
+            return
+        LOGGER.debug("Ignoring unknown legacy overlay command: %s", command_str)
+
+    def _normalise_raw_payload(self, msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Convert legacy edmcoverlay payloads into structured events.
+
+        Returns ``None`` when the payload cannot be translated into a supported
+        message.
+        """
+
+        def _lookup(*keys: str) -> Any:
+            for key in keys:
+                if key in msg:
+                    return msg[key]
+            return None
+
+        item_id = self._coerce_str(_lookup("id", "Id"))
+        text = _lookup("text", "Text")
+        shape = self._coerce_str(_lookup("shape", "Shape"))
+        ttl = self._coerce_int(_lookup("ttl", "TTL"), default=4)
+
+        if text is not None and text != "":
+            return {
+                "type": "message",
+                "id": item_id or "",
+                "text": str(text),
+                "color": _lookup("color", "Color") or "white",
+                "size": _lookup("size", "Size") or "normal",
+                "x": self._coerce_int(_lookup("x", "X"), 0),
+                "y": self._coerce_int(_lookup("y", "Y"), 0),
+                "ttl": ttl,
+            }
+
+        if shape:
+            payload: Dict[str, Any] = {
+                "type": "shape",
+                "shape": shape,
+                "id": item_id or "",
+                "color": _lookup("color", "Color") or "white",
+                "fill": _lookup("fill", "Fill"),
+                "x": self._coerce_int(_lookup("x", "X"), 0),
+                "y": self._coerce_int(_lookup("y", "Y"), 0),
+                "w": self._coerce_int(_lookup("w", "W"), 0),
+                "h": self._coerce_int(_lookup("h", "H"), 0),
+                "ttl": ttl,
+            }
+            vector = _lookup("vector", "Vector")
+            if isinstance(vector, list):
+                payload["vector"] = vector
+            return payload
+
+        if ttl <= 0 and item_id:
+            return {
+                "type": "legacy_clear",
+                "id": item_id,
+                "ttl": ttl,
+            }
+
+        if item_id and text == "":
+            return {
+                "type": "message",
+                "id": item_id,
+                "text": "",
+                "color": _lookup("color", "Color") or "white",
+                "size": _lookup("size", "Size") or "normal",
+                "x": self._coerce_int(_lookup("x", "X"), 0),
+                "y": self._coerce_int(_lookup("y", "Y"), 0),
+                "ttl": ttl,
+            }
+
+        raw_value = dict(msg)
+        return {"type": "raw", "raw": raw_value, "id": item_id or "", "ttl": ttl}
 
 
 # Backwards compatibility: some callers import `Overlay` at module level

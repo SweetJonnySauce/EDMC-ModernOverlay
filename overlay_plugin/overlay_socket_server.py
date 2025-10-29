@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, Optional, Set, Tuple
 
 
 LogFunc = Callable[[str], None]
+IngestFunc = Callable[[Dict[str, Any]], Optional[Dict[str, Any]]]
 
 
 @dataclass
@@ -19,6 +20,7 @@ class SocketBroadcaster:
     host: str = "127.0.0.1"
     port: int = 0
     log: LogFunc = lambda _msg: None  # noqa: E731 - simple default noop logger
+    ingest_callback: Optional[IngestFunc] = None
     _loop: Optional[asyncio.AbstractEventLoop] = field(default=None, init=False)
     _thread: Optional[threading.Thread] = field(default=None, init=False)
     _stop_event: threading.Event = field(default_factory=threading.Event, init=False)
@@ -141,7 +143,33 @@ class SocketBroadcaster:
         self._clients.add((reader, writer))
         self.log(f"Client connected ({len(self._clients)} active) {peer}")
         try:
-            await reader.read()  # Drain until client disconnects; we are write-only.
+            while not self._stop_event.is_set():
+                try:
+                    line = await reader.readline()
+                except Exception:
+                    break
+                if not line:
+                    break
+                if not self.ingest_callback:
+                    continue
+                try:
+                    message = json.loads(line.decode("utf-8"))
+                except json.JSONDecodeError:
+                    continue
+                response: Optional[Dict[str, Any]] = None
+                try:
+                    response = self.ingest_callback(message)
+                except Exception as exc:
+                    self.log(f"CLI payload handler raised error: {exc}")
+                    response = {"status": "error", "error": str(exc)}
+                if response is not None:
+                    self._clients.discard((reader, writer))
+                    try:
+                        writer.write(json.dumps(response).encode("utf-8") + b"\n")
+                        await writer.drain()
+                    except Exception:
+                        pass
+                    break
         except Exception:
             pass
         finally:

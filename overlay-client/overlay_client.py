@@ -1389,6 +1389,11 @@ class OverlayWindow(QWidget):
             self._legacy_items.clear()
             self.update()
             return
+        if item_type in {"legacy_clear", "clear"}:
+            if isinstance(item_id, str) and item_id:
+                self._legacy_items.pop(item_id, None)
+                self.update()
+            return
         if not isinstance(item_id, str):
             return
 
@@ -1424,6 +1429,17 @@ class OverlayWindow(QWidget):
                 "y": int(payload.get("y", 0)),
                 "w": int(payload.get("w", 0)),
                 "h": int(payload.get("h", 0)),
+                "expiry": expiry,
+            }
+            self._legacy_items[item_id] = item
+            self.update()
+            return
+
+        if item_type == "shape":
+            shape_name = str(payload.get("shape") or "").lower()
+            item = {
+                "kind": f"shape:{shape_name}" if shape_name else "shape",
+                "payload": dict(payload),
                 "expiry": expiry,
             }
             self._legacy_items[item_id] = item
