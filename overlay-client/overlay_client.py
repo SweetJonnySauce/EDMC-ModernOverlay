@@ -34,8 +34,9 @@ from client_config import InitialClientSettings, load_initial_settings  # type: 
 from developer_helpers import DeveloperHelperController  # type: ignore  # noqa: E402
 from platform_integration import MonitorSnapshot, PlatformContext, PlatformController  # type: ignore  # noqa: E402
 from window_tracking import WindowState, WindowTracker, create_elite_window_tracker  # type: ignore  # noqa: E402
-from legacy_store import LegacyItemStore, LegacyItem  # type: ignore  # noqa: E402
+from legacy_store import LegacyItemStore  # type: ignore  # noqa: E402
 from legacy_processor import process_legacy_payload  # type: ignore  # noqa: E402
+from vector_renderer import render_vector, VectorPainterAdapter  # type: ignore  # noqa: E402
 
 _LOGGER_NAME = "EDMC.ModernOverlay.Client"
 _CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
@@ -1399,6 +1400,8 @@ class OverlayWindow(QWidget):
                 self._paint_legacy_message(painter, item.data)
             elif item.kind == "rect":
                 self._paint_legacy_rect(painter, item.data)
+            elif item.kind == "vector":
+                self._paint_legacy_vector(painter, item.data)
 
     def _legacy_coordinate_scale_factors(self) -> Tuple[float, float]:
         return self._legacy_scale()
@@ -1479,6 +1482,11 @@ class OverlayWindow(QWidget):
             w,
             h,
         )
+
+    def _paint_legacy_vector(self, painter: QPainter, item: Dict[str, Any]) -> None:
+        scale_x, scale_y = self._legacy_coordinate_scale_factors()
+        adapter = _QtVectorPainterAdapter(self, painter)
+        render_vector(adapter, item, scale_x, scale_y)
 
     def _paint_debug_overlay(self, painter: QPainter) -> None:
         if not self._show_debug_overlay:
@@ -1691,6 +1699,51 @@ class OverlayWindow(QWidget):
 
         _CLIENT_LOGGER.warning("Preferred fonts unavailable; falling back to %s", default_family)
         return default_family
+
+
+class _QtVectorPainterAdapter(VectorPainterAdapter):
+    def __init__(self, window: "OverlayWindow", painter: QPainter) -> None:
+        self._window = window
+        self._painter = painter
+
+    def set_pen(self, color: str, *, width: int = 2) -> None:
+        q_color = QColor(color)
+        if not q_color.isValid():
+            q_color = QColor("white")
+        pen = QPen(q_color)
+        pen.setWidth(width)
+        self._painter.setPen(pen)
+        self._painter.setBrush(Qt.BrushStyle.NoBrush)
+
+    def draw_line(self, x1: int, y1: int, x2: int, y2: int) -> None:
+        self._painter.drawLine(x1, y1, x2, y2)
+
+    def draw_circle_marker(self, x: int, y: int, radius: int, color: str) -> None:
+        q_color = QColor(color)
+        if not q_color.isValid():
+            q_color = QColor("white")
+        pen = QPen(q_color)
+        pen.setWidth(2)
+        self._painter.setPen(pen)
+        self._painter.setBrush(QBrush(q_color))
+        self._painter.drawEllipse(QPoint(x, y), radius, radius)
+
+    def draw_cross_marker(self, x: int, y: int, size: int, color: str) -> None:
+        self.set_pen(color, width=2)
+        self._painter.drawLine(x - size, y - size, x + size, y + size)
+        self._painter.drawLine(x - size, y + size, x + size, y - size)
+
+    def draw_text(self, x: int, y: int, text: str, color: str) -> None:
+        q_color = QColor(color)
+        if not q_color.isValid():
+            q_color = QColor("white")
+        pen = QPen(q_color)
+        self._painter.setPen(pen)
+        font = QFont(self._window._font_family)
+        font.setPointSizeF(self._window._legacy_preset_point_size("small"))
+        font.setWeight(QFont.Weight.Normal)
+        self._painter.setFont(font)
+        self._painter.drawText(x, y, text)
 
 def resolve_port_file(args_port: Optional[str]) -> Path:
     if args_port:

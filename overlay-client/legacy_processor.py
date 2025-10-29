@@ -46,19 +46,53 @@ def process_legacy_payload(store: LegacyItemStore, payload: Mapping[str, Any]) -
 
     if item_type == "shape":
         shape_name = str(payload.get("shape") or "").lower()
+        message = dict(payload)
         if shape_name == "rect":
             data = {
-                "color": payload.get("color", "white"),
-                "fill": payload.get("fill") or "#00000000",
-                "x": int(payload.get("x", 0)),
-                "y": int(payload.get("y", 0)),
-                "w": int(payload.get("w", 0)),
-                "h": int(payload.get("h", 0)),
+                "color": message.get("color", "white"),
+                "fill": message.get("fill") or "#00000000",
+                "x": int(message.get("x", 0)),
+                "y": int(message.get("y", 0)),
+                "w": int(message.get("w", 0)),
+                "h": int(message.get("h", 0)),
             }
             store.set(item_id, LegacyItem(kind="rect", data=data, expiry=expiry))
             return True
-        # For other shapes we keep the payload for future support
-        enriched = dict(payload)
+        if shape_name == "vect":
+            vector = message.get("vector")
+            if not isinstance(vector, list) or len(vector) < 2:
+                raise ValueError("Vector shape payload requires a 'vector' list with at least two points")
+            points = []
+            for entry in vector:
+                if not isinstance(entry, Mapping):
+                    continue
+                try:
+                    x_val = int(entry.get("x", 0))
+                    y_val = int(entry.get("y", 0))
+                except (TypeError, ValueError):
+                    continue
+                point = {
+                    "x": x_val,
+                    "y": y_val,
+                }
+                if entry.get("color"):
+                    point["color"] = str(entry["color"])
+                if entry.get("marker"):
+                    point["marker"] = str(entry["marker"]).lower()
+                if entry.get("text"):
+                    point["text"] = str(entry["text"])
+                points.append(point)
+            if len(points) < 2:
+                raise ValueError("Vector shape payload normalised to fewer than two points")
+            data = {
+                "base_color": message.get("color", "white"),
+                "points": points,
+            }
+            store.set(item_id, LegacyItem(kind="vector", data=data, expiry=expiry))
+            return True
+
+        # For other shapes we keep the payload for future support/logging
+        enriched = dict(message)
         enriched.setdefault("timestamp", datetime.now(UTC).isoformat())
         store.set(item_id, LegacyItem(kind=f"shape:{shape_name}" if shape_name else "shape", data=enriched, expiry=expiry))
         return True

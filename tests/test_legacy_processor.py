@@ -69,6 +69,35 @@ def test_process_rect_payload():
     assert item.data["h"] == 20
 
 
+def test_process_vector_payload():
+    store = LegacyItemStore()
+    changed = process_legacy_payload(
+        store,
+        {
+            "type": "shape",
+            "shape": "vect",
+            "id": "vect1",
+            "color": "red",
+            "vector": [
+                {"x": 0, "y": 0},
+                {"x": 10, "y": 0, "color": "green"},
+                {"x": 10, "y": 10, "marker": "circle", "text": "Target"},
+            ],
+            "ttl": 6,
+        },
+    )
+    assert changed is True
+    item = store.get("vect1")
+    assert item is not None
+    assert item.kind == "vector"
+    data = item.data
+    assert data["base_color"] == "red"
+    assert len(data["points"]) == 3
+    assert data["points"][1]["color"] == "green"
+    assert data["points"][2]["marker"] == "circle"
+    assert data["points"][2]["text"] == "Target"
+
+
 def test_ttl_purge(monkeypatch: pytest.MonkeyPatch):
     store = LegacyItemStore()
 
