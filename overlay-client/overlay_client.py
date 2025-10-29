@@ -15,7 +15,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect, QSize
-from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QCursor, QFontDatabase, QGuiApplication, QWindow
+from PyQt6.QtGui import (
+    QColor,
+    QFont,
+    QPainter,
+    QPen,
+    QBrush,
+    QCursor,
+    QFontDatabase,
+    QGuiApplication,
+    QScreen,
+    QWindow,
+)
 from PyQt6.QtWidgets import QApplication, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 CLIENT_DIR = Path(__file__).resolve().parent
@@ -272,6 +283,10 @@ class OverlayWindow(QWidget):
         self._last_set_geometry: Optional[Tuple[int, int, int, int]] = None
         self._last_visibility_state: Optional[bool] = None
         self._last_raw_window_log: Optional[Tuple[int, int, int, int]] = None
+        self._last_normalised_tracker: Optional[
+            Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int], str, float, float]
+        ] = None
+        self._last_device_ratio_log: Optional[Tuple[str, float, float, float]] = None
         self._wm_authoritative_rect: Optional[Tuple[int, int, int, int]] = None
         self._wm_override_tracker: Optional[Tuple[int, int, int, int]] = None
         self._wm_override_timestamp: float = 0.0
@@ -1128,13 +1143,19 @@ class OverlayWindow(QWidget):
             self._last_tracker_state = tracker_key
         self._apply_follow_state(state)
 
-    def _apply_title_bar_offset(self, geometry: Tuple[int, int, int, int]) -> Tuple[int, int, int, int]:
+    def _apply_title_bar_offset(
+        self,
+        geometry: Tuple[int, int, int, int],
+        *,
+        scale_y: float = 1.0,
+    ) -> Tuple[int, int, int, int]:
         if not self._title_bar_enabled or self._title_bar_height <= 0:
             return geometry
         x, y, width, height = geometry
         if height <= 1:
             return geometry
-        offset = min(self._title_bar_height, max(0, height - 1))
+        scaled_offset = float(self._title_bar_height) * max(scale_y, 0.0)
+        offset = min(int(round(scaled_offset)), max(0, height - 1))
         if offset <= 0:
             return geometry
         adjusted_height = max(1, height - offset)
@@ -1147,14 +1168,13 @@ class OverlayWindow(QWidget):
         tracker_global_y = state.global_y if state.global_y is not None else state.y
         width = max(1, state.width)
         height = max(1, state.height)
-        tracker_target_tuple = (
+        tracker_native_tuple = (
             tracker_global_x,
             tracker_global_y,
             width,
             height,
         )
-        desired_tuple = self._apply_title_bar_offset(tracker_target_tuple)
-        if tracker_target_tuple != self._last_raw_window_log:
+        if tracker_native_tuple != self._last_raw_window_log:
             _CLIENT_LOGGER.debug(
                 "Raw tracker window geometry: pos=(%d,%d) size=%dx%d",
                 tracker_global_x,
@@ -1162,20 +1182,61 @@ class OverlayWindow(QWidget):
                 width,
                 height,
             )
-            self._last_raw_window_log = tracker_target_tuple
+            self._last_raw_window_log = tracker_native_tuple
+
+        tracker_qt_tuple, normalisation_info = self._convert_native_rect_to_qt(tracker_native_tuple)
+        if normalisation_info is not None and tracker_qt_tuple != tracker_native_tuple:
+            screen_name, norm_scale_x, norm_scale_y, device_ratio = normalisation_info
+            snapshot = (tracker_native_tuple, tracker_qt_tuple, screen_name, norm_scale_x, norm_scale_y)
+            if snapshot != self._last_normalised_tracker:
+                _CLIENT_LOGGER.debug(
+                    "Normalised tracker geometry using screen '%s': native=%s scale=%.3fx%.3f dpr=%.3f -> qt=%s",
+                    screen_name,
+                    tracker_native_tuple,
+                    norm_scale_x,
+                    norm_scale_y,
+                    device_ratio,
+                    tracker_qt_tuple,
+                )
+                self._last_normalised_tracker = snapshot
+        else:
+            self._last_normalised_tracker = None
+
+        window_handle = self.windowHandle()
+        if window_handle is not None:
+            try:
+                window_dpr = window_handle.devicePixelRatio()
+            except Exception:
+                window_dpr = 0.0
+            if window_dpr and normalisation_info is not None:
+                screen_name, norm_scale_x, norm_scale_y, device_ratio = normalisation_info
+                snapshot = (screen_name, float(window_dpr), norm_scale_x, norm_scale_y)
+                if snapshot != self._last_device_ratio_log:
+                    _CLIENT_LOGGER.debug(
+                        "Device pixel ratio diagnostics: window_dpr=%.3f screen='%s' scale_x=%.3f scale_y=%.3f device_ratio=%.3f",
+                        float(window_dpr),
+                        screen_name,
+                        norm_scale_x,
+                        norm_scale_y,
+                        device_ratio,
+                    )
+                    self._last_device_ratio_log = snapshot
+
+        scale_y = normalisation_info[2] if normalisation_info is not None else 1.0
+        desired_tuple = self._apply_title_bar_offset(tracker_qt_tuple, scale_y=scale_y)
 
         now = time.monotonic()
         target_tuple = desired_tuple
         if self._wm_authoritative_rect is not None:
             tracker_changed = (
                 self._wm_override_tracker is not None
-                and tracker_target_tuple != self._wm_override_tracker
+                and tracker_qt_tuple != self._wm_override_tracker
             )
             override_expired = (
                 self._wm_override_classification not in ("layout", "layout_constraint")
                 and (now - self._wm_override_timestamp) >= self._WM_OVERRIDE_TTL
             )
-            if tracker_target_tuple == self._wm_authoritative_rect:
+            if tracker_qt_tuple == self._wm_authoritative_rect:
                 self._clear_wm_override(reason="tracker realigned with WM")
             elif tracker_changed:
                 self._clear_wm_override(reason="tracker changed")
@@ -1239,7 +1300,7 @@ class OverlayWindow(QWidget):
                     min_hint = None
                 _CLIENT_LOGGER.debug(
                     "Adopting layout-constrained geometry from WM: tracker=%s actual=%s sizeHint=%s minimumSizeHint=%s",
-                    tracker_target_tuple,
+                    tracker_qt_tuple,
                     actual_tuple,
                     size_hint,
                     min_hint,
@@ -1247,35 +1308,32 @@ class OverlayWindow(QWidget):
             else:
                 _CLIENT_LOGGER.debug(
                     "Adopting WM authoritative geometry: tracker=%s actual=%s (classification=%s)",
-                    tracker_target_tuple,
+                    tracker_qt_tuple,
                     actual_tuple,
                     classification,
                 )
             self._set_wm_override(
                 actual_tuple,
-                tracker_target_tuple,
+                tracker_qt_tuple,
                 reason="geometry mismatch",
                 classification=classification,
             )
             target_tuple = actual_tuple
             target_rect = QRect(*target_tuple)
-        elif self._wm_authoritative_rect and tracker_target_tuple == target_tuple:
+        elif self._wm_authoritative_rect and tracker_qt_tuple == target_tuple:
             self._clear_wm_override(reason="tracker matched actual")
-
-        final_global_x = target_tuple[0]
-        final_global_y = target_tuple[1]
 
         self._last_geometry_log = target_tuple
         self._last_follow_state = WindowState(
-            x=final_global_x,
-            y=final_global_y,
+            x=state.x,
+            y=state.y,
             width=state.width,
             height=state.height,
             is_foreground=state.is_foreground,
             is_visible=state.is_visible,
             identifier=state.identifier,
-            global_x=final_global_x,
-            global_y=final_global_y,
+            global_x=state.global_x if state.global_x is not None else state.x,
+            global_y=state.global_y if state.global_y is not None else state.y,
         )
 
         self._update_auto_legacy_scale(target_tuple[2], target_tuple[3])
@@ -1404,6 +1462,80 @@ class OverlayWindow(QWidget):
             return best_screen
         primary = QGuiApplication.primaryScreen()
         return primary or screens[0]
+
+    def _screen_for_native_rect(self, rect: QRect) -> Optional[QScreen]:
+        screens = QGuiApplication.screens()
+        if not screens:
+            return None
+        best_screen: Optional[QScreen] = None
+        best_area = 0
+        for screen in screens:
+            try:
+                native_geometry = screen.nativeGeometry()
+            except AttributeError:
+                native_geometry = screen.geometry()
+            area = rect.intersected(native_geometry)
+            intersection_area = max(area.width(), 0) * max(area.height(), 0)
+            if intersection_area > best_area:
+                best_area = intersection_area
+                best_screen = screen
+        if best_screen is not None:
+            return best_screen
+        return QGuiApplication.primaryScreen()
+
+    def _convert_native_rect_to_qt(
+        self,
+        rect: Tuple[int, int, int, int],
+    ) -> Tuple[Tuple[int, int, int, int], Optional[Tuple[str, float, float, float]]]:
+        x, y, width, height = rect
+        if width <= 0 or height <= 0:
+            return rect, None
+        native_rect = QRect(x, y, width, height)
+        screen = self._screen_for_native_rect(native_rect)
+        if screen is None:
+            return rect, None
+        try:
+            native_geometry = screen.nativeGeometry()
+        except AttributeError:
+            native_geometry = screen.geometry()
+        logical_geometry = screen.geometry()
+        native_width = native_geometry.width()
+        native_height = native_geometry.height()
+        device_ratio = 1.0
+        try:
+            device_ratio = float(screen.devicePixelRatio())
+        except Exception:
+            device_ratio = 1.0
+        if device_ratio <= 0.0:
+            device_ratio = 1.0
+
+        scale_x = logical_geometry.width() / native_width if native_width else 1.0
+        scale_y = logical_geometry.height() / native_height if native_height else 1.0
+
+        if math.isclose(scale_x, 1.0, abs_tol=1e-4):
+            scale_x = 1.0 / device_ratio
+        if math.isclose(scale_y, 1.0, abs_tol=1e-4):
+            scale_y = 1.0 / device_ratio
+
+        native_origin_x = native_geometry.x()
+        native_origin_y = native_geometry.y()
+        if math.isclose(native_origin_x, logical_geometry.x(), abs_tol=1e-4):
+            native_origin_x = logical_geometry.x() * device_ratio
+        if math.isclose(native_origin_y, logical_geometry.y(), abs_tol=1e-4):
+            native_origin_y = logical_geometry.y() * device_ratio
+
+        qt_x = logical_geometry.x() + (x - native_origin_x) * scale_x
+        qt_y = logical_geometry.y() + (y - native_origin_y) * scale_y
+        qt_width = width * scale_x
+        qt_height = height * scale_y
+        converted = (
+            int(round(qt_x)),
+            int(round(qt_y)),
+            max(1, int(round(qt_width))),
+            max(1, int(round(qt_height))),
+        )
+        screen_name = screen.name() or screen.manufacturer() or "unknown"
+        return converted, (screen_name, float(scale_x), float(scale_y), device_ratio)
 
     def _describe_screen(self, screen) -> str:
         if screen is None:

@@ -46,7 +46,12 @@ class _IntegrationBase:
     def monitors(self) -> List[MonitorSnapshot]:
         snapshot: List[MonitorSnapshot] = []
         for index, screen in enumerate(QGuiApplication.screens()):
-            geometry = screen.geometry()
+            try:
+                geometry = screen.nativeGeometry()
+            except AttributeError:
+                geometry = screen.geometry()
+            if geometry.width() <= 0 or geometry.height() <= 0:
+                geometry = screen.geometry()
             name = screen.name() or screen.manufacturer() or f"screen-{index}"
             snapshot.append((name, geometry.x(), geometry.y(), geometry.width(), geometry.height()))
         return snapshot
