@@ -4,13 +4,12 @@ from __future__ import annotations
 import importlib
 import json
 import logging
-import math
 import os
 import sys
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Set
+from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Set, Tuple
 
 if __package__:
     from .version import __version__ as MODERN_OVERLAY_VERSION
@@ -231,9 +230,6 @@ class _PluginRuntime:
         self._config_timers: Set[threading.Timer] = set()
         self._config_timer_lock = threading.Lock()
         self._overlay_metrics: Dict[str, Any] = {}
-        self._legacy_aspect_factor: float = 1.0
-        self._legacy_aspect_offset: float = 0.0
-        self._legacy_base_ratio: Optional[float] = None
         self._enforce_force_xwayland(persist=True, update_watchdog=False, emit_config=False)
 
     # Lifecycle ------------------------------------------------------------
@@ -694,123 +690,7 @@ class _PluginRuntime:
             self._overlay_metrics.get("scale", {}),
             device_pixel_ratio,
         )
-        self._recompute_legacy_transform()
 
-    def _overlay_scale_factors(self) -> Tuple[float, float]:
-        width = _coerce_float(self._overlay_metrics.get("width"))
-        height = _coerce_float(self._overlay_metrics.get("height"))
-        if width is None or width <= 0:
-            width = float(DEFAULT_WINDOW_BASE_WIDTH)
-        if height is None or height <= 0:
-            height = float(DEFAULT_WINDOW_BASE_HEIGHT)
-        scale_x = width / float(DEFAULT_WINDOW_BASE_WIDTH)
-        scale_y = height / float(DEFAULT_WINDOW_BASE_HEIGHT)
-        return max(scale_x, 0.01), max(scale_y, 0.01)
-
-    def _recompute_legacy_transform(self) -> None:
-        scale_x, scale_y = self._overlay_scale_factors()
-        if scale_x <= 0.0:
-            scale_x = 0.01
-        if scale_y <= 0.0:
-            scale_y = 0.01
-        base_ratio = self._legacy_base_ratio or 1.0
-        desired_factor = base_ratio * (scale_y / scale_x)
-        if not math.isfinite(desired_factor) or desired_factor <= 0.0:
-            desired_factor = 1.0
-        if not math.isclose(self._legacy_aspect_factor, desired_factor, rel_tol=1e-6):
-            self._legacy_aspect_factor = desired_factor
-            base_center = float(DEFAULT_WINDOW_BASE_WIDTH) / 2.0
-            self._legacy_aspect_offset = base_center * (1.0 - desired_factor)
-
-    def _safe_int(self, value: float) -> int:
-        return int(round(value))
-
-    def _apply_landingpad_adjustments(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        if not isinstance(payload, dict):
-            return payload
-        self._recompute_legacy_transform()
-        adjusted = dict(payload)
-        factor = self._legacy_aspect_factor
-        offset = self._legacy_aspect_offset
-        payload_type = adjusted.get("type")
-        if payload_type == "shape":
-            shape = str(adjusted.get("shape") or "").lower()
-            if shape == "vect":
-                vector = adjusted.get("vector")
-                if not isinstance(vector, list) or len(vector) < 2:
-                    return adjusted
-                xs: list[float] = []
-                ys: list[float] = []
-                for point in vector:
-                    x_val = _coerce_float(point.get("x"))
-                    y_val = _coerce_float(point.get("y"))
-                    if x_val is None or y_val is None:
-                        return adjusted
-                    xs.append(x_val)
-                    ys.append(y_val)
-                if len(xs) < 2:
-                    return adjusted
-                if self._legacy_base_ratio is None:
-                    x_min = min(xs)
-                    x_max = max(xs)
-                    y_min = min(ys)
-                    y_max = max(ys)
-                    x_range = x_max - x_min
-                    y_range = y_max - y_min
-                    if x_range > 0.0 and y_range > 0.0:
-                        ratio = y_range / x_range
-                        if math.isfinite(ratio) and ratio > 0.0:
-                            self._legacy_base_ratio = ratio
-                            self._recompute_legacy_transform()
-                            factor = self._legacy_aspect_factor
-                            offset = self._legacy_aspect_offset
-                if math.isclose(factor, 1.0, rel_tol=1e-3):
-                    return adjusted
-                min_after = min((x * factor + offset) for x in xs)
-                if min_after < 0.0:
-                    offset -= min_after
-                    self._legacy_aspect_offset = offset
-                new_vector: list[Dict[str, Any]] = []
-                for point in vector:
-                    x_val = _coerce_float(point.get("x"))
-                    if x_val is None:
-                        continue
-                    updated = dict(point)
-                    updated["x"] = self._safe_int(x_val * factor + offset)
-                    new_vector.append(updated)
-                if new_vector:
-                    adjusted["vector"] = new_vector
-                return adjusted
-            if shape == "rect":
-                if math.isclose(factor, 1.0, rel_tol=1e-3):
-                    return adjusted
-                x_val = _coerce_float(adjusted.get("x"))
-                width_val = _coerce_float(adjusted.get("w"))
-                if x_val is None or width_val is None:
-                    return adjusted
-                new_x = x_val * factor + self._legacy_aspect_offset
-                new_w = width_val * factor
-                if new_x < 0.0:
-                    shift = -new_x
-                    new_x = 0.0
-                    self._legacy_aspect_offset += shift
-                    offset = self._legacy_aspect_offset
-                adjusted["x"] = self._safe_int(new_x)
-                adjusted["w"] = max(1, self._safe_int(new_w))
-                return adjusted
-            return adjusted
-        if payload_type == "message":
-            if math.isclose(factor, 1.0, rel_tol=1e-3):
-                return adjusted
-            x_val = _coerce_float(adjusted.get("x"))
-            if x_val is None:
-                return adjusted
-            new_x = x_val * factor + self._legacy_aspect_offset
-            if new_x < 0.0:
-                new_x = 0.0
-            adjusted["x"] = self._safe_int(new_x)
-        return adjusted
-        return adjusted
 
     def _handle_legacy_tcp_payload(self, payload: Mapping[str, Any]) -> bool:
         if not self._running:
@@ -820,10 +700,9 @@ class _PluginRuntime:
         if normalised is None:
             LOGGER.debug("Legacy overlay payload dropped (unable to normalise): %s", raw_payload)
             return False
-        adjusted_payload = self._apply_landingpad_adjustments(normalised)
         message: Dict[str, Any] = {
             "event": "LegacyOverlay",
-            **adjusted_payload,
+            **normalised,
             "legacy_raw": raw_payload,
         }
         message.setdefault("timestamp", datetime.now(UTC).isoformat())
@@ -921,8 +800,9 @@ class _PluginRuntime:
             self._schedule_config_rebroadcasts()
 
     def _publish_payload(self, payload: Mapping[str, Any]) -> None:
-        self._log_payload(payload)
-        self.broadcaster.publish(dict(payload))
+        message = dict(payload)
+        self._log_payload(message)
+        self.broadcaster.publish(dict(message))
 
     def _log_payload(self, payload: Mapping[str, Any]) -> None:
         if not self._preferences.log_payloads:

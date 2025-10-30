@@ -9,7 +9,7 @@
   "client_log_retention": 5,
   "gridlines_enabled": true,
   "gridline_spacing": 100,
-  "force_render": true,
+  "force_render": false,
   "force_xwayland": false,
   "show_debug_overlay": true,
   "min_font_point": 6.0,

@@ -361,7 +361,6 @@ class OverlayWindow(QWidget):
         max_font = getattr(initial, "max_font_point", 24.0)
         self._font_min_point = max(1.0, min(float(min_font), 48.0))
         self._font_max_point = max(self._font_min_point, min(float(max_font), 72.0))
-
         layout = QVBoxLayout()
         layout.addWidget(self.message_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         layout.addStretch(1)
@@ -393,7 +392,7 @@ class OverlayWindow(QWidget):
             ratio = 1.0
         return width * ratio, height * ratio
 
-    def _legacy_scale(self, *, use_physical: bool = True) -> Tuple[float, float]:
+    def _legacy_scale_components(self, *, use_physical: bool = True) -> Tuple[float, float]:
         width = max(self.width(), 1)
         height = max(self.height(), 1)
         scale_x = width / float(DEFAULT_WINDOW_BASE_WIDTH)
@@ -405,6 +404,9 @@ class OverlayWindow(QWidget):
             scale_x *= ratio
             scale_y *= ratio
         return max(scale_x, 0.01), max(scale_y, 0.01)
+
+    def _legacy_scale(self, *, use_physical: bool = True) -> Tuple[float, float]:
+        return self._legacy_scale_components(use_physical=use_physical)
 
     def _scaled_point_size(
         self,
@@ -459,7 +461,12 @@ class OverlayWindow(QWidget):
     def format_scale_debug(self) -> str:
         width_px, height_px = self._current_physical_size()
         scale_x, scale_y = self._legacy_scale()
-        return "size={:.0f}x{:.0f}px scale_x={:.2f} scale_y={:.2f}".format(width_px, height_px, scale_x, scale_y)
+        return "size={:.0f}x{:.0f}px scale_x={:.2f} scale_y={:.2f}".format(
+            width_px,
+            height_px,
+            scale_x,
+            scale_y,
+        )
 
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
@@ -1637,7 +1644,7 @@ class OverlayWindow(QWidget):
     # Legacy overlay handling ---------------------------------------------
 
     def _update_auto_legacy_scale(self, width: int, height: int) -> None:
-        scale_x, scale_y = self._legacy_scale()
+        scale_x, scale_y = self._legacy_scale(use_physical=True)
         diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
         self._font_scale_diag = diagonal_scale
         self._update_message_font()
@@ -1645,7 +1652,7 @@ class OverlayWindow(QWidget):
         if self._last_logged_scale != current:
             width_px, height_px = self._current_physical_size()
             _CLIENT_LOGGER.debug(
-                "Overlay scaling updated: window=%dx%d px scale_x=%.2f scale_y=%.2f diag=%.2f message_pt=%.1f",
+                "Overlay scaling updated: window=%dx%d px scale_x=%.3f scale_y=%.3f diag=%.2f message_pt=%.1f",
                 int(round(width_px)),
                 int(round(height_px)),
                 scale_x,
@@ -1675,6 +1682,12 @@ class OverlayWindow(QWidget):
 
     def _legacy_coordinate_scale_factors(self) -> Tuple[float, float]:
         return self._legacy_scale(use_physical=False)
+
+    def _legacy_aspect_factor(self) -> float:
+        scale_x, scale_y = self._legacy_coordinate_scale_factors()
+        if scale_x <= 0.0:
+            return 1.0
+        return scale_y / scale_x
 
     def _legacy_preset_point_size(self, preset: str) -> float:
         """Return the scaled font size for a legacy preset relative to normal."""
@@ -1755,10 +1768,19 @@ class OverlayWindow(QWidget):
         painter.setPen(pen)
         painter.setBrush(brush)
         scale_x, scale_y = self._legacy_coordinate_scale_factors()
-        x = int(round(float(item.get("x", 0)) * scale_x))
-        y = int(round(float(item.get("y", 0)) * scale_y))
-        w = int(round(float(item.get("w", 0)) * scale_x))
-        h = int(round(float(item.get("h", 0)) * scale_y))
+        aspect_factor = self._legacy_aspect_factor()
+        raw_x = float(item.get("x", 0))
+        raw_y = float(item.get("y", 0))
+        raw_w = float(item.get("w", 0))
+        raw_h = float(item.get("h", 0))
+        if not math.isclose(aspect_factor, 1.0, rel_tol=1e-3):
+            center_x = raw_x + raw_w / 2.0
+            raw_w *= aspect_factor
+            raw_x = center_x - raw_w / 2.0
+        x = int(round(raw_x * scale_x))
+        y = int(round(raw_y * scale_y))
+        w = max(1, int(round(max(raw_w, 0.0) * scale_x)))
+        h = max(1, int(round(max(raw_h, 0.0) * scale_y)))
         painter.drawRect(
             x,
             y,
@@ -1767,9 +1789,40 @@ class OverlayWindow(QWidget):
         )
 
     def _paint_legacy_vector(self, painter: QPainter, item: Dict[str, Any]) -> None:
-        scale_x, scale_y = self._legacy_coordinate_scale_factors()
         adapter = _QtVectorPainterAdapter(self, painter)
-        render_vector(adapter, item, scale_x, scale_y)
+        scale_x, scale_y = self._legacy_coordinate_scale_factors()
+        aspect_factor = self._legacy_aspect_factor()
+        vector_payload = item
+        if not math.isclose(aspect_factor, 1.0, rel_tol=1e-3):
+            points = item.get("points", [])
+            adjusted_points = []
+            xs = []
+            for point in points:
+                if not isinstance(point, Mapping):
+                    continue
+                try:
+                    x_val = float(point.get("x", 0.0))
+                except (TypeError, ValueError):
+                    continue
+                xs.append(x_val)
+            if xs:
+                center_x = (min(xs) + max(xs)) / 2.0
+                for point in points:
+                    if not isinstance(point, Mapping):
+                        continue
+                    try:
+                        x_val = float(point.get("x", 0.0))
+                        y_val = float(point.get("y", 0.0))
+                    except (TypeError, ValueError):
+                        continue
+                    adjusted_point = dict(point)
+                    adjusted_point["x"] = center_x + (x_val - center_x) * aspect_factor
+                    adjusted_point["y"] = y_val
+                    adjusted_points.append(adjusted_point)
+            if adjusted_points:
+                vector_payload = dict(item)
+                vector_payload["points"] = adjusted_points
+        render_vector(adapter, vector_payload, scale_x, scale_y)
 
     def _paint_debug_overlay(self, painter: QPainter) -> None:
         if not self._show_debug_overlay:
