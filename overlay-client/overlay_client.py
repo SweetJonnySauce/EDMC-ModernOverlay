@@ -49,6 +49,7 @@ from window_tracking import WindowState, WindowTracker, create_elite_window_trac
 from legacy_store import LegacyItemStore  # type: ignore  # noqa: E402
 from legacy_processor import process_legacy_payload  # type: ignore  # noqa: E402
 from vector_renderer import render_vector, VectorPainterAdapter  # type: ignore  # noqa: E402
+from plugin_overrides import PluginOverrideManager  # type: ignore  # noqa: E402
 
 _LOGGER_NAME = "EDMC.ModernOverlay.Client"
 _CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
@@ -362,6 +363,7 @@ class OverlayWindow(QWidget):
         max_font = getattr(initial, "max_font_point", 24.0)
         self._font_min_point = max(1.0, min(float(min_font), 48.0))
         self._font_max_point = max(self._font_min_point, min(float(max_font), 72.0))
+        self._override_manager = PluginOverrideManager(ROOT_DIR / "plugin_overrides.json", _CLIENT_LOGGER)
         layout = QVBoxLayout()
         layout.addWidget(self.message_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         layout.addStretch(1)
@@ -1672,6 +1674,7 @@ class OverlayWindow(QWidget):
             self._last_logged_scale = current
 
     def _handle_legacy(self, payload: Dict[str, Any]) -> None:
+        self._override_manager.apply(payload)
         if process_legacy_payload(self._legacy_items, payload):
             self.update()
 

@@ -1,0 +1,28 @@
+{
+  "LandingPad": {
+    "__match__": {
+      "id_prefixes": [
+        "shell-",
+        "line-",
+        "toaster-left-",
+        "toaster-right-",
+        "pad-"
+      ]
+    },
+    "shell-*": {
+      "x_scale": "derive_ratio_from_height"
+    },
+    "line-*": {
+      "x_scale": "use_cached_ratio"
+    },
+    "toaster-left-*": {
+      "x_scale": "use_cached_ratio"
+    },
+    "toaster-right-*": {
+      "x_scale": "use_cached_ratio"
+    },
+    "pad-*": {
+      "x_scale": "use_cached_ratio"
+    }
+  }
+}
