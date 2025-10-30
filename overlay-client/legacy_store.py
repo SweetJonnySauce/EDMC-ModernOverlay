@@ -6,6 +6,7 @@ from typing import Dict, Iterable, Optional, Tuple, Any
 
 @dataclass
 class LegacyItem:
+    item_id: str
     kind: str
     data: Dict[str, Any]
     expiry: Optional[float] = None
@@ -24,6 +25,8 @@ class LegacyItemStore:
         self._items.pop(item_id, None)
 
     def set(self, item_id: str, item: LegacyItem) -> None:
+        if item.item_id != item_id:
+            item.item_id = item_id
         self._items[item_id] = item
 
     def get(self, item_id: str) -> Optional[LegacyItem]:

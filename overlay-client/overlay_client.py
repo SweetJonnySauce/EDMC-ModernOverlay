@@ -354,6 +354,7 @@ class OverlayWindow(QWidget):
         self._debug_status_point_size = message_font.pointSizeF()
         self._debug_legacy_point_size = 0.0
         self._show_debug_overlay = bool(getattr(initial, "show_debug_overlay", False))
+        self._show_payload_ids: bool = bool(getattr(initial, "show_payload_ids", False))
         self._status_bottom_margin = self._coerce_non_negative(getattr(initial, "status_bottom_margin", 20), default=20)
         self._debug_overlay_corner: str = self._normalise_debug_corner(getattr(initial, "debug_overlay_corner", "NW"))
         self._font_scale_diag = 1.0
@@ -739,6 +740,14 @@ class OverlayWindow(QWidget):
             return
         self._show_debug_overlay = flag
         _CLIENT_LOGGER.debug("Debug overlay %s", "enabled" if flag else "disabled")
+        self.update()
+
+    def set_show_payload_ids(self, enabled: bool) -> None:
+        flag = bool(enabled)
+        if flag == self._show_payload_ids:
+            return
+        self._show_payload_ids = flag
+        _CLIENT_LOGGER.debug("Payload ID labels %s", "enabled" if flag else "disabled")
         self.update()
 
     def set_font_bounds(self, min_point: Optional[float], max_point: Optional[float]) -> None:
@@ -1672,13 +1681,13 @@ class OverlayWindow(QWidget):
             self.update()
 
     def _paint_legacy(self, painter: QPainter) -> None:
-        for item in self._legacy_items.values():
+        for item_id, item in self._legacy_items.items():
             if item.kind == "message":
-                self._paint_legacy_message(painter, item.data)
+                self._paint_legacy_message(painter, item_id, item.data)
             elif item.kind == "rect":
-                self._paint_legacy_rect(painter, item.data)
+                self._paint_legacy_rect(painter, item_id, item.data)
             elif item.kind == "vector":
-                self._paint_legacy_vector(painter, item.data)
+                self._paint_legacy_vector(painter, item_id, item.data)
 
     def _legacy_coordinate_scale_factors(self) -> Tuple[float, float]:
         return self._legacy_scale(use_physical=False)
@@ -1701,7 +1710,30 @@ class OverlayWindow(QWidget):
         target = normal_point + offsets.get(preset.lower(), 0.0)
         return max(1.0, target)
 
-    def _paint_legacy_message(self, painter: QPainter, item: Dict[str, Any]) -> None:
+    def _draw_item_id(self, painter: QPainter, item_id: str, top_left_x: int, top_left_y: int) -> None:
+        if not self._show_payload_ids:
+            return
+        label = str(item_id)
+        if not label:
+            return
+        painter.save()
+        font = QFont(self._font_family)
+        font.setPointSizeF(max(4.0, self._legacy_preset_point_size("small")))
+        font.setWeight(QFont.Weight.Normal)
+        painter.setFont(font)
+        painter.setPen(QColor(190, 220, 255, 220))
+        metrics = painter.fontMetrics()
+        x = max(0, int(round(top_left_x)))
+        text_width = metrics.horizontalAdvance(label)
+        if x + text_width > self.width():
+            x = max(0, self.width() - text_width)
+        baseline = int(round(top_left_y - 2))
+        baseline = max(metrics.ascent(), baseline)
+        baseline = min(self.height() - 1, baseline)
+        painter.drawText(x, baseline, label)
+        painter.restore()
+
+    def _paint_legacy_message(self, painter: QPainter, item_id: str, item: Dict[str, Any]) -> None:
         color = QColor(str(item.get("color", "white")))
         size = str(item.get("size", "normal")).lower()
         scaled_point_size = self._legacy_preset_point_size(size)
@@ -1743,7 +1775,11 @@ class OverlayWindow(QWidget):
         baseline = int(round(raw_top * scale_y + metrics.ascent()))
         painter.drawText(x, baseline, text)
 
-    def _paint_legacy_rect(self, painter: QPainter, item: Dict[str, Any]) -> None:
+        if self._show_payload_ids:
+            top_left_y = baseline - metrics.ascent()
+            self._draw_item_id(painter, item_id, x, int(round(top_left_y)))
+
+    def _paint_legacy_rect(self, painter: QPainter, item_id: str, item: Dict[str, Any]) -> None:
         border_spec = str(item.get("color", "white"))
         fill_spec = str(item.get("fill", "#00000000"))
 
@@ -1788,7 +1824,10 @@ class OverlayWindow(QWidget):
             h,
         )
 
-    def _paint_legacy_vector(self, painter: QPainter, item: Dict[str, Any]) -> None:
+        if self._show_payload_ids:
+            self._draw_item_id(painter, item_id, x, y)
+
+    def _paint_legacy_vector(self, painter: QPainter, item_id: str, item: Dict[str, Any]) -> None:
         adapter = _QtVectorPainterAdapter(self, painter)
         scale_x, scale_y = self._legacy_coordinate_scale_factors()
         aspect_factor = self._legacy_aspect_factor()
@@ -1823,6 +1862,28 @@ class OverlayWindow(QWidget):
                 vector_payload = dict(item)
                 vector_payload["points"] = adjusted_points
         render_vector(adapter, vector_payload, scale_x, scale_y)
+
+        if self._show_payload_ids:
+            points = vector_payload.get("points", [])
+            scaled_points: List[Tuple[int, int]] = []
+            for point in points:
+                if not isinstance(point, Mapping):
+                    continue
+                try:
+                    raw_x = float(point.get("x", 0.0))
+                    raw_y = float(point.get("y", 0.0))
+                except (TypeError, ValueError):
+                    continue
+                scaled_points.append(
+                    (
+                        int(round(raw_x * scale_x)),
+                        int(round(raw_y * scale_y)),
+                    )
+                )
+            if scaled_points:
+                min_x = min(pt[0] for pt in scaled_points)
+                min_y = min(pt[1] for pt in scaled_points)
+                self._draw_item_id(painter, item_id, min_x, min_y)
 
     def _paint_debug_overlay(self, painter: QPainter) -> None:
         if not self._show_debug_overlay:

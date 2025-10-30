@@ -597,6 +597,14 @@ class _PluginRuntime:
         LOGGER.debug("Overlay debug overlay %s", "enabled" if self._preferences.show_debug_overlay else "disabled")
         self._send_overlay_config()
 
+    def set_show_payload_ids_preference(self, value: bool) -> None:
+        self._preferences.show_payload_ids = bool(value)
+        LOGGER.debug(
+            "Overlay payload ID labels %s",
+            "enabled" if self._preferences.show_payload_ids else "disabled",
+        )
+        self._send_overlay_config()
+
     def set_min_font_preference(self, value: float) -> None:
         try:
             minimum = float(value)
@@ -772,6 +780,7 @@ class _PluginRuntime:
             "title_bar_enabled": bool(self._preferences.title_bar_enabled),
             "title_bar_height": int(self._preferences.title_bar_height),
             "show_debug_overlay": bool(self._preferences.show_debug_overlay),
+            "show_payload_ids": bool(self._preferences.show_payload_ids),
             "min_font_point": float(self._preferences.min_font_point),
             "max_font_point": float(self._preferences.max_font_point),
             "platform_context": self._platform_context_payload(),
@@ -780,7 +789,7 @@ class _PluginRuntime:
         self._publish_payload(payload)
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s debug_overlay_corner=%s status_bottom_margin=%s client_log_retention=%d gridlines_enabled=%s "
-            "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s font_min=%.1f font_max=%.1f platform_context=%s",
+            "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s payload_ids=%s font_min=%.1f font_max=%.1f platform_context=%s",
             payload["opacity"],
             payload["show_status"],
             payload["debug_overlay_corner"],
@@ -792,6 +801,7 @@ class _PluginRuntime:
             payload["title_bar_enabled"],
             payload["title_bar_height"],
             payload["show_debug_overlay"],
+            payload["show_payload_ids"],
             payload["min_font_point"],
             payload["max_font_point"],
             payload["platform_context"],
@@ -1038,6 +1048,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         force_render_callback = _plugin.set_force_render_preference if _plugin else None
         title_bar_config_callback = _plugin.set_title_bar_compensation_preference if _plugin else None
         debug_overlay_callback = _plugin.set_debug_overlay_preference if _plugin else None
+        show_payload_ids_callback = _plugin.set_show_payload_ids_preference if _plugin else None
         font_min_callback = _plugin.set_min_font_preference if _plugin else None
         font_max_callback = _plugin.set_max_font_preference if _plugin else None
         panel = PreferencesPanel(
@@ -1055,6 +1066,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             force_render_callback,
             title_bar_config_callback,
             debug_overlay_callback,
+            show_payload_ids_callback,
             font_min_callback,
             font_max_callback,
         )

@@ -41,7 +41,7 @@ def process_legacy_payload(store: LegacyItemStore, payload: Mapping[str, Any]) -
             "y": int(payload.get("y", 0)),
             "size": payload.get("size", "normal"),
         }
-        store.set(item_id, LegacyItem(kind="message", data=data, expiry=expiry))
+        store.set(item_id, LegacyItem(item_id=item_id, kind="message", data=data, expiry=expiry))
         return True
 
     if item_type == "shape":
@@ -56,7 +56,7 @@ def process_legacy_payload(store: LegacyItemStore, payload: Mapping[str, Any]) -
                 "w": int(message.get("w", 0)),
                 "h": int(message.get("h", 0)),
             }
-            store.set(item_id, LegacyItem(kind="rect", data=data, expiry=expiry))
+            store.set(item_id, LegacyItem(item_id=item_id, kind="rect", data=data, expiry=expiry))
             return True
         if shape_name == "vect":
             vector = message.get("vector")
@@ -88,13 +88,13 @@ def process_legacy_payload(store: LegacyItemStore, payload: Mapping[str, Any]) -
                 "base_color": message.get("color", "white"),
                 "points": points,
             }
-            store.set(item_id, LegacyItem(kind="vector", data=data, expiry=expiry))
+            store.set(item_id, LegacyItem(item_id=item_id, kind="vector", data=data, expiry=expiry))
             return True
 
         # For other shapes we keep the payload for future support/logging
         enriched = dict(message)
         enriched.setdefault("timestamp", datetime.now(UTC).isoformat())
-        store.set(item_id, LegacyItem(kind=f"shape:{shape_name}" if shape_name else "shape", data=enriched, expiry=expiry))
+        store.set(item_id, LegacyItem(item_id=item_id, kind=f"shape:{shape_name}" if shape_name else "shape", data=enriched, expiry=expiry))
         return True
 
     if item_type == "raw":
