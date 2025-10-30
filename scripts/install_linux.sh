@@ -175,14 +175,15 @@ ensure_system_packages() {
 }
 
 maybe_install_wayland_deps() {
-    if ! prompt_yes_no "Install Wayland (XWayland) helper packages (wmctrl, x11-utils)?"; then
+    echo "ℹ️  Wayland session support requires 'wmctrl' and 'x11-utils' for window tracking."
+    if ! prompt_yes_no "Install Wayland helper packages now (sudo apt install wmctrl x11-utils)?"; then
         echo "ℹ️  Skipping Wayland/X11 helper packages."
         return
     fi
 
     require_command sudo
-    echo "ℹ️  Running 'sudo apt-get install -y wmctrl x11-utils'..."
-    sudo apt-get install -y wmctrl x11-utils
+    echo "ℹ️  Running 'sudo apt install -y wmctrl x11-utils'..."
+    sudo apt install -y wmctrl x11-utils
 }
 
 create_venv_and_install() {
