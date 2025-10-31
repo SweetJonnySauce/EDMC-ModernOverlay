@@ -1942,6 +1942,15 @@ class OverlayWindow(QWidget):
                 {"points": item.get("points")},
             )
         vector_payload = item
+        transform_meta = vector_payload.get("__mo_transform__") if isinstance(vector_payload, Mapping) else None
+        pivot_override: Optional[float] = None
+        if isinstance(transform_meta, Mapping):
+            pivot_info = transform_meta.get("pivot")
+            if isinstance(pivot_info, Mapping):
+                try:
+                    pivot_override = float(pivot_info.get("x"))
+                except (TypeError, ValueError):
+                    pivot_override = None
         if not math.isclose(aspect_factor, 1.0, rel_tol=1e-3):
             points = item.get("points", [])
             adjusted_points = []
@@ -1955,7 +1964,10 @@ class OverlayWindow(QWidget):
                     continue
                 xs.append(x_val)
             if xs:
-                center_x = (min(xs) + max(xs)) / 2.0
+                if pivot_override is not None:
+                    center_x = pivot_override
+                else:
+                    center_x = (min(xs) + max(xs)) / 2.0
                 for point in points:
                     if not isinstance(point, Mapping):
                         continue
@@ -1978,6 +1990,13 @@ class OverlayWindow(QWidget):
                         "paint:aspect_adjusted_points",
                         {"points": adjusted_points},
                     )
+        if trace_enabled and pivot_override is not None:
+            self._log_legacy_trace(
+                plugin_name,
+                item_id,
+                "paint:anchor",
+                {"pivot_x": pivot_override},
+            )
         trace_fn = None
         if trace_enabled:
             def trace_fn(stage: str, details: Mapping[str, Any]) -> None:

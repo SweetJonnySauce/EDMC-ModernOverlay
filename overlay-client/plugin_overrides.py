@@ -467,6 +467,18 @@ class PluginOverrideManager:
                 offset_tuple[1],
             )
 
+        transform_meta = {
+            "pivot": {"x": pivot[0], "y": pivot[1]},
+            "scale": {"x": scale_tuple[0], "y": scale_tuple[1]},
+            "offset": {"x": offset_tuple[0], "y": offset_tuple[1]},
+            "pattern": pattern,
+            "plugin": plugin,
+        }
+        payload.setdefault("__mo_transform__", {}).update(transform_meta)
+        raw_payload = payload.get("raw")
+        if isinstance(raw_payload, MutableMapping):
+            raw_payload.setdefault("__mo_transform__", {}).update(transform_meta)
+
         if shape == "vect":
             self._transform_vector_payload(payload, pivot, scale_tuple, offset_tuple)
         elif shape == "rect":

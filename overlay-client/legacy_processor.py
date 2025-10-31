@@ -119,6 +119,14 @@ def process_legacy_payload(
                 "base_color": message.get("color", "white"),
                 "points": points,
             }
+            transform_meta = message.get("__mo_transform__")
+            if isinstance(transform_meta, Mapping):
+                try:
+                    transform_meta = dict(transform_meta)
+                except Exception:
+                    transform_meta = None
+            if transform_meta is not None:
+                data["__mo_transform__"] = transform_meta
             if trace_fn:
                 trace_fn(
                     "legacy_processor:vector_normalised",
