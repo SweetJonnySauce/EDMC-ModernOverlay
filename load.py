@@ -849,6 +849,29 @@ class _PluginRuntime:
             if not isinstance(payload, Mapping):
                 raise ValueError("Payload must be an object")
             command = payload.get("cli")
+            if command == "overlay_config":
+                config_payload = payload.get("config")
+                if not isinstance(config_payload, Mapping):
+                    raise ValueError("Overlay config payload missing 'config' object")
+                applied = False
+                if (
+                    "title_bar_enabled" in config_payload
+                    or "title_bar_compensation" in config_payload
+                    or "title_bar_height" in config_payload
+                ):
+                    enabled_raw = config_payload.get("title_bar_enabled")
+                    if enabled_raw is None and "title_bar_compensation" in config_payload:
+                        enabled_raw = config_payload.get("title_bar_compensation")
+                    if enabled_raw is None:
+                        enabled_flag = self._preferences.title_bar_enabled
+                    else:
+                        enabled_flag = bool(enabled_raw)
+                    height_value = config_payload.get("title_bar_height", self._preferences.title_bar_height)
+                    self.set_title_bar_compensation_preference(enabled_flag, height_value)
+                    applied = True
+                if not applied:
+                    raise ValueError("Overlay config payload did not include any recognised directives")
+                return {"status": "ok"}
             if command == "legacy_overlay":
                 legacy_payload = payload.get("payload")
                 if not isinstance(legacy_payload, Mapping):

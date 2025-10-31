@@ -1,6 +1,6 @@
 {
   "capture_output": true,
-  "overlay_opacity": 0.031818181818181815,
+  "overlay_opacity": 0.35454545454545455,
   "show_connection_status": true,
   "show_ed_bandwidth": false,
   "show_ed_fps": false,
@@ -9,7 +9,7 @@
   "gridlines_enabled": true,
   "gridline_spacing": 100,
   "force_render": true,
-  "force_xwayland": false,
+  "force_xwayland": true,
   "show_debug_overlay": true,
   "min_font_point": 6.0,
   "max_font_point": 14.0,
