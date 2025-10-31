@@ -17,14 +17,14 @@
       ]
     },
     "transform": {
-    "scale": {
-      "x": 2.0,
-      "y": 1.0,
-      "scale_anchor_point": {
-        "x": 100.0,
-        "y": 490.0
-      }
-    },
+      "scale": {
+        "x": 2.0,
+        "y": 1.0,
+        "scale_anchor_point": {
+          "x": 150.0,
+          "y": 490.0
+        }
+      },
       "offset": {
         "x": 0.0,
         "y": 150.0
