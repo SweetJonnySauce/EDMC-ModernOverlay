@@ -1902,8 +1902,20 @@ class OverlayWindow(QWidget):
         raw_y = float(item.get("y", 0))
         raw_w = float(item.get("w", 0))
         raw_h = float(item.get("h", 0))
+        transform_meta = item.get("__mo_transform__") if isinstance(item, Mapping) else None
+        pivot_override: Optional[float] = None
+        if isinstance(transform_meta, Mapping):
+            pivot_info = transform_meta.get("pivot")
+            if isinstance(pivot_info, Mapping):
+                try:
+                    pivot_override = float(pivot_info.get("x"))
+                except (TypeError, ValueError):
+                    pivot_override = None
         if not math.isclose(aspect_factor, 1.0, rel_tol=1e-3):
-            center_x = raw_x + raw_w / 2.0
+            if pivot_override is not None:
+                center_x = pivot_override
+            else:
+                center_x = raw_x + raw_w / 2.0
             raw_w *= aspect_factor
             raw_x = center_x - raw_w / 2.0
         x = int(round(raw_x * scale_x))

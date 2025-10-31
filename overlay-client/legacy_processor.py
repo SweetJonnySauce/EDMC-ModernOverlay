@@ -84,6 +84,14 @@ def process_legacy_payload(
                 "w": int(message.get("w", 0)),
                 "h": int(message.get("h", 0)),
             }
+            transform_meta = message.get("__mo_transform__")
+            if isinstance(transform_meta, Mapping):
+                try:
+                    transform_meta = dict(transform_meta)
+                except Exception:
+                    transform_meta = None
+            if transform_meta is not None:
+                data["__mo_transform__"] = transform_meta
             store.set(
                 item_id,
                 LegacyItem(item_id=item_id, kind="rect", data=data, expiry=expiry, plugin=plugin_name),
