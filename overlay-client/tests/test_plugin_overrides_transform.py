@@ -168,3 +168,45 @@ def test_infer_plugin_name_uses_id_prefix(landingpad_config: Path) -> None:
     }
 
     assert manager.infer_plugin_name(payload) == "LandingPad"
+
+
+def test_transform_scales_message_coordinates(tmp_path: Path) -> None:
+    config = {
+        "bgstally": {
+            "bgstally-msg-*": {
+                "transform": {
+                    "scale": {
+                        "x": 1.0,
+                        "y": 0.5,
+                        "scale_anchor_point": {"x": 0.0, "y": 0.0},
+                    }
+                }
+            }
+        }
+    }
+    config_path = tmp_path / "plugin_overrides.json"
+    _write_config(config_path, config)
+    manager = _make_manager(config_path)
+    payload = {
+        "type": "message",
+        "id": "bgstally-msg-colonisation-123",
+        "plugin": "bgstally",
+        "ttl": 10,
+        "text": "Colonisation started",
+        "color": "white",
+        "x": 75,
+        "y": 400,
+        "raw": {
+            "plugin": "bgstally",
+            "text": "Colonisation started",
+            "x": 75,
+            "y": 400,
+        },
+    }
+
+    manager.apply(payload)
+
+    assert payload["x"] == 75
+    assert payload["y"] == 200
+    assert payload["raw"]["x"] == 75
+    assert payload["raw"]["y"] == 200

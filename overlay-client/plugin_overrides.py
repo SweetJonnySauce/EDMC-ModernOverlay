@@ -309,6 +309,16 @@ class PluginOverrideManager:
         message_id: str = "",
     ) -> None:
         shape_type = str(payload.get("type") or "").lower()
+        if shape_type == "message":
+            self._apply_message_override(
+                plugin,
+                pattern,
+                override,
+                payload,
+                trace=trace,
+                message_id=message_id,
+            )
+            return
         if shape_type != "shape":
             return
         shape = str(payload.get("shape") or "").lower()
@@ -350,6 +360,87 @@ class PluginOverrideManager:
                     self._log_trace(plugin, message_id, f"{pattern}:after_shift", payload)
 
         # Additional overrides (gutters, font tweaks, etc.) can be added here.
+
+    def _apply_message_override(
+        self,
+        plugin: str,
+        pattern: str,
+        override: Mapping[str, Any],
+        payload: MutableMapping[str, Any],
+        *,
+        trace: bool = False,
+        message_id: str = "",
+    ) -> None:
+        transform_spec = override.get("transform")
+        if not isinstance(transform_spec, Mapping):
+            return
+
+        scale_spec = transform_spec.get("scale")
+        offset_spec = transform_spec.get("offset")
+
+        scale_x = 1.0
+        scale_y = 1.0
+        offset_x = 0.0
+        offset_y = 0.0
+        pivot: Tuple[float, float] = (0.0, 0.0)
+
+        if isinstance(scale_spec, Mapping):
+            scale_x = self._coerce_float(scale_spec.get("x"), 1.0)
+            scale_y = self._coerce_float(scale_spec.get("y"), 1.0)
+            pivot_override = self._parse_point(scale_spec.get("pivot"))
+            if pivot_override is not None:
+                pivot = pivot_override
+            else:
+                anchor_spec = scale_spec.get("scale_anchor_point", scale_spec.get("point"))
+                anchor_point = self._parse_point(anchor_spec)
+                if anchor_point is not None:
+                    pivot = anchor_point
+        elif isinstance(scale_spec, (int, float)):
+            scale_x = float(scale_spec)
+            scale_y = float(scale_spec)
+
+        if isinstance(offset_spec, Mapping):
+            offset_x = self._coerce_float(offset_spec.get("x"), 0.0)
+            offset_y = self._coerce_float(offset_spec.get("y"), 0.0)
+
+        if math.isclose(scale_x, 1.0, rel_tol=1e-9) and math.isclose(scale_y, 1.0, rel_tol=1e-9) and math.isclose(offset_x, 0.0, rel_tol=1e-9) and math.isclose(offset_y, 0.0, rel_tol=1e-9):
+            return
+
+        try:
+            raw_x = float(payload.get("x", 0.0))
+            raw_y = float(payload.get("y", 0.0))
+        except (TypeError, ValueError):
+            return
+
+        new_x, new_y = self._transform_point((raw_x, raw_y), pivot, (scale_x, scale_y), (offset_x, offset_y))
+        rounded_x = self._round_coordinate(new_x)
+        rounded_y = self._round_coordinate(new_y)
+        if trace:
+            self._logger.debug(
+                "trace plugin=%s id=%s stage=%s coords=(%.2f,%.2f)->(%.2f,%.2f)",
+                plugin,
+                message_id,
+                f"{pattern}:message_transform",
+                raw_x,
+                raw_y,
+                new_x,
+                new_y,
+            )
+
+        payload["x"] = rounded_x
+        payload["y"] = rounded_y
+        raw_payload = payload.get("raw")
+        if isinstance(raw_payload, MutableMapping):
+            raw_payload["x"] = rounded_x
+            raw_payload["y"] = rounded_y
+
+    def _parse_point(self, spec: Any) -> Optional[Tuple[float, float]]:
+        if isinstance(spec, Mapping):
+            try:
+                return float(spec.get("x", 0.0)), float(spec.get("y", 0.0))
+            except (TypeError, ValueError):
+                return None
+        return None
 
     def _resolve_x_scale(self, plugin: str, spec: Any, payload: Mapping[str, Any]) -> Optional[float]:
         if isinstance(spec, (int, float)):

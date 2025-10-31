@@ -30,5 +30,24 @@
         "y": 0.0
       }
     }
+  },
+  "bgstally": {
+    "__match__": {
+      "id_prefixes": [
+        "bgstally-"
+      ]
+    },
+    "bgstally-msg-colonisation-*": {
+      "transform": {
+        "scale": {
+          "x": 1.0,
+          "y": 0.7,
+          "scale_anchor_point": {
+            "x": 0.0,
+            "y": 0.0
+          }
+        }
+      }
+    }
   }
 }
