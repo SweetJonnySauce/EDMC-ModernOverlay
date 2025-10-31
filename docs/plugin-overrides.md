@@ -25,6 +25,7 @@ The JSON file is a dictionary keyed by plugin name. Each plugin entry contains t
 - `__match__` (optional) provides hints for discovering the plugin when a payload does not
   explicitly state its origin.
 - `notes` (optional) is freeform documentation (string or array of strings) explaining why the plugin needs overrides. Modern Overlay ignores this field entirely; it exists purely for humans reviewing the JSON.
+- `transform`, `x_scale`, `x_shift` placed directly under the plugin act as plugin-wide defaults that run before any pattern-specific overrides.
 - Every other key is a glob pattern (`fnmatch` rules) that will be compared against the payload’s
   `id`. The corresponding object lists the overrides to apply.
 
@@ -126,6 +127,9 @@ A transform-driven equivalent:
 }
 ```
 
+Plugin-wide defaults can live alongside `__match__`; they run before any pattern-specific overrides and save you from
+repeating the same transform for every ID.
+
 ## Worked Example
 
 To add overrides for a hypothetical plugin “FooHUD” that emits squashed rectangles (`foo-*`) and
@@ -177,35 +181,9 @@ math that `draw_shapes.py` uses for local inspection.
   "__match__": {
     "id_prefixes": ["shell-", "line-", "toaster-left-", "toaster-right-", "pad-"]
   },
-  "shell-*": {
-    "transform": {
-      "scale": { "x": 2.0, "y": 1.0, "point": "sw" },
-      "offset": { "y": 150.0 }
-    }
-  },
-  "line-*": {
-    "transform": {
-      "scale": { "x": 2.0, "y": 1.0, "point": "sw" },
-      "offset": { "y": 150.0 }
-    }
-  },
-  "toaster-left-*": {
-    "transform": {
-      "scale": { "x": 2.0, "y": 1.0, "point": "sw" },
-      "offset": { "y": 150.0 }
-    }
-  },
-  "toaster-right-*": {
-    "transform": {
-      "scale": { "x": 2.0, "y": 1.0, "point": "sw" },
-      "offset": { "y": 150.0 }
-    }
-  },
-  "pad-*": {
-    "transform": {
-      "scale": { "x": 2.0, "y": 1.0, "point": "sw" },
-      "offset": { "y": 150.0 }
-    }
+  "transform": {
+    "scale": { "x": 2.0, "y": 1.0, "point": "sw" },
+    "offset": { "y": 150.0 }
   }
 }
 ```

@@ -16,69 +16,15 @@
         "pad-"
       ]
     },
-    "shell-*": {
-      "transform": {
-        "scale": {
-          "x": 2.0,
-          "y": 1.0,
-          "point": "sw"
-        },
-        "offset": {
-          "x": 0.0,
-          "y": 150.0
-        }
-      }
-    },
-    "line-*": {
-      "transform": {
-        "scale": {
-          "x": 2.0,
-          "y": 1.0,
-          "point": "sw"
-        },
-        "offset": {
-          "x": 0.0,
-          "y": 150.0
-        }
-      }
-    },
-    "toaster-left-*": {
-      "transform": {
-        "scale": {
-          "x": 2.0,
-          "y": 1.0,
-          "point": "sw"
-        },
-        "offset": {
-          "x": 0.0,
-          "y": 150.0
-        }
-      }
-    },
-    "toaster-right-*": {
-      "transform": {
-        "scale": {
-          "x": 2.0,
-          "y": 1.0,
-          "point": "sw"
-        },
-        "offset": {
-          "x": 0.0,
-          "y": 150.0
-        }
-      }
-    },
-    "pad-*": {
-      "transform": {
-        "scale": {
-          "x": 2.0,
-          "y": 1.0,
-          "point": "sw"
-        },
-        "offset": {
-          "x": 0.0,
-          "y": 150.0
-        }
+    "transform": {
+      "scale": {
+        "x": 2.0,
+        "y": 1.0,
+        "point": "sw"
+      },
+      "offset": {
+        "x": 0.0,
+        "y": 150.0
       }
     }
   }

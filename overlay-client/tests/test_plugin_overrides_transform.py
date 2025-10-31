@@ -55,17 +55,9 @@ def landingpad_config(tmp_path: Path) -> Path:
     config = {
         "LandingPad": {
             "__match__": {"id_prefixes": ["shell-", "pad-"]},
-            "shell-*": {
-                "transform": {
-                    "scale": {"x": 2.0, "y": 1.0, "point": "sw"},
-                    "offset": {"x": 0.0, "y": 150.0},
-                }
-            },
-            "pad-*": {
-                "transform": {
-                    "scale": {"x": 2.0, "y": 1.0, "point": "sw"},
-                    "offset": {"x": 0.0, "y": 150.0},
-                }
+            "transform": {
+                "scale": {"x": 2.0, "y": 1.0, "point": "sw"},
+                "offset": {"x": 0.0, "y": 150.0},
             },
         }
     }
@@ -133,4 +125,3 @@ def test_transform_scales_landingpad_rect(landingpad_config: Path) -> None:
     assert raw["y"] == 619
     assert raw["w"] == 4
     assert raw["h"] == 9
-

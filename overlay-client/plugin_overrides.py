@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Tuple
 
 
 JsonDict = Dict[str, Any]
@@ -17,6 +17,7 @@ class _PluginConfig:
     name: str
     match_id_prefixes: Tuple[str, ...]
     overrides: List[Tuple[str, JsonDict]]
+    plugin_defaults: Optional[JsonDict]
 
 
 class PluginOverrideManager:
@@ -49,6 +50,9 @@ class PluginOverrideManager:
         config = self._plugins.get(plugin_name)
         if config is None:
             return
+
+        if config.plugin_defaults:
+            self._apply_override(plugin_name, "plugin-default", config.plugin_defaults, payload)
 
         message_id = str(payload.get("id") or "")
         if not message_id:
@@ -138,8 +142,18 @@ class PluginOverrideManager:
                     match_prefixes = tuple(cleaned)
 
             overrides: List[Tuple[str, JsonDict]] = []
+            plugin_defaults: JsonDict = {}
             for key, spec in plugin_payload.items():
                 if key == "notes":
+                    continue
+                if key == "transform" and isinstance(spec, Mapping):
+                    plugin_defaults["transform"] = dict(spec)
+                    continue
+                if key == "x_scale" and spec is not None:
+                    plugin_defaults["x_scale"] = spec
+                    continue
+                if key == "x_shift" and spec is not None:
+                    plugin_defaults["x_shift"] = spec
                     continue
                 if not isinstance(spec, Mapping) or key.startswith("__"):
                     continue
@@ -149,6 +163,7 @@ class PluginOverrideManager:
                 name=plugin_name,
                 match_id_prefixes=match_prefixes,
                 overrides=overrides,
+                plugin_defaults=plugin_defaults or None,
             )
 
         self._plugins = plugins
