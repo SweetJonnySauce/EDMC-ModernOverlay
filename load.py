@@ -581,7 +581,7 @@ class _PluginRuntime:
         LOGGER.debug(
             "Applying updated preferences: capture_output=%s show_connection_status=%s "
             "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d overlay_opacity=%.2f "
-            "force_render=%s force_xwayland=%s debug_overlay=%s font_min=%.1f font_max=%.1f",
+            "force_render=%s force_xwayland=%s debug_overlay=%s cycle_payload_ids=%s font_min=%.1f font_max=%.1f",
             self._preferences.capture_output,
             self._preferences.show_connection_status,
             self._preferences.client_log_retention,
@@ -591,6 +591,7 @@ class _PluginRuntime:
             self._preferences.force_render,
             self._preferences.force_xwayland,
             self._preferences.show_debug_overlay,
+            self._preferences.cycle_payload_ids,
             self._preferences.min_font_point,
             self._preferences.max_font_point,
         )
@@ -732,6 +733,34 @@ class _PluginRuntime:
         self._preferences.show_debug_overlay = bool(value)
         LOGGER.debug("Overlay debug overlay %s", "enabled" if self._preferences.show_debug_overlay else "disabled")
         self._send_overlay_config()
+
+    def set_cycle_payload_preference(self, value: bool) -> None:
+        flag = bool(value)
+        if flag == self._preferences.cycle_payload_ids:
+            return
+        self._preferences.cycle_payload_ids = flag
+        LOGGER.debug("Payload ID cycling %s", "enabled" if flag else "disabled")
+        self._preferences.save()
+        self._send_overlay_config()
+
+    def cycle_payload_prev(self) -> None:
+        self._cycle_payload_step(-1)
+
+    def cycle_payload_next(self) -> None:
+        self._cycle_payload_step(1)
+
+    def _cycle_payload_step(self, direction: int) -> None:
+        if not self._running:
+            raise RuntimeError("Overlay is not running")
+        if not self._preferences.cycle_payload_ids:
+            raise RuntimeError("Payload cycling is disabled")
+        action = "prev" if direction < 0 else "next"
+        payload = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "event": "OverlayCycle",
+            "action": action,
+        }
+        self._publish_payload(payload)
 
     def set_min_font_preference(self, value: float) -> None:
         try:
@@ -934,13 +963,14 @@ class _PluginRuntime:
             "show_debug_overlay": bool(self._preferences.show_debug_overlay),
             "min_font_point": float(self._preferences.min_font_point),
             "max_font_point": float(self._preferences.max_font_point),
+            "cycle_payload_ids": bool(self._preferences.cycle_payload_ids),
             "platform_context": self._platform_context_payload(),
         }
         self._last_config = dict(payload)
         self._publish_payload(payload)
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s debug_overlay_corner=%s status_bottom_margin=%s client_log_retention=%d gridlines_enabled=%s "
-            "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s font_min=%.1f font_max=%.1f platform_context=%s",
+            "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s cycle_payload_ids=%s font_min=%.1f font_max=%.1f platform_context=%s",
             payload["opacity"],
             payload["show_status"],
             payload["debug_overlay_corner"],
@@ -952,6 +982,7 @@ class _PluginRuntime:
             payload["title_bar_enabled"],
             payload["title_bar_height"],
             payload["show_debug_overlay"],
+            payload["cycle_payload_ids"],
             payload["min_font_point"],
             payload["max_font_point"],
             payload["platform_context"],
@@ -1294,6 +1325,9 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         debug_overlay_callback = _plugin.set_debug_overlay_preference if _plugin else None
         font_min_callback = _plugin.set_min_font_preference if _plugin else None
         font_max_callback = _plugin.set_max_font_preference if _plugin else None
+        cycle_toggle_callback = _plugin.set_cycle_payload_preference if _plugin else None
+        cycle_prev_callback = _plugin.cycle_payload_prev if _plugin else None
+        cycle_next_callback = _plugin.cycle_payload_next if _plugin else None
         panel = PreferencesPanel(
             parent,
             _preferences,
@@ -1311,6 +1345,9 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             debug_overlay_callback,
             font_min_callback,
             font_max_callback,
+            cycle_toggle_callback,
+            cycle_prev_callback,
+            cycle_next_callback,
         )
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)
@@ -1334,7 +1371,7 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
                 "Preferences saved: capture_output=%s show_connection_status=%s "
                 "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d "
                 "force_render=%s title_bar_enabled=%s title_bar_height=%d force_xwayland=%s "
-                "debug_overlay=%s font_min=%.1f font_max=%.1f",
+                "debug_overlay=%s cycle_payload_ids=%s font_min=%.1f font_max=%.1f",
                 _preferences.capture_output,
                 _preferences.show_connection_status,
                 _preferences.client_log_retention,
@@ -1345,6 +1382,7 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
                 _preferences.title_bar_height,
                 _preferences.force_xwayland,
                 _preferences.show_debug_overlay,
+                _preferences.cycle_payload_ids,
                 _preferences.min_font_point,
                 _preferences.max_font_point,
             )

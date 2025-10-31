@@ -314,6 +314,10 @@ class OverlayWindow(QWidget):
         self._title_bar_height: int = self._coerce_non_negative(getattr(initial, "title_bar_height", 0), default=0)
         self._last_title_bar_offset: int = 0
         self._aspect_guard_skip_logged: bool = False
+        self._cycle_payload_enabled: bool = False
+        self._cycle_payload_ids: List[str] = []
+        self._cycle_current_id: Optional[str] = None
+        self._cycle_anchor_points: Dict[str, Tuple[int, int]] = {}
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -378,6 +382,8 @@ class OverlayWindow(QWidget):
         layout.setContentsMargins(20, 20, 20, 40)
         self._apply_drag_state()
         self.setLayout(layout)
+
+        self.set_cycle_payload_enabled(getattr(initial, "cycle_payload_ids", False))
 
         width_px, height_px = self._current_physical_size()
         _CLIENT_LOGGER.debug(
@@ -547,6 +553,7 @@ class OverlayWindow(QWidget):
                 painter.drawText(2, baseline, text)
             painter.restore()
         self._paint_legacy(painter)
+        self._paint_cycle_overlay(painter)
         if self._show_debug_overlay:
             self._paint_debug_overlay(painter)
         painter.end()
@@ -751,6 +758,110 @@ class OverlayWindow(QWidget):
         self._show_debug_overlay = flag
         _CLIENT_LOGGER.debug("Debug overlay %s", "enabled" if flag else "disabled")
         self.update()
+
+    def set_cycle_payload_enabled(self, enabled: Optional[bool]) -> None:
+        flag = bool(enabled)
+        if flag == self._cycle_payload_enabled:
+            return
+        self._cycle_payload_enabled = flag
+        if flag:
+            _CLIENT_LOGGER.debug("Payload ID cycling enabled")
+            self._sync_cycle_items()
+        else:
+            _CLIENT_LOGGER.debug("Payload ID cycling disabled")
+            self._cycle_payload_ids = []
+            self._cycle_current_id = None
+        self.update()
+
+    def cycle_payload_step(self, step: int) -> None:
+        if not self._cycle_payload_enabled:
+            return
+        self._sync_cycle_items()
+        if not self._cycle_payload_ids:
+            return
+        current_id = self._cycle_current_id
+        try:
+            index = self._cycle_payload_ids.index(current_id) if current_id else 0
+        except ValueError:
+            index = 0
+        next_index = (index + step) % len(self._cycle_payload_ids)
+        self._cycle_current_id = self._cycle_payload_ids[next_index]
+        _CLIENT_LOGGER.debug(
+            "Cycle payload step=%s index=%d/%d id=%s",
+            step,
+            next_index + 1,
+            len(self._cycle_payload_ids),
+            self._cycle_current_id,
+        )
+        self.update()
+
+    def handle_cycle_action(self, action: str) -> None:
+        if not action:
+            return
+        action_lower = action.lower()
+        if action_lower == "next":
+            self.cycle_payload_step(1)
+        elif action_lower == "prev":
+            self.cycle_payload_step(-1)
+        elif action_lower == "reset":
+            self._sync_cycle_items()
+            self.update()
+
+    def _sync_cycle_items(self) -> None:
+        if not self._cycle_payload_enabled:
+            return
+        ids = [item_id for item_id, _ in self._legacy_items.items()]
+        previous_id = self._cycle_current_id
+        self._cycle_payload_ids = ids
+        if not ids:
+            self._cycle_current_id = None
+            return
+        if previous_id in ids:
+            self._cycle_current_id = previous_id
+        else:
+            self._cycle_current_id = ids[0]
+
+    def _register_cycle_anchor(self, item_id: str, x: int, y: int) -> None:
+        self._cycle_anchor_points[item_id] = (int(x), int(y))
+
+    def _paint_cycle_overlay(self, painter: QPainter) -> None:
+        if not self._cycle_payload_enabled:
+            return
+        self._sync_cycle_items()
+        if not self._cycle_current_id:
+            return
+        anchor = self._cycle_anchor_points.get(self._cycle_current_id)
+        painter.save()
+        text = self._cycle_current_id
+        highlight_color = QColor("#ffb347")
+        background = QColor(0, 0, 0, 180)
+        font = QFont(self._font_family)
+        font.setPointSizeF(max(20.0, self._scaled_point_size(18.0)))
+        font.setWeight(QFont.Weight.Bold)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        text_width = metrics.horizontalAdvance(text)
+        text_height = metrics.height()
+        center_x = self.width() // 2
+        center_y = self.height() // 2
+        rect_left = center_x - text_width // 2 - 12
+        rect_top = center_y - text_height // 2 - 8
+        rect_width = text_width + 24
+        rect_height = text_height + 16
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(background)
+        painter.drawRoundedRect(rect_left, rect_top, rect_width, rect_height, 10, 10)
+        painter.setPen(highlight_color)
+        baseline = center_y + (text_height // 2) - metrics.descent()
+        painter.drawText(center_x - text_width // 2, baseline, text)
+        if anchor is not None:
+            start_x = center_x
+            start_y = rect_top + rect_height
+            painter.setPen(QPen(highlight_color, 2))
+            painter.drawLine(start_x, start_y, anchor[0], anchor[1])
+            painter.setBrush(highlight_color)
+            painter.drawEllipse(anchor[0] - 4, anchor[1] - 4, 8, 8)
+        painter.restore()
 
     def set_font_bounds(self, min_point: Optional[float], max_point: Optional[float]) -> None:
         changed = False
@@ -1833,14 +1944,19 @@ class OverlayWindow(QWidget):
                 self._log_legacy_trace(plugin_name, message_id, stage, extra)
 
         if process_legacy_payload(self._legacy_items, payload, trace_fn=trace_fn):
+            if self._cycle_payload_enabled:
+                self._sync_cycle_items()
             self.update()
 
     def _purge_legacy(self) -> None:
         now = time.monotonic()
         if self._legacy_items.purge_expired(now):
+            if self._cycle_payload_enabled:
+                self._sync_cycle_items()
             self.update()
 
     def _paint_legacy(self, painter: QPainter) -> None:
+        self._cycle_anchor_points = {}
         for item_id, item in self._legacy_items.items():
             if item.kind == "message":
                 self._paint_legacy_message(painter, item_id, item.data)
@@ -1911,6 +2027,11 @@ class OverlayWindow(QWidget):
             x = max_x
         baseline = int(round(raw_top * scale_y + metrics.ascent()))
         painter.drawText(x, baseline, text)
+        center_x = x + text_width // 2
+        top = baseline - metrics.ascent()
+        bottom = baseline + metrics.descent()
+        center_y = int(round((top + bottom) / 2.0))
+        self._register_cycle_anchor(item_id, center_x, center_y)
 
     def _paint_legacy_rect(
         self,
@@ -2018,6 +2139,7 @@ class OverlayWindow(QWidget):
             w,
             h,
         )
+        self._register_cycle_anchor(item_id, x + w // 2, y + h // 2)
 
     def _paint_legacy_vector(self, painter: QPainter, legacy_item: LegacyItem) -> None:
         item_id = legacy_item.item_id
@@ -2100,6 +2222,23 @@ class OverlayWindow(QWidget):
         if trace_enabled:
             def trace_fn(stage: str, details: Mapping[str, Any]) -> None:
                 self._log_legacy_trace(plugin_name, item_id, stage, details)
+
+        px_list: List[int] = []
+        py_list: List[int] = []
+        for point in vector_payload.get("points", []):
+            if not isinstance(point, Mapping):
+                continue
+            try:
+                px = int(round(float(point.get("x", 0.0)) * scale_x))
+                py = int(round(float(point.get("y", 0.0)) * scale_y))
+            except (TypeError, ValueError):
+                continue
+            px_list.append(px)
+            py_list.append(py)
+        if px_list and py_list:
+            center_x = int(round((min(px_list) + max(px_list)) / 2.0))
+            center_y = int(round((min(py_list) + max(py_list)) / 2.0))
+            self._register_cycle_anchor(item_id, center_x, center_y)
 
         render_vector(adapter, vector_payload, scale_x, scale_y, trace=trace_fn)
 
@@ -2427,6 +2566,11 @@ def main(argv: Optional[list[str]] = None) -> int:
             return
         if event == "LegacyOverlay":
             helper.handle_legacy_payload(window, payload)
+            return
+        if event == "OverlayCycle":
+            action = payload.get("action")
+            if isinstance(action, str):
+                window.handle_cycle_action(action)
             return
         message_text = payload.get("message")
         ttl: Optional[float] = None

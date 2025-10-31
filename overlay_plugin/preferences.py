@@ -33,6 +33,7 @@ class Preferences:
     max_font_point: float = 24.0
     title_bar_enabled: bool = False
     title_bar_height: int = 0
+    cycle_payload_ids: bool = False
 
     def __post_init__(self) -> None:
         self.plugin_dir = Path(self.plugin_dir)
@@ -87,6 +88,7 @@ class Preferences:
         except (TypeError, ValueError):
             bar_height = 0
         self.title_bar_height = max(0, bar_height)
+        self.cycle_payload_ids = bool(data.get("cycle_payload_ids", False))
 
     def save(self) -> None:
         payload: Dict[str, Any] = {
@@ -107,6 +109,7 @@ class Preferences:
             "status_bottom_margin": int(self.status_bottom_margin()),
             "title_bar_enabled": bool(self.title_bar_enabled),
             "title_bar_height": int(self.title_bar_height),
+            "cycle_payload_ids": bool(self.cycle_payload_ids),
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -136,6 +139,9 @@ class PreferencesPanel:
         set_debug_overlay_callback: Optional[Callable[[bool], None]] = None,
         set_font_min_callback: Optional[Callable[[float], None]] = None,
         set_font_max_callback: Optional[Callable[[float], None]] = None,
+        set_cycle_payload_callback: Optional[Callable[[bool], None]] = None,
+        cycle_payload_prev_callback: Optional[Callable[[], None]] = None,
+        cycle_payload_next_callback: Optional[Callable[[], None]] = None,
     ) -> None:
         import tkinter as tk
         from tkinter import ttk
@@ -158,6 +164,7 @@ class PreferencesPanel:
         self._var_debug_overlay = tk.BooleanVar(value=preferences.show_debug_overlay)
         self._var_min_font = tk.DoubleVar(value=float(preferences.min_font_point))
         self._var_max_font = tk.DoubleVar(value=float(preferences.max_font_point))
+        self._var_cycle_payload = tk.BooleanVar(value=preferences.cycle_payload_ids)
 
         self._send_test = send_test_callback
         self._set_opacity = set_opacity_callback
@@ -173,9 +180,14 @@ class PreferencesPanel:
         self._set_debug_overlay = set_debug_overlay_callback
         self._set_font_min = set_font_min_callback
         self._set_font_max = set_font_max_callback
+        self._set_cycle_payload = set_cycle_payload_callback
+        self._cycle_prev_callback = cycle_payload_prev_callback
+        self._cycle_next_callback = cycle_payload_next_callback
 
         self._legacy_client = None
         self._title_bar_height_spin = None
+        self._cycle_prev_btn = None
+        self._cycle_next_btn = None
         self._test_var = tk.StringVar()
         self._test_x_var = tk.StringVar()
         self._test_y_var = tk.StringVar()
@@ -399,8 +411,26 @@ class PreferencesPanel:
         grid_spacing_spin.bind("<Return>", self._on_gridline_spacing_event)
         grid_spacing_row.grid(row=14, column=0, sticky="w", pady=(2, 0))
 
+        cycle_row = ttk.Frame(frame, style=self._frame_style)
+        cycle_checkbox = nb.Checkbutton(
+            cycle_row,
+            text="Cycle through Payload IDs",
+            variable=self._var_cycle_payload,
+            onvalue=True,
+            offvalue=False,
+            command=self._on_cycle_payload_toggle,
+        )
+        self._cycle_prev_btn = nb.Button(cycle_row, text="<", width=3, command=self._on_cycle_payload_prev)
+        self._cycle_next_btn = nb.Button(cycle_row, text=">", width=3, command=self._on_cycle_payload_next)
+        cycle_checkbox.pack(side="left")
+        self._cycle_prev_btn.pack(side="left", padx=(8, 0))
+        self._cycle_next_btn.pack(side="left", padx=(4, 0))
+        cycle_row.grid(row=15, column=0, sticky="w", pady=(10, 0))
+
+        self._update_cycle_button_state()
+
         test_label = nb.Label(frame, text="Send test message to overlay:")
-        test_label.grid(row=15, column=0, sticky="w", pady=(10, 0))
+        test_label.grid(row=16, column=0, sticky="w", pady=(10, 0))
 
         test_row = ttk.Frame(frame, style=self._frame_style)
         test_entry = nb.EntryMenu(test_row, textvariable=self._test_var, width=40)
@@ -415,22 +445,22 @@ class PreferencesPanel:
         y_label.pack(side="left", padx=(8, 2))
         y_entry.pack(side="left")
         send_button.pack(side="left", padx=(8, 0))
-        test_row.grid(row=16, column=0, sticky="we", pady=(2, 0))
+        test_row.grid(row=17, column=0, sticky="we", pady=(2, 0))
         frame.columnconfigure(0, weight=1)
         test_row.columnconfigure(0, weight=1)
 
         legacy_label = nb.Label(frame, text="Legacy edmcoverlay compatibility:")
-        legacy_label.grid(row=17, column=0, sticky="w", pady=(10, 0))
+        legacy_label.grid(row=18, column=0, sticky="w", pady=(10, 0))
 
         legacy_row = ttk.Frame(frame, style=self._frame_style)
         legacy_text_btn = nb.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
         legacy_rect_btn = nb.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
         legacy_text_btn.pack(side="left")
         legacy_rect_btn.pack(side="left", padx=(8, 0))
-        legacy_row.grid(row=18, column=0, sticky="w", pady=(2, 0))
+        legacy_row.grid(row=19, column=0, sticky="w", pady=(2, 0))
 
         status_label = nb.Label(frame, textvariable=self._status_var, wraplength=400, justify="left")
-        status_label.grid(row=19, column=0, sticky="w", pady=(4, 0))
+        status_label.grid(row=20, column=0, sticky="w", pady=(4, 0))
 
         self._frame = frame
 
@@ -523,6 +553,48 @@ class PreferencesPanel:
                 self._status_var.set(f"Failed to update debug overlay corner: {exc}")
                 return
         self._preferences.save()
+
+    def _update_cycle_button_state(self) -> None:
+        state = "normal" if self._var_cycle_payload.get() else "disabled"
+        for button in (self._cycle_prev_btn, self._cycle_next_btn):
+            if button is not None:
+                try:
+                    button.configure(state=state)
+                except Exception:
+                    pass
+
+    def _on_cycle_payload_toggle(self) -> None:
+        value = bool(self._var_cycle_payload.get())
+        self._preferences.cycle_payload_ids = value
+        if self._set_cycle_payload:
+            try:
+                self._set_cycle_payload(value)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update payload cycling: {exc}")
+                self._var_cycle_payload.set(not value)
+                self._preferences.cycle_payload_ids = bool(self._var_cycle_payload.get())
+                self._update_cycle_button_state()
+                return
+        self._update_cycle_button_state()
+        self._preferences.save()
+
+    def _on_cycle_payload_prev(self) -> None:
+        if not self._var_cycle_payload.get():
+            return
+        if self._cycle_prev_callback:
+            try:
+                self._cycle_prev_callback()
+            except Exception as exc:
+                self._status_var.set(f"Failed to cycle payload IDs: {exc}")
+
+    def _on_cycle_payload_next(self) -> None:
+        if not self._var_cycle_payload.get():
+            return
+        if self._cycle_next_callback:
+            try:
+                self._cycle_next_callback()
+            except Exception as exc:
+                self._status_var.set(f"Failed to cycle payload IDs: {exc}")
 
     def _on_log_retention_command(self) -> None:
         self._apply_log_retention()

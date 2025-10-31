@@ -22,6 +22,7 @@ class InitialClientSettings:
     status_corner: str = "SW"
     title_bar_enabled: bool = False
     title_bar_height: int = 0
+    cycle_payload_ids: bool = False
 
 
 @dataclass
@@ -44,6 +45,7 @@ class DeveloperHelperConfig:
     status_corner: Optional[str] = None
     title_bar_enabled: Optional[bool] = None
     title_bar_height: Optional[int] = None
+    cycle_payload_ids: Optional[bool] = None
 
     @classmethod
     def from_payload(cls, payload: Dict[str, Any]) -> "DeveloperHelperConfig":
@@ -96,6 +98,7 @@ class DeveloperHelperConfig:
             debug_overlay_corner=_str(payload.get("debug_overlay_corner"), None),
             title_bar_enabled=_bool(payload.get("title_bar_enabled"), None),
             title_bar_height=_int(payload.get("title_bar_height"), None),
+            cycle_payload_ids=_bool(payload.get("cycle_payload_ids"), None),
         )
 
 
@@ -144,6 +147,7 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
     except (TypeError, ValueError):
         bar_height = defaults.title_bar_height
     bar_height = max(0, bar_height)
+    cycle_payload_ids = bool(data.get("cycle_payload_ids", defaults.cycle_payload_ids))
 
     return InitialClientSettings(
         client_log_retention=max(1, retention),
@@ -156,4 +160,5 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         debug_overlay_corner=corner_value,
         title_bar_enabled=title_bar_enabled,
         title_bar_height=bar_height,
+        cycle_payload_ids=cycle_payload_ids,
     )
