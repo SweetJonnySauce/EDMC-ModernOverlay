@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
 
 JsonDict = Dict[str, Any]
@@ -298,6 +298,7 @@ class PluginOverrideManager:
         scale_spec = spec.get("scale")
         offset_spec = spec.get("offset")
 
+        pivot_override = None
         if not isinstance(scale_spec, Mapping):
             scale_x = 1.0
             scale_y = 1.0
@@ -306,7 +307,18 @@ class PluginOverrideManager:
         else:
             scale_x = self._coerce_float(scale_spec.get("x"), 1.0)
             scale_y = self._coerce_float(scale_spec.get("y"), 1.0)
-            scale_anchor = str(scale_spec.get("point", "NW"))
+            point_spec = scale_spec.get("scale_anchor_point", scale_spec.get("point", "NW"))
+            if isinstance(point_spec, Mapping):
+                try:
+                    pivot_override = (
+                        float(point_spec.get("x", 0.0)),
+                        float(point_spec.get("y", 0.0)),
+                    )
+                except (TypeError, ValueError):
+                    pivot_override = None
+                scale_anchor = "NW"
+            else:
+                scale_anchor = str(point_spec or "NW")
             bounds_spec = scale_spec.get("source_bounds")
 
         offset_x = 0.0
@@ -318,7 +330,6 @@ class PluginOverrideManager:
         if math.isclose(scale_x, 1.0, rel_tol=1e-9) and math.isclose(scale_y, 1.0, rel_tol=1e-9) and math.isclose(offset_x, 0.0, rel_tol=1e-9) and math.isclose(offset_y, 0.0, rel_tol=1e-9):
             return
 
-        pivot_override = None
         if isinstance(scale_spec, Mapping):
             pivot_candidate = scale_spec.get("pivot")
             if isinstance(pivot_candidate, Mapping):
@@ -328,7 +339,7 @@ class PluginOverrideManager:
                         float(pivot_candidate.get("y", 0.0)),
                     )
                 except (TypeError, ValueError):
-                    pivot_override = None
+                    pass
 
         points = self._extract_points_from_payload(payload)
         bounds = self._compute_bounds(points, bounds_spec)

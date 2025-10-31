@@ -56,7 +56,7 @@ def landingpad_config(tmp_path: Path) -> Path:
         "LandingPad": {
             "__match__": {"id_prefixes": ["shell-", "pad-"]},
             "transform": {
-                "scale": {"x": 2.0, "y": 1.0, "point": "sw"},
+                "scale": {"x": 2.0, "y": 1.0, "scale_anchor_point": "sw"},
                 "offset": {"x": 0.0, "y": 150.0},
             },
         }
@@ -125,3 +125,34 @@ def test_transform_scales_landingpad_rect(landingpad_config: Path) -> None:
     assert raw["y"] == 619
     assert raw["w"] == 4
     assert raw["h"] == 9
+
+
+def test_transform_accepts_point_mapping(tmp_path: Path) -> None:
+    config = {
+        "LandingPad": {
+            "transform": {
+                "scale": {
+                    "x": 2.0,
+                    "y": 1.0,
+                    "scale_anchor_point": {"x": 50.0, "y": 75.0},
+                }
+            }
+        }
+    }
+    config_path = tmp_path / "plugin_overrides.json"
+    _write_config(config_path, config)
+    manager = _make_manager(config_path)
+    payload = {
+        "type": "shape",
+        "shape": "vect",
+        "id": "shell-99",
+        "plugin": "LandingPad",
+        "ttl": 5,
+        "vector": [{"x": 60, "y": 80}],
+    }
+
+    manager.apply(payload)
+
+    point = payload["vector"][0]
+    assert point["x"] == 70  # 50 + (60-50) * 2
+    assert point["y"] == 80  # unchanged

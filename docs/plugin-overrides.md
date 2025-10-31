@@ -99,7 +99,9 @@ The `transform` directive mirrors the prototype harness in `tests/scale-prototyp
 
 If `pivot` is omitted, the pivot is derived by combining the selected anchor (`point`) with either the payload’s
 current bounding box or the optional `source_bounds`. Offsets are applied after scaling, so a zero scale with a non-zero
-offset still performs a pure translation. Leaving the block empty is a no-op.
+offset still performs a pure translation. Leaving the block empty is a no-op. You can also set `point` to an object
+containing `x` and `y`; ModernOverlay will use that explicit coordinate as the pivot (equivalent to `pivot`, but more
+convenient when you just need to override the anchor).
 
 Modern Overlay applies overrides in this order: `transform` → `x_scale` → `x_shift`. That makes the transform block the
 place to normalise a plugin’s coordinate system before any legacy tweaks run. You can still follow up with an
