@@ -10,19 +10,19 @@
       ]
     },
     "shell-*": {
-      "x_scale": "derive_ratio_from_height"
+      "x_scale": 2.0
     },
     "line-*": {
-      "x_scale": "use_cached_ratio"
+      "x_scale": 2.0
     },
     "toaster-left-*": {
-      "x_scale": "use_cached_ratio"
+      "x_scale": 2.0
     },
     "toaster-right-*": {
-      "x_scale": "use_cached_ratio"
+      "x_scale": 2.0
     },
     "pad-*": {
-      "x_scale": "use_cached_ratio"
+      "x_scale": 2.0
     }
   }
 }
