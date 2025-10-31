@@ -17,6 +17,7 @@ class _PluginConfig:
     name: str
     match_id_prefixes: Tuple[str, ...]
     overrides: List[Tuple[str, JsonDict]]
+    note: Optional[str]
 
 
 class PluginOverrideManager:
@@ -30,6 +31,7 @@ class PluginOverrideManager:
         self._x_scale_cache: Dict[str, float] = {}
         self._load_config()
         self._diagnostic_spans: Dict[Tuple[str, str], Tuple[float, float, float]] = {}
+        self._notes_logged: set[Tuple[str, str]] = set()
 
     # ------------------------------------------------------------------
     # Public API
@@ -50,11 +52,22 @@ class PluginOverrideManager:
         if config is None:
             return
 
+        if isinstance(config.note, str):
+            note_key = (plugin_name, "__plugin__")
+            stripped_note = config.note.strip()
+            if stripped_note and note_key not in self._notes_logged:
+                self._logger.info("override-note plugin=%s note=%s", plugin_name, stripped_note)
+                self._notes_logged.add(note_key)
+
         message_id = str(payload.get("id") or "")
         if not message_id:
             return
 
-        override = self._select_override(config, message_id)
+        selected = self._select_override(config, message_id)
+        if selected is None:
+            return
+
+        pattern, override = selected
         if override is None:
             return
 
@@ -79,7 +92,7 @@ class PluginOverrideManager:
                         )
                         self._diagnostic_spans[key] = (min_x, max_x, center_x)
 
-        self._apply_override(plugin_name, override, payload)
+        self._apply_override(plugin_name, pattern, override, payload)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -134,7 +147,12 @@ class PluginOverrideManager:
                     match_prefixes = tuple(cleaned)
 
             overrides: List[Tuple[str, JsonDict]] = []
+            plugin_note: Optional[str] = None
             for key, spec in plugin_payload.items():
+                if key == "notes" and isinstance(spec, str):
+                    stripped_note = spec.strip()
+                    plugin_note = stripped_note or None
+                    continue
                 if not isinstance(spec, Mapping) or key.startswith("__"):
                     continue
                 overrides.append((str(key), dict(spec)))
@@ -143,10 +161,13 @@ class PluginOverrideManager:
                 name=plugin_name,
                 match_id_prefixes=match_prefixes,
                 overrides=overrides,
+                note=plugin_note,
             )
 
         self._plugins = plugins
         self._x_scale_cache.clear()
+        self._diagnostic_spans.clear()
+        self._notes_logged.clear()
         try:
             self._mtime = self._path.stat().st_mtime
         except FileNotFoundError:
@@ -189,13 +210,13 @@ class PluginOverrideManager:
 
         return None
 
-    def _select_override(self, config: _PluginConfig, message_id: str) -> Optional[JsonDict]:
+    def _select_override(self, config: _PluginConfig, message_id: str) -> Optional[Tuple[str, JsonDict]]:
         for pattern, spec in config.overrides:
             if fnmatchcase(message_id, pattern):
-                return spec
+                return pattern, spec
         return None
 
-    def _apply_override(self, plugin: str, override: Mapping[str, Any], payload: MutableMapping[str, Any]) -> None:
+    def _apply_override(self, plugin: str, pattern: str, override: Mapping[str, Any], payload: MutableMapping[str, Any]) -> None:
         shape_type = str(payload.get("type") or "").lower()
         if shape_type != "shape":
             return
@@ -204,6 +225,13 @@ class PluginOverrideManager:
             return
         if int(payload.get("ttl", 0)) == 0:
             return
+
+        note = override.get("notes")
+        if isinstance(note, str) and note.strip():
+            key = (plugin, pattern)
+            if key not in self._notes_logged:
+                self._logger.info("override-note plugin=%s pattern=%s note=%s", plugin, pattern, note.strip())
+                self._notes_logged.add(key)
 
         transform_spec = override.get("transform")
         if isinstance(transform_spec, Mapping):
