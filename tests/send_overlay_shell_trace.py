@@ -171,7 +171,7 @@ def main(argv: List[str] | None = None) -> None:
         description="Send captured LandingPad shell payloads to ModernOverlay for trace analysis.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--ttl", type=int, default=600, help="Time-to-live for the injected payloads.")
+    parser.add_argument("--ttl", type=int, default=5, help="Time-to-live for the injected payloads.")
     parser.add_argument("--station", default="Debug Station", help="Station name to include in payload metadata.")
     parser.add_argument("--cmdr", default="overlay-trace", help="Commander name to embed in payload metadata.")
     args = parser.parse_args(argv)

@@ -219,3 +219,20 @@ When you need a new override type (e.g., gutters or font tweaks):
 
 Because the JSON is declarative, most adjustments can be achieved without touching plugin code—ideal
 for keeping third-party plugins compatible with Modern Overlay going forward.
+
+## Debugging Overrides
+
+To trace how a specific payload is transformed, create `debug.json` alongside
+`plugin_overrides.json` with the following structure:
+
+```json
+{
+  "trace_enabled": true,
+  "plugin": "LandingPad",
+  "payload_id": "line-0"
+}
+```
+
+When tracing is enabled the overlay client logs each transformation stage (scale/shift) for the
+matching payload ID, making it easier to reconcile expected vs. actual coordinates. Set
+`trace_enabled` back to `false` when you are done to avoid noisy logs.

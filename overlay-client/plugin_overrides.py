@@ -8,6 +8,8 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
+from debug_config import DebugConfig
+
 
 JsonDict = Dict[str, Any]
 
@@ -23,12 +25,13 @@ class _PluginConfig:
 class PluginOverrideManager:
     """Load and apply plugin-specific rendering overrides."""
 
-    def __init__(self, config_path: Path, logger) -> None:
+    def __init__(self, config_path: Path, logger, debug_config: Optional[DebugConfig] = None) -> None:
         self._path = config_path
         self._logger = logger
         self._mtime: Optional[float] = None
         self._plugins: Dict[str, _PluginConfig] = {}
         self._x_scale_cache: Dict[str, float] = {}
+        self._debug_config = debug_config or DebugConfig()
         self._diagnostic_spans: Dict[Tuple[str, str], Tuple[float, float, float]] = {}
         self._load_config()
 
@@ -51,10 +54,23 @@ class PluginOverrideManager:
         if config is None:
             return
 
-        if config.plugin_defaults:
-            self._apply_override(plugin_name, "plugin-default", config.plugin_defaults, payload)
-
         message_id = str(payload.get("id") or "")
+
+        if config.plugin_defaults:
+            trace_defaults = self._should_trace(plugin_name, message_id)
+            if trace_defaults:
+                self._log_trace(plugin_name, message_id, "before_defaults", payload)
+            self._apply_override(
+                plugin_name,
+                "defaults",
+                config.plugin_defaults,
+                payload,
+                trace=trace_defaults,
+                message_id=message_id,
+            )
+            if trace_defaults:
+                self._log_trace(plugin_name, message_id, "after_defaults", payload)
+
         if not message_id:
             return
 
@@ -87,7 +103,19 @@ class PluginOverrideManager:
                         )
                         self._diagnostic_spans[key] = (min_x, max_x, center_x)
 
-        self._apply_override(plugin_name, pattern, override, payload)
+        trace_active = self._should_trace(plugin_name, message_id)
+        if trace_active:
+            self._log_trace(plugin_name, message_id, "before_override", payload)
+        self._apply_override(
+            plugin_name,
+            pattern,
+            override,
+            payload,
+            trace=trace_active,
+            message_id=message_id,
+        )
+        if trace_active:
+            self._log_trace(plugin_name, message_id, "after_override", payload)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -217,7 +245,61 @@ class PluginOverrideManager:
                 return pattern, spec
         return None
 
-    def _apply_override(self, plugin: str, pattern: str, override: Mapping[str, Any], payload: MutableMapping[str, Any]) -> None:
+    def _should_trace(self, plugin: str, message_id: str) -> bool:
+        cfg = self._debug_config
+        if not cfg.trace_enabled:
+            return False
+        if cfg.trace_plugin and cfg.trace_plugin != plugin:
+            return False
+        if cfg.trace_payload_ids:
+            if not message_id:
+                return False
+            return any(message_id.startswith(prefix) for prefix in cfg.trace_payload_ids)
+        return True
+
+    def _log_trace(self, plugin: str, message_id: str, stage: str, payload: Mapping[str, Any]) -> None:
+        cfg = self._debug_config
+        if not cfg.trace_enabled:
+            return
+        shape = str(payload.get("shape") or "").lower()
+        if shape == "vect":
+            vector = payload.get("vector")
+            if not isinstance(vector, Sequence):
+                return
+            coords = []
+            for point in vector:
+                if isinstance(point, Mapping):
+                    coords.append((point.get("x"), point.get("y")))
+            self._logger.debug("trace plugin=%s id=%s stage=%s vector=%s", plugin, message_id, stage, coords)
+        elif shape == "rect":
+            try:
+                x_val = payload.get("x")
+                y_val = payload.get("y")
+                w_val = payload.get("w")
+                h_val = payload.get("h")
+            except Exception:
+                return
+            self._logger.debug(
+                "trace plugin=%s id=%s stage=%s rect=(x=%s,y=%s,w=%s,h=%s)",
+                plugin,
+                message_id,
+                stage,
+                x_val,
+                y_val,
+                w_val,
+                h_val,
+            )
+
+    def _apply_override(
+        self,
+        plugin: str,
+        pattern: str,
+        override: Mapping[str, Any],
+        payload: MutableMapping[str, Any],
+        *,
+        trace: bool = False,
+        message_id: str = "",
+    ) -> None:
         shape_type = str(payload.get("type") or "").lower()
         if shape_type != "shape":
             return
@@ -229,10 +311,14 @@ class PluginOverrideManager:
 
         transform_spec = override.get("transform")
         if isinstance(transform_spec, Mapping):
+            if trace:
+                self._log_trace(plugin, message_id, f"{pattern}:before_transform", payload)
             try:
-                self._apply_transform(plugin, transform_spec, payload)
+                self._apply_transform(plugin, message_id, pattern, transform_spec, payload, trace=trace)
             except Exception:  # pragma: no cover - defensive
                 self._logger.exception("Failed applying transform override for plugin %s", plugin)
+            if trace:
+                self._log_trace(plugin, message_id, f"{pattern}:after_transform", payload)
 
         scale: Optional[float] = None
         if "x_scale" in override:
@@ -242,6 +328,8 @@ class PluginOverrideManager:
                     self._scale_vector(payload, scale)
                 elif shape == "rect":
                     self._scale_rect(payload, scale)
+                if trace:
+                    self._log_trace(plugin, message_id, f"{pattern}:after_scale", payload)
 
         if "x_shift" in override:
             shift = self._resolve_x_shift(plugin, override["x_shift"], payload, scale or 1.0)
@@ -250,6 +338,8 @@ class PluginOverrideManager:
                     self._translate_vector(payload, shift)
                 elif shape == "rect":
                     self._translate_rect(payload, shift)
+                if trace:
+                    self._log_trace(plugin, message_id, f"{pattern}:after_shift", payload)
 
         # Additional overrides (gutters, font tweaks, etc.) can be added here.
 
@@ -290,7 +380,16 @@ class PluginOverrideManager:
 
         return None
     
-    def _apply_transform(self, plugin: str, spec: Mapping[str, Any], payload: MutableMapping[str, Any]) -> None:
+    def _apply_transform(
+        self,
+        plugin: str,
+        message_id: str,
+        pattern: str,
+        spec: Mapping[str, Any],
+        payload: MutableMapping[str, Any],
+        *,
+        trace: bool = False,
+    ) -> None:
         shape = str(payload.get("shape") or "").lower()
         if shape not in {"vect", "rect"}:
             return
@@ -353,6 +452,20 @@ class PluginOverrideManager:
 
         scale_tuple = (scale_x, scale_y)
         offset_tuple = (offset_x, offset_y)
+
+        if trace:
+            self._logger.debug(
+                "trace plugin=%s id=%s stage=%s pivot=(%.2f,%.2f) scale=(%.3f,%.3f) offset=(%.3f,%.3f)",
+                plugin,
+                message_id,
+                f"{pattern}:transform_params",
+                pivot[0],
+                pivot[1],
+                scale_tuple[0],
+                scale_tuple[1],
+                offset_tuple[0],
+                offset_tuple[1],
+            )
 
         if shape == "vect":
             self._transform_vector_payload(payload, pivot, scale_tuple, offset_tuple)

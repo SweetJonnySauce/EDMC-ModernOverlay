@@ -1,0 +1,9 @@
+{
+  "trace_enabled": true,
+  "plugin": "LandingPad",
+  "payload_ids": [
+    "line-2",
+    "shell-0",
+    "shell-3"
+  ]
+}

@@ -2,12 +2,39 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime
-from typing import Mapping, Any
+from typing import Any, Callable, Mapping, Optional
 
 from legacy_store import LegacyItem, LegacyItemStore
 
 
-def process_legacy_payload(store: LegacyItemStore, payload: Mapping[str, Any]) -> bool:
+TraceCallback = Callable[[str, Mapping[str, Any], Mapping[str, Any]], None]
+
+
+def _extract_plugin(payload: Mapping[str, Any]) -> Optional[str]:
+    for key in ("plugin", "plugin_name", "source_plugin"):
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            return value
+    meta = payload.get("meta")
+    if isinstance(meta, Mapping):
+        for key in ("plugin", "plugin_name", "source_plugin"):
+            value = meta.get(key)
+            if isinstance(value, str) and value:
+                return value
+    raw = payload.get("raw")
+    if isinstance(raw, Mapping):
+        for key in ("plugin", "plugin_name", "source_plugin"):
+            value = raw.get(key)
+            if isinstance(value, str) and value:
+                return value
+    return None
+
+
+def process_legacy_payload(
+    store: LegacyItemStore,
+    payload: Mapping[str, Any],
+    trace_fn: Optional[TraceCallback] = None,
+) -> bool:
     """Process a legacy payload and update the store.
 
     Returns True when the caller should trigger a repaint.
@@ -28,6 +55,7 @@ def process_legacy_payload(store: LegacyItemStore, payload: Mapping[str, Any]) -
 
     ttl = max(int(payload.get("ttl", 4)), 0)
     expiry = None if ttl <= 0 else time.monotonic() + ttl
+    plugin_name = _extract_plugin(payload)
 
     if item_type == "message":
         text = payload.get("text", "")
@@ -41,7 +69,7 @@ def process_legacy_payload(store: LegacyItemStore, payload: Mapping[str, Any]) -
             "y": int(payload.get("y", 0)),
             "size": payload.get("size", "normal"),
         }
-        store.set(item_id, LegacyItem(item_id=item_id, kind="message", data=data, expiry=expiry))
+        store.set(item_id, LegacyItem(item_id=item_id, kind="message", data=data, expiry=expiry, plugin=plugin_name))
         return True
 
     if item_type == "shape":
@@ -56,7 +84,10 @@ def process_legacy_payload(store: LegacyItemStore, payload: Mapping[str, Any]) -
                 "w": int(message.get("w", 0)),
                 "h": int(message.get("h", 0)),
             }
-            store.set(item_id, LegacyItem(item_id=item_id, kind="rect", data=data, expiry=expiry))
+            store.set(
+                item_id,
+                LegacyItem(item_id=item_id, kind="rect", data=data, expiry=expiry, plugin=plugin_name),
+            )
             return True
         if shape_name == "vect":
             vector = message.get("vector")
@@ -88,13 +119,42 @@ def process_legacy_payload(store: LegacyItemStore, payload: Mapping[str, Any]) -
                 "base_color": message.get("color", "white"),
                 "points": points,
             }
-            store.set(item_id, LegacyItem(item_id=item_id, kind="vector", data=data, expiry=expiry))
+            if trace_fn:
+                trace_fn(
+                    "legacy_processor:vector_normalised",
+                    payload,
+                    {
+                        "plugin": plugin_name,
+                        "item_id": item_id,
+                        "points": points,
+                        "base_color": data["base_color"],
+                    },
+                )
+            store.set(
+                item_id,
+                LegacyItem(
+                    item_id=item_id,
+                    kind="vector",
+                    data=data,
+                    expiry=expiry,
+                    plugin=plugin_name,
+                ),
+            )
             return True
 
         # For other shapes we keep the payload for future support/logging
         enriched = dict(message)
         enriched.setdefault("timestamp", datetime.now(UTC).isoformat())
-        store.set(item_id, LegacyItem(item_id=item_id, kind=f"shape:{shape_name}" if shape_name else "shape", data=enriched, expiry=expiry))
+        store.set(
+            item_id,
+            LegacyItem(
+                item_id=item_id,
+                kind=f"shape:{shape_name}" if shape_name else "shape",
+                data=enriched,
+                expiry=expiry,
+                plugin=plugin_name,
+            ),
+        )
         return True
 
     if item_type == "raw":
