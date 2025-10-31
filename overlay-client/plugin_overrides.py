@@ -29,8 +29,8 @@ class PluginOverrideManager:
         self._mtime: Optional[float] = None
         self._plugins: Dict[str, _PluginConfig] = {}
         self._x_scale_cache: Dict[str, float] = {}
-        self._load_config()
         self._diagnostic_spans: Dict[Tuple[str, str], Tuple[float, float, float]] = {}
+        self._load_config()
 
     # ------------------------------------------------------------------
     # Public API
