@@ -656,6 +656,9 @@ patterns = {
     "scaling": re.compile(
         r"Overlay scaling updated: window=(?P<width>[0-9]+)x(?P<height>[0-9]+) px scale_x=(?P<scale_x>[0-9.]+) scale_y=(?P<scale_y>[0-9.]+) diag=(?P<diag>[0-9.]+) message_pt=(?P<message>[0-9.]+)"
     ),
+    "title_offset": re.compile(
+        r"Title bar offset updated: enabled=(?P<enabled>True|False) height=(?P<height>[0-9]+) offset=(?P<offset>-?[0-9]+) scale_y=(?P<scale_y>[0-9.]+)"
+    ),
 }
 
 latest = {key: None for key in patterns}
@@ -674,6 +677,8 @@ with log_path.open("r", encoding="utf-8", errors="replace") as handle:
             if key == "wm" and "Recorded WM authoritative rect" not in line:
                 continue
             if key == "scaling" and "Overlay scaling updated:" not in line:
+                continue
+            if key == "title_offset" and "Title bar offset updated:" not in line:
                 continue
             match = pattern.search(line)
             if match:
@@ -705,6 +710,7 @@ wm_info = latest.get("wm")
 raw_info = latest.get("raw")
 calc_info = latest.get("calculated")
 scaling_info = latest.get("scaling")
+title_info = latest.get("title_offset")
 
 lines.append("Monitor:")
 if move_info:
@@ -813,6 +819,34 @@ else:
     lines.append("  status=<unavailable>")
     lines.append("  legacy=<unavailable>")
     lines.append("  legacy presets: <unavailable>")
+
+title_enabled = bool(settings_data.get("title_bar_enabled", False))
+try:
+    title_height = int(settings_data.get("title_bar_height", 0))
+except (TypeError, ValueError):
+    title_height = 0
+
+lines.append("")
+lines.append("Settings:")
+lines.append(f"  title_bar_compensation={'on' if title_enabled else 'off'} height={title_height}")
+applied_line = None
+if title_info:
+    try:
+        applied_offset = int(title_info.get("offset", "0"))
+    except (TypeError, ValueError):
+        applied_offset = None
+    scale_value = title_info.get("scale_y")
+    if applied_offset is not None:
+        if scale_value:
+            try:
+                applied_line = f"  applied_offset={applied_offset} scale_y={float(scale_value):.2f}"
+            except (TypeError, ValueError):
+                applied_line = f"  applied_offset={applied_offset}"
+        else:
+            applied_line = f"  applied_offset={applied_offset}"
+if applied_line is None:
+    applied_line = "  applied_offset=<unavailable>"
+lines.append(applied_line)
 
 print("\n".join(lines))
 PY

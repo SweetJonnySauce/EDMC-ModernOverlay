@@ -312,6 +312,8 @@ class OverlayWindow(QWidget):
         )
         self._title_bar_enabled: bool = bool(getattr(initial, "title_bar_enabled", False))
         self._title_bar_height: int = self._coerce_non_negative(getattr(initial, "title_bar_height", 0), default=0)
+        self._last_title_bar_offset: int = 0
+        self._aspect_guard_skip_logged: bool = False
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -1171,18 +1173,56 @@ class OverlayWindow(QWidget):
         geometry: Tuple[int, int, int, int],
         *,
         scale_y: float = 1.0,
-    ) -> Tuple[int, int, int, int]:
+    ) -> Tuple[Tuple[int, int, int, int], int]:
+        previous_offset = self._last_title_bar_offset
         if not self._title_bar_enabled or self._title_bar_height <= 0:
-            return geometry
+            self._last_title_bar_offset = 0
+            if previous_offset != 0:
+                _CLIENT_LOGGER.debug(
+                    "Title bar offset updated: enabled=%s height=%d offset=%d scale_y=%.3f",
+                    False,
+                    self._title_bar_height,
+                    0,
+                    float(scale_y),
+                )
+            return geometry, 0
         x, y, width, height = geometry
         if height <= 1:
-            return geometry
-        scaled_offset = float(self._title_bar_height) * max(scale_y, 0.0)
+            self._last_title_bar_offset = 0
+            if previous_offset != 0:
+                _CLIENT_LOGGER.debug(
+                    "Title bar offset updated: enabled=%s height=%d offset=%d scale_y=%.3f",
+                    self._title_bar_enabled,
+                    self._title_bar_height,
+                    0,
+                    float(scale_y),
+                )
+            return geometry, 0
+        safe_scale = max(scale_y, 0.0)
+        scaled_offset = float(self._title_bar_height) * safe_scale
         offset = min(int(round(scaled_offset)), max(0, height - 1))
         if offset <= 0:
-            return geometry
+            self._last_title_bar_offset = 0
+            if previous_offset != 0:
+                _CLIENT_LOGGER.debug(
+                    "Title bar offset updated: enabled=%s height=%d offset=%d scale_y=%.3f",
+                    self._title_bar_enabled,
+                    self._title_bar_height,
+                    0,
+                    float(scale_y),
+                )
+            return geometry, 0
         adjusted_height = max(1, height - offset)
-        return (x, y + offset, width, adjusted_height)
+        self._last_title_bar_offset = offset
+        if offset != previous_offset:
+            _CLIENT_LOGGER.debug(
+                "Title bar offset updated: enabled=%s height=%d offset=%d scale_y=%.3f",
+                self._title_bar_enabled,
+                self._title_bar_height,
+                offset,
+                float(scale_y),
+            )
+        return (x, y + offset, width, adjusted_height), offset
 
     def _apply_follow_state(self, state: WindowState) -> None:
         self._lost_window_logged = False
@@ -1246,8 +1286,12 @@ class OverlayWindow(QWidget):
                     self._last_device_ratio_log = snapshot
 
         scale_y = normalisation_info[2] if normalisation_info is not None else 1.0
-        desired_tuple = self._apply_title_bar_offset(tracker_qt_tuple, scale_y=scale_y)
-        desired_tuple = self._apply_aspect_guard(desired_tuple)
+        desired_tuple, applied_title_offset = self._apply_title_bar_offset(tracker_qt_tuple, scale_y=scale_y)
+        desired_tuple = self._apply_aspect_guard(
+            desired_tuple,
+            original_geometry=tracker_qt_tuple,
+            applied_title_offset=applied_title_offset,
+        )
 
         now = time.monotonic()
         target_tuple = desired_tuple
@@ -1561,18 +1605,45 @@ class OverlayWindow(QWidget):
         screen_name = screen.name() or screen.manufacturer() or "unknown"
         return converted, (screen_name, float(scale_x), float(scale_y), device_ratio)
 
-    def _apply_aspect_guard(self, geometry: Tuple[int, int, int, int]) -> Tuple[int, int, int, int]:
+    def _apply_aspect_guard(
+        self,
+        geometry: Tuple[int, int, int, int],
+        *,
+        original_geometry: Optional[Tuple[int, int, int, int]] = None,
+        applied_title_offset: int = 0,
+    ) -> Tuple[int, int, int, int]:
         x, y, width, height = geometry
         if width <= 0 or height <= 0:
             return geometry
         base_ratio = DEFAULT_WINDOW_BASE_WIDTH / float(DEFAULT_WINDOW_BASE_HEIGHT)
         current_ratio = width / float(height)
-        ratio_delta = abs(current_ratio - base_ratio) / base_ratio
-        if ratio_delta >= 0.12:
+        original_ratio = None
+        if original_geometry is not None:
+            _, _, original_width, original_height = original_geometry
+            if original_width > 0 and original_height > 0:
+                original_ratio = original_width / float(original_height)
+        ratio_for_check = original_ratio if original_ratio is not None else current_ratio
+        if abs(ratio_for_check - base_ratio) > 0.04:
+            if not self._aspect_guard_skip_logged:
+                _CLIENT_LOGGER.debug(
+                    "Aspect guard skipped: tracker_ratio=%.3f current_ratio=%.3f base_ratio=%.3f offset=%d",
+                    ratio_for_check,
+                    current_ratio,
+                    base_ratio,
+                    int(applied_title_offset),
+                )
+                self._aspect_guard_skip_logged = True
             return geometry
+        self._aspect_guard_skip_logged = False
         expected_height = int(round(width * DEFAULT_WINDOW_BASE_HEIGHT / float(DEFAULT_WINDOW_BASE_WIDTH)))
         tolerance = max(2, int(round(expected_height * 0.01)))
-        if height > expected_height + tolerance:
+        if height <= expected_height + tolerance:
+            return geometry
+        height_delta = height - expected_height
+        max_delta = max(6, int(round(width * 0.02)))
+        if height_delta > max_delta:
+            return geometry
+        if height_delta > 0:
             adjusted = (x, y, width, expected_height)
             _CLIENT_LOGGER.debug(
                 "Aspect guard trimmed overlay height: width=%d height=%d expected=%d tolerance=%d -> adjusted=%s",
@@ -2099,7 +2170,14 @@ class OverlayWindow(QWidget):
             "  legacy presets: {}".format(legacy_sizes_str),
         ]
 
-        info_lines = monitor_lines + [""] + overlay_lines + [""] + font_lines
+        settings_lines = [
+            "Settings:",
+            "  title_bar_compensation={}".format("on" if self._title_bar_enabled else "off"),
+            "  title_bar_height={}".format(self._title_bar_height),
+            "  applied_offset={}".format(self._last_title_bar_offset),
+        ]
+
+        info_lines = monitor_lines + [""] + overlay_lines + [""] + font_lines + [""] + settings_lines
         painter.save()
         debug_font = QFont(self._font_family, 10)
         painter.setFont(debug_font)
