@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, Optional, Tuple, Any
+from typing import Any, Dict, Iterable, Optional, Tuple
 
 
 @dataclass
 class LegacyItem:
+    item_id: str
     kind: str
     data: Dict[str, Any]
     expiry: Optional[float] = None
+    plugin: Optional[str] = None
 
 
 class LegacyItemStore:
@@ -24,7 +26,15 @@ class LegacyItemStore:
         self._items.pop(item_id, None)
 
     def set(self, item_id: str, item: LegacyItem) -> None:
+        if item.item_id != item_id:
+            item.item_id = item_id
         self._items[item_id] = item
+        trace_cb = getattr(self, "_trace_callback", None)
+        if callable(trace_cb):
+            try:
+                trace_cb("legacy_store:set", item)
+            except Exception:
+                pass
 
     def get(self, item_id: str) -> Optional[LegacyItem]:
         return self._items.get(item_id)

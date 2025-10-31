@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 
 class VectorPainterAdapter:
@@ -16,6 +16,7 @@ def render_vector(
     payload: Mapping[str, Any],
     scale_x: float,
     scale_y: float,
+    trace: Optional[Callable[[str, Mapping[str, Any]], None]] = None,
 ) -> None:
     base_color = str(payload.get("base_color") or "white")
     points: List[Mapping[str, Any]] = list(payload.get("points") or [])
@@ -28,6 +29,15 @@ def render_vector(
         return x, y
 
     scaled_points = [scaled(point) for point in points]
+    if trace:
+        trace(
+            "render_vector:scaled_points",
+            {
+                "scaled_points": scaled_points,
+                "scale_x": scale_x,
+                "scale_y": scale_y,
+            },
+        )
 
     for idx in range(len(points) - 1):
         color = points[idx + 1].get("color") or points[idx].get("color") or base_color

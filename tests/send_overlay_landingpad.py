@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import shutil
 import socket
 import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Tuple
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 SETTINGS_PATH = PLUGIN_ROOT / "overlay_settings.json"
+DEBUG_CONFIG_PATH = PLUGIN_ROOT / "debug.json"
 PORT_PATH = PLUGIN_ROOT / "port.json"
 
 
@@ -27,6 +27,314 @@ def _fail(message: str, *, code: int = 1) -> None:
     raise SystemExit(code)
 
 
+# ---------------------------------------------------------------------------
+# Landing pad shape data captured from the live plugin
+
+def _points(coords: Iterable[Tuple[int, int]]) -> List[Dict[str, int]]:
+    return [{"x": int(x), "y": int(y)} for x, y in coords]
+
+
+BASE_VECTOR_SHAPES: List[Dict[str, Any]] = [
+    {
+        "id": "shell-0",
+        "shape": "vect",
+        "color": "#ffffff",
+        "vector": _points(
+            [
+                (124, 464),
+                (111, 419),
+                (89, 393),
+                (62, 393),
+                (40, 419),
+                (27, 464),
+                (27, 516),
+                (40, 561),
+                (62, 587),
+                (89, 587),
+                (111, 561),
+                (124, 516),
+                (124, 464),
+            ]
+        ),
+    },
+    {
+        "id": "shell-1",
+        "shape": "vect",
+        "color": "#ffffff",
+        "vector": _points(
+            [
+                (106, 474),
+                (98, 446),
+                (84, 430),
+                (67, 430),
+                (53, 446),
+                (45, 474),
+                (45, 506),
+                (53, 534),
+                (67, 550),
+                (84, 550),
+                (98, 534),
+                (106, 506),
+                (106, 474),
+            ]
+        ),
+    },
+    {
+        "id": "shell-2",
+        "shape": "vect",
+        "color": "#ffffff",
+        "vector": _points(
+            [
+                (98, 478),
+                (92, 458),
+                (82, 446),
+                (70, 446),
+                (59, 458),
+                (53, 478),
+                (53, 502),
+                (59, 522),
+                (70, 534),
+                (82, 534),
+                (92, 522),
+                (98, 502),
+                (98, 478),
+            ]
+        ),
+    },
+    {
+        "id": "shell-3",
+        "shape": "vect",
+        "color": "#ffffff",
+        "vector": _points(
+            [
+                (88, 484),
+                (85, 472),
+                (79, 466),
+                (73, 466),
+                (66, 472),
+                (63, 484),
+                (63, 496),
+                (66, 508),
+                (73, 514),
+                (79, 514),
+                (85, 508),
+                (88, 496),
+                (88, 484),
+            ]
+        ),
+    },
+    {
+        "id": "line-0",
+        "shape": "vect",
+        "color": "#ffffff",
+        "vector": _points([(124, 464), (88, 484)]),
+    },
+    {
+        "id": "line-1",
+        "shape": "vect",
+        "color": "#ffffff",
+        "vector": _points([(111, 419), (85, 472)]),
+    },
+    {
+        "id": "line-2",
+        "shape": "vect",
+        "color": "#ffffff",
+        "vector": _points([(89, 393), (79, 466)]),
+    },
+    {
+        "id": "line-3",
+        "shape": "vect",
+        "color": "#ffffff",
+        "vector": _points([(62, 393), (73, 466)]),
+    },
+    {
+        "id": "line-4",
+        "shape": "vect",
+        "color": "#ffffff",
+        "vector": _points([(40, 419), (66, 472)]),
+    },
+    {
+        "id": "line-5",
+        "shape": "vect",
+        "color": "#ffffff",
+        "vector": _points([(27, 464), (63, 484)]),
+    },
+    {
+        "id": "line-6",
+        "shape": "vect",
+        "color": "#ffffff",
+        "vector": _points([(27, 516), (63, 496)]),
+    },
+    {
+        "id": "line-7",
+        "shape": "vect",
+        "color": "#ffffff",
+        "vector": _points([(40, 561), (66, 508)]),
+    },
+    {
+        "id": "line-8",
+        "shape": "vect",
+        "color": "#ffffff",
+        "vector": _points([(62, 587), (73, 514)]),
+    },
+    {
+        "id": "line-9",
+        "shape": "vect",
+        "color": "#ffffff",
+        "vector": _points([(89, 587), (79, 514)]),
+    },
+    {
+        "id": "line-10",
+        "shape": "vect",
+        "color": "#ffffff",
+        "vector": _points([(111, 561), (85, 508)]),
+    },
+    {
+        "id": "line-11",
+        "shape": "vect",
+        "color": "#ffffff",
+        "vector": _points([(124, 516), (88, 496)]),
+    },
+    {
+        "id": "toaster-right-0",
+        "shape": "vect",
+        "color": "green",
+        "vector": _points(
+            [
+                (76, 465),
+                (112, 465),
+                (114, 469),
+                (125, 469),
+                (126, 471),
+                (126, 509),
+                (125, 511),
+                (114, 511),
+                (112, 515),
+                (76, 515),
+            ]
+        ),
+    },
+    {
+        "id": "toaster-left-0",
+        "shape": "vect",
+        "color": "red",
+        "vector": _points(
+            [
+                (76, 465),
+                (39, 465),
+                (37, 469),
+                (26, 469),
+                (25, 471),
+                (25, 509),
+                (26, 511),
+                (37, 511),
+                (39, 515),
+                (76, 515),
+            ]
+        ),
+    },
+    {
+        "id": "toaster-right-1",
+        "shape": "vect",
+        "color": "green",
+        "vector": _points(
+            [
+                (76, 464),
+                (112, 464),
+                (114, 468),
+                (125, 468),
+                (125, 470),
+                (125, 510),
+                (125, 512),
+                (114, 512),
+                (112, 516),
+                (76, 516),
+            ]
+        ),
+    },
+    {
+        "id": "toaster-left-1",
+        "shape": "vect",
+        "color": "red",
+        "vector": _points(
+            [
+                (76, 464),
+                (39, 464),
+                (37, 468),
+                (26, 468),
+                (26, 470),
+                (26, 510),
+                (26, 512),
+                (37, 512),
+                (39, 516),
+                (76, 516),
+            ]
+        ),
+    },
+]
+
+BASE_RECT_SHAPES: List[Dict[str, Any]] = [
+    {
+        "id": "pad-19-0",
+        "shape": "rect",
+        "color": "yellow",
+        "fill": "yellow",
+        "x": 60,
+        "y": 469,
+        "w": 2,
+        "h": 9,
+    },
+    {
+        "id": "pad-19-1",
+        "shape": "rect",
+        "color": "yellow",
+        "fill": "yellow",
+        "x": 59,
+        "y": 470,
+        "w": 4,
+        "h": 7,
+    },
+    {
+        "id": "pad-19-2",
+        "shape": "rect",
+        "color": "yellow",
+        "fill": "yellow",
+        "x": 59,
+        "y": 472,
+        "w": 5,
+        "h": 3,
+    },
+]
+
+BASE_SHAPES: List[Dict[str, Any]] = BASE_VECTOR_SHAPES + BASE_RECT_SHAPES
+
+
+def _compute_base_metrics() -> Tuple[float, float, float]:
+    xs: List[float] = []
+    ys: List[float] = []
+    for shape in BASE_SHAPES:
+        if shape["shape"] == "vect":
+            for point in shape["vector"]:
+                xs.append(point["x"])
+                ys.append(point["y"])
+        else:
+            xs.extend([shape["x"], shape["x"] + shape["w"]])
+            ys.extend([shape["y"], shape["y"] + shape["h"]])
+    if not xs or not ys:
+        raise RuntimeError("No base landing pad shapes defined.")
+    center_x = (min(xs) + max(xs)) / 2.0
+    center_y = (min(ys) + max(ys)) / 2.0
+    half_width = max(abs(x - center_x) for x in xs)
+    half_height = max(abs(y - center_y) for y in ys)
+    base_radius = max(half_width, half_height)
+    return center_x, center_y, base_radius
+
+
+BASE_CENTER_X, BASE_CENTER_Y, BASE_RADIUS = _compute_base_metrics()
+
+
+# ---------------------------------------------------------------------------
+
 def _load_json(path: Path) -> Dict[str, Any]:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -36,14 +344,39 @@ def _load_json(path: Path) -> Dict[str, Any]:
         _fail(f"Failed to parse {path}: {exc}")
 
 
-def _warn_log_payload(settings: Dict[str, Any]) -> None:
-    if not bool(settings.get("log_payloads", False)):
-        _print_step(
-            "WARNING: log_payloads=false. Overlay payloads will not be mirrored to the EDMC log. "
-            "Enable 'Send overlay payloads to the EDMC log' in ModernOverlay preferences to capture them."
-        )
+def _is_payload_logging_enabled() -> bool:
+    try:
+        config = json.loads(DEBUG_CONFIG_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return False
+    except json.JSONDecodeError:
+        return False
+    section = config.get("payload_logging")
+    if isinstance(section, dict):
+        flag = section.get("overlay_payload_log_enabled")
+        if isinstance(flag, bool):
+            return flag
+        if flag is not None:
+            return bool(flag)
+        legacy_flag = section.get("enabled")
+        if isinstance(legacy_flag, bool):
+            return legacy_flag
+    legacy_top = config.get("log_payloads")
+    if isinstance(legacy_top, bool):
+        return legacy_top
+    if legacy_top is not None:
+        return bool(legacy_top)
+    return False
+
+
+def _warn_payload_logging() -> None:
+    if _is_payload_logging_enabled():
+        _print_step("Detected overlay payload logging enabled (overlay-payloads.log).")
     else:
-        _print_step("Detected log_payloads=true (log mirroring enabled).")
+        _print_step(
+            "WARNING: overlay payload logging is disabled. Set 'payload_logging.overlay_payload_log_enabled'"
+            " to true in debug.json to mirror payloads to overlay-payloads.log."
+        )
 
 
 def _ensure_overlay_client_running() -> None:
@@ -59,102 +392,83 @@ def _ensure_overlay_client_running() -> None:
     _print_step("Overlay client process detected (overlay_client.py).")
 
 
-def _dodecagon_points(cx: float, cy: float, radius: float) -> List[Dict[str, int]]:
-    points: List[Dict[str, int]] = []
-    for i in range(12):
-        angle = math.radians(30 * i)
-        x = cx + radius * math.cos(angle)
-        y = cy + radius * math.sin(angle)
-        points.append({"x": int(round(x)), "y": int(round(y))})
-    points.append(points[0])
-    return points
+def _transform_shape(
+    shape: Dict[str, Any],
+    center_x: float,
+    center_y: float,
+    scale: float,
+    ttl: int,
+    suffix: str,
+) -> Dict[str, Any]:
+    new_shape: Dict[str, Any] = {
+        "type": "shape",
+        "shape": shape["shape"],
+        "id": f"{shape['id']}-{suffix}",
+        "color": shape.get("color", "#ffffff"),
+        "ttl": ttl,
+    }
 
+    if shape["shape"] == "vect":
+        transformed_points: List[Dict[str, int]] = []
+        for point in shape["vector"]:
+            new_x = center_x + (point["x"] - BASE_CENTER_X) * scale
+            new_y = center_y + (point["y"] - BASE_CENTER_Y) * scale
+            transformed_points.append({"x": int(round(new_x)), "y": int(round(new_y))})
+        new_shape["vector"] = transformed_points
+    else:
+        raw_x = float(shape["x"])
+        raw_y = float(shape["y"])
+        raw_w = float(shape["w"])
+        raw_h = float(shape["h"])
+        center_px = raw_x + raw_w / 2.0
+        center_py = raw_y + raw_h / 2.0
+        transformed_cx = center_x + (center_px - BASE_CENTER_X) * scale
+        transformed_cy = center_y + (center_py - BASE_CENTER_Y) * scale
+        new_w = max(1, int(round(raw_w * scale)))
+        new_h = max(1, int(round(raw_h * scale)))
+        new_shape["x"] = int(round(transformed_cx - new_w / 2.0))
+        new_shape["y"] = int(round(transformed_cy - new_h / 2.0))
+        new_shape["w"] = new_w
+        new_shape["h"] = new_h
+        if shape.get("fill") is not None:
+            new_shape["fill"] = shape["fill"]
 
-def _sector_vectors(cx: float, cy: float, inner_r: float, outer_r: float) -> Iterable[List[Dict[str, int]]]:
-    for i in range(12):
-        angle = math.radians(30 * i)
-        x1 = cx + inner_r * math.cos(angle)
-        y1 = cy + inner_r * math.sin(angle)
-        x2 = cx + outer_r * math.cos(angle)
-        y2 = cy + outer_r * math.sin(angle)
-        yield [
-            {"x": int(round(x1)), "y": int(round(y1))},
-            {"x": int(round(x2)), "y": int(round(y2))},
-        ]
-
-
-def _toaster_vectors(cx: float, cy: float, radius: float) -> Iterable[List[Dict[str, int]]]:
-    thickness = radius * 0.15
-    height = radius * 0.6
-    offsets = [(-thickness, height), (thickness, height)]
-    for idx, (dx, h) in enumerate(offsets):
-        points = [
-            {"x": int(round(cx + dx)), "y": int(round(cy - h)), "color": "red" if idx == 0 else "green"},
-            {"x": int(round(cx + dx)), "y": int(round(cy + h))},
-        ]
-        yield points
+    return new_shape
 
 
 def _compose_payloads(cx: int, cy: int, radius: int, ttl: int) -> List[Dict[str, Any]]:
     timestamp = datetime.now(UTC).strftime("cli-landingpad-%Y%m%dT%H%M%S%f")
     payloads: List[Dict[str, Any]] = []
+    scale = radius / BASE_RADIUS
 
-    shell_points = _dodecagon_points(cx, cy, radius)
-    payloads.append(
-        {
-            "cli": "legacy_overlay",
-            "payload": {
-                "event": "LegacyOverlay",
-                "type": "shape",
-                "shape": "vect",
-                "id": f"shell-{timestamp}",
-                "color": "#ffaa00",
-                "ttl": ttl,
-                "vector": shell_points,
-            },
-            "meta": {
-                "source": "send_overlay_landingpad",
-                "description": "LandingPad shell polygon",
-            },
-        }
-    )
+    for base_shape in BASE_SHAPES:
+        transformed = _transform_shape(base_shape, cx, cy, scale, ttl, timestamp)
 
-    for idx, vector in enumerate(_sector_vectors(cx, cy, radius * 0.25, radius)):
+        # Debug print for line vertices
+        if (
+            transformed.get("shape") == "vect"
+            and isinstance(transformed.get("id"), str)
+            and transformed["id"].startswith("line-")
+        ):
+            vector = transformed.get("vector") or []
+            if isinstance(vector, list):
+                coords = [
+                    f"({point.get('x')},{point.get('y')})"
+                    for point in vector
+                    if isinstance(point, dict)
+                ]
+                _print_step(f"line vertices {transformed['id']}: {' -> '.join(coords)}")
+
         payloads.append(
             {
                 "cli": "legacy_overlay",
                 "payload": {
                     "event": "LegacyOverlay",
-                    "type": "shape",
-                    "shape": "vect",
-                    "id": f"sector-{idx}-{timestamp}",
-                    "color": "#ffaa00",
-                    "ttl": ttl,
-                    "vector": vector,
+                    **transformed,
                 },
                 "meta": {
                     "source": "send_overlay_landingpad",
-                    "description": f"LandingPad sector line {idx}",
-                },
-            }
-        )
-
-    for idx, vector in enumerate(_toaster_vectors(cx, cy, radius * 0.8)):
-        payloads.append(
-            {
-                "cli": "legacy_overlay",
-                "payload": {
-                    "event": "LegacyOverlay",
-                    "type": "shape",
-                    "shape": "vect",
-                    "id": f"toaster-{idx}-{timestamp}",
-                    "color": "#00ffff",
-                    "ttl": ttl,
-                    "vector": vector,
-                },
-                "meta": {
-                    "source": "send_overlay_landingpad",
-                    "description": f"LandingPad toaster rail {idx}",
+                    "description": f"LandingPad element {base_shape['id']}",
                 },
             }
         )
@@ -194,7 +508,12 @@ def main(argv: List[str] | None = None) -> None:
     )
     parser.add_argument("--center-x", type=int, default=400, help="Overlay center X coordinate")
     parser.add_argument("--center-y", type=int, default=240, help="Overlay center Y coordinate")
-    parser.add_argument("--radius", type=int, default=160, help="Outer radius for the dodecagon")
+    parser.add_argument(
+        "--radius",
+        type=int,
+        default=160,
+        help=f"Target radius for scaling relative to the captured asset (base radius ≈ {int(round(BASE_RADIUS))})",
+    )
     parser.add_argument("--ttl", type=int, default=12, help="Time-to-live in seconds")
     args = parser.parse_args(argv)
 
@@ -204,8 +523,8 @@ def main(argv: List[str] | None = None) -> None:
         _fail("TTL must be positive")
 
     _print_step(f"Using plugin root: {PLUGIN_ROOT}")
-    settings = _load_json(SETTINGS_PATH)
-    _warn_log_payload(settings)
+    _load_json(SETTINGS_PATH)
+    _warn_payload_logging()
 
     _ensure_overlay_client_running()
 

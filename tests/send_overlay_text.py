@@ -14,6 +14,7 @@ from typing import Any, Dict
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 SETTINGS_PATH = PLUGIN_ROOT / "overlay_settings.json"
+DEBUG_CONFIG_PATH = PLUGIN_ROOT / "debug.json"
 PORT_PATH = PLUGIN_ROOT / "port.json"
 DEFAULT_MESSAGE = "Hello from send_overlay_text.py"
 
@@ -36,15 +37,39 @@ def _load_json(path: Path) -> Dict[str, Any]:
         _fail(f"Failed to parse {path}: {exc}")
 
 
-def _ensure_log_payload_enabled(settings: Dict[str, Any]) -> None:
-    log_flag = bool(settings.get("log_payloads", False))
-    if not log_flag:
+def _is_payload_logging_enabled() -> bool:
+    try:
+        config = json.loads(DEBUG_CONFIG_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return False
+    except json.JSONDecodeError:
+        return False
+    section = config.get("payload_logging")
+    if isinstance(section, dict):
+        flag = section.get("overlay_payload_log_enabled")
+        if isinstance(flag, bool):
+            return flag
+        if flag is not None:
+            return bool(flag)
+        exclude_flag = section.get("enabled")
+        if isinstance(exclude_flag, bool):
+            return exclude_flag
+    legacy_flag = config.get("log_payloads")
+    if isinstance(legacy_flag, bool):
+        return legacy_flag
+    if legacy_flag is not None:
+        return bool(legacy_flag)
+    return False
+
+
+def _warn_payload_logging() -> None:
+    if _is_payload_logging_enabled():
+        _print_step("Detected overlay payload logging enabled (overlay-payloads.log).")
+    else:
         _print_step(
-            "WARNING: log_payloads=false. Overlay payloads will not be mirrored to the EDMC log."
-            " Enable 'Send overlay payloads to the EDMC log' in the preferences to see log entries."
+            "WARNING: overlay payload logging is disabled. Set 'payload_logging.overlay_payload_log_enabled'"
+            " to true in debug.json to mirror payloads to overlay-payloads.log."
         )
-        return
-    _print_step("Detected log_payloads=true (log mirroring enabled).")
 
 
 def _ensure_overlay_client_running() -> None:
@@ -115,8 +140,8 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     _print_step(f"Using plugin root: {PLUGIN_ROOT}")
-    settings = _load_json(SETTINGS_PATH)
-    _ensure_log_payload_enabled(settings)
+    _load_json(SETTINGS_PATH)
+    _warn_payload_logging()
 
     _ensure_overlay_client_running()
 

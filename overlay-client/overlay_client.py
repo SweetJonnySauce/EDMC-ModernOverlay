@@ -46,9 +46,11 @@ from client_config import InitialClientSettings, load_initial_settings  # type: 
 from developer_helpers import DeveloperHelperController  # type: ignore  # noqa: E402
 from platform_integration import MonitorSnapshot, PlatformContext, PlatformController  # type: ignore  # noqa: E402
 from window_tracking import WindowState, WindowTracker, create_elite_window_tracker  # type: ignore  # noqa: E402
-from legacy_store import LegacyItemStore  # type: ignore  # noqa: E402
-from legacy_processor import process_legacy_payload  # type: ignore  # noqa: E402
+from legacy_store import LegacyItem, LegacyItemStore  # type: ignore  # noqa: E402
+from legacy_processor import TraceCallback, process_legacy_payload  # type: ignore  # noqa: E402
 from vector_renderer import render_vector, VectorPainterAdapter  # type: ignore  # noqa: E402
+from plugin_overrides import PluginOverrideManager  # type: ignore  # noqa: E402
+from debug_config import DebugConfig, load_debug_config  # type: ignore  # noqa: E402
 
 _LOGGER_NAME = "EDMC.ModernOverlay.Client"
 _CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
@@ -247,7 +249,7 @@ class OverlayWindow(QWidget):
 
     _WM_OVERRIDE_TTL = 1.25  # seconds
 
-    def __init__(self, initial: InitialClientSettings) -> None:
+    def __init__(self, initial: InitialClientSettings, debug_config: DebugConfig) -> None:
         super().__init__()
         self._font_family = self._resolve_font_family()
         self._status_raw = "Initialising"
@@ -255,7 +257,9 @@ class OverlayWindow(QWidget):
         self._state: Dict[str, Any] = {
             "message": "",
         }
+        self._debug_config = debug_config
         self._legacy_items = LegacyItemStore()
+        setattr(self._legacy_items, "_trace_callback", self._trace_legacy_store_event)
         self._background_opacity: float = 0.0
         self._gridlines_enabled: bool = False
         self._gridline_spacing: int = 120
@@ -361,6 +365,11 @@ class OverlayWindow(QWidget):
         max_font = getattr(initial, "max_font_point", 24.0)
         self._font_min_point = max(1.0, min(float(min_font), 48.0))
         self._font_max_point = max(self._font_min_point, min(float(max_font), 72.0))
+        self._override_manager = PluginOverrideManager(
+            ROOT_DIR / "plugin_overrides.json",
+            _CLIENT_LOGGER,
+            debug_config=self._debug_config,
+        )
         layout = QVBoxLayout()
         layout.addWidget(self.message_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         layout.addStretch(1)
@@ -1662,8 +1671,97 @@ class OverlayWindow(QWidget):
             )
             self._last_logged_scale = current
 
+    def _extract_plugin_name(self, payload: Mapping[str, Any]) -> Optional[str]:
+        for key in ("plugin", "plugin_name", "source_plugin"):
+            value = payload.get(key)
+            if isinstance(value, str) and value:
+                return value
+        meta = payload.get("meta")
+        if isinstance(meta, Mapping):
+            for key in ("plugin", "plugin_name", "source_plugin"):
+                value = meta.get(key)
+                if isinstance(value, str) and value:
+                    return value
+        raw = payload.get("raw")
+        if isinstance(raw, Mapping):
+            for key in ("plugin", "plugin_name", "source_plugin"):
+                value = raw.get(key)
+                if isinstance(value, str) and value:
+                    return value
+        override_manager = getattr(self, "_override_manager", None)
+        if override_manager is not None:
+            inferred = override_manager.infer_plugin_name(payload)
+            if inferred:
+                return inferred
+        return None
+
+    def _should_trace_payload(self, plugin: Optional[str], message_id: str) -> bool:
+        cfg = self._debug_config
+        if not cfg.trace_enabled:
+            return False
+        if cfg.trace_plugin:
+            if not plugin or cfg.trace_plugin != plugin:
+                return False
+        if cfg.trace_payload_ids:
+            if not message_id:
+                return False
+            if not any(message_id.startswith(prefix) for prefix in cfg.trace_payload_ids):
+                return False
+        return True
+
+    @staticmethod
+    def _format_trace_points(points: Any) -> List[Tuple[Any, Any]]:
+        formatted: List[Tuple[Any, Any]] = []
+        if isinstance(points, list):
+            for entry in points:
+                if isinstance(entry, Mapping):
+                    formatted.append((entry.get("x"), entry.get("y")))
+                elif isinstance(entry, (tuple, list)) and len(entry) >= 2:
+                    formatted.append((entry[0], entry[1]))
+        return formatted
+
+    def _log_legacy_trace(
+        self,
+        plugin: Optional[str],
+        message_id: str,
+        stage: str,
+        info: Mapping[str, Any],
+    ) -> None:
+        if not self._should_trace_payload(plugin, message_id):
+            return
+        serialisable: Dict[str, Any] = {}
+        for key, value in info.items():
+            if key in {"points", "scaled_points"}:
+                serialisable[key] = self._format_trace_points(value)
+            else:
+                serialisable[key] = value
+        _CLIENT_LOGGER.debug(
+            "trace plugin=%s id=%s stage=%s info=%s",
+            plugin or "unknown",
+            message_id,
+            stage,
+            serialisable,
+        )
+
+    def _trace_legacy_store_event(self, stage: str, item: LegacyItem) -> None:
+        details: Dict[str, Any] = {"kind": item.kind}
+        if item.kind == "vector":
+            details["points"] = item.data.get("points")
+        self._log_legacy_trace(item.plugin, item.item_id, stage, details)
+
     def _handle_legacy(self, payload: Dict[str, Any]) -> None:
-        if process_legacy_payload(self._legacy_items, payload):
+        plugin_name = self._extract_plugin_name(payload)
+        message_id = str(payload.get("id") or "")
+        trace_enabled = self._should_trace_payload(plugin_name, message_id)
+        self._override_manager.apply(payload)
+        if trace_enabled and str(payload.get("shape") or "").lower() == "vect":
+            self._log_legacy_trace(plugin_name, message_id, "post_override", {"points": payload.get("vector")})
+        trace_fn: Optional[TraceCallback] = None
+        if trace_enabled:
+            def trace_fn(stage: str, _payload: Mapping[str, Any], extra: Mapping[str, Any]) -> None:
+                self._log_legacy_trace(plugin_name, message_id, stage, extra)
+
+        if process_legacy_payload(self._legacy_items, payload, trace_fn=trace_fn):
             self.update()
 
     def _purge_legacy(self) -> None:
@@ -1672,13 +1770,13 @@ class OverlayWindow(QWidget):
             self.update()
 
     def _paint_legacy(self, painter: QPainter) -> None:
-        for item in self._legacy_items.values():
+        for item_id, item in self._legacy_items.items():
             if item.kind == "message":
-                self._paint_legacy_message(painter, item.data)
+                self._paint_legacy_message(painter, item_id, item.data)
             elif item.kind == "rect":
-                self._paint_legacy_rect(painter, item.data)
+                self._paint_legacy_rect(painter, item_id, item.data, item.plugin)
             elif item.kind == "vector":
-                self._paint_legacy_vector(painter, item.data)
+                self._paint_legacy_vector(painter, item)
 
     def _legacy_coordinate_scale_factors(self) -> Tuple[float, float]:
         return self._legacy_scale(use_physical=False)
@@ -1701,7 +1799,7 @@ class OverlayWindow(QWidget):
         target = normal_point + offsets.get(preset.lower(), 0.0)
         return max(1.0, target)
 
-    def _paint_legacy_message(self, painter: QPainter, item: Dict[str, Any]) -> None:
+    def _paint_legacy_message(self, painter: QPainter, item_id: str, item: Dict[str, Any]) -> None:
         color = QColor(str(item.get("color", "white")))
         size = str(item.get("size", "normal")).lower()
         scaled_point_size = self._legacy_preset_point_size(size)
@@ -1743,7 +1841,13 @@ class OverlayWindow(QWidget):
         baseline = int(round(raw_top * scale_y + metrics.ascent()))
         painter.drawText(x, baseline, text)
 
-    def _paint_legacy_rect(self, painter: QPainter, item: Dict[str, Any]) -> None:
+    def _paint_legacy_rect(
+        self,
+        painter: QPainter,
+        item_id: str,
+        item: Dict[str, Any],
+        plugin_name: Optional[str] = None,
+    ) -> None:
         border_spec = str(item.get("color", "white"))
         fill_spec = str(item.get("fill", "#00000000"))
 
@@ -1769,18 +1873,74 @@ class OverlayWindow(QWidget):
         painter.setBrush(brush)
         scale_x, scale_y = self._legacy_coordinate_scale_factors()
         aspect_factor = self._legacy_aspect_factor()
+        trace_enabled = self._should_trace_payload(plugin_name, item_id)
         raw_x = float(item.get("x", 0))
         raw_y = float(item.get("y", 0))
         raw_w = float(item.get("w", 0))
         raw_h = float(item.get("h", 0))
+        if trace_enabled:
+            self._log_legacy_trace(
+                plugin_name,
+                item_id,
+                "paint:rect_input",
+                {
+                    "x": raw_x,
+                    "y": raw_y,
+                    "w": raw_w,
+                    "h": raw_h,
+                    "scale_x": scale_x,
+                    "scale_y": scale_y,
+                    "aspect": aspect_factor,
+                },
+            )
+        transform_meta = item.get("__mo_transform__") if isinstance(item, Mapping) else None
+        pivot_override: Optional[float] = None
+        if isinstance(transform_meta, Mapping):
+            pivot_info = transform_meta.get("pivot")
+            if isinstance(pivot_info, Mapping):
+                try:
+                    pivot_override = float(pivot_info.get("x"))
+                except (TypeError, ValueError):
+                    pivot_override = None
         if not math.isclose(aspect_factor, 1.0, rel_tol=1e-3):
-            center_x = raw_x + raw_w / 2.0
-            raw_w *= aspect_factor
-            raw_x = center_x - raw_w / 2.0
+            left = raw_x
+            right = raw_x + raw_w
+            if pivot_override is not None:
+                center_x = pivot_override
+            else:
+                center_x = (left + right) / 2.0
+            new_left = center_x + (left - center_x) * aspect_factor
+            new_right = center_x + (right - center_x) * aspect_factor
+            raw_x = min(new_left, new_right)
+            raw_w = max(0.0, new_right - new_left)
+            if trace_enabled and pivot_override is not None:
+                self._log_legacy_trace(
+                    plugin_name,
+                    item_id,
+                    "paint:anchor",
+                    {"pivot_x": pivot_override},
+                )
         x = int(round(raw_x * scale_x))
         y = int(round(raw_y * scale_y))
         w = max(1, int(round(max(raw_w, 0.0) * scale_x)))
         h = max(1, int(round(max(raw_h, 0.0) * scale_y)))
+        if trace_enabled:
+            self._log_legacy_trace(
+                plugin_name,
+                item_id,
+                "paint:rect_output",
+                {
+                    "adjusted_x": raw_x,
+                    "adjusted_y": raw_y,
+                    "adjusted_w": raw_w,
+                    "adjusted_h": raw_h,
+                    "pixel_x": x,
+                    "pixel_y": y,
+                    "pixel_w": w,
+                    "pixel_h": h,
+                    "pivot_override": pivot_override,
+                },
+            )
         painter.drawRect(
             x,
             y,
@@ -1788,11 +1948,37 @@ class OverlayWindow(QWidget):
             h,
         )
 
-    def _paint_legacy_vector(self, painter: QPainter, item: Dict[str, Any]) -> None:
+    def _paint_legacy_vector(self, painter: QPainter, legacy_item: LegacyItem) -> None:
+        item_id = legacy_item.item_id
+        item = legacy_item.data
+        plugin_name = legacy_item.plugin
+        trace_enabled = self._should_trace_payload(plugin_name, item_id)
         adapter = _QtVectorPainterAdapter(self, painter)
         scale_x, scale_y = self._legacy_coordinate_scale_factors()
         aspect_factor = self._legacy_aspect_factor()
+        if trace_enabled:
+            self._log_legacy_trace(
+                plugin_name,
+                item_id,
+                "paint:scale_factors",
+                {"scale_x": scale_x, "scale_y": scale_y, "aspect": aspect_factor},
+            )
+            self._log_legacy_trace(
+                plugin_name,
+                item_id,
+                "paint:raw_points",
+                {"points": item.get("points")},
+            )
         vector_payload = item
+        transform_meta = vector_payload.get("__mo_transform__") if isinstance(vector_payload, Mapping) else None
+        pivot_override: Optional[float] = None
+        if isinstance(transform_meta, Mapping):
+            pivot_info = transform_meta.get("pivot")
+            if isinstance(pivot_info, Mapping):
+                try:
+                    pivot_override = float(pivot_info.get("x"))
+                except (TypeError, ValueError):
+                    pivot_override = None
         if not math.isclose(aspect_factor, 1.0, rel_tol=1e-3):
             points = item.get("points", [])
             adjusted_points = []
@@ -1806,7 +1992,10 @@ class OverlayWindow(QWidget):
                     continue
                 xs.append(x_val)
             if xs:
-                center_x = (min(xs) + max(xs)) / 2.0
+                if pivot_override is not None:
+                    center_x = pivot_override
+                else:
+                    center_x = (min(xs) + max(xs)) / 2.0
                 for point in points:
                     if not isinstance(point, Mapping):
                         continue
@@ -1822,7 +2011,26 @@ class OverlayWindow(QWidget):
             if adjusted_points:
                 vector_payload = dict(item)
                 vector_payload["points"] = adjusted_points
-        render_vector(adapter, vector_payload, scale_x, scale_y)
+                if trace_enabled:
+                    self._log_legacy_trace(
+                        plugin_name,
+                        item_id,
+                        "paint:aspect_adjusted_points",
+                        {"points": adjusted_points},
+                    )
+        if trace_enabled and pivot_override is not None:
+            self._log_legacy_trace(
+                plugin_name,
+                item_id,
+                "paint:anchor",
+                {"pivot_x": pivot_override},
+            )
+        trace_fn = None
+        if trace_enabled:
+            def trace_fn(stage: str, details: Mapping[str, Any]) -> None:
+                self._log_legacy_trace(plugin_name, item_id, stage, details)
+
+        render_vector(adapter, vector_payload, scale_x, scale_y, trace=trace_fn)
 
     def _paint_debug_overlay(self, painter: QPainter) -> None:
         if not self._show_debug_overlay:
@@ -2097,6 +2305,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     port_file = resolve_port_file(args.port_file)
     settings_path = (CLIENT_DIR.parent / "overlay_settings.json").resolve()
     initial_settings = load_initial_settings(settings_path)
+    debug_config_path = (CLIENT_DIR.parent / "debug.json").resolve()
+    debug_config = load_debug_config(debug_config_path)
     helper = DeveloperHelperController(_CLIENT_LOGGER, CLIENT_DIR, initial_settings)
 
     _CLIENT_LOGGER.info("Starting overlay client (pid=%s)", os.getpid())
@@ -2108,10 +2318,16 @@ def main(argv: Optional[list[str]] = None) -> int:
         initial_settings.force_render,
         initial_settings.force_xwayland,
     )
+    if debug_config.trace_enabled:
+        _CLIENT_LOGGER.debug(
+            "Debug tracing enabled for plugin=%s payload_ids=%s",
+            debug_config.trace_plugin or "*",
+            ",".join(debug_config.trace_payload_ids) if debug_config.trace_payload_ids else "*",
+        )
 
     app = QApplication(sys.argv)
     data_client = OverlayDataClient(port_file)
-    window = OverlayWindow(initial_settings)
+    window = OverlayWindow(initial_settings, debug_config)
     window.set_data_client(data_client)
     helper.apply_initial_window_state(window, initial_settings)
     tracker = create_elite_window_tracker(_CLIENT_LOGGER, monitor_provider=window.monitor_snapshots)

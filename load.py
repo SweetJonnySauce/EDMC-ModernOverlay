@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import sys
 import threading
@@ -189,6 +190,10 @@ def _configure_logger() -> logging.Logger:
 
 
 LOGGER = _configure_logger()
+PAYLOAD_LOGGER_NAME = f"{LOGGER_NAME}.payloads"
+PAYLOAD_LOG_FILE_NAME = "overlay-payloads.log"
+PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
+PAYLOAD_LOG_MAX_BYTES = 512 * 1024
 
 
 def _log(message: str) -> None:
@@ -231,6 +236,18 @@ class _PluginRuntime:
         self._config_timer_lock = threading.Lock()
         self._overlay_metrics: Dict[str, Any] = {}
         self._enforce_force_xwayland(persist=True, update_watchdog=False, emit_config=False)
+        self._payload_logger = logging.getLogger(PAYLOAD_LOGGER_NAME)
+        self._payload_logger.setLevel(logging.DEBUG)
+        self._payload_logger.propagate = False
+        self._payload_log_handler: Optional[logging.Handler] = None
+        self._payload_log_path: Optional[Path] = None
+        self._plugin_prefix_map: Dict[str, str] = self._load_plugin_prefix_map()
+        self._payload_filter_path = self.plugin_dir / "debug.json"
+        self._payload_filter_mtime: Optional[float] = None
+        self._payload_filter_excludes: Set[str] = set()
+        self._payload_logging_enabled: bool = False
+        self._load_payload_debug_config(force=True)
+        self._configure_payload_logger()
 
     # Lifecycle ------------------------------------------------------------
 
@@ -284,6 +301,13 @@ class _PluginRuntime:
             self.watchdog = None
         self.broadcaster.stop()
         self._delete_port_file()
+        if self._payload_log_handler is not None:
+            self._payload_logger.removeHandler(self._payload_log_handler)
+            try:
+                self._payload_log_handler.close()
+            except Exception:
+                pass
+            self._payload_log_handler = None
 
     # Journal handling -----------------------------------------------------
 
@@ -343,6 +367,112 @@ class _PluginRuntime:
             (self.plugin_dir / "port.json").unlink()
         except FileNotFoundError:
             pass
+
+    def _configure_payload_logger(self) -> None:
+        retention = max(1, int(getattr(self._preferences, "client_log_retention", 5)))
+        backup_count = max(0, retention - 1)
+        log_dir = self._resolve_payload_logs_dir()
+        log_path = log_dir / PAYLOAD_LOG_FILE_NAME
+        formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
+        try:
+            handler = RotatingFileHandler(
+                log_path,
+                maxBytes=PAYLOAD_LOG_MAX_BYTES,
+                backupCount=backup_count,
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            LOGGER.warning("Failed to initialise payload log at %s: %s", log_path, exc)
+            return
+        handler.setFormatter(formatter)
+        handler.setLevel(logging.DEBUG)
+
+        if self._payload_log_handler is not None:
+            self._payload_logger.removeHandler(self._payload_log_handler)
+            try:
+                self._payload_log_handler.close()
+            except Exception:
+                pass
+
+        self._payload_logger.addHandler(handler)
+        self._payload_log_handler = handler
+        self._payload_log_path = log_path
+        LOGGER.debug(
+            "Payload logging initialised: path=%s retention=%d max_bytes=%d backup_count=%d",
+            log_path,
+            retention,
+            PAYLOAD_LOG_MAX_BYTES,
+            backup_count,
+        )
+
+    def _resolve_payload_logs_dir(self) -> Path:
+        plugin_root = self.plugin_dir.resolve()
+        candidates = []
+        parents = plugin_root.parents
+        if len(parents) >= 2:
+            candidates.append(parents[1] / "logs")
+        if len(parents) >= 1:
+            candidates.append(parents[0] / "logs")
+        candidates.append(Path.cwd() / "logs")
+        for base in candidates:
+            try:
+                target = base / PAYLOAD_LOG_DIR_NAME
+                target.mkdir(parents=True, exist_ok=True)
+                return target
+            except OSError:
+                continue
+        return plugin_root
+
+    def _load_payload_debug_config(self, *, force: bool = False) -> None:
+        try:
+            stat = self._payload_filter_path.stat()
+        except FileNotFoundError:
+            if force or self._payload_filter_excludes or self._payload_logging_enabled:
+                self._payload_filter_excludes = set()
+                self._payload_logging_enabled = False
+                self._payload_filter_mtime = None
+            return
+        if not force and self._payload_filter_mtime is not None and stat.st_mtime <= self._payload_filter_mtime:
+            return
+        try:
+            raw_text = self._payload_filter_path.read_text(encoding="utf-8")
+            data = json.loads(raw_text)
+        except (OSError, json.JSONDecodeError):
+            self._payload_filter_excludes = set()
+            self._payload_logging_enabled = False
+            self._payload_filter_mtime = stat.st_mtime
+            return
+        excludes: Set[str] = set()
+        enabled = False
+        if isinstance(data, Mapping):
+            payload_section = data.get("payload_logging")
+            if isinstance(payload_section, Mapping):
+                enabled_value = payload_section.get("overlay_payload_log_enabled")
+                if isinstance(enabled_value, bool):
+                    enabled = enabled_value
+                elif enabled_value is not None:
+                    enabled = bool(enabled_value)
+                exclude_values = payload_section.get("exclude_plugins")
+                if isinstance(exclude_values, Iterable):
+                    for value in exclude_values:
+                        if isinstance(value, str) and value.strip():
+                            excludes.add(value.strip().lower())
+            else:  # legacy schema support
+                filter_section = data.get("payload_filter")
+                if isinstance(filter_section, Mapping):
+                    exclude_values = filter_section.get("exclude_plugins")
+                    if isinstance(exclude_values, Iterable):
+                        for value in exclude_values:
+                            if isinstance(value, str) and value.strip():
+                                excludes.add(value.strip().lower())
+                legacy_flag = data.get("log_payloads")
+                if isinstance(legacy_flag, bool):
+                    enabled = legacy_flag
+                elif legacy_flag is not None:
+                    enabled = bool(legacy_flag)
+        self._payload_filter_excludes = excludes
+        self._payload_logging_enabled = enabled
+        self._payload_filter_mtime = stat.st_mtime
 
     def _start_watchdog(self) -> bool:
         overlay_script = self._locate_overlay_client()
@@ -449,12 +579,11 @@ class _PluginRuntime:
     def on_preferences_updated(self) -> None:
         self._enforce_force_xwayland(persist=True, update_watchdog=True, emit_config=False)
         LOGGER.debug(
-            "Applying updated preferences: capture_output=%s show_connection_status=%s log_payloads=%s "
+            "Applying updated preferences: capture_output=%s show_connection_status=%s "
             "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d overlay_opacity=%.2f "
             "force_render=%s force_xwayland=%s debug_overlay=%s font_min=%.1f font_max=%.1f",
             self._preferences.capture_output,
             self._preferences.show_connection_status,
-            self._preferences.log_payloads,
             self._preferences.client_log_retention,
             self._preferences.gridlines_enabled,
             self._preferences.gridline_spacing,
@@ -549,9 +678,16 @@ class _PluginRuntime:
         self._preferences.save()
         self._send_overlay_config()
 
-    def set_log_payload_preference(self, value: bool) -> None:
-        self._preferences.log_payloads = bool(value)
-        LOGGER.debug("Overlay payload logging %s", "enabled" if self._preferences.log_payloads else "disabled")
+    def set_client_log_retention_preference(self, value: int) -> None:
+        try:
+            retention = int(value)
+        except (TypeError, ValueError):
+            retention = self._preferences.client_log_retention
+        retention = max(1, retention)
+        self._preferences.client_log_retention = retention
+        self._configure_payload_logger()
+        LOGGER.debug("Overlay client log retention set to %d", retention)
+        self._preferences.save()
         self._send_overlay_config()
 
     def set_gridlines_enabled_preference(self, value: bool) -> None:
@@ -759,6 +895,7 @@ class _PluginRuntime:
 
 
     def _send_overlay_config(self, rebroadcast: bool = False) -> None:
+        self._load_payload_debug_config()
         payload = {
             "event": "OverlayConfig",
             "opacity": float(self._preferences.overlay_opacity),
@@ -804,9 +941,84 @@ class _PluginRuntime:
         self._log_payload(message)
         self.broadcaster.publish(dict(message))
 
+    def _load_plugin_prefix_map(self) -> Dict[str, str]:
+        config_path = self.plugin_dir / "plugin_overrides.json"
+        try:
+            raw_text = config_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return {}
+        except OSError:
+            return {}
+        try:
+            data = json.loads(raw_text)
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(data, Mapping):
+            return {}
+        prefixes: Dict[str, str] = {}
+        for plugin_name, config in data.items():
+            if not isinstance(plugin_name, str) or not isinstance(config, Mapping):
+                continue
+            match = config.get("__match__")
+            if not isinstance(match, Mapping):
+                continue
+            values = match.get("id_prefixes")
+            if not isinstance(values, Iterable):
+                continue
+            for entry in values:
+                if isinstance(entry, str) and entry:
+                    prefixes[entry] = plugin_name
+        return prefixes
+
+    def _plugin_name_for_payload(self, payload: Mapping[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+        if not isinstance(payload, Mapping):
+            return None, None
+
+        def _extract_plugin(mapping: Mapping[str, Any]) -> Optional[str]:
+            for key in ("plugin", "plugin_name", "source_plugin"):
+                value = mapping.get(key)
+                if isinstance(value, str) and value:
+                    token = value.strip()
+                    if token:
+                        return token
+            return None
+
+        def _extract_id(mapping: Mapping[str, Any]) -> Optional[str]:
+            value = mapping.get("id")
+            if isinstance(value, str):
+                token = value.strip()
+                if token:
+                    return token
+            return None
+
+        plugin_name = _extract_plugin(payload)
+        payload_id = _extract_id(payload)
+
+        if plugin_name:
+            return plugin_name, payload_id
+
+        for key in ("meta", "raw", "legacy_raw"):
+            nested = payload.get(key)
+            if isinstance(nested, Mapping):
+                candidate = _extract_plugin(nested)
+                if candidate:
+                    plugin_name = candidate
+                if not payload_id:
+                    payload_id = _extract_id(nested)
+                if plugin_name:
+                    return plugin_name, payload_id
+
+        if payload_id:
+            for prefix, mapped_name in self._plugin_prefix_map.items():
+                if payload_id.startswith(prefix):
+                    return mapped_name, payload_id
+            prefix_guess = payload_id.split("-", 1)[0]
+            if prefix_guess:
+                return prefix_guess, payload_id
+
+        return None, payload_id
+
     def _log_payload(self, payload: Mapping[str, Any]) -> None:
-        if not self._preferences.log_payloads:
-            return
         event: Optional[str] = None
         if isinstance(payload, Mapping):
             raw_event = payload.get("event")
@@ -816,10 +1028,23 @@ class _PluginRuntime:
             serialised = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         except (TypeError, ValueError):
             serialised = repr(payload)
+        logger = self._payload_logger if self._payload_log_handler is not None else LOGGER
+        self._load_payload_debug_config()
+        if not self._payload_logging_enabled:
+            return
+        plugin_name, payload_id = self._plugin_name_for_payload(payload)
+        if self._payload_filter_excludes and plugin_name and plugin_name.lower() in self._payload_filter_excludes:
+            return
         if event:
-            LOGGER.info("Overlay payload [%s]: %s", event, serialised)
+            if plugin_name:
+                logger.info("Overlay payload [%s] plugin=%s: %s", event, plugin_name, serialised)
+            else:
+                logger.info("Overlay payload [%s]: %s", event, serialised)
         else:
-            LOGGER.info("Overlay payload: %s", serialised)
+            if plugin_name:
+                logger.info("Overlay payload plugin=%s: %s", plugin_name, serialised)
+            else:
+                logger.info("Overlay payload: %s", serialised)
         legacy_raw = None
         if isinstance(payload, Mapping):
             legacy_raw = payload.get("legacy_raw")
@@ -828,7 +1053,13 @@ class _PluginRuntime:
                 legacy_serialised = json.dumps(legacy_raw, ensure_ascii=False, sort_keys=True)
             except (TypeError, ValueError):
                 legacy_serialised = repr(legacy_raw)
-            LOGGER.info("Overlay legacy_raw: %s", legacy_serialised)
+            legacy_plugin, _ = self._plugin_name_for_payload(legacy_raw)
+            if not legacy_plugin:
+                legacy_plugin = plugin_name
+            if legacy_plugin:
+                logger.info("Overlay legacy_raw plugin=%s: %s", legacy_plugin, legacy_serialised)
+            else:
+                logger.info("Overlay legacy_raw: %s", legacy_serialised)
 
     def _locate_overlay_python(self) -> Optional[Path]:
         env_override = os.getenv("EDMC_OVERLAY_PYTHON")
@@ -1032,9 +1263,9 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         debug_corner_callback = _plugin.set_debug_overlay_corner_preference if _plugin else None
         status_bandwidth_callback = _plugin.set_status_bandwidth_preference if _plugin else None
         status_fps_callback = _plugin.set_status_fps_preference if _plugin else None
-        log_callback = _plugin.set_log_payload_preference if _plugin else None
         gridlines_enabled_callback = _plugin.set_gridlines_enabled_preference if _plugin else None
         gridline_spacing_callback = _plugin.set_gridline_spacing_preference if _plugin else None
+        log_retention_callback = _plugin.set_client_log_retention_preference if _plugin else None
         force_render_callback = _plugin.set_force_render_preference if _plugin else None
         title_bar_config_callback = _plugin.set_title_bar_compensation_preference if _plugin else None
         debug_overlay_callback = _plugin.set_debug_overlay_preference if _plugin else None
@@ -1049,9 +1280,9 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             debug_corner_callback,
             status_bandwidth_callback,
             status_fps_callback,
-            log_callback,
             gridlines_enabled_callback,
             gridline_spacing_callback,
+            log_retention_callback,
             force_render_callback,
             title_bar_config_callback,
             debug_overlay_callback,
@@ -1077,13 +1308,12 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
         _prefs_panel.apply()
         if _preferences:
             LOGGER.debug(
-                "Preferences saved: capture_output=%s show_connection_status=%s log_payloads=%s "
+                "Preferences saved: capture_output=%s show_connection_status=%s "
                 "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d "
                 "force_render=%s title_bar_enabled=%s title_bar_height=%d force_xwayland=%s "
                 "debug_overlay=%s font_min=%.1f font_max=%.1f",
                 _preferences.capture_output,
                 _preferences.show_connection_status,
-                _preferences.log_payloads,
                 _preferences.client_log_retention,
                 _preferences.gridlines_enabled,
                 _preferences.gridline_spacing,

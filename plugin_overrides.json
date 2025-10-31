@@ -1,0 +1,34 @@
+{
+  "LandingPad": {
+    "notes": [
+      "LandingPad added aspect_x years ago to compensate for the original Windows-only EDMCOverlay.exe.",
+      "That binary rendered into a fixed 1280x1024 virtual canvas, and the plugin's coordinates assumed it was being stretched to fit arbitrary screen sizes.",
+      "",
+      "By multiplying X by an extra factor derived from the monitor dimensions (calc_aspect_x), LandingPad tried to undo the horizontal stretch so the dodecagon stayed round.",
+      "ModernOverlay already handles that scaling, so leaving aspect_x active doubles the correction and flattens the pad."
+    ],
+    "__match__": {
+      "id_prefixes": [
+        "shell-",
+        "line-",
+        "toaster-left-",
+        "toaster-right-",
+        "pad-"
+      ]
+    },
+    "transform": {
+      "scale": {
+        "x": 2.0,
+        "y": 1.0,
+        "scale_anchor_point": {
+          "x": 150.0,
+          "y": 490.0
+        }
+      },
+      "offset": {
+        "x": 150.0,
+        "y": 0.0
+      }
+    }
+  }
+}
