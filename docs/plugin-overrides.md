@@ -57,6 +57,7 @@ Current override keys:
 | Key       | Type                | Description                                                                                                     |
 | --------- | ------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `x_scale` | number or string    | Scales the payload along X. Numbers are absolute factors (1.0 keeps original width). Special modes are described below. |
+| `x_shift` | number or object    | Translates X after scaling. A numeric value shifts by that many logical units; object forms can align to a target centre. |
 
 `x_scale` supports a few computed modes in addition to numeric constants:
 
@@ -64,6 +65,10 @@ Current override keys:
 | --------------------------- | --------------------------------------------------------------------------------------------------------- |
 | `"derive_ratio_from_height"`| Inspect the first matching shape, compute √(span<sub>y</sub> / span<sub>x</sub>), and cache that ratio for the plugin. |
 | `"use_cached_ratio"`        | Reuse the most recent cached ratio for the plugin (typically following a `"derive_ratio_from_height"` rule). |
+
+`x_shift` accepts either a numeric literal (for a fixed post-scale translation) or an object such as
+`{"mode": "align_center", "target": 75.5}` which moves the payload so its centre aligns with the
+specified X coordinate after scaling.
 
 The cache is per plugin. You usually define a single “derive” rule (for a representative shape) and
 point all related shapes at `"use_cached_ratio"`.

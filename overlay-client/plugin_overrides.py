@@ -29,6 +29,7 @@ class PluginOverrideManager:
         self._plugins: Dict[str, _PluginConfig] = {}
         self._x_scale_cache: Dict[str, float] = {}
         self._load_config()
+        self._diagnostic_spans: Dict[Tuple[str, str], Tuple[float, float, float]] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -56,6 +57,27 @@ class PluginOverrideManager:
         override = self._select_override(config, message_id)
         if override is None:
             return
+
+        if payload.get("shape") == "vect":
+            points = payload.get("vector")
+            if isinstance(points, list):
+                xs = [float(pt.get("x", 0)) for pt in points if isinstance(pt, Mapping) and isinstance(pt.get("x"), (int, float))]
+                if xs:
+                    min_x = min(xs)
+                    max_x = max(xs)
+                    center_x = (min_x + max_x) / 2.0
+                    key = (plugin_name, message_id.split("-")[0])
+                    if key not in self._diagnostic_spans:
+                        self._logger.info(
+                            "override-diagnostic plugin=%s id=%s min_x=%.2f max_x=%.2f center=%.2f span=%.2f",
+                            plugin_name,
+                            message_id,
+                            min_x,
+                            max_x,
+                            center_x,
+                            max_x - min_x,
+                        )
+                        self._diagnostic_spans[key] = (min_x, max_x, center_x)
 
         self._apply_override(plugin_name, override, payload)
 
@@ -183,6 +205,7 @@ class PluginOverrideManager:
         if int(payload.get("ttl", 0)) == 0:
             return
 
+        scale: Optional[float] = None
         if "x_scale" in override:
             scale = self._resolve_x_scale(plugin, override["x_scale"], payload)
             if scale is not None and not math.isclose(scale, 1.0, rel_tol=1e-3):
@@ -190,6 +213,14 @@ class PluginOverrideManager:
                     self._scale_vector(payload, scale)
                 elif shape == "rect":
                     self._scale_rect(payload, scale)
+
+        if "x_shift" in override:
+            shift = self._resolve_x_shift(plugin, override["x_shift"], payload, scale or 1.0)
+            if shift is not None and not math.isclose(shift, 0.0, rel_tol=1e-3):
+                if shape == "vect":
+                    self._translate_vector(payload, shift)
+                elif shape == "rect":
+                    self._translate_rect(payload, shift)
 
         # Additional overrides (gutters, font tweaks, etc.) can be added here.
 
@@ -228,6 +259,51 @@ class PluginOverrideManager:
             self._x_scale_cache[cache_key] = ratio
             return ratio
 
+        return None
+
+    def _resolve_x_shift(
+        self,
+        plugin: str,
+        spec: Any,
+        payload: Mapping[str, Any],
+        applied_scale: float,
+    ) -> Optional[float]:
+        if isinstance(spec, (int, float)):
+            return float(spec)
+
+        if isinstance(spec, Mapping):
+            mode = spec.get("mode")
+            if isinstance(mode, str) and mode.lower() == "align_center":
+                target = spec.get("target")
+                if target is None:
+                    return None
+                try:
+                    target_center = float(target)
+                except (TypeError, ValueError):
+                    return None
+                current_center = self._current_center(payload)
+                if current_center is None:
+                    return None
+                return target_center - current_center
+        return None
+
+    def _current_center(self, payload: Mapping[str, Any]) -> Optional[float]:
+        shape = str(payload.get("shape") or "").lower()
+        if shape == "vect":
+            points = payload.get("vector")
+            if not isinstance(points, list):
+                return None
+            xs = [float(point.get("x", 0)) for point in points if isinstance(point, Mapping) and isinstance(point.get("x"), (int, float))]
+            if not xs:
+                return None
+            return (min(xs) + max(xs)) / 2.0
+        if shape == "rect":
+            try:
+                x_val = float(payload.get("x", 0))
+                width = float(payload.get("w", 0))
+            except (TypeError, ValueError):
+                return None
+            return x_val + width / 2.0
         return None
 
     def _derive_ratio(self, payload: Mapping[str, Any]) -> Optional[float]:
@@ -271,14 +347,10 @@ class PluginOverrideManager:
         if not isinstance(vector, list):
             return
 
-        xs: List[float] = []
-        for point in vector:
-            if isinstance(point, Mapping) and isinstance(point.get("x"), (int, float)):
-                xs.append(float(point["x"]))
+        xs = [float(point.get("x", 0)) for point in vector if isinstance(point, Mapping) and isinstance(point.get("x"), (int, float))]
         if not xs:
             return
         center_x = (min(xs) + max(xs)) / 2.0
-
         for point in vector:
             if not isinstance(point, MutableMapping):
                 continue
@@ -290,8 +362,21 @@ class PluginOverrideManager:
             point["x"] = int(round(center_x + offset * scale))
 
         raw = payload.get("raw")
-        if isinstance(raw, MutableMapping) and isinstance(raw.get("vector"), list):
-            self._scale_vector(raw, scale)  # type: ignore[arg-type]
+        if isinstance(raw, MutableMapping):
+            raw_vector = raw.get("vector")
+            if isinstance(raw_vector, list):
+                raw_xs = [float(point.get("x", 0)) for point in raw_vector if isinstance(point, Mapping) and isinstance(point.get("x"), (int, float))]
+                if raw_xs:
+                    raw_center = (min(raw_xs) + max(raw_xs)) / 2.0
+                    for point in raw_vector:
+                        if not isinstance(point, MutableMapping):
+                            continue
+                        try:
+                            raw_x = float(point.get("x", 0))
+                        except (TypeError, ValueError):
+                            continue
+                        offset = raw_x - raw_center
+                        point["x"] = int(round(raw_center + offset * scale))
 
     def _scale_rect(self, payload: MutableMapping[str, Any], scale: float) -> None:
         try:
@@ -320,3 +405,44 @@ class PluginOverrideManager:
             new_raw_x = int(round(center_raw - new_raw_width / 2.0))
             raw["w"] = new_raw_width
             raw["x"] = new_raw_x
+
+    def _translate_vector(self, payload: MutableMapping[str, Any], delta: float) -> None:
+        vector = payload.get("vector")
+        if not isinstance(vector, list):
+            return
+        for point in vector:
+            if not isinstance(point, MutableMapping):
+                continue
+            try:
+                x_val = float(point.get("x", 0))
+            except (TypeError, ValueError):
+                continue
+            point["x"] = int(round(x_val + delta))
+
+        raw = payload.get("raw")
+        if isinstance(raw, MutableMapping):
+            raw_vector = raw.get("vector")
+            if isinstance(raw_vector, list):
+                for point in raw_vector:
+                    if not isinstance(point, MutableMapping):
+                        continue
+                    try:
+                        x_val = float(point.get("x", 0))
+                    except (TypeError, ValueError):
+                        continue
+                    point["x"] = int(round(x_val + delta))
+
+    def _translate_rect(self, payload: MutableMapping[str, Any], delta: float) -> None:
+        try:
+            x_val = float(payload.get("x", 0))
+        except (TypeError, ValueError):
+            return
+        payload["x"] = int(round(x_val + delta))
+
+        raw = payload.get("raw")
+        if isinstance(raw, MutableMapping):
+            try:
+                raw_x = float(raw.get("x", x_val))
+            except (TypeError, ValueError):
+                return
+            raw["x"] = int(round(raw_x + delta))

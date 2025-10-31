@@ -417,6 +417,22 @@ def _compose_payloads(cx: int, cy: int, radius: int, ttl: int) -> List[Dict[str,
 
     for base_shape in BASE_SHAPES:
         transformed = _transform_shape(base_shape, cx, cy, scale, ttl, timestamp)
+
+        # Debug print for line vertices
+        if (
+            transformed.get("shape") == "vect"
+            and isinstance(transformed.get("id"), str)
+            and transformed["id"].startswith("line-")
+        ):
+            vector = transformed.get("vector") or []
+            if isinstance(vector, list):
+                coords = [
+                    f"({point.get('x')},{point.get('y')})"
+                    for point in vector
+                    if isinstance(point, dict)
+                ]
+                _print_step(f"line vertices {transformed['id']}: {' -> '.join(coords)}")
+
         payloads.append(
             {
                 "cli": "legacy_overlay",

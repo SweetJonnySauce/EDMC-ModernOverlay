@@ -1,11 +1,11 @@
 {
   "capture_output": true,
-  "overlay_opacity": 1.0,
+  "overlay_opacity": 0.0,
   "show_connection_status": true,
   "show_ed_bandwidth": false,
   "show_ed_fps": false,
   "debug_overlay_corner": "SE",
-  "log_payloads": false,
+  "log_payloads": true,
   "client_log_retention": 5,
   "gridlines_enabled": false,
   "gridline_spacing": 100,
