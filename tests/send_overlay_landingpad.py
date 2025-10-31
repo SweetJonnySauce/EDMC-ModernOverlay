@@ -506,12 +506,12 @@ def main(argv: List[str] | None = None) -> None:
         description="Send a LandingPad-style vector overlay via ModernOverlay.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--center-x", type=int, default=400, help="Overlay center X coordinate")
-    parser.add_argument("--center-y", type=int, default=240, help="Overlay center Y coordinate")
+    parser.add_argument("--center-x", type=int, default=76, help="Overlay center X coordinate")
+    parser.add_argument("--center-y", type=int, default=490, help="Overlay center Y coordinate")
     parser.add_argument(
         "--radius",
         type=int,
-        default=160,
+        default=97,
         help=f"Target radius for scaling relative to the captured asset (base radius ≈ {int(round(BASE_RADIUS))})",
     )
     parser.add_argument("--ttl", type=int, default=12, help="Time-to-live in seconds")
