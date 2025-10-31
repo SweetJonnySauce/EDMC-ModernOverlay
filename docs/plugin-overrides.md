@@ -99,6 +99,10 @@ If `pivot` is omitted, the pivot is derived by combining the selected anchor (`p
 current bounding box or the optional `source_bounds`. Offsets are applied after scaling, so a zero scale with a non-zero
 offset still performs a pure translation. Leaving the block empty is a no-op.
 
+Modern Overlay applies overrides in this order: `transform` → `x_scale` → `x_shift`. That makes the transform block the
+place to normalise a plugin’s coordinate system before any legacy tweaks run. You can still follow up with an
+`x_shift` alignment if the incoming data is missing its expected centre.
+
 Example block:
 
 ```jsonc
@@ -152,6 +156,60 @@ messages (`foo-msg-*`):
 2. Restart or reload the overlay client. The override manager watches the config file timestamp and
    auto-reloads, so editing the JSON is usually enough—no code changes required unless you add a new
    override type.
+
+### LandingPad field notes
+
+The legacy LandingPad plugin still emits coordinates pre-scaled by an `aspect_x` that halved every X value. ModernOverlay
+already stretches legacy coordinates to the actual overlay window, so those payloads needed to be un-squashed and nudged
+into place. The `transform` directive lets us replicate the prototype math captured in `tests/scale-prototype`—the same
+math that `draw_shapes.py` uses for local inspection.
+
+```jsonc
+"LandingPad": {
+  "__match__": {
+    "id_prefixes": ["shell-", "line-", "toaster-left-", "toaster-right-", "pad-"]
+  },
+  "shell-*": {
+    "transform": {
+      "scale": { "x": 2.0, "y": 1.0, "point": "sw" },
+      "offset": { "y": 150.0 }
+    }
+  },
+  "line-*": {
+    "transform": {
+      "scale": { "x": 2.0, "y": 1.0, "point": "sw" },
+      "offset": { "y": 150.0 }
+    }
+  },
+  "toaster-left-*": {
+    "transform": {
+      "scale": { "x": 2.0, "y": 1.0, "point": "sw" },
+      "offset": { "y": 150.0 }
+    }
+  },
+  "toaster-right-*": {
+    "transform": {
+      "scale": { "x": 2.0, "y": 1.0, "point": "sw" },
+      "offset": { "y": 150.0 }
+    }
+  },
+  "pad-*": {
+    "transform": {
+      "scale": { "x": 2.0, "y": 1.0, "point": "sw" },
+      "offset": { "y": 150.0 }
+    }
+  }
+}
+```
+
+- Scaling around the south-western corner (`point: "sw"`) doubles every X span—undoing the plugin’s extra compression.
+- The shared `offset.y` mimics the legacy `landingpad.json` translation so the pad sits at the expected vertical origin.
+- No explicit `pivot` is required because the payload coordinates include all of the vertices the transform needs to
+  deduce its bounds.
+
+This pattern keeps the adjustment in the adapter layer while leaving the plugin’s source intact. If a future plugin
+applies a similar workaround (for example, only providing a single anchor point instead of polygons), you can set
+`source_bounds` to the rectangle the plugin was targeting and reuse the same transform logic.
 
 ## Testing Your Overrides
 
