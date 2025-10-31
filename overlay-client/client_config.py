@@ -15,7 +15,6 @@ class InitialClientSettings:
     force_render: bool = False
     force_xwayland: bool = False
     show_debug_overlay: bool = False
-    show_payload_ids: bool = False
     min_font_point: float = 6.0
     max_font_point: float = 24.0
     status_bottom_margin: int = 20
@@ -38,7 +37,6 @@ class DeveloperHelperConfig:
     force_render: Optional[bool] = None
     force_xwayland: Optional[bool] = None
     show_debug_overlay: Optional[bool] = None
-    show_payload_ids: Optional[bool] = None
     min_font_point: Optional[float] = None
     max_font_point: Optional[float] = None
     status_bottom_margin: Optional[int] = None
@@ -92,7 +90,6 @@ class DeveloperHelperConfig:
             force_render=_bool(payload.get("force_render"), None),
             force_xwayland=_bool(payload.get("force_xwayland"), None),
             show_debug_overlay=_bool(payload.get("show_debug_overlay"), None),
-            show_payload_ids=_bool(payload.get("show_payload_ids"), None),
             min_font_point=_float(payload.get("min_font_point"), None),
             max_font_point=_float(payload.get("max_font_point"), None),
             status_bottom_margin=_int(payload.get("status_bottom_margin"), None),
@@ -123,7 +120,6 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
     force_render = bool(data.get("force_render", defaults.force_render))
     force_xwayland = bool(data.get("force_xwayland", defaults.force_xwayland))
     show_debug_overlay = bool(data.get("show_debug_overlay", defaults.show_debug_overlay))
-    show_payload_ids = bool(data.get("show_payload_ids", defaults.show_payload_ids))
     try:
         min_font = float(data.get("min_font_point", defaults.min_font_point))
     except (TypeError, ValueError):
@@ -154,7 +150,6 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         force_render=force_render,
         force_xwayland=force_xwayland,
         show_debug_overlay=show_debug_overlay,
-        show_payload_ids=show_payload_ids,
         min_font_point=min_font,
         max_font_point=max_font,
         status_bottom_margin=bottom_margin,

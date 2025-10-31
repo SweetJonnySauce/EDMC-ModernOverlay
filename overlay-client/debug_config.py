@@ -13,6 +13,7 @@ class DebugConfig:
     trace_enabled: bool = False
     trace_plugin: Optional[str] = None
     trace_payload_ids: tuple[str, ...] = ()
+    show_payload_ids: bool = False
 
 
 def load_debug_config(path: Path) -> DebugConfig:
@@ -49,8 +50,24 @@ def load_debug_config(path: Path) -> DebugConfig:
     if trace_plugin is not None:
         trace_plugin = str(trace_plugin).strip() or None
 
+    show_payload_ids = False
+    payload_logging = data.get("payload_logging")
+    if isinstance(payload_logging, dict):
+        flag = payload_logging.get("show_payload_ids")
+        if isinstance(flag, bool):
+            show_payload_ids = flag
+        elif flag is not None:
+            show_payload_ids = bool(flag)
+    elif "show_payload_ids" in data:
+        legacy_flag = data.get("show_payload_ids")
+        if isinstance(legacy_flag, bool):
+            show_payload_ids = legacy_flag
+        elif legacy_flag is not None:
+            show_payload_ids = bool(legacy_flag)
+
     return DebugConfig(
         trace_enabled=trace_enabled,
         trace_plugin=trace_plugin,
         trace_payload_ids=payload_ids,
+        show_payload_ids=show_payload_ids,
     )

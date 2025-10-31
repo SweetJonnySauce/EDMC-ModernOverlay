@@ -39,7 +39,6 @@ class DeveloperHelperController:
         window.set_force_render(initial.force_render)
         window.set_follow_enabled(True)
         window.set_debug_overlay(initial.show_debug_overlay)
-        window.set_show_payload_ids(getattr(initial, "show_payload_ids", False))
         window.set_font_bounds(initial.min_font_point, initial.max_font_point)
         window.set_status_bottom_margin(initial.status_bottom_margin)
         window.set_debug_overlay_corner(getattr(initial, "debug_overlay_corner", "NW"))
@@ -68,8 +67,6 @@ class DeveloperHelperController:
             window.set_title_bar_compensation(config.title_bar_enabled, config.title_bar_height)
         if config.show_debug_overlay is not None:
             window.set_debug_overlay(config.show_debug_overlay)
-        if getattr(config, "show_payload_ids", None) is not None:
-            window.set_show_payload_ids(config.show_payload_ids)
         if config.min_font_point is not None or config.max_font_point is not None:
             window.set_font_bounds(config.min_font_point, config.max_font_point)
         if 'platform_context' in payload:

@@ -29,7 +29,6 @@ class Preferences:
     force_render: bool = False
     force_xwayland: bool = False
     show_debug_overlay: bool = False
-    show_payload_ids: bool = False
     min_font_point: float = 6.0
     max_font_point: float = 24.0
     title_bar_enabled: bool = False
@@ -72,7 +71,6 @@ class Preferences:
         self.force_render = bool(data.get("force_render", False))
         self.force_xwayland = bool(data.get("force_xwayland", False))
         self.show_debug_overlay = bool(data.get("show_debug_overlay", False))
-        self.show_payload_ids = bool(data.get("show_payload_ids", False))
         try:
             min_font = float(data.get("min_font_point", 6.0))
         except (TypeError, ValueError):
@@ -104,7 +102,6 @@ class Preferences:
             "force_render": bool(self.force_render),
             "force_xwayland": bool(self.force_xwayland),
             "show_debug_overlay": bool(self.show_debug_overlay),
-            "show_payload_ids": bool(self.show_payload_ids),
             "min_font_point": float(self.min_font_point),
             "max_font_point": float(self.max_font_point),
             "status_bottom_margin": int(self.status_bottom_margin()),
@@ -137,7 +134,6 @@ class PreferencesPanel:
         set_force_render_callback: Optional[Callable[[bool], None]] = None,
         set_title_bar_config_callback: Optional[Callable[[bool, int], None]] = None,
         set_debug_overlay_callback: Optional[Callable[[bool], None]] = None,
-        set_show_payload_ids_callback: Optional[Callable[[bool], None]] = None,
         set_font_min_callback: Optional[Callable[[float], None]] = None,
         set_font_max_callback: Optional[Callable[[float], None]] = None,
     ) -> None:
@@ -160,7 +156,6 @@ class PreferencesPanel:
         self._var_title_bar_enabled = tk.BooleanVar(value=preferences.title_bar_enabled)
         self._var_title_bar_height = tk.IntVar(value=int(preferences.title_bar_height))
         self._var_debug_overlay = tk.BooleanVar(value=preferences.show_debug_overlay)
-        self._var_show_payload_ids = tk.BooleanVar(value=preferences.show_payload_ids)
         self._var_min_font = tk.DoubleVar(value=float(preferences.min_font_point))
         self._var_max_font = tk.DoubleVar(value=float(preferences.max_font_point))
 
@@ -176,7 +171,6 @@ class PreferencesPanel:
         self._set_force_render = set_force_render_callback
         self._set_title_bar_config = set_title_bar_config_callback
         self._set_debug_overlay = set_debug_overlay_callback
-        self._set_show_payload_ids = set_show_payload_ids_callback
         self._set_font_min = set_font_min_callback
         self._set_font_max = set_font_max_callback
 
@@ -251,16 +245,6 @@ class PreferencesPanel:
             command=self._on_debug_overlay_toggle,
         )
         debug_checkbox.grid(row=4, column=0, sticky="w", pady=(6, 0))
-
-        payload_ids_checkbox = nb.Checkbutton(
-            frame,
-            text="Show overlay payload IDs next to items (debug)",
-            variable=self._var_show_payload_ids,
-            onvalue=True,
-            offvalue=False,
-            command=self._on_show_payload_ids_toggle,
-        )
-        payload_ids_checkbox.grid(row=5, column=0, sticky="w", pady=(4, 0))
 
         corner_row = ttk.Frame(frame, style=self._frame_style)
         corner_label = nb.Label(corner_row, text="Debug overlay corner:")
@@ -621,17 +605,6 @@ class PreferencesPanel:
                 self._set_debug_overlay(value)
             except Exception as exc:
                 self._status_var.set(f"Failed to update debug overlay: {exc}")
-                return
-        self._preferences.save()
-
-    def _on_show_payload_ids_toggle(self) -> None:
-        value = bool(self._var_show_payload_ids.get())
-        self._preferences.show_payload_ids = value
-        if self._set_show_payload_ids:
-            try:
-                self._set_show_payload_ids(value)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update payload ID display: {exc}")
                 return
         self._preferences.save()
 
