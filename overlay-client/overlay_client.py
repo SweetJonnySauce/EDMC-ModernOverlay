@@ -1939,12 +1939,23 @@ class OverlayWindow(QWidget):
                 except (TypeError, ValueError):
                     pivot_override = None
         if not math.isclose(aspect_factor, 1.0, rel_tol=1e-3):
+            left = raw_x
+            right = raw_x + raw_w
             if pivot_override is not None:
                 center_x = pivot_override
             else:
-                center_x = raw_x + raw_w / 2.0
-            raw_w *= aspect_factor
-            raw_x = center_x - raw_w / 2.0
+                center_x = (left + right) / 2.0
+            new_left = center_x + (left - center_x) * aspect_factor
+            new_right = center_x + (right - center_x) * aspect_factor
+            raw_x = min(new_left, new_right)
+            raw_w = max(0.0, new_right - new_left)
+            if trace_enabled and pivot_override is not None:
+                self._log_legacy_trace(
+                    plugin_name,
+                    item_id,
+                    "paint:anchor",
+                    {"pivot_x": pivot_override},
+                )
         x = int(round(raw_x * scale_x))
         y = int(round(raw_y * scale_y))
         w = max(1, int(round(max(raw_w, 0.0) * scale_x)))
