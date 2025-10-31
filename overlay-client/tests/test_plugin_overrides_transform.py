@@ -54,7 +54,6 @@ def _sample_shell_points() -> Iterable[Tuple[int, int]]:
 def landingpad_config(tmp_path: Path) -> Path:
     config = {
         "LandingPad": {
-            "notes": "Test override note.",
             "__match__": {"id_prefixes": ["shell-", "pad-"]},
             "shell-*": {
                 "transform": {
@@ -135,32 +134,3 @@ def test_transform_scales_landingpad_rect(landingpad_config: Path) -> None:
     assert raw["w"] == 4
     assert raw["h"] == 9
 
-
-class _CaptureHandler(logging.Handler):
-    def __init__(self) -> None:
-        super().__init__(level=logging.INFO)
-        self.messages: list[str] = []
-
-    def emit(self, record: logging.LogRecord) -> None:
-        self.messages.append(record.getMessage())
-
-
-def test_notes_logged_once(landingpad_config: Path) -> None:
-    handler = _CaptureHandler()
-    manager = _make_manager(landingpad_config, handler)
-    original_points = list(_sample_shell_points())
-    payload = {
-        "type": "shape",
-        "shape": "vect",
-        "id": "shell-1",
-        "plugin": "LandingPad",
-        "ttl": 10,
-        "vector": [{"x": x, "y": y} for x, y in original_points],
-    }
-
-    manager.apply(payload)
-    manager.apply(payload)
-
-    note_messages = [msg for msg in handler.messages if "override-note" in msg]
-    assert len(note_messages) == 1
-    assert "Test override note." in note_messages[0]

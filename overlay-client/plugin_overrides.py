@@ -17,7 +17,6 @@ class _PluginConfig:
     name: str
     match_id_prefixes: Tuple[str, ...]
     overrides: List[Tuple[str, JsonDict]]
-    note: Optional[str]
 
 
 class PluginOverrideManager:
@@ -31,7 +30,6 @@ class PluginOverrideManager:
         self._x_scale_cache: Dict[str, float] = {}
         self._load_config()
         self._diagnostic_spans: Dict[Tuple[str, str], Tuple[float, float, float]] = {}
-        self._notes_logged: set[Tuple[str, str]] = set()
 
     # ------------------------------------------------------------------
     # Public API
@@ -51,13 +49,6 @@ class PluginOverrideManager:
         config = self._plugins.get(plugin_name)
         if config is None:
             return
-
-        if isinstance(config.note, str):
-            note_key = (plugin_name, "__plugin__")
-            stripped_note = config.note.strip()
-            if stripped_note and note_key not in self._notes_logged:
-                self._logger.info("override-note plugin=%s note=%s", plugin_name, stripped_note)
-                self._notes_logged.add(note_key)
 
         message_id = str(payload.get("id") or "")
         if not message_id:
@@ -147,11 +138,8 @@ class PluginOverrideManager:
                     match_prefixes = tuple(cleaned)
 
             overrides: List[Tuple[str, JsonDict]] = []
-            plugin_note: Optional[str] = None
             for key, spec in plugin_payload.items():
-                if key == "notes" and isinstance(spec, str):
-                    stripped_note = spec.strip()
-                    plugin_note = stripped_note or None
+                if key == "notes":
                     continue
                 if not isinstance(spec, Mapping) or key.startswith("__"):
                     continue
@@ -161,13 +149,11 @@ class PluginOverrideManager:
                 name=plugin_name,
                 match_id_prefixes=match_prefixes,
                 overrides=overrides,
-                note=plugin_note,
             )
 
         self._plugins = plugins
         self._x_scale_cache.clear()
         self._diagnostic_spans.clear()
-        self._notes_logged.clear()
         try:
             self._mtime = self._path.stat().st_mtime
         except FileNotFoundError:
@@ -225,13 +211,6 @@ class PluginOverrideManager:
             return
         if int(payload.get("ttl", 0)) == 0:
             return
-
-        note = override.get("notes")
-        if isinstance(note, str) and note.strip():
-            key = (plugin, pattern)
-            if key not in self._notes_logged:
-                self._logger.info("override-note plugin=%s pattern=%s note=%s", plugin, pattern, note.strip())
-                self._notes_logged.add(key)
 
         transform_spec = override.get("transform")
         if isinstance(transform_spec, Mapping):

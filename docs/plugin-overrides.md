@@ -24,7 +24,7 @@ The JSON file is a dictionary keyed by plugin name. Each plugin entry contains t
 
 - `__match__` (optional) provides hints for discovering the plugin when a payload does not
   explicitly state its origin.
-- `notes` (optional) is freeform documentation explaining why the plugin needs overrides; the overlay logs it once when the plugin’s overrides first apply.
+- `notes` (optional) is freeform documentation (string or array of strings) explaining why the plugin needs overrides. Modern Overlay ignores this field entirely; it exists purely for humans reviewing the JSON.
 - Every other key is a glob pattern (`fnmatch` rules) that will be compared against the payload’s
   `id`. The corresponding object lists the overrides to apply.
 
@@ -60,7 +60,6 @@ Current override keys:
 | `x_scale`   | number or string  | Scales the payload along X. Numbers are absolute factors (1.0 keeps original width). Special modes are described below. |
 | `x_shift`   | number or object  | Translates X after scaling. A numeric value shifts by that many logical units; object forms can align to a target centre. |
 | `transform` | object            | Applies 2-D scaling and translation with an explicit pivot. Ideal when a plugin pre-warps its coordinates and needs symmetric correction. |
-| `notes`     | string            | Free-form explanation for future maintainers; logged once when the relevant plugin override first runs (applies at plugin or pattern level). |
 
 `x_scale` supports a few computed modes in addition to numeric constants:
 
@@ -103,8 +102,7 @@ offset still performs a pure translation. Leaving the block empty is a no-op.
 
 Modern Overlay applies overrides in this order: `transform` → `x_scale` → `x_shift`. That makes the transform block the
 place to normalise a plugin’s coordinate system before any legacy tweaks run. You can still follow up with an
-`x_shift` alignment if the incoming data is missing its expected centre. When present, `notes` are emitted to the log a
-single time (per plugin or pattern) so developers can document the rationale without cluttering the JSON with comments.
+`x_shift` alignment if the incoming data is missing its expected centre.
 
 Example block:
 
@@ -169,7 +167,13 @@ math that `draw_shapes.py` uses for local inspection.
 
 ```jsonc
 "LandingPad": {
-  "notes": "LandingPad added aspect_x years ago to compensate for the original Windows-only EDMCOverlay.exe. That binary rendered into a fixed 1280x1024 virtual canvas, and the plugin's coordinates assumed it was being stretched to fit arbitrary screen sizes. By multiplying X by an extra factor derived from the monitor dimensions (calc_aspect_x), LandingPad tried to undo the horizontal stretch so the dodecagon stayed round. ModernOverlay already handles that scaling, so leaving aspect_x active doubles the correction and flattens the pad.",
+  "notes": [
+    "LandingPad added aspect_x years ago to compensate for the original Windows-only EDMCOverlay.exe.",
+    "That binary rendered into a fixed 1280x1024 virtual canvas, and the plugin's coordinates assumed it was being stretched to fit arbitrary screen sizes.",
+    "",
+    "By multiplying X by an extra factor derived from the monitor dimensions (calc_aspect_x), LandingPad tried to undo the horizontal stretch so the dodecagon stayed round.",
+    "ModernOverlay already handles that scaling, so leaving aspect_x active doubles the correction and flattens the pad."
+  ],
   "__match__": {
     "id_prefixes": ["shell-", "line-", "toaster-left-", "toaster-right-", "pad-"]
   },
@@ -210,7 +214,7 @@ math that `draw_shapes.py` uses for local inspection.
 - The shared `offset.y` mimics the legacy `landingpad.json` translation so the pad sits at the expected vertical origin.
 - No explicit `pivot` is required because the payload coordinates include all of the vertices the transform needs to
   deduce its bounds.
-- The plugin-level `notes` entry captures why the override exists, so future maintainers remember that the old `aspect_x` workaround is now redundant.
+- The plugin-level `notes` array is just documentation for humans; Modern Overlay ignores it, but it keeps the rationale beside the configuration.
 
 This pattern keeps the adjustment in the adapter layer while leaving the plugin’s source intact. If a future plugin
 applies a similar workaround (for example, only providing a single anchor point instead of polygons), you can set
