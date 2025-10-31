@@ -1,12 +1,36 @@
 {
   "resolutions": [
-    { "width": 1280, "height": 1024 },
-    { "width": 1600, "height": 1200 },
-    { "width": 1720, "height": 1440 },
-    { "width": 1920, "height": 800 },
-    { "width": 1920, "height": 1080 },
-    { "width": 1920, "height": 1200 },
-    { "width": 1920, "height": 1280 },
-    { "width": 2560, "height": 1080 }
+    {
+      "width": 1280,
+      "height": 1024
+    },
+    {
+      "width": 1024,
+      "height": 768
+    },
+    {
+      "width": 1720,
+      "height": 1440
+    },
+    {
+      "width": 1920,
+      "height": 800
+    },
+    {
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "width": 1440,
+      "height": 960
+    },
+    {
+      "width": 2560,
+      "height": 1080
+    }
   ]
 }
