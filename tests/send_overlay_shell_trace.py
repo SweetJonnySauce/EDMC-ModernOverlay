@@ -89,8 +89,14 @@ SHELL_PAYLOADS: List[Tuple[str, List[Dict[str, int]]]] = [
     ),
 ]
 
+PAD_RECTANGLES: List[Tuple[str, Dict[str, int]]] = [
+    ("pad-19-0", {"x": 60, "y": 469, "w": 2, "h": 9}),
+    ("pad-19-1", {"x": 59, "y": 470, "w": 4, "h": 7}),
+    ("pad-19-2", {"x": 59, "y": 472, "w": 5, "h": 3}),
+]
 
-def _make_payload(shape_id: str, vector: List[Dict[str, int]], ttl: int, station: str, cmdr: str) -> Dict[str, Any]:
+
+def _make_vect_payload(shape_id: str, vector: List[Dict[str, int]], ttl: int, station: str, cmdr: str) -> Dict[str, Any]:
     timestamp = datetime.now(UTC).isoformat()
     legacy_raw = {
         "color": "#ffffff",
@@ -138,6 +144,65 @@ def _make_payload(shape_id: str, vector: List[Dict[str, int]], ttl: int, station
         "w": 0,
         "x": 0,
         "y": 0,
+    }
+    return payload
+
+
+def _make_rect_payload(
+    shape_id: str,
+    rect: Dict[str, int],
+    ttl: int,
+    station: str,
+    cmdr: str,
+) -> Dict[str, Any]:
+    timestamp = datetime.now(UTC).isoformat()
+    legacy_raw = {
+        "color": "yellow",
+        "fill": "yellow",
+        "h": rect["h"],
+        "id": shape_id,
+        "shape": "rect",
+        "ttl": ttl,
+        "w": rect["w"],
+        "x": rect["x"],
+        "y": rect["y"],
+    }
+    raw_shape = {
+        "color": "yellow",
+        "event": "LegacyOverlay",
+        "fill": "yellow",
+        "h": rect["h"],
+        "id": shape_id,
+        "legacy_raw": dict(legacy_raw),
+        "plugin": "LandingPad",
+        "shape": "rect",
+        "timestamp": timestamp,
+        "ttl": ttl,
+        "type": "shape",
+        "w": rect["w"],
+        "x": rect["x"],
+        "y": rect["y"],
+    }
+    payload: Dict[str, Any] = {
+        "cmdr": cmdr,
+        "color": "yellow",
+        "docked": False,
+        "event": "LegacyOverlay",
+        "fill": "yellow",
+        "h": rect["h"],
+        "id": shape_id,
+        "legacy_raw": legacy_raw,
+        "plugin": "LandingPad",
+        "raw": raw_shape,
+        "shape": "rect",
+        "station": station,
+        "system": "",
+        "timestamp": timestamp,
+        "ttl": ttl,
+        "type": "shape",
+        "w": rect["w"],
+        "x": rect["x"],
+        "y": rect["y"],
     }
     return payload
 
@@ -192,7 +257,21 @@ def main(argv: List[str] | None = None) -> None:
 
     envelopes: List[Dict[str, Any]] = []
     for shape_id, vector in SHELL_PAYLOADS:
-        payload = _make_payload(shape_id, vector, args.ttl, args.station, args.cmdr)
+        payload = _make_vect_payload(shape_id, vector, args.ttl, args.station, args.cmdr)
+        envelopes.append(
+            {
+                "cli": "legacy_overlay",
+                "payload": payload,
+                "meta": {
+                    "source": "send_overlay_shell_trace",
+                    "plugin": "LandingPad",
+                    "sequence": shape_id,
+                },
+            }
+        )
+
+    for shape_id, rect in PAD_RECTANGLES:
+        payload = _make_rect_payload(shape_id, rect, args.ttl, args.station, args.cmdr)
         envelopes.append(
             {
                 "cli": "legacy_overlay",
