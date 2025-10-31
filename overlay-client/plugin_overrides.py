@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
 
 JsonDict = Dict[str, Any]
@@ -205,6 +205,13 @@ class PluginOverrideManager:
         if int(payload.get("ttl", 0)) == 0:
             return
 
+        transform_spec = override.get("transform")
+        if isinstance(transform_spec, Mapping):
+            try:
+                self._apply_transform(plugin, transform_spec, payload)
+            except Exception:  # pragma: no cover - defensive
+                self._logger.exception("Failed applying transform override for plugin %s", plugin)
+
         scale: Optional[float] = None
         if "x_scale" in override:
             scale = self._resolve_x_scale(plugin, override["x_scale"], payload)
@@ -260,6 +267,270 @@ class PluginOverrideManager:
             return ratio
 
         return None
+    
+    def _apply_transform(self, plugin: str, spec: Mapping[str, Any], payload: MutableMapping[str, Any]) -> None:
+        shape = str(payload.get("shape") or "").lower()
+        if shape not in {"vect", "rect"}:
+            return
+
+        scale_spec = spec.get("scale")
+        offset_spec = spec.get("offset")
+
+        if not isinstance(scale_spec, Mapping):
+            scale_x = 1.0
+            scale_y = 1.0
+            scale_anchor = "NW"
+            bounds_spec = None
+        else:
+            scale_x = self._coerce_float(scale_spec.get("x"), 1.0)
+            scale_y = self._coerce_float(scale_spec.get("y"), 1.0)
+            scale_anchor = str(scale_spec.get("point", "NW"))
+            bounds_spec = scale_spec.get("source_bounds")
+
+        offset_x = 0.0
+        offset_y = 0.0
+        if isinstance(offset_spec, Mapping):
+            offset_x = self._coerce_float(offset_spec.get("x"), 0.0)
+            offset_y = self._coerce_float(offset_spec.get("y"), 0.0)
+
+        if math.isclose(scale_x, 1.0, rel_tol=1e-9) and math.isclose(scale_y, 1.0, rel_tol=1e-9) and math.isclose(offset_x, 0.0, rel_tol=1e-9) and math.isclose(offset_y, 0.0, rel_tol=1e-9):
+            return
+
+        pivot_override = None
+        if isinstance(scale_spec, Mapping):
+            pivot_candidate = scale_spec.get("pivot")
+            if isinstance(pivot_candidate, Mapping):
+                try:
+                    pivot_override = (
+                        float(pivot_candidate.get("x", 0.0)),
+                        float(pivot_candidate.get("y", 0.0)),
+                    )
+                except (TypeError, ValueError):
+                    pivot_override = None
+
+        points = self._extract_points_from_payload(payload)
+        bounds = self._compute_bounds(points, bounds_spec)
+        if bounds is None and pivot_override is None:
+            return
+
+        if pivot_override is not None:
+            pivot = pivot_override
+        else:
+            pivot = self._resolve_pivot(bounds, scale_anchor)
+
+        scale_tuple = (scale_x, scale_y)
+        offset_tuple = (offset_x, offset_y)
+
+        if shape == "vect":
+            self._transform_vector_payload(payload, pivot, scale_tuple, offset_tuple)
+        elif shape == "rect":
+            self._transform_rect_payload(payload, pivot, scale_tuple, offset_tuple)
+
+    def _coerce_float(self, value: Any, default: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _extract_points_from_payload(self, payload: Mapping[str, Any]) -> List[Tuple[float, float]]:
+        shape = str(payload.get("shape") or "").lower()
+        points: List[Tuple[float, float]] = []
+
+        if shape == "vect":
+            vector = payload.get("vector")
+            if isinstance(vector, Iterable):
+                for point in vector:
+                    if not isinstance(point, Mapping):
+                        continue
+                    try:
+                        x_val = float(point.get("x", 0.0))
+                        y_val = float(point.get("y", 0.0))
+                    except (TypeError, ValueError):
+                        continue
+                    points.append((x_val, y_val))
+
+        elif shape == "rect":
+            try:
+                x_val = float(payload.get("x", 0.0))
+                y_val = float(payload.get("y", 0.0))
+                w_val = float(payload.get("w", 0.0))
+                h_val = float(payload.get("h", 0.0))
+            except (TypeError, ValueError):
+                return points
+            points.extend(
+                [
+                    (x_val, y_val),
+                    (x_val + w_val, y_val),
+                    (x_val, y_val + h_val),
+                    (x_val + w_val, y_val + h_val),
+                ]
+            )
+
+        return points
+
+    def _compute_bounds(
+        self,
+        points: Sequence[Tuple[float, float]],
+        bounds_spec: Any,
+    ) -> Optional[Tuple[float, float, float, float]]:
+        if points:
+            xs = [pt[0] for pt in points]
+            ys = [pt[1] for pt in points]
+            return min(xs), max(xs), min(ys), max(ys)
+
+        if isinstance(bounds_spec, Mapping):
+            min_spec = bounds_spec.get("min")
+            max_spec = bounds_spec.get("max")
+            if isinstance(min_spec, Mapping) and isinstance(max_spec, Mapping):
+                try:
+                    min_x = float(min_spec.get("x", 0.0))
+                    min_y = float(min_spec.get("y", 0.0))
+                    max_x = float(max_spec.get("x", 0.0))
+                    max_y = float(max_spec.get("y", 0.0))
+                except (TypeError, ValueError):
+                    return None
+                return min_x, max_x, min_y, max_y
+
+        return None
+
+    def _resolve_pivot(self, bounds: Tuple[float, float, float, float], anchor: str) -> Tuple[float, float]:
+        min_x, max_x, min_y, max_y = bounds
+        anchor_upper = anchor.upper()
+        if anchor_upper == "NE":
+            return max_x, min_y
+        if anchor_upper == "SW":
+            return min_x, max_y
+        if anchor_upper == "SE":
+            return max_x, max_y
+        if anchor_upper == "CENTER":
+            return (min_x + max_x) / 2.0, (min_y + max_y) / 2.0
+        if anchor_upper == "ORIGIN":
+            return 0.0, 0.0
+        return min_x, min_y
+
+    def _transform_vector_payload(
+        self,
+        payload: MutableMapping[str, Any],
+        pivot: Tuple[float, float],
+        scale: Tuple[float, float],
+        offset: Tuple[float, float],
+    ) -> None:
+        vector = payload.get("vector")
+        if isinstance(vector, list):
+            for point in vector:
+                if not isinstance(point, MutableMapping):
+                    continue
+                try:
+                    x_val = float(point.get("x", 0.0))
+                    y_val = float(point.get("y", 0.0))
+                except (TypeError, ValueError):
+                    continue
+                new_x, new_y = self._transform_point((x_val, y_val), pivot, scale, offset)
+                point["x"] = self._round_coordinate(new_x)
+                point["y"] = self._round_coordinate(new_y)
+
+        raw = payload.get("raw")
+        if isinstance(raw, MutableMapping):
+            raw_vector = raw.get("vector")
+            if isinstance(raw_vector, list):
+                for point in raw_vector:
+                    if not isinstance(point, MutableMapping):
+                        continue
+                    try:
+                        x_val = float(point.get("x", 0.0))
+                        y_val = float(point.get("y", 0.0))
+                    except (TypeError, ValueError):
+                        continue
+                    new_x, new_y = self._transform_point((x_val, y_val), pivot, scale, offset)
+                    point["x"] = self._round_coordinate(new_x)
+                    point["y"] = self._round_coordinate(new_y)
+
+    def _transform_rect_payload(
+        self,
+        payload: MutableMapping[str, Any],
+        pivot: Tuple[float, float],
+        scale: Tuple[float, float],
+        offset: Tuple[float, float],
+    ) -> None:
+        try:
+            x_val = float(payload.get("x", 0.0))
+            y_val = float(payload.get("y", 0.0))
+            w_val = float(payload.get("w", 0.0))
+            h_val = float(payload.get("h", 0.0))
+        except (TypeError, ValueError):
+            return
+
+        corners = [
+            (x_val, y_val),
+            (x_val + w_val, y_val),
+            (x_val, y_val + h_val),
+            (x_val + w_val, y_val + h_val),
+        ]
+        transformed = [self._transform_point(corner, pivot, scale, offset) for corner in corners]
+        xs = [pt[0] for pt in transformed]
+        ys = [pt[1] for pt in transformed]
+
+        min_x = min(xs)
+        max_x = max(xs)
+        min_y = min(ys)
+        max_y = max(ys)
+
+        payload["x"] = self._round_coordinate(min_x)
+        payload["y"] = self._round_coordinate(min_y)
+        payload["w"] = max(1, self._round_coordinate(max_x - min_x))
+        payload["h"] = max(1, self._round_coordinate(max_y - min_y))
+
+        raw = payload.get("raw")
+        if isinstance(raw, MutableMapping):
+            try:
+                raw_x = float(raw.get("x", x_val))
+                raw_y = float(raw.get("y", y_val))
+                raw_w = float(raw.get("w", w_val))
+                raw_h = float(raw.get("h", h_val))
+            except (TypeError, ValueError):
+                raw_x = x_val
+                raw_y = y_val
+                raw_w = w_val
+                raw_h = h_val
+
+            raw_corners = [
+                (raw_x, raw_y),
+                (raw_x + raw_w, raw_y),
+                (raw_x, raw_y + raw_h),
+                (raw_x + raw_w, raw_y + raw_h),
+            ]
+            raw_transformed = [self._transform_point(corner, pivot, scale, offset) for corner in raw_corners]
+            raw_xs = [pt[0] for pt in raw_transformed]
+            raw_ys = [pt[1] for pt in raw_transformed]
+
+            raw_min_x = min(raw_xs)
+            raw_max_x = max(raw_xs)
+            raw_min_y = min(raw_ys)
+            raw_max_y = max(raw_ys)
+
+            raw["x"] = self._round_coordinate(raw_min_x)
+            raw["y"] = self._round_coordinate(raw_min_y)
+            raw["w"] = max(1, self._round_coordinate(raw_max_x - raw_min_x))
+            raw["h"] = max(1, self._round_coordinate(raw_max_y - raw_min_y))
+
+    def _transform_point(
+        self,
+        point: Tuple[float, float],
+        pivot: Tuple[float, float],
+        scale: Tuple[float, float],
+        offset: Tuple[float, float],
+    ) -> Tuple[float, float]:
+        pivot_x, pivot_y = pivot
+        scale_x, scale_y = scale
+        offset_x, offset_y = offset
+        scaled_x = pivot_x + (point[0] - pivot_x) * scale_x
+        scaled_y = pivot_y + (point[1] - pivot_y) * scale_y
+        return scaled_x + offset_x, scaled_y + offset_y
+
+    def _round_coordinate(self, value: float) -> int:
+        if math.isnan(value) or math.isinf(value):
+            return 0
+        return int(round(value))
 
     def _resolve_x_shift(
         self,

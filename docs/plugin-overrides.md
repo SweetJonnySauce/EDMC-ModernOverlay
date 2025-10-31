@@ -54,10 +54,11 @@ the first match wins.
 
 Current override keys:
 
-| Key       | Type                | Description                                                                                                     |
-| --------- | ------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `x_scale` | number or string    | Scales the payload along X. Numbers are absolute factors (1.0 keeps original width). Special modes are described below. |
-| `x_shift` | number or object    | Translates X after scaling. A numeric value shifts by that many logical units; object forms can align to a target centre. |
+| Key         | Type              | Description                                                                                                     |
+| ----------- | ----------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `x_scale`   | number or string  | Scales the payload along X. Numbers are absolute factors (1.0 keeps original width). Special modes are described below. |
+| `x_shift`   | number or object  | Translates X after scaling. A numeric value shifts by that many logical units; object forms can align to a target centre. |
+| `transform` | object            | Applies 2-D scaling and translation with an explicit pivot. Ideal when a plugin pre-warps its coordinates and needs symmetric correction. |
 
 `x_scale` supports a few computed modes in addition to numeric constants:
 
@@ -73,6 +74,31 @@ specified X coordinate after scaling.
 The cache is per plugin. You usually define a single “derive” rule (for a representative shape) and
 point all related shapes at `"use_cached_ratio"`.
 
+The `transform` directive mirrors the prototype harness in `tests/scale-prototype`. It accepts two optional sub-blocks:
+
+```jsonc
+"transform": {
+  "scale": {
+    "x": 2.0,
+    "y": 1.0,
+    "point": "sw",               // Anchor used to compute the pivot; defaults to "NW"
+    "pivot": {"x": 50, "y": 60}, // Optional explicit pivot override
+    "source_bounds": {           // Optional fallback bounds when the payload lacks points
+      "min": {"x": 0, "y": 0},
+      "max": {"x": 128, "y": 128}
+    }
+  },
+  "offset": {
+    "x": 0.0,
+    "y": 150.0
+  }
+}
+```
+
+If `pivot` is omitted, the pivot is derived by combining the selected anchor (`point`) with either the payload’s
+current bounding box or the optional `source_bounds`. Offsets are applied after scaling, so a zero scale with a non-zero
+offset still performs a pure translation. Leaving the block empty is a no-op.
+
 Example block:
 
 ```jsonc
@@ -81,6 +107,17 @@ Example block:
 },
 "toaster-*": {
   "x_scale": "use_cached_ratio"
+}
+```
+
+A transform-driven equivalent:
+
+```jsonc
+"shell-*": {
+  "transform": {
+    "scale": {"x": 2.0, "y": 1.0, "point": "sw"},
+    "offset": {"y": 150.0}
+  }
 }
 ```
 

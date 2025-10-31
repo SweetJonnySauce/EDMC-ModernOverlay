@@ -10,23 +10,69 @@
       ]
     },
     "shell-*": {
-      "x_scale": 2.0
+      "transform": {
+        "scale": {
+          "x": 2.0,
+          "y": 1.0,
+          "point": "sw"
+        },
+        "offset": {
+          "x": 0.0,
+          "y": 150.0
+        }
+      }
     },
     "line-*": {
-      "x_scale": 2.0,
-      "x_shift": {
-        "mode": "align_center",
-        "target": 200.0
+      "transform": {
+        "scale": {
+          "x": 2.0,
+          "y": 1.0,
+          "point": "sw"
+        },
+        "offset": {
+          "x": 0.0,
+          "y": 150.0
+        }
       }
     },
     "toaster-left-*": {
-      "x_scale": 2.0
+      "transform": {
+        "scale": {
+          "x": 2.0,
+          "y": 1.0,
+          "point": "sw"
+        },
+        "offset": {
+          "x": 0.0,
+          "y": 150.0
+        }
+      }
     },
     "toaster-right-*": {
-      "x_scale": 2.0
+      "transform": {
+        "scale": {
+          "x": 2.0,
+          "y": 1.0,
+          "point": "sw"
+        },
+        "offset": {
+          "x": 0.0,
+          "y": 150.0
+        }
+      }
     },
     "pad-*": {
-      "x_scale": 2.0
+      "transform": {
+        "scale": {
+          "x": 2.0,
+          "y": 1.0,
+          "point": "sw"
+        },
+        "offset": {
+          "x": 0.0,
+          "y": 150.0
+        }
+      }
     }
   }
 }
