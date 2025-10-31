@@ -750,14 +750,6 @@ class OverlayWindow(QWidget):
         _CLIENT_LOGGER.debug("Debug overlay %s", "enabled" if flag else "disabled")
         self.update()
 
-    def set_show_payload_ids(self, enabled: bool) -> None:
-        flag = bool(enabled)
-        if flag == self._show_payload_ids:
-            return
-        self._show_payload_ids = flag
-        _CLIENT_LOGGER.debug("Payload ID labels %s", "enabled" if flag else "disabled")
-        self.update()
-
     def set_font_bounds(self, min_point: Optional[float], max_point: Optional[float]) -> None:
         changed = False
         if min_point is not None:
