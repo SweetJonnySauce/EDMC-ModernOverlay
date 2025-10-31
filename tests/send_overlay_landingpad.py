@@ -14,6 +14,7 @@ from typing import Any, Dict, Iterable, List, Tuple
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 SETTINGS_PATH = PLUGIN_ROOT / "overlay_settings.json"
+DEBUG_CONFIG_PATH = PLUGIN_ROOT / "debug.json"
 PORT_PATH = PLUGIN_ROOT / "port.json"
 
 
@@ -343,14 +344,39 @@ def _load_json(path: Path) -> Dict[str, Any]:
         _fail(f"Failed to parse {path}: {exc}")
 
 
-def _warn_log_payload(settings: Dict[str, Any]) -> None:
-    if not bool(settings.get("log_payloads", False)):
-        _print_step(
-            "WARNING: log_payloads=false. Overlay payloads will not be mirrored to the EDMC log. "
-            "Enable 'Send overlay payloads to the EDMC log' in ModernOverlay preferences to capture them."
-        )
+def _is_payload_logging_enabled() -> bool:
+    try:
+        config = json.loads(DEBUG_CONFIG_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return False
+    except json.JSONDecodeError:
+        return False
+    section = config.get("payload_logging")
+    if isinstance(section, dict):
+        flag = section.get("overlay_payload_log_enabled")
+        if isinstance(flag, bool):
+            return flag
+        if flag is not None:
+            return bool(flag)
+        legacy_flag = section.get("enabled")
+        if isinstance(legacy_flag, bool):
+            return legacy_flag
+    legacy_top = config.get("log_payloads")
+    if isinstance(legacy_top, bool):
+        return legacy_top
+    if legacy_top is not None:
+        return bool(legacy_top)
+    return False
+
+
+def _warn_payload_logging() -> None:
+    if _is_payload_logging_enabled():
+        _print_step("Detected overlay payload logging enabled (overlay-payloads.log).")
     else:
-        _print_step("Detected log_payloads=true (log mirroring enabled).")
+        _print_step(
+            "WARNING: overlay payload logging is disabled. Set 'payload_logging.overlay_payload_log_enabled'"
+            " to true in debug.json to mirror payloads to overlay-payloads.log."
+        )
 
 
 def _ensure_overlay_client_running() -> None:
@@ -497,8 +523,8 @@ def main(argv: List[str] | None = None) -> None:
         _fail("TTL must be positive")
 
     _print_step(f"Using plugin root: {PLUGIN_ROOT}")
-    settings = _load_json(SETTINGS_PATH)
-    _warn_log_payload(settings)
+    _load_json(SETTINGS_PATH)
+    _warn_payload_logging()
 
     _ensure_overlay_client_running()
 

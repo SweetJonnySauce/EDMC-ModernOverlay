@@ -23,7 +23,6 @@ class Preferences:
     show_ed_bandwidth: bool = False
     show_ed_fps: bool = False
     debug_overlay_corner: str = "NW"
-    log_payloads: bool = False
     client_log_retention: int = 5
     gridlines_enabled: bool = False
     gridline_spacing: int = 120
@@ -59,7 +58,6 @@ class Preferences:
         self.debug_overlay_corner = corner_value.strip().upper() if corner_value else "NW"
         if self.debug_overlay_corner not in {"NW", "NE", "SW", "SE"}:
             self.debug_overlay_corner = "NW"
-        self.log_payloads = bool(data.get("log_payloads", False))
         try:
             retention = int(data.get("client_log_retention", 5))
         except (TypeError, ValueError):
@@ -100,7 +98,6 @@ class Preferences:
             "show_ed_bandwidth": bool(self.show_ed_bandwidth),
             "show_ed_fps": bool(self.show_ed_fps),
             "debug_overlay_corner": str(self.debug_overlay_corner or "NW"),
-            "log_payloads": bool(self.log_payloads),
             "client_log_retention": int(self.client_log_retention),
             "gridlines_enabled": bool(self.gridlines_enabled),
             "gridline_spacing": int(self.gridline_spacing),
@@ -134,9 +131,9 @@ class PreferencesPanel:
         set_debug_overlay_corner_callback: Optional[Callable[[str], None]] = None,
         set_status_bandwidth_callback: Optional[Callable[[bool], None]] = None,
         set_status_fps_callback: Optional[Callable[[bool], None]] = None,
-        set_log_payloads_callback: Optional[Callable[[bool], None]] = None,
         set_gridlines_enabled_callback: Optional[Callable[[bool], None]] = None,
         set_gridline_spacing_callback: Optional[Callable[[int], None]] = None,
+        set_log_retention_callback: Optional[Callable[[int], None]] = None,
         set_force_render_callback: Optional[Callable[[bool], None]] = None,
         set_title_bar_config_callback: Optional[Callable[[bool, int], None]] = None,
         set_debug_overlay_callback: Optional[Callable[[bool], None]] = None,
@@ -157,7 +154,6 @@ class PreferencesPanel:
         self._var_show_status_bandwidth = tk.BooleanVar(value=preferences.show_ed_bandwidth)
         self._var_show_status_fps = tk.BooleanVar(value=preferences.show_ed_fps)
         self._var_debug_overlay_corner = tk.StringVar(value=(preferences.debug_overlay_corner or "NW"))
-        self._var_log_payloads = tk.BooleanVar(value=preferences.log_payloads)
         self._var_gridlines_enabled = tk.BooleanVar(value=preferences.gridlines_enabled)
         self._var_gridline_spacing = tk.IntVar(value=max(10, int(preferences.gridline_spacing)))
         self._var_force_render = tk.BooleanVar(value=preferences.force_render)
@@ -174,9 +170,9 @@ class PreferencesPanel:
         self._set_debug_overlay_corner = set_debug_overlay_corner_callback
         self._set_status_bandwidth = set_status_bandwidth_callback
         self._set_status_fps = set_status_fps_callback
-        self._set_log_payloads = set_log_payloads_callback
         self._set_gridlines_enabled = set_gridlines_enabled_callback
         self._set_gridline_spacing = set_gridline_spacing_callback
+        self._set_log_retention = set_log_retention_callback
         self._set_force_render = set_force_render_callback
         self._set_title_bar_config = set_title_bar_config_callback
         self._set_debug_overlay = set_debug_overlay_callback
@@ -245,16 +241,6 @@ class PreferencesPanel:
         fps_checkbox.pack(side="left", padx=(16, 0))
 
         status_row.grid(row=2, column=0, sticky="w", pady=(10, 0))
-
-        log_checkbox = nb.Checkbutton(
-            frame,
-            text="Send overlay payloads to the EDMC log",
-            variable=self._var_log_payloads,
-            onvalue=True,
-            offvalue=False,
-            command=self._on_log_payload_toggle,
-        )
-        log_checkbox.grid(row=3, column=0, sticky="w", pady=(4, 0))
 
         debug_checkbox = nb.Checkbutton(
             frame,
@@ -554,17 +540,6 @@ class PreferencesPanel:
                 return
         self._preferences.save()
 
-    def _on_log_payload_toggle(self) -> None:
-        value = bool(self._var_log_payloads.get())
-        self._preferences.log_payloads = value
-        if self._set_log_payloads:
-            try:
-                self._set_log_payloads(value)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update payload logging: {exc}")
-                return
-        self._preferences.save()
-
     def _on_log_retention_command(self) -> None:
         self._apply_log_retention()
 
@@ -578,6 +553,12 @@ class PreferencesPanel:
             value = self._preferences.client_log_retention
         value = max(1, value)
         self._preferences.client_log_retention = value
+        if self._set_log_retention:
+            try:
+                self._set_log_retention(value)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update log retention: {exc}")
+                return
         self._preferences.save()
 
     def _on_force_render_toggle(self) -> None:

@@ -6,5 +6,11 @@
     "shell-0",
     "shell-3",
     "pad-"
-  ]
+  ],
+  "payload_logging": {
+    "overlay_payload_log_enabled": true,
+    "exclude_plugins": [
+      "bgstally"
+    ]
+  }
 }

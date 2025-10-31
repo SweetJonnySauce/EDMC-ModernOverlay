@@ -13,6 +13,7 @@ from typing import Any, Dict, Iterable, List, Tuple
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 PORT_PATH = PLUGIN_ROOT / "port.json"
 SETTINGS_PATH = PLUGIN_ROOT / "overlay_settings.json"
+DEBUG_CONFIG_PATH = PLUGIN_ROOT / "debug.json"
 
 
 def _print_step(message: str) -> None:
@@ -31,6 +32,41 @@ def _load_json(path: Path) -> Dict[str, Any]:
         _fail(f"Required file missing: {path}")
     except json.JSONDecodeError as exc:
         _fail(f"Failed to parse {path}: {exc}")
+
+
+def _is_payload_logging_enabled() -> bool:
+    try:
+        config = json.loads(DEBUG_CONFIG_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return False
+    except json.JSONDecodeError:
+        return False
+    section = config.get("payload_logging")
+    if isinstance(section, dict):
+        flag = section.get("overlay_payload_log_enabled")
+        if isinstance(flag, bool):
+            return flag
+        if flag is not None:
+            return bool(flag)
+        legacy_flag = section.get("enabled")
+        if isinstance(legacy_flag, bool):
+            return legacy_flag
+    legacy_top = config.get("log_payloads")
+    if isinstance(legacy_top, bool):
+        return legacy_top
+    if legacy_top is not None:
+        return bool(legacy_top)
+    return False
+
+
+def _warn_payload_logging() -> None:
+    if _is_payload_logging_enabled():
+        _print_step("Detected overlay payload logging enabled (overlay-payloads.log).")
+    else:
+        _print_step(
+            "WARNING: overlay payload logging is disabled. Set 'payload_logging.overlay_payload_log_enabled'"
+            " to true in debug.json to mirror payloads to overlay-payloads.log."
+        )
 
 
 def _points(coords: Iterable[Tuple[int, int]]) -> List[Dict[str, int]]:
@@ -244,11 +280,8 @@ def main(argv: List[str] | None = None) -> None:
     if args.ttl <= 0:
         _fail("TTL must be positive.")
 
-    settings = _load_json(SETTINGS_PATH)
-    if not bool(settings.get("log_payloads", False)):
-        _print_step(
-            "WARNING: overlay_settings.json has log_payloads=false. Overlay logs will not mirror payloads unless enabled."
-        )
+    _load_json(SETTINGS_PATH)
+    _warn_payload_logging()
 
     port_data = _load_json(PORT_PATH)
     port = port_data.get("port")

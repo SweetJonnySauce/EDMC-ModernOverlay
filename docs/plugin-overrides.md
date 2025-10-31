@@ -203,8 +203,9 @@ applies a similar workaround (for example, only providing a single anchor point 
 ## Testing Your Overrides
 
 1. Run `python3 -m compileall overlay-client` to ensure the Python modules still compile.
-2. With `log_payloads` enabled, observe the overlay client log (`overlay-client/logs/.../overlay-client.log`)
-   to verify that the overrides are being applied—look for DEBUG lines mentioning “Loaded … plugin override”.
+2. With `payload_logging.overlay_payload_log_enabled` set to `true` in `debug.json`,
+   the plugin writes payload mirrors into `logs/EDMC-ModernOverlay/overlay-payloads.log`.
+   Inspect that file to verify overrides are active—look for DEBUG lines mentioning “Loaded … plugin override”.
 3. Use the CLI helper in `tests/send_overlay_landingpad.py` or your plugin’s test harness to emit a payload
    and check that the rendered output matches expectations.
 
