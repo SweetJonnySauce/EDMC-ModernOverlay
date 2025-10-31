@@ -156,3 +156,15 @@ def test_transform_accepts_point_mapping(tmp_path: Path) -> None:
     point = payload["vector"][0]
     assert point["x"] == 70  # 50 + (60-50) * 2
     assert point["y"] == 80  # unchanged
+
+
+def test_infer_plugin_name_uses_id_prefix(landingpad_config: Path) -> None:
+    manager = _make_manager(landingpad_config)
+    payload = {
+        "type": "shape",
+        "shape": "rect",
+        "id": "pad-19-0",
+        "ttl": 5,
+    }
+
+    assert manager.infer_plugin_name(payload) == "LandingPad"

@@ -1697,6 +1697,11 @@ class OverlayWindow(QWidget):
                 value = raw.get(key)
                 if isinstance(value, str) and value:
                     return value
+        override_manager = getattr(self, "_override_manager", None)
+        if override_manager is not None:
+            inferred = override_manager.infer_plugin_name(payload)
+            if inferred:
+                return inferred
         return None
 
     def _should_trace_payload(self, plugin: Optional[str], message_id: str) -> bool:
@@ -1778,7 +1783,7 @@ class OverlayWindow(QWidget):
             if item.kind == "message":
                 self._paint_legacy_message(painter, item_id, item.data)
             elif item.kind == "rect":
-                self._paint_legacy_rect(painter, item_id, item.data)
+                self._paint_legacy_rect(painter, item_id, item.data, item.plugin)
             elif item.kind == "vector":
                 self._paint_legacy_vector(painter, item)
 
@@ -1872,7 +1877,13 @@ class OverlayWindow(QWidget):
             top_left_y = baseline - metrics.ascent()
             self._draw_item_id(painter, item_id, x, int(round(top_left_y)))
 
-    def _paint_legacy_rect(self, painter: QPainter, item_id: str, item: Dict[str, Any]) -> None:
+    def _paint_legacy_rect(
+        self,
+        painter: QPainter,
+        item_id: str,
+        item: Dict[str, Any],
+        plugin_name: Optional[str] = None,
+    ) -> None:
         border_spec = str(item.get("color", "white"))
         fill_spec = str(item.get("fill", "#00000000"))
 
@@ -1898,10 +1909,26 @@ class OverlayWindow(QWidget):
         painter.setBrush(brush)
         scale_x, scale_y = self._legacy_coordinate_scale_factors()
         aspect_factor = self._legacy_aspect_factor()
+        trace_enabled = self._should_trace_payload(plugin_name, item_id)
         raw_x = float(item.get("x", 0))
         raw_y = float(item.get("y", 0))
         raw_w = float(item.get("w", 0))
         raw_h = float(item.get("h", 0))
+        if trace_enabled:
+            self._log_legacy_trace(
+                plugin_name,
+                item_id,
+                "paint:rect_input",
+                {
+                    "x": raw_x,
+                    "y": raw_y,
+                    "w": raw_w,
+                    "h": raw_h,
+                    "scale_x": scale_x,
+                    "scale_y": scale_y,
+                    "aspect": aspect_factor,
+                },
+            )
         transform_meta = item.get("__mo_transform__") if isinstance(item, Mapping) else None
         pivot_override: Optional[float] = None
         if isinstance(transform_meta, Mapping):
@@ -1922,6 +1949,23 @@ class OverlayWindow(QWidget):
         y = int(round(raw_y * scale_y))
         w = max(1, int(round(max(raw_w, 0.0) * scale_x)))
         h = max(1, int(round(max(raw_h, 0.0) * scale_y)))
+        if trace_enabled:
+            self._log_legacy_trace(
+                plugin_name,
+                item_id,
+                "paint:rect_output",
+                {
+                    "adjusted_x": raw_x,
+                    "adjusted_y": raw_y,
+                    "adjusted_w": raw_w,
+                    "adjusted_h": raw_h,
+                    "pixel_x": x,
+                    "pixel_y": y,
+                    "pixel_w": w,
+                    "pixel_h": h,
+                    "pivot_override": pivot_override,
+                },
+            )
         painter.drawRect(
             x,
             y,

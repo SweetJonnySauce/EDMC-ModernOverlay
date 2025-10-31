@@ -207,6 +207,14 @@ class PluginOverrideManager:
             self._path,
         )
 
+    def infer_plugin_name(self, payload: Mapping[str, Any]) -> Optional[str]:
+        """Best-effort plugin lookup without mutating the payload."""
+
+        if not isinstance(payload, Mapping):
+            return None
+        self._reload_if_needed()
+        return self._determine_plugin_name(payload)
+
     def _determine_plugin_name(self, payload: Mapping[str, Any]) -> Optional[str]:
         for key in ("plugin", "plugin_name", "source_plugin"):
             value = payload.get(key)
