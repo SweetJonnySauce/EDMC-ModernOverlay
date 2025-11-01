@@ -319,6 +319,7 @@ class OverlayWindow(QWidget):
         self._cycle_payload_ids: List[str] = []
         self._cycle_current_id: Optional[str] = None
         self._cycle_anchor_points: Dict[str, Tuple[int, int]] = {}
+        self._cycle_copy_clipboard: bool = bool(getattr(initial, "copy_payload_id_on_cycle", False))
         self._last_font_notice: Optional[Tuple[float, float]] = None
 
         self._legacy_timer = QTimer(self)
@@ -805,6 +806,15 @@ class OverlayWindow(QWidget):
             self._cycle_current_id = None
         self.update()
 
+    def set_cycle_payload_copy_enabled(self, enabled: Optional[bool]) -> None:
+        if enabled is None:
+            return
+        flag = bool(enabled)
+        if flag == self._cycle_copy_clipboard:
+            return
+        self._cycle_copy_clipboard = flag
+        _CLIENT_LOGGER.debug("Copy payload ID on cycle %s", "enabled" if flag else "disabled")
+
     def cycle_payload_step(self, step: int) -> None:
         if not self._cycle_payload_enabled:
             return
@@ -825,6 +835,13 @@ class OverlayWindow(QWidget):
             len(self._cycle_payload_ids),
             self._cycle_current_id,
         )
+        if self._cycle_copy_clipboard and self._cycle_current_id:
+            try:
+                clipboard = QGuiApplication.clipboard()
+                if clipboard is not None:
+                    clipboard.setText(self._cycle_current_id)
+            except Exception as exc:
+                _CLIENT_LOGGER.warning("Failed to copy payload ID '%s' to clipboard: %s", self._cycle_current_id, exc)
         self.update()
 
     def handle_cycle_action(self, action: str) -> None:

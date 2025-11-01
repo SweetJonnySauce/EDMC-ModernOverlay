@@ -143,6 +143,7 @@ class PreferencesPanel:
         set_font_min_callback: Optional[Callable[[float], None]] = None,
         set_font_max_callback: Optional[Callable[[float], None]] = None,
         set_cycle_payload_callback: Optional[Callable[[bool], None]] = None,
+        set_cycle_payload_copy_callback: Optional[Callable[[bool], None]] = None,
         cycle_payload_prev_callback: Optional[Callable[[], None]] = None,
         cycle_payload_next_callback: Optional[Callable[[], None]] = None,
         restart_overlay_callback: Optional[Callable[[], None]] = None,
@@ -169,6 +170,7 @@ class PreferencesPanel:
         self._var_min_font = tk.DoubleVar(value=float(preferences.min_font_point))
         self._var_max_font = tk.DoubleVar(value=float(preferences.max_font_point))
         self._var_cycle_payload = tk.BooleanVar(value=preferences.cycle_payload_ids)
+        self._var_cycle_copy = tk.BooleanVar(value=preferences.copy_payload_id_on_cycle)
 
         self._send_test = send_test_callback
         self._set_opacity = set_opacity_callback
@@ -185,6 +187,7 @@ class PreferencesPanel:
         self._set_font_min = set_font_min_callback
         self._set_font_max = set_font_max_callback
         self._set_cycle_payload = set_cycle_payload_callback
+        self._set_cycle_payload_copy = set_cycle_payload_copy_callback
         self._cycle_prev_callback = cycle_payload_prev_callback
         self._cycle_next_callback = cycle_payload_next_callback
         self._restart_overlay = restart_overlay_callback
@@ -436,9 +439,18 @@ class PreferencesPanel:
         )
         self._cycle_prev_btn = nb.Button(cycle_row, text="<", width=3, command=self._on_cycle_payload_prev)
         self._cycle_next_btn = nb.Button(cycle_row, text=">", width=3, command=self._on_cycle_payload_next)
+        self._cycle_copy_checkbox = nb.Checkbutton(
+            cycle_row,
+            text="Copy current payload ID to clipboard",
+            variable=self._var_cycle_copy,
+            onvalue=True,
+            offvalue=False,
+            command=self._on_cycle_copy_toggle,
+        )
         cycle_checkbox.pack(side="left")
         self._cycle_prev_btn.pack(side="left", padx=(8, 0))
         self._cycle_next_btn.pack(side="left", padx=(4, 0))
+        self._cycle_copy_checkbox.pack(side="left", padx=(12, 0))
         cycle_row.grid(row=15, column=0, sticky="w", pady=(10, 0))
 
         self._update_cycle_button_state()
@@ -570,7 +582,7 @@ class PreferencesPanel:
 
     def _update_cycle_button_state(self) -> None:
         state = "normal" if self._var_cycle_payload.get() else "disabled"
-        for button in (self._cycle_prev_btn, self._cycle_next_btn):
+        for button in (self._cycle_prev_btn, self._cycle_next_btn, self._cycle_copy_checkbox):
             if button is not None:
                 try:
                     button.configure(state=state)
@@ -593,6 +605,24 @@ class PreferencesPanel:
             return
         self._preferences.cycle_payload_ids = value
         self._update_cycle_button_state()
+
+    def _on_cycle_copy_toggle(self) -> None:
+        value = bool(self._var_cycle_copy.get())
+        if not self._var_cycle_payload.get():  # Should not be reachable because checkbox disabled, but guard anyway.
+            value = False
+            self._var_cycle_copy.set(False)
+        try:
+            if self._set_cycle_payload_copy:
+                self._set_cycle_payload_copy(value)
+            else:
+                self._preferences.copy_payload_id_on_cycle = value
+                self._preferences.save()
+        except Exception as exc:
+            self._status_var.set(f"Failed to update copy-on-cycle setting: {exc}")
+            self._var_cycle_copy.set(self._preferences.copy_payload_id_on_cycle)
+            return
+        self._preferences.copy_payload_id_on_cycle = value
+        self._preferences.save()
 
     def _on_cycle_payload_prev(self) -> None:
         if not self._var_cycle_payload.get():

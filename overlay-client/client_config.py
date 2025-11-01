@@ -23,6 +23,7 @@ class InitialClientSettings:
     title_bar_enabled: bool = False
     title_bar_height: int = 0
     cycle_payload_ids: bool = False
+    copy_payload_id_on_cycle: bool = False
 
 
 @dataclass
@@ -46,6 +47,7 @@ class DeveloperHelperConfig:
     title_bar_enabled: Optional[bool] = None
     title_bar_height: Optional[int] = None
     cycle_payload_ids: Optional[bool] = None
+    copy_payload_id_on_cycle: Optional[bool] = None
 
     @classmethod
     def from_payload(cls, payload: Dict[str, Any]) -> "DeveloperHelperConfig":
@@ -99,6 +101,7 @@ class DeveloperHelperConfig:
             title_bar_enabled=_bool(payload.get("title_bar_enabled"), None),
             title_bar_height=_int(payload.get("title_bar_height"), None),
             cycle_payload_ids=_bool(payload.get("cycle_payload_ids"), None),
+            copy_payload_id_on_cycle=_bool(payload.get("copy_payload_id_on_cycle"), None),
         )
 
 
@@ -148,6 +151,7 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         bar_height = defaults.title_bar_height
     bar_height = max(0, bar_height)
     cycle_payload_ids = bool(data.get("cycle_payload_ids", defaults.cycle_payload_ids))
+    copy_payload_id_on_cycle = bool(data.get("copy_payload_id_on_cycle", defaults.copy_payload_id_on_cycle))
 
     return InitialClientSettings(
         client_log_retention=max(1, retention),
@@ -161,4 +165,5 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         title_bar_enabled=title_bar_enabled,
         title_bar_height=bar_height,
         cycle_payload_ids=cycle_payload_ids,
+        copy_payload_id_on_cycle=copy_payload_id_on_cycle,
     )

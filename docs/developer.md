@@ -15,6 +15,7 @@ This is particularly useful when capturing coordinates or validating plugin over
 ### Tips
 
 - Toggle payload cycling with the controls in the preferences.
+- Enable “Copy current payload ID to clipboard” if you want each ID handed to the clipboard automatically while stepping through items. The checkbox is automatically disabled (but keeps its state) whenever cycling itself is turned off, then becomes active again when cycling is re-enabled.
 - The connector line from the badge points toward the payload’s anchor point, helping locate overlapping elements quickly.
 - Plugin names and coordinates rely on the metadata provided by each payload; if a plugin does not populate `plugin` fields, the finder falls back to `unknown`.
 - Message overrides (e.g. `bgstally-msg-*`) are now tracked, so scale/offset adjustments applied via overrides show up in the badge.
