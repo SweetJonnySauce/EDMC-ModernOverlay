@@ -576,18 +576,20 @@ class PreferencesPanel:
 
     def _on_cycle_payload_toggle(self) -> None:
         value = bool(self._var_cycle_payload.get())
-        self._preferences.cycle_payload_ids = value
-        if self._set_cycle_payload:
-            try:
+        try:
+            if self._set_cycle_payload:
                 self._set_cycle_payload(value)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update payload cycling: {exc}")
-                self._var_cycle_payload.set(not value)
-                self._preferences.cycle_payload_ids = bool(self._var_cycle_payload.get())
-                self._update_cycle_button_state()
-                return
+            else:
+                self._preferences.cycle_payload_ids = value
+                self._preferences.save()
+        except Exception as exc:
+            self._status_var.set(f"Failed to update payload cycling: {exc}")
+            self._var_cycle_payload.set(not value)
+            self._preferences.cycle_payload_ids = bool(self._var_cycle_payload.get())
+            self._update_cycle_button_state()
+            return
+        self._preferences.cycle_payload_ids = value
         self._update_cycle_button_state()
-        self._preferences.save()
 
     def _on_cycle_payload_prev(self) -> None:
         if not self._var_cycle_payload.get():
