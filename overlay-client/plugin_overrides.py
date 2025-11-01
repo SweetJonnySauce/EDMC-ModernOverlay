@@ -434,6 +434,17 @@ class PluginOverrideManager:
             offset_y = self._coerce_float(offset_spec.get("y"), 0.0)
 
         if math.isclose(scale_x, 1.0, rel_tol=1e-9) and math.isclose(scale_y, 1.0, rel_tol=1e-9) and math.isclose(offset_x, 0.0, rel_tol=1e-9) and math.isclose(offset_y, 0.0, rel_tol=1e-9):
+            transform_meta = {
+                "pivot": {"x": pivot[0], "y": pivot[1]},
+                "scale": {"x": scale_x, "y": scale_y},
+                "offset": {"x": offset_x, "y": offset_y},
+                "pattern": pattern,
+                "plugin": plugin,
+            }
+            payload.setdefault("__mo_transform__", {}).update(transform_meta)
+            raw_payload = payload.get("raw")
+            if isinstance(raw_payload, MutableMapping):
+                raw_payload.setdefault("__mo_transform__", {}).update(transform_meta)
             return
 
         try:
@@ -463,6 +474,17 @@ class PluginOverrideManager:
         if isinstance(raw_payload, MutableMapping):
             raw_payload["x"] = rounded_x
             raw_payload["y"] = rounded_y
+
+        transform_meta = {
+            "pivot": {"x": pivot[0], "y": pivot[1]},
+            "scale": {"x": scale_x, "y": scale_y},
+            "offset": {"x": offset_x, "y": offset_y},
+            "pattern": pattern,
+            "plugin": plugin,
+        }
+        payload.setdefault("__mo_transform__", {}).update(transform_meta)
+        if isinstance(raw_payload, MutableMapping):
+            raw_payload.setdefault("__mo_transform__", {}).update(transform_meta)
 
     def _parse_point(self, spec: Any) -> Optional[Tuple[float, float]]:
         if isinstance(spec, Mapping):

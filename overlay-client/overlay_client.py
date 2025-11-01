@@ -856,6 +856,38 @@ class OverlayWindow(QWidget):
     def _register_cycle_anchor(self, item_id: str, x: int, y: int) -> None:
         self._cycle_anchor_points[item_id] = (int(x), int(y))
 
+    def _format_override_lines(self, legacy_item: Optional[LegacyItem]) -> List[str]:
+        if legacy_item is None:
+            return []
+        data = legacy_item.data
+        if not isinstance(data, Mapping):
+            return []
+        transform_meta = data.get("__mo_transform__")
+        if not isinstance(transform_meta, Mapping):
+            return []
+        lines: List[str] = []
+        for section_name in ("scale", "offset", "pivot"):
+            block = transform_meta.get(section_name)
+            if not isinstance(block, Mapping):
+                continue
+            parts: List[str] = []
+            for key, value in block.items():
+                if not isinstance(value, (int, float)):
+                    continue
+                if section_name == "scale":
+                    if math.isclose(value, 1.0, rel_tol=1e-6, abs_tol=1e-6):
+                        continue
+                else:
+                    if math.isclose(value, 0.0, rel_tol=1e-6, abs_tol=1e-6):
+                        continue
+                parts.append(f"{key}={value:g}")
+            if parts:
+                lines.append(f"{section_name}: " + ", ".join(parts))
+        pattern = transform_meta.get("pattern")
+        if isinstance(pattern, str) and pattern:
+            lines.append(f"pattern: {pattern}")
+        return lines
+
     def _paint_cycle_overlay(self, painter: QPainter) -> None:
         if not self._cycle_payload_enabled:
             return
@@ -874,6 +906,7 @@ class OverlayWindow(QWidget):
             center_line = f"Center: {anchor[0]}, {anchor[1]}"
         else:
             center_line = "Center: -, -"
+        override_lines = self._format_override_lines(current_item)
         painter.save()
         text = self._cycle_current_id
         highlight_color = QColor("#ffb347")
@@ -896,10 +929,11 @@ class OverlayWindow(QWidget):
         padding_y = 8
         line_height_title = metrics.lineSpacing()
         line_height_plugin = plugin_metrics.lineSpacing()
-        total_small_lines = 2
+        total_small_lines = 2 + len(override_lines)
         plugin_width = plugin_metrics.horizontalAdvance(plugin_line)
         center_width = plugin_metrics.horizontalAdvance(center_line)
-        content_width = max(text_width, plugin_width, center_width)
+        override_widths = [plugin_metrics.horizontalAdvance(line) for line in override_lines]
+        content_width = max([text_width, plugin_width, center_width, *override_widths] if override_widths else [text_width, plugin_width, center_width])
         rect_width = content_width + padding_x * 2
         rect_height = line_height_title + total_small_lines * line_height_plugin + padding_y * 2
         rect_left = center_x - rect_width // 2
@@ -915,8 +949,12 @@ class OverlayWindow(QWidget):
         painter.setFont(plugin_font)
         baseline_plugin = baseline_top + line_height_title
         painter.drawText(center_x - plugin_width // 2, baseline_plugin, plugin_line)
-        baseline_center = baseline_plugin + line_height_plugin
-        painter.drawText(center_x - center_width // 2, baseline_center, center_line)
+        current_baseline = baseline_plugin + line_height_plugin
+        painter.drawText(center_x - center_width // 2, current_baseline, center_line)
+        if override_lines:
+            for line, width in zip(override_lines, override_widths):
+                current_baseline += line_height_plugin
+                painter.drawText(center_x - width // 2, current_baseline, line)
         if anchor is not None:
             start_x = center_x
             start_y = center_y
