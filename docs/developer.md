@@ -20,3 +20,24 @@ This is particularly useful when capturing coordinates or validating plugin over
 - The connector line from the badge points toward the payload’s anchor point, helping locate overlapping elements quickly.
 - Plugin names and coordinates rely on the metadata provided by each payload; if a plugin does not populate `plugin` fields, the finder falls back to `unknown`.
 - Message overrides (e.g. `bgstally-msg-*`) are now tracked, so scale/offset adjustments applied via overrides show up in the badge.
+
+## Debug Overlay Reference
+
+Enable **Show debug overlay** to surface a live diagnostics panel in the corner of the overlay. It mirrors most of the geometry/scale state the client is using:
+
+- **Monitor block** lists the active display (with the computed aspect ratio) and the tracker window the overlay is following. The tracker entry shows the Elite window’s top-left coordinate and the captured width/height in game pixels. If the overlay is offset (e.g., due to title bar compensation) you’ll see a second `wm_rect` line describing the size the window manager believes the overlay occupies.
+- **Overlay block** lists:
+  - `widget`: the actual QWidget size in logical pixels, with aspect ratio.
+  - `frame`: the Qt frame geometry (includes window frame and drop shadows when present).
+  - `phys`: the size after multiplying by the device pixel ratio, i.e., the true number of physical screen pixels the overlay occupies.
+  - `raw`: the Elite window geometry that legacy payloads are targeting; this is the reference rectangle used for coordinate normalisation.
+  These values are useful when diagnosing mismatched HUD scaling or when confirming that overrides line up with the monitored window.
+- **Fonts block** records:
+  - Legacy scale factors (`scale_x`, `scale_y`, `diag`) derived from window size.
+  - `ui_scale`: the user’s current font scaling multiplier.
+  - `bounds`: the min/max font point clamping that payloads are restricted to.
+  - Live font sizes (`message`, `status`, `legacy`) after clamping and scaling.
+  - `legacy presets`: the resolved point sizes for the classic `small`, `normal`, `large`, and `huge` presets so you can see exactly what each payload’s `size` value maps to.
+- **Settings block** highlights the title-bar compensation flag and height, along with the actual pixel offset applied. If compensation is enabled but the offset seems wrong, this is the first place to verify the numbers.
+
+These details are helpful when debugging sizing issues (e.g., 21:9 vs. 16:9 monitors) or verifying that override transforms are behaving as expected.

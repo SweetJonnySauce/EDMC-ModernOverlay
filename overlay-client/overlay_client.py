@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 from datetime import UTC, datetime
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
@@ -412,6 +413,30 @@ class OverlayWindow(QWidget):
         if ratio <= 0.0:
             ratio = 1.0
         return width * ratio, height * ratio
+
+    @staticmethod
+    def _aspect_ratio_label(width: int, height: int) -> Optional[str]:
+        if width <= 0 or height <= 0:
+            return None
+        ratio = width / float(height)
+        known_ratios = (
+            ("32:9", 32 / 9),
+            ("21:9", 21 / 9),
+            ("18:9", 18 / 9),
+            ("16:10", 16 / 10),
+            ("16:9", 16 / 9),
+            ("3:2", 3 / 2),
+            ("4:3", 4 / 3),
+            ("5:4", 5 / 4),
+            ("1:1", 1.0),
+        )
+        for label, target in known_ratios:
+            if target <= 0:
+                continue
+            if abs(ratio - target) / target < 0.03:  # within ~3%
+                return label
+        frac = Fraction(width, height).limit_denominator(100)
+        return f"{frac.numerator}:{frac.denominator}"
 
     def _legacy_scale_components(self, *, use_physical: bool = True) -> Tuple[float, float]:
         width = max(self.width(), 1)
@@ -2467,20 +2492,33 @@ class OverlayWindow(QWidget):
             "{}={:.1f}".format(label, self._legacy_preset_point_size(name))
             for label, name in size_labels
         )
-        monitor_desc = self._last_screen_name or self._describe_screen(self.windowHandle().screen() if self.windowHandle() else None)
-        monitor_lines = [
-            "Monitor:",
-            f"  active={monitor_desc or 'unknown'}",
-        ]
+        active_screen = self.windowHandle().screen() if self.windowHandle() else None
+        monitor_desc = self._last_screen_name or self._describe_screen(active_screen)
+        active_ratio = None
+        if active_screen is not None:
+            try:
+                geo = active_screen.geometry()
+                active_ratio = self._aspect_ratio_label(geo.width(), geo.height())
+            except Exception:
+                active_ratio = None
+        active_line = f"  active={monitor_desc or 'unknown'}"
+        if active_ratio:
+            active_line += f" ({active_ratio})"
+        monitor_lines = ["Monitor:", active_line]
         if self._last_follow_state is not None:
-            monitor_lines.append(
-                "  tracker=({},{}) {}x{}".format(
-                    self._last_follow_state.x,
-                    self._last_follow_state.y,
-                    self._last_follow_state.width,
-                    self._last_follow_state.height,
-                )
+            tracker_ratio = self._aspect_ratio_label(
+                max(1, int(self._last_follow_state.width)),
+                max(1, int(self._last_follow_state.height)),
             )
+            tracker_line = "  tracker=({},{}) {}x{}".format(
+                self._last_follow_state.x,
+                self._last_follow_state.y,
+                self._last_follow_state.width,
+                self._last_follow_state.height,
+            )
+            if tracker_ratio:
+                tracker_line += f" ({tracker_ratio})"
+            monitor_lines.append(tracker_line)
         if self._wm_authoritative_rect is not None and self._wm_override_classification is not None:
             rect = self._wm_authoritative_rect
             monitor_lines.append(
@@ -2493,19 +2531,29 @@ class OverlayWindow(QWidget):
                 )
             )
 
-        overlay_lines = [
-            "Overlay:",
-            "  widget={}x{}".format(self.width(), self.height()),
-            "  frame={}x{} phys={}x{}".format(
-                frame.width(),
-                frame.height(),
-                int(round(width_px)),
-                int(round(height_px)),
-            ),
-        ]
+        widget_ratio = self._aspect_ratio_label(self.width(), self.height())
+        frame_ratio = self._aspect_ratio_label(frame.width(), frame.height())
+        phys_ratio = self._aspect_ratio_label(int(round(width_px)), int(round(height_px)))
+        overlay_lines = ["Overlay:"]
+        widget_line = "  widget={}x{}".format(self.width(), self.height())
+        if widget_ratio:
+            widget_line += f" ({widget_ratio})"
+        overlay_lines.append(widget_line)
+        frame_line = "  frame={}x{}".format(frame.width(), frame.height())
+        if frame_ratio:
+            frame_line += f" ({frame_ratio})"
+        overlay_lines.append(frame_line)
+        phys_line = "  phys={}x{}".format(int(round(width_px)), int(round(height_px)))
+        if phys_ratio:
+            phys_line += f" ({phys_ratio})"
+        overlay_lines.append(phys_line)
         if self._last_raw_window_log is not None:
             raw_x, raw_y, raw_w, raw_h = self._last_raw_window_log
-            overlay_lines.append("  raw=({},{}) {}x{}".format(raw_x, raw_y, raw_w, raw_h))
+            raw_ratio = self._aspect_ratio_label(raw_w, raw_h)
+            raw_line = "  raw=({},{}) {}x{}".format(raw_x, raw_y, raw_w, raw_h)
+            if raw_ratio:
+                raw_line += f" ({raw_ratio})"
+            overlay_lines.append(raw_line)
 
         font_lines = [
             "Fonts:",
