@@ -318,6 +318,7 @@ class OverlayWindow(QWidget):
         self._cycle_payload_ids: List[str] = []
         self._cycle_current_id: Optional[str] = None
         self._cycle_anchor_points: Dict[str, Tuple[int, int]] = {}
+        self._last_font_notice: Optional[Tuple[float, float]] = None
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -449,6 +450,36 @@ class OverlayWindow(QWidget):
             self.message_label.setFont(font)
             self._debug_message_point_size = target_point
             self._publish_metrics()
+
+    def _update_label_fonts(self) -> None:
+        """Refresh fonts for overlay labels after a bounds change."""
+        self._update_message_font()
+        if self._show_status and self._status:
+            # Re-dispatch the status banner so legacy text picks up the new clamp.
+            self._show_overlay_status_message(self._status)
+
+    def _refresh_legacy_items(self) -> None:
+        """Touch stored legacy items so repaints pick up new scaling bounds."""
+        for item_id, item in list(self._legacy_items.items()):
+            self._legacy_items.set(item_id, item)
+
+    def _notify_font_bounds_changed(self) -> None:
+        current = (self._font_min_point, self._font_max_point)
+        if self._last_font_notice == current:
+            return
+        self._last_font_notice = current
+        text = "Font bounds: {:.1f} – {:.1f} pt".format(*current)
+        payload = {
+            "type": "message",
+            "id": "__font_bounds_notice__",
+            "text": text,
+            "color": "#80d0ff",
+            "x": 40,
+            "y": 60,
+            "ttl": 5,
+            "size": "normal",
+        }
+        self.handle_legacy_payload(payload)
 
     def _publish_metrics(self) -> None:
         client = self._data_client
@@ -893,7 +924,9 @@ class OverlayWindow(QWidget):
                 self._font_max_point,
             )
             self._update_label_fonts()
+            self._refresh_legacy_items()
             self.update()
+            self._notify_font_bounds_changed()
 
     def display_message(self, message: str, *, ttl: Optional[float] = None) -> None:
         self._message_clear_timer.stop()

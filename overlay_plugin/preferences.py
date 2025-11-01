@@ -756,20 +756,23 @@ class PreferencesPanel:
         max_value = max(min_value, min(max_value, 72.0))
         self._var_min_font.set(min_value)
         self._var_max_font.set(max_value)
-        self._preferences.min_font_point = min_value
-        self._preferences.max_font_point = max_value
+        callback_failed = False
         if self._set_font_min:
             try:
                 self._set_font_min(min_value)
             except Exception as exc:
                 self._status_var.set(f"Failed to update minimum font size: {exc}")
-                return
+                callback_failed = True
         if self._set_font_max:
             try:
                 self._set_font_max(max_value)
             except Exception as exc:
                 self._status_var.set(f"Failed to update maximum font size: {exc}")
-                return
+                callback_failed = True
+        if callback_failed:
+            return
+        self._preferences.min_font_point = min_value
+        self._preferences.max_font_point = max_value
         self._preferences.save()
 
     def _on_send_click(self) -> None:
