@@ -31,6 +31,7 @@ Enable **Show debug overlay** to surface a live diagnostics panel in the corner 
   - `frame`: the Qt frame geometry (includes window frame and drop shadows when present).
   - `phys`: the size after multiplying by the device pixel ratio, i.e., the true number of physical screen pixels the overlay occupies.
   - `raw`: the Elite window geometry that legacy payloads are targeting; this is the reference rectangle used for coordinate normalisation.
+  - `scale`: the resolved legacy scale factors (`legacy_x`, `legacy_y`) plus the active scaling `mode` (`fit` or `fill`).
   These values are useful when diagnosing mismatched HUD scaling or when confirming that overrides line up with the monitored window.
 - **Fonts block** records:
   - Legacy scale factors (`scale_x`, `scale_y`, `diag`) derived from window size.

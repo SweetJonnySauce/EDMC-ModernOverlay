@@ -171,6 +171,10 @@ already stretches legacy coordinates to the actual overlay window, so those payl
 into place. The `transform` directive lets us replicate the prototype math captured in `tests/scale-prototype`—the same
 math that `draw_shapes.py` uses for local inspection.
 
+Because the client now supports **Fit** (pillarbox) and **Fill** (proportional remap) scaling modes, overrides no longer
+need to compensate for the old aspect quirks—the viewport helper applies the correct offsets. The LandingPad override
+shown below remains valid in either mode.
+
 ```jsonc
 "LandingPad": {
   "notes": [
