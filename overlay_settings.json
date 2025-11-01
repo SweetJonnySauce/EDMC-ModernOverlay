@@ -16,5 +16,5 @@
   "status_bottom_margin": 20,
   "title_bar_enabled": true,
   "title_bar_height": 30,
-  "cycle_payload_ids": false
+  "cycle_payload_ids": true
 }

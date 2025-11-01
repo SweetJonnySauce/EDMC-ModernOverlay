@@ -887,7 +887,31 @@ class OverlayWindow(QWidget):
         painter.drawText(center_x - text_width // 2, baseline, text)
         if anchor is not None:
             start_x = center_x
-            start_y = rect_top + rect_height
+            start_y = center_y
+            dx = anchor[0] - center_x
+            dy = anchor[1] - center_y
+            if dx != 0 or dy != 0:
+                rect_right = rect_left + rect_width
+                rect_bottom = rect_top + rect_height
+                candidates: List[float] = []
+                if dx > 0:
+                    candidates.append((rect_right - center_x) / dx)
+                elif dx < 0:
+                    candidates.append((rect_left - center_x) / dx)
+                if dy > 0:
+                    candidates.append((rect_bottom - center_y) / dy)
+                elif dy < 0:
+                    candidates.append((rect_top - center_y) / dy)
+                t_min = min((t for t in candidates if t >= 0.0), default=0.0)
+                if t_min > 0.0:
+                    start_x = int(round(center_x + dx * t_min))
+                    start_y = int(round(center_y + dy * t_min))
+                else:
+                    start_x = center_x
+                    start_y = rect_top + rect_height
+            else:
+                start_x = center_x
+                start_y = rect_top + rect_height
             painter.setPen(QPen(highlight_color, 2))
             painter.drawLine(start_x, start_y, anchor[0], anchor[1])
             painter.setBrush(highlight_color)
