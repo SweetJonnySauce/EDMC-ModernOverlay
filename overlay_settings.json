@@ -1,5 +1,5 @@
 {
-  "capture_output": false,
+  "capture_output": true,
   "overlay_opacity": 0.0,
   "show_connection_status": true,
   "show_ed_bandwidth": false,

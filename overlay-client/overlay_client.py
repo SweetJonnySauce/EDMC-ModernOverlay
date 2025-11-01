@@ -18,6 +18,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect, QSize
 from PyQt6.QtGui import (
     QColor,
     QFont,
+    QFontMetrics,
     QPainter,
     QPen,
     QBrush,
@@ -862,37 +863,59 @@ class OverlayWindow(QWidget):
         if not self._cycle_current_id:
             return
         anchor = self._cycle_anchor_points.get(self._cycle_current_id)
+        plugin_name = "unknown"
+        current_item = self._legacy_items.get(self._cycle_current_id)
+        if current_item is not None:
+            name = current_item.plugin
+            if isinstance(name, str) and name:
+                plugin_name = name
+        plugin_line = f"Plugin name: {plugin_name}"
         painter.save()
         text = self._cycle_current_id
         highlight_color = QColor("#ffb347")
         background = QColor(0, 0, 0, 180)
         font = QFont(self._font_family)
-        font.setPointSizeF(max(20.0, self._scaled_point_size(18.0)))
+        title_point = max(20.0, self._scaled_point_size(18.0))
+        font.setPointSizeF(title_point)
         font.setWeight(QFont.Weight.Bold)
         painter.setFont(font)
         metrics = painter.fontMetrics()
         text_width = metrics.horizontalAdvance(text)
-        text_height = metrics.height()
+        plugin_font = QFont(self._font_family)
+        plugin_point = max(12.0, min(title_point - 4.0, title_point * 0.8))
+        plugin_font.setPointSizeF(plugin_point)
+        plugin_font.setWeight(QFont.Weight.Normal)
+        plugin_metrics = QFontMetrics(plugin_font)
         center_x = self.width() // 2
         center_y = self.height() // 2
-        rect_left = center_x - text_width // 2 - 12
-        rect_top = center_y - text_height // 2 - 8
-        rect_width = text_width + 24
-        rect_height = text_height + 16
+        padding_x = 12
+        padding_y = 8
+        line_height_title = metrics.lineSpacing()
+        line_height_plugin = plugin_metrics.lineSpacing()
+        total_lines = 2
+        plugin_width = plugin_metrics.horizontalAdvance(plugin_line)
+        content_width = max(text_width, plugin_width)
+        rect_width = content_width + padding_x * 2
+        rect_height = line_height_title + line_height_plugin + padding_y * 2
+        rect_left = center_x - rect_width // 2
+        rect_top = center_y - rect_height // 2
+        rect_right = rect_left + rect_width
+        rect_bottom = rect_top + rect_height
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(background)
         painter.drawRoundedRect(rect_left, rect_top, rect_width, rect_height, 10, 10)
         painter.setPen(highlight_color)
-        baseline = center_y + (text_height // 2) - metrics.descent()
-        painter.drawText(center_x - text_width // 2, baseline, text)
+        baseline_top = rect_top + padding_y + metrics.ascent()
+        painter.drawText(center_x - text_width // 2, baseline_top, text)
+        painter.setFont(plugin_font)
+        baseline_plugin = baseline_top + line_height_title
+        painter.drawText(center_x - plugin_metrics.horizontalAdvance(plugin_line) // 2, baseline_plugin, plugin_line)
         if anchor is not None:
             start_x = center_x
             start_y = center_y
             dx = anchor[0] - center_x
             dy = anchor[1] - center_y
             if dx != 0 or dy != 0:
-                rect_right = rect_left + rect_width
-                rect_bottom = rect_top + rect_height
                 candidates: List[float] = []
                 if dx > 0:
                     candidates.append((rect_right - center_x) / dx)
@@ -1023,6 +1046,7 @@ class OverlayWindow(QWidget):
             "y": y_pos,
             "ttl": 0,
             "size": "normal",
+            "plugin": "EDMC-ModernOverlay",
         }
         _CLIENT_LOGGER.debug(
             "Legacy status message dispatched: text='%s' ttl=%s x=%s y=%s",
@@ -1039,6 +1063,7 @@ class OverlayWindow(QWidget):
             "id": "__status_banner__",
             "text": "",
             "ttl": 0,
+            "plugin": "EDMC-ModernOverlay",
         }
         self.handle_legacy_payload(payload)
 
@@ -1991,8 +2016,15 @@ class OverlayWindow(QWidget):
     def _handle_legacy(self, payload: Dict[str, Any]) -> None:
         plugin_name = self._extract_plugin_name(payload)
         message_id = str(payload.get("id") or "")
-        trace_enabled = self._should_trace_payload(plugin_name, message_id)
         self._override_manager.apply(payload)
+        if not payload.get("plugin"):
+            inferred = self._override_manager.infer_plugin_name(payload)
+            if inferred:
+                payload["plugin"] = inferred
+                plugin_name = inferred
+        else:
+            plugin_name = self._extract_plugin_name(payload)
+        trace_enabled = self._should_trace_payload(plugin_name, message_id)
         if trace_enabled and str(payload.get("shape") or "").lower() == "vect":
             self._log_legacy_trace(plugin_name, message_id, "post_override", {"points": payload.get("vector")})
         trace_fn: Optional[TraceCallback] = None
