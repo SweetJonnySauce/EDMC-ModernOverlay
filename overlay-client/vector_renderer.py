@@ -16,6 +16,9 @@ def render_vector(
     payload: Mapping[str, Any],
     scale_x: float,
     scale_y: float,
+    *,
+    offset_x: float = 0.0,
+    offset_y: float = 0.0,
     trace: Optional[Callable[[str, Mapping[str, Any]], None]] = None,
 ) -> None:
     base_color = str(payload.get("base_color") or "white")
@@ -24,8 +27,8 @@ def render_vector(
         return
 
     def scaled(point: Mapping[str, Any]) -> tuple[int, int]:
-        x = int(round(float(point.get("x", 0)) * scale_x))
-        y = int(round(float(point.get("y", 0)) * scale_y))
+        x = int(round(float(point.get("x", 0)) * scale_x + offset_x))
+        y = int(round(float(point.get("y", 0)) * scale_y + offset_y))
         return x, y
 
     scaled_points = [scaled(point) for point in points]
@@ -36,6 +39,8 @@ def render_vector(
                 "scaled_points": scaled_points,
                 "scale_x": scale_x,
                 "scale_y": scale_y,
+                "offset_x": offset_x,
+                "offset_y": offset_y,
             },
         )
 

@@ -14,6 +14,7 @@ import time
 from datetime import UTC, datetime
 from fractions import Fraction
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect, QSize
@@ -54,6 +55,11 @@ from legacy_processor import TraceCallback, process_legacy_payload  # type: igno
 from vector_renderer import render_vector, VectorPainterAdapter  # type: ignore  # noqa: E402
 from plugin_overrides import PluginOverrideManager  # type: ignore  # noqa: E402
 from debug_config import DebugConfig, load_debug_config  # type: ignore  # noqa: E402
+from viewport_helper import (
+    ScaleMode,
+    ViewportTransform,
+    compute_viewport_transform,
+)  # type: ignore  # noqa: E402
 
 _LOGGER_NAME = "EDMC.ModernOverlay.Client"
 _CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
@@ -62,6 +68,16 @@ _CLIENT_LOGGER.propagate = False
 
 DEFAULT_WINDOW_BASE_WIDTH = 1280
 DEFAULT_WINDOW_BASE_HEIGHT = 720
+
+
+@dataclass(frozen=True)
+class _LegacyMapper:
+    scale_x: float
+    scale_y: float
+    offset_x: float
+    offset_y: float
+    transform: ViewportTransform
+
 
 def _initial_platform_context(initial: InitialClientSettings) -> PlatformContext:
     force_env = os.environ.get("EDMC_OVERLAY_FORCE_XWAYLAND") == "1"
@@ -440,11 +456,39 @@ class OverlayWindow(QWidget):
         frac = Fraction(width, height).limit_denominator(100)
         return f"{frac.numerator}:{frac.denominator}"
 
+    def _compute_legacy_mapper(self) -> _LegacyMapper:
+        width = max(float(self.width()), 1.0)
+        height = max(float(self.height()), 1.0)
+        mode_value = (self._scale_mode or "fit").strip().lower()
+        try:
+            mode_enum = ScaleMode(mode_value)
+        except ValueError:
+            mode_enum = ScaleMode.FIT
+        transform = compute_viewport_transform(width, height, mode_enum)
+        if transform.overflow_x:
+            scale_x = width / float(DEFAULT_WINDOW_BASE_WIDTH)
+            offset_x = 0.0
+        else:
+            scale_x = transform.scale
+            offset_x = transform.offset[0]
+        if transform.overflow_y:
+            scale_y = height / float(DEFAULT_WINDOW_BASE_HEIGHT)
+            offset_y = 0.0
+        else:
+            scale_y = transform.scale
+            offset_y = transform.offset[1]
+        return _LegacyMapper(
+            scale_x=max(scale_x, 0.0),
+            scale_y=max(scale_y, 0.0),
+            offset_x=offset_x,
+            offset_y=offset_y,
+            transform=transform,
+        )
+
     def _legacy_scale_components(self, *, use_physical: bool = True) -> Tuple[float, float]:
-        width = max(self.width(), 1)
-        height = max(self.height(), 1)
-        scale_x = width / float(DEFAULT_WINDOW_BASE_WIDTH)
-        scale_y = height / float(DEFAULT_WINDOW_BASE_HEIGHT)
+        mapper = self._compute_legacy_mapper()
+        scale_x = mapper.scale_x
+        scale_y = mapper.scale_y
         if use_physical:
             ratio = self.devicePixelRatioF()
             if ratio <= 0.0:
@@ -2207,22 +2251,18 @@ class OverlayWindow(QWidget):
 
     def _paint_legacy(self, painter: QPainter) -> None:
         self._cycle_anchor_points = {}
+        mapper = self._compute_legacy_mapper()
         for item_id, item in self._legacy_items.items():
             if item.kind == "message":
-                self._paint_legacy_message(painter, item_id, item.data)
+                self._paint_legacy_message(painter, item_id, item.data, mapper)
             elif item.kind == "rect":
-                self._paint_legacy_rect(painter, item_id, item.data, item.plugin)
+                self._paint_legacy_rect(painter, item_id, item.data, mapper, item.plugin)
             elif item.kind == "vector":
-                self._paint_legacy_vector(painter, item)
+                self._paint_legacy_vector(painter, item, mapper)
 
     def _legacy_coordinate_scale_factors(self) -> Tuple[float, float]:
-        return self._legacy_scale(use_physical=False)
-
-    def _legacy_aspect_factor(self) -> float:
-        scale_x, scale_y = self._legacy_coordinate_scale_factors()
-        if scale_x <= 0.0:
-            return 1.0
-        return scale_y / scale_x
+        mapper = self._compute_legacy_mapper()
+        return mapper.scale_x, mapper.scale_y
 
     def _legacy_preset_point_size(self, preset: str) -> float:
         """Return the scaled font size for a legacy preset relative to normal."""
@@ -2236,11 +2276,20 @@ class OverlayWindow(QWidget):
         target = normal_point + offsets.get(preset.lower(), 0.0)
         return max(1.0, target)
 
-    def _paint_legacy_message(self, painter: QPainter, item_id: str, item: Dict[str, Any]) -> None:
+    def _paint_legacy_message(
+        self,
+        painter: QPainter,
+        item_id: str,
+        item: Dict[str, Any],
+        mapper: _LegacyMapper,
+    ) -> None:
         color = QColor(str(item.get("color", "white")))
         size = str(item.get("size", "normal")).lower()
         scaled_point_size = self._legacy_preset_point_size(size)
-        scale_x, scale_y = self._legacy_coordinate_scale_factors()
+        scale_x = mapper.scale_x
+        scale_y = mapper.scale_y
+        offset_x = mapper.offset_x
+        offset_y = mapper.offset_y
         font = QFont(self._font_family)
         font.setPointSizeF(scaled_point_size)
         font.setWeight(QFont.Weight.Normal)
@@ -2250,7 +2299,7 @@ class OverlayWindow(QWidget):
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
         text = str(item.get("text", ""))
-        x = int(round(raw_left * scale_x))
+        x = int(round(raw_left * scale_x + offset_x))
         metrics = painter.fontMetrics()
         text_width = metrics.horizontalAdvance(text)
         margin = 12
@@ -2275,7 +2324,7 @@ class OverlayWindow(QWidget):
             x = min_x
         elif x > max_x:
             x = max_x
-        baseline = int(round(raw_top * scale_y + metrics.ascent()))
+        baseline = int(round(raw_top * scale_y + offset_y + metrics.ascent()))
         painter.drawText(x, baseline, text)
         center_x = x + text_width // 2
         top = baseline - metrics.ascent()
@@ -2288,6 +2337,7 @@ class OverlayWindow(QWidget):
         painter: QPainter,
         item_id: str,
         item: Dict[str, Any],
+        mapper: _LegacyMapper,
         plugin_name: Optional[str] = None,
     ) -> None:
         border_spec = str(item.get("color", "white"))
@@ -2313,8 +2363,10 @@ class OverlayWindow(QWidget):
 
         painter.setPen(pen)
         painter.setBrush(brush)
-        scale_x, scale_y = self._legacy_coordinate_scale_factors()
-        aspect_factor = self._legacy_aspect_factor()
+        scale_x = mapper.scale_x
+        scale_y = mapper.scale_y
+        offset_x = mapper.offset_x
+        offset_y = mapper.offset_y
         trace_enabled = self._should_trace_payload(plugin_name, item_id)
         raw_x = float(item.get("x", 0))
         raw_y = float(item.get("y", 0))
@@ -2332,38 +2384,13 @@ class OverlayWindow(QWidget):
                     "h": raw_h,
                     "scale_x": scale_x,
                     "scale_y": scale_y,
-                    "aspect": aspect_factor,
+                    "offset_x": offset_x,
+                    "offset_y": offset_y,
+                    "mode": mapper.transform.mode.value,
                 },
             )
-        transform_meta = item.get("__mo_transform__") if isinstance(item, Mapping) else None
-        pivot_override: Optional[float] = None
-        if isinstance(transform_meta, Mapping):
-            pivot_info = transform_meta.get("pivot")
-            if isinstance(pivot_info, Mapping):
-                try:
-                    pivot_override = float(pivot_info.get("x"))
-                except (TypeError, ValueError):
-                    pivot_override = None
-        if not math.isclose(aspect_factor, 1.0, rel_tol=1e-3):
-            left = raw_x
-            right = raw_x + raw_w
-            if pivot_override is not None:
-                center_x = pivot_override
-            else:
-                center_x = (left + right) / 2.0
-            new_left = center_x + (left - center_x) * aspect_factor
-            new_right = center_x + (right - center_x) * aspect_factor
-            raw_x = min(new_left, new_right)
-            raw_w = max(0.0, new_right - new_left)
-            if trace_enabled and pivot_override is not None:
-                self._log_legacy_trace(
-                    plugin_name,
-                    item_id,
-                    "paint:anchor",
-                    {"pivot_x": pivot_override},
-                )
-        x = int(round(raw_x * scale_x))
-        y = int(round(raw_y * scale_y))
+        x = int(round(raw_x * scale_x + offset_x))
+        y = int(round(raw_y * scale_y + offset_y))
         w = max(1, int(round(max(raw_w, 0.0) * scale_x)))
         h = max(1, int(round(max(raw_h, 0.0) * scale_y)))
         if trace_enabled:
@@ -2380,7 +2407,7 @@ class OverlayWindow(QWidget):
                     "pixel_y": y,
                     "pixel_w": w,
                     "pixel_h": h,
-                    "pivot_override": pivot_override,
+                    "mode": mapper.transform.mode.value,
                 },
             )
         painter.drawRect(
@@ -2391,20 +2418,33 @@ class OverlayWindow(QWidget):
         )
         self._register_cycle_anchor(item_id, x + w // 2, y + h // 2)
 
-    def _paint_legacy_vector(self, painter: QPainter, legacy_item: LegacyItem) -> None:
+    def _paint_legacy_vector(
+        self,
+        painter: QPainter,
+        legacy_item: LegacyItem,
+        mapper: _LegacyMapper,
+    ) -> None:
         item_id = legacy_item.item_id
         item = legacy_item.data
         plugin_name = legacy_item.plugin
         trace_enabled = self._should_trace_payload(plugin_name, item_id)
         adapter = _QtVectorPainterAdapter(self, painter)
-        scale_x, scale_y = self._legacy_coordinate_scale_factors()
-        aspect_factor = self._legacy_aspect_factor()
+        scale_x = mapper.scale_x
+        scale_y = mapper.scale_y
+        offset_x = mapper.offset_x
+        offset_y = mapper.offset_y
         if trace_enabled:
             self._log_legacy_trace(
                 plugin_name,
                 item_id,
                 "paint:scale_factors",
-                {"scale_x": scale_x, "scale_y": scale_y, "aspect": aspect_factor},
+                {
+                    "scale_x": scale_x,
+                    "scale_y": scale_y,
+                    "offset_x": offset_x,
+                    "offset_y": offset_y,
+                    "mode": mapper.transform.mode.value,
+                },
             )
             self._log_legacy_trace(
                 plugin_name,
@@ -2413,61 +2453,6 @@ class OverlayWindow(QWidget):
                 {"points": item.get("points")},
             )
         vector_payload = item
-        transform_meta = vector_payload.get("__mo_transform__") if isinstance(vector_payload, Mapping) else None
-        pivot_override: Optional[float] = None
-        if isinstance(transform_meta, Mapping):
-            pivot_info = transform_meta.get("pivot")
-            if isinstance(pivot_info, Mapping):
-                try:
-                    pivot_override = float(pivot_info.get("x"))
-                except (TypeError, ValueError):
-                    pivot_override = None
-        if not math.isclose(aspect_factor, 1.0, rel_tol=1e-3):
-            points = item.get("points", [])
-            adjusted_points = []
-            xs = []
-            for point in points:
-                if not isinstance(point, Mapping):
-                    continue
-                try:
-                    x_val = float(point.get("x", 0.0))
-                except (TypeError, ValueError):
-                    continue
-                xs.append(x_val)
-            if xs:
-                if pivot_override is not None:
-                    center_x = pivot_override
-                else:
-                    center_x = (min(xs) + max(xs)) / 2.0
-                for point in points:
-                    if not isinstance(point, Mapping):
-                        continue
-                    try:
-                        x_val = float(point.get("x", 0.0))
-                        y_val = float(point.get("y", 0.0))
-                    except (TypeError, ValueError):
-                        continue
-                    adjusted_point = dict(point)
-                    adjusted_point["x"] = center_x + (x_val - center_x) * aspect_factor
-                    adjusted_point["y"] = y_val
-                    adjusted_points.append(adjusted_point)
-            if adjusted_points:
-                vector_payload = dict(item)
-                vector_payload["points"] = adjusted_points
-                if trace_enabled:
-                    self._log_legacy_trace(
-                        plugin_name,
-                        item_id,
-                        "paint:aspect_adjusted_points",
-                        {"points": adjusted_points},
-                    )
-        if trace_enabled and pivot_override is not None:
-            self._log_legacy_trace(
-                plugin_name,
-                item_id,
-                "paint:anchor",
-                {"pivot_x": pivot_override},
-            )
         trace_fn = None
         if trace_enabled:
             def trace_fn(stage: str, details: Mapping[str, Any]) -> None:
@@ -2479,10 +2464,12 @@ class OverlayWindow(QWidget):
             if not isinstance(point, Mapping):
                 continue
             try:
-                px = int(round(float(point.get("x", 0.0)) * scale_x))
-                py = int(round(float(point.get("y", 0.0)) * scale_y))
+                mapped_x = float(point.get("x", 0.0)) * scale_x + offset_x
+                mapped_y = float(point.get("y", 0.0)) * scale_y + offset_y
             except (TypeError, ValueError):
                 continue
+            px = int(round(mapped_x))
+            py = int(round(mapped_y))
             px_list.append(px)
             py_list.append(py)
         if px_list and py_list:
@@ -2490,7 +2477,15 @@ class OverlayWindow(QWidget):
             center_y = int(round((min(py_list) + max(py_list)) / 2.0))
             self._register_cycle_anchor(item_id, center_x, center_y)
 
-        render_vector(adapter, vector_payload, scale_x, scale_y, trace=trace_fn)
+        render_vector(
+            adapter,
+            vector_payload,
+            scale_x,
+            scale_y,
+            offset_x=offset_x,
+            offset_y=offset_y,
+            trace=trace_fn,
+        )
 
     def _paint_debug_overlay(self, painter: QPainter) -> None:
         if not self._show_debug_overlay:
