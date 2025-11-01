@@ -323,6 +323,7 @@ class OverlayWindow(QWidget):
         self._cycle_anchor_points: Dict[str, Tuple[int, int]] = {}
         self._cycle_copy_clipboard: bool = bool(getattr(initial, "copy_payload_id_on_cycle", False))
         self._last_font_notice: Optional[Tuple[float, float]] = None
+        self._scale_mode: str = "fit"
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -388,6 +389,7 @@ class OverlayWindow(QWidget):
         self._apply_drag_state()
         self.setLayout(layout)
 
+        self.set_scale_mode(getattr(initial, "scale_mode", "fit"))
         self.set_cycle_payload_enabled(getattr(initial, "cycle_payload_ids", False))
 
         width_px, height_px = self._current_physical_size()
@@ -529,6 +531,7 @@ class OverlayWindow(QWidget):
             "scale": {
                 "legacy_x": float(scale_x),
                 "legacy_y": float(scale_y),
+                "mode": self._scale_mode,
             },
             "device_pixel_ratio": float(self.devicePixelRatioF()),
         }
@@ -816,6 +819,17 @@ class OverlayWindow(QWidget):
             return
         self._show_debug_overlay = flag
         _CLIENT_LOGGER.debug("Debug overlay %s", "enabled" if flag else "disabled")
+        self.update()
+
+    def set_scale_mode(self, mode: str) -> None:
+        value = str(mode or "fit").strip().lower()
+        if value not in {"fit", "fill"}:
+            value = "fit"
+        if value == self._scale_mode:
+            return
+        self._scale_mode = value
+        _CLIENT_LOGGER.debug("Overlay scale mode set to %s", value)
+        self._publish_metrics()
         self.update()
 
     def set_cycle_payload_enabled(self, enabled: Optional[bool]) -> None:

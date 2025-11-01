@@ -45,6 +45,8 @@ class DeveloperHelperController:
         window.set_title_bar_compensation(initial.title_bar_enabled, initial.title_bar_height)
         window.set_cycle_payload_enabled(getattr(initial, "cycle_payload_ids", False))
         window.set_cycle_payload_copy_enabled(getattr(initial, "copy_payload_id_on_cycle", False))
+        if getattr(initial, "scale_mode", None):
+            window.set_scale_mode(initial.scale_mode)
 
     def apply_config(self, window: "OverlayWindow", payload: Dict[str, Any]) -> None:
         config = DeveloperHelperConfig.from_payload(payload)
@@ -75,6 +77,8 @@ class DeveloperHelperController:
             window.set_cycle_payload_enabled(config.cycle_payload_ids)
         if config.copy_payload_id_on_cycle is not None:
             window.set_cycle_payload_copy_enabled(config.copy_payload_id_on_cycle)
+        if config.scale_mode is not None:
+            window.set_scale_mode(config.scale_mode)
         if 'platform_context' in payload:
             window.update_platform_context(payload.get('platform_context'))
         elif config.force_xwayland is not None:

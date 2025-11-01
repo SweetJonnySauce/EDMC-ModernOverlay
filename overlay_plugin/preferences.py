@@ -35,6 +35,7 @@ class Preferences:
     title_bar_height: int = 0
     cycle_payload_ids: bool = False
     copy_payload_id_on_cycle: bool = False
+    scale_mode: str = "fit"
 
     def __post_init__(self) -> None:
         self.plugin_dir = Path(self.plugin_dir)
@@ -91,6 +92,8 @@ class Preferences:
         self.title_bar_height = max(0, bar_height)
         self.cycle_payload_ids = bool(data.get("cycle_payload_ids", False))
         self.copy_payload_id_on_cycle = bool(data.get("copy_payload_id_on_cycle", False))
+        mode = str(data.get("scale_mode", "fit") or "fit").strip().lower()
+        self.scale_mode = mode if mode in {"fit", "fill"} else "fit"
 
     def save(self) -> None:
         payload: Dict[str, Any] = {
@@ -113,6 +116,7 @@ class Preferences:
             "title_bar_height": int(self.title_bar_height),
             "cycle_payload_ids": bool(self.cycle_payload_ids),
             "copy_payload_id_on_cycle": bool(self.copy_payload_id_on_cycle),
+            "scale_mode": str(self.scale_mode or "fit"),
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -144,6 +148,7 @@ class PreferencesPanel:
         set_font_max_callback: Optional[Callable[[float], None]] = None,
         set_cycle_payload_callback: Optional[Callable[[bool], None]] = None,
         set_cycle_payload_copy_callback: Optional[Callable[[bool], None]] = None,
+        set_scale_mode_callback: Optional[Callable[[str], None]] = None,
         cycle_payload_prev_callback: Optional[Callable[[], None]] = None,
         cycle_payload_next_callback: Optional[Callable[[], None]] = None,
         restart_overlay_callback: Optional[Callable[[], None]] = None,
@@ -171,6 +176,11 @@ class PreferencesPanel:
         self._var_max_font = tk.DoubleVar(value=float(preferences.max_font_point))
         self._var_cycle_payload = tk.BooleanVar(value=preferences.cycle_payload_ids)
         self._var_cycle_copy = tk.BooleanVar(value=preferences.copy_payload_id_on_cycle)
+        self._scale_mode_options = [
+            ("Fit (preserve aspect)", "fit"),
+            ("Fill (proportional rescale)", "fill"),
+        ]
+        self._var_scale_mode_display = tk.StringVar(value=self._display_for_scale_mode(preferences.scale_mode))
 
         self._send_test = send_test_callback
         self._set_opacity = set_opacity_callback
@@ -188,6 +198,7 @@ class PreferencesPanel:
         self._set_font_max = set_font_max_callback
         self._set_cycle_payload = set_cycle_payload_callback
         self._set_cycle_payload_copy = set_cycle_payload_copy_callback
+        self._set_scale_mode = set_scale_mode_callback
         self._cycle_prev_callback = cycle_payload_prev_callback
         self._cycle_next_callback = cycle_payload_next_callback
         self._restart_overlay = restart_overlay_callback
@@ -428,6 +439,20 @@ class PreferencesPanel:
         grid_spacing_spin.bind("<Return>", self._on_gridline_spacing_event)
         grid_spacing_row.grid(row=14, column=0, sticky="w", pady=(2, 0))
 
+        scale_mode_row = ttk.Frame(frame, style=self._frame_style)
+        scale_mode_label = nb.Label(scale_mode_row, text="Overlay scaling mode:")
+        scale_mode_label.pack(side="left")
+        self._scale_mode_combo = ttk.Combobox(
+            scale_mode_row,
+            values=[label for label, _ in self._scale_mode_options],
+            state="readonly",
+            width=28,
+            textvariable=self._var_scale_mode_display,
+        )
+        self._scale_mode_combo.pack(side="left", padx=(8, 0))
+        self._scale_mode_combo.bind("<<ComboboxSelected>>", self._on_scale_mode_change)
+        scale_mode_row.grid(row=15, column=0, sticky="w", pady=(8, 0))
+
         cycle_row = ttk.Frame(frame, style=self._frame_style)
         cycle_checkbox = nb.Checkbutton(
             cycle_row,
@@ -451,12 +476,12 @@ class PreferencesPanel:
         self._cycle_prev_btn.pack(side="left", padx=(8, 0))
         self._cycle_next_btn.pack(side="left", padx=(4, 0))
         self._cycle_copy_checkbox.pack(side="left", padx=(12, 0))
-        cycle_row.grid(row=15, column=0, sticky="w", pady=(10, 0))
+        cycle_row.grid(row=16, column=0, sticky="w", pady=(10, 0))
 
         self._update_cycle_button_state()
 
         test_label = nb.Label(frame, text="Send test message to overlay:")
-        test_label.grid(row=16, column=0, sticky="w", pady=(10, 0))
+        test_label.grid(row=17, column=0, sticky="w", pady=(10, 0))
 
         test_row = ttk.Frame(frame, style=self._frame_style)
         test_entry = nb.EntryMenu(test_row, textvariable=self._test_var, width=40)
@@ -471,22 +496,22 @@ class PreferencesPanel:
         y_label.pack(side="left", padx=(8, 2))
         y_entry.pack(side="left")
         send_button.pack(side="left", padx=(8, 0))
-        test_row.grid(row=17, column=0, sticky="we", pady=(2, 0))
+        test_row.grid(row=18, column=0, sticky="we", pady=(2, 0))
         frame.columnconfigure(0, weight=1)
         test_row.columnconfigure(0, weight=1)
 
         legacy_label = nb.Label(frame, text="Legacy edmcoverlay compatibility:")
-        legacy_label.grid(row=18, column=0, sticky="w", pady=(10, 0))
+        legacy_label.grid(row=19, column=0, sticky="w", pady=(10, 0))
 
         legacy_row = ttk.Frame(frame, style=self._frame_style)
         legacy_text_btn = nb.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
         legacy_rect_btn = nb.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
         legacy_text_btn.pack(side="left")
         legacy_rect_btn.pack(side="left", padx=(8, 0))
-        legacy_row.grid(row=19, column=0, sticky="w", pady=(2, 0))
+        legacy_row.grid(row=20, column=0, sticky="w", pady=(2, 0))
 
         status_label = nb.Label(frame, textvariable=self._status_var, wraplength=400, justify="left")
-        status_label.grid(row=20, column=0, sticky="w", pady=(4, 0))
+        status_label.grid(row=21, column=0, sticky="w", pady=(4, 0))
 
         self._frame = frame
 
@@ -496,6 +521,19 @@ class PreferencesPanel:
 
     def apply(self) -> None:
         self._preferences.save()
+
+    def _display_for_scale_mode(self, mode: str) -> str:
+        value = (mode or "fit").strip().lower()
+        for label, key in self._scale_mode_options:
+            if key == value:
+                return label
+        return self._scale_mode_options[0][0]
+
+    def _value_for_scale_mode_label(self, label: str) -> str:
+        for option_label, key in self._scale_mode_options:
+            if option_label == label:
+                return key
+        return self._scale_mode_options[0][1]
 
     def _init_theme_styles(self, nb):
         try:
@@ -768,6 +806,25 @@ class PreferencesPanel:
             except Exception as exc:
                 self._status_var.set(f"Failed to update grid spacing: {exc}")
                 return
+        self._preferences.save()
+
+    def _on_scale_mode_change(self, _event=None) -> None:
+        selection = self._var_scale_mode_display.get()
+        mode = self._value_for_scale_mode_label(selection)
+        if mode == self._preferences.scale_mode:
+            return
+        try:
+            if self._set_scale_mode:
+                self._set_scale_mode(mode)
+            else:
+                self._preferences.scale_mode = mode
+                self._preferences.save()
+        except Exception as exc:
+            self._status_var.set(f"Failed to update scaling mode: {exc}")
+            self._var_scale_mode_display.set(self._display_for_scale_mode(self._preferences.scale_mode))
+            return
+        self._preferences.scale_mode = mode
+        self._var_scale_mode_display.set(self._display_for_scale_mode(mode))
         self._preferences.save()
 
     def _on_font_bounds_command(self) -> None:

@@ -752,6 +752,17 @@ class _PluginRuntime:
         self._preferences.save()
         self._send_overlay_config()
 
+    def set_scale_mode_preference(self, value: str) -> None:
+        mode = str(value or "fit").strip().lower()
+        if mode not in {"fit", "fill"}:
+            mode = "fit"
+        if mode == self._preferences.scale_mode:
+            return
+        self._preferences.scale_mode = mode
+        LOGGER.debug("Overlay scale mode set to %s", mode)
+        self._preferences.save()
+        self._send_overlay_config()
+
     def cycle_payload_prev(self) -> None:
         self._cycle_payload_step(-1)
 
@@ -991,13 +1002,14 @@ class _PluginRuntime:
             "max_font_point": float(self._preferences.max_font_point),
             "cycle_payload_ids": bool(self._preferences.cycle_payload_ids),
             "copy_payload_id_on_cycle": bool(self._preferences.copy_payload_id_on_cycle),
+            "scale_mode": str(self._preferences.scale_mode or "fit"),
             "platform_context": self._platform_context_payload(),
         }
         self._last_config = dict(payload)
         self._publish_payload(payload)
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s debug_overlay_corner=%s status_bottom_margin=%s client_log_retention=%d gridlines_enabled=%s "
-            "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s font_min=%.1f font_max=%.1f platform_context=%s",
+            "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s scale_mode=%s font_min=%.1f font_max=%.1f platform_context=%s",
             payload["opacity"],
             payload["show_status"],
             payload["debug_overlay_corner"],
@@ -1011,6 +1023,7 @@ class _PluginRuntime:
             payload["show_debug_overlay"],
             payload["cycle_payload_ids"],
             payload["copy_payload_id_on_cycle"],
+            payload["scale_mode"],
             payload["min_font_point"],
             payload["max_font_point"],
             payload["platform_context"],
@@ -1355,6 +1368,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         font_max_callback = _plugin.set_max_font_preference if _plugin else None
         cycle_toggle_callback = _plugin.set_cycle_payload_preference if _plugin else None
         cycle_copy_callback = _plugin.set_cycle_payload_copy_preference if _plugin else None
+        scale_mode_callback = _plugin.set_scale_mode_preference if _plugin else None
         cycle_prev_callback = _plugin.cycle_payload_prev if _plugin else None
         cycle_next_callback = _plugin.cycle_payload_next if _plugin else None
         restart_overlay_callback = _plugin.restart_overlay_client if _plugin else None
@@ -1377,6 +1391,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             font_max_callback,
             cycle_toggle_callback,
             cycle_copy_callback,
+            scale_mode_callback,
             cycle_prev_callback,
             cycle_next_callback,
             restart_overlay_callback,
@@ -1403,7 +1418,7 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
                 "Preferences saved: capture_output=%s show_connection_status=%s "
                 "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d "
                 "force_render=%s title_bar_enabled=%s title_bar_height=%d force_xwayland=%s "
-                "debug_overlay=%s cycle_payload_ids=%s font_min=%.1f font_max=%.1f",
+                "debug_overlay=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s scale_mode=%s font_min=%.1f font_max=%.1f",
                 _preferences.capture_output,
                 _preferences.show_connection_status,
                 _preferences.client_log_retention,
@@ -1415,6 +1430,8 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
                 _preferences.force_xwayland,
                 _preferences.show_debug_overlay,
                 _preferences.cycle_payload_ids,
+                _preferences.copy_payload_id_on_cycle,
+                _preferences.scale_mode,
                 _preferences.min_font_point,
                 _preferences.max_font_point,
             )

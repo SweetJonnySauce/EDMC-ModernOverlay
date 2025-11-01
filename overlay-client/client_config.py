@@ -24,6 +24,7 @@ class InitialClientSettings:
     title_bar_height: int = 0
     cycle_payload_ids: bool = False
     copy_payload_id_on_cycle: bool = False
+    scale_mode: str = "fit"
 
 
 @dataclass
@@ -48,6 +49,7 @@ class DeveloperHelperConfig:
     title_bar_height: Optional[int] = None
     cycle_payload_ids: Optional[bool] = None
     copy_payload_id_on_cycle: Optional[bool] = None
+    scale_mode: Optional[str] = None
 
     @classmethod
     def from_payload(cls, payload: Dict[str, Any]) -> "DeveloperHelperConfig":
@@ -84,6 +86,18 @@ class DeveloperHelperConfig:
             except Exception:
                 return fallback
 
+        mode_value = payload.get("scale_mode")
+        if mode_value is not None:
+            try:
+                mode_token = str(mode_value).strip().lower()
+            except Exception:
+                mode_token = None
+            else:
+                if mode_token not in {"fit", "fill"}:
+                    mode_token = None
+        else:
+            mode_token = None
+
         return cls(
             background_opacity=_float(payload.get("opacity"), None),
             enable_drag=_bool(payload.get("enable_drag"), None),
@@ -102,6 +116,7 @@ class DeveloperHelperConfig:
             title_bar_height=_int(payload.get("title_bar_height"), None),
             cycle_payload_ids=_bool(payload.get("cycle_payload_ids"), None),
             copy_payload_id_on_cycle=_bool(payload.get("copy_payload_id_on_cycle"), None),
+            scale_mode=mode_token,
         )
 
 
@@ -152,6 +167,9 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
     bar_height = max(0, bar_height)
     cycle_payload_ids = bool(data.get("cycle_payload_ids", defaults.cycle_payload_ids))
     copy_payload_id_on_cycle = bool(data.get("copy_payload_id_on_cycle", defaults.copy_payload_id_on_cycle))
+    mode = str(data.get("scale_mode", defaults.scale_mode) or defaults.scale_mode).strip().lower()
+    if mode not in {"fit", "fill"}:
+        mode = defaults.scale_mode
 
     return InitialClientSettings(
         client_log_retention=max(1, retention),
@@ -166,4 +184,5 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         title_bar_height=bar_height,
         cycle_payload_ids=cycle_payload_ids,
         copy_payload_id_on_cycle=copy_payload_id_on_cycle,
+        scale_mode=mode,
     )
