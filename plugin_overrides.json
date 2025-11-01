@@ -32,22 +32,73 @@
     }
   },
   "bgstally": {
-    "__match__": {
-      "id_prefixes": [
-        "bgstally-"
-      ]
-    },
-    "bgstally-msg-colonisation-*": {
-      "transform": {
-        "scale": {
-          "x": 1.0,
-          "y": 0.7,
-          "scale_anchor_point": {
-            "x": 0.0,
-            "y": 0.0
-          }
+    "notes": [
+      "I wanted a smaller text for BGS tally, but it left a large gap between lines.",
+      "So I scale down vertically to close the gap."
+    ],
+    "id_prefixes": [
+      "bgstally-"
+    ]
+  },
+  "bgstally-msg-colonisation-*": {
+    "transform": {
+      "scale": {
+        "x": 1.0,
+        "y": 0.7,
+        "scale_anchor_point": {
+          "x": 0.0,
+          "y": 0.0
+        }
+      }
+    }
+  },
+  "bgstally-msg-tick*": {
+    "transform": {
+      "scale": {
+        "x": 1.0,
+        "y": 0.7,
+        "scale_anchor_point": {
+          "x": 0.0,
+          "y": 0.0
+        }
+      }
+    }
+  },
+  "bgstally-frame-system_tick*": {
+    "transform": {
+      "scale": {
+        "x": 1.0,
+        "y": 0.7,
+        "scale_anchor_point": {
+          "x": 0.0,
+          "y": 0.0
+        }
+      }
+    }
+  },
+  "bgstally-frame-tick*": {
+    "transform": {
+      "scale": {
+        "x": 1.0,
+        "y": 0.7,
+        "scale_anchor_point": {
+          "x": 0.0,
+          "y": 0.0
+        }
+      }
+    }
+  },
+  "bgstally-msg-system_tick*": {
+    "transform": {
+      "scale": {
+        "x": 1.0,
+        "y": 0.7,
+        "scale_anchor_point": {
+          "x": 0.0,
+          "y": 0.0
         }
       }
     }
   }
+}
 }

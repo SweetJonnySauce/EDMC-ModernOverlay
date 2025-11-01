@@ -762,6 +762,23 @@ class _PluginRuntime:
         }
         self._publish_payload(payload)
 
+    def restart_overlay_client(self) -> None:
+        with self._lock:
+            if not self._running:
+                raise RuntimeError("Overlay is not running")
+            watchdog = self.watchdog
+        if watchdog is not None:
+            LOGGER.debug("Stopping overlay client for user-requested restart")
+            if not watchdog.stop():
+                raise RuntimeError("Overlay client did not stop cleanly")
+            with self._lock:
+                if self.watchdog is watchdog:
+                    self.watchdog = None
+        if not self._start_watchdog():
+            raise RuntimeError("Overlay client failed to start; check overlay logs for details")
+        self._send_overlay_config(rebroadcast=True)
+        _log("Overlay client restart triggered.")
+
     def set_min_font_preference(self, value: float) -> None:
         try:
             minimum = float(value)
@@ -1328,6 +1345,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         cycle_toggle_callback = _plugin.set_cycle_payload_preference if _plugin else None
         cycle_prev_callback = _plugin.cycle_payload_prev if _plugin else None
         cycle_next_callback = _plugin.cycle_payload_next if _plugin else None
+        restart_overlay_callback = _plugin.restart_overlay_client if _plugin else None
         panel = PreferencesPanel(
             parent,
             _preferences,
@@ -1348,6 +1366,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             cycle_toggle_callback,
             cycle_prev_callback,
             cycle_next_callback,
+            restart_overlay_callback,
         )
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)

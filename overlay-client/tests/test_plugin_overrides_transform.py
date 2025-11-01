@@ -210,3 +210,45 @@ def test_transform_scales_message_coordinates(tmp_path: Path) -> None:
     assert payload["y"] == 200
     assert payload["raw"]["x"] == 75
     assert payload["raw"]["y"] == 200
+
+
+def test_transform_scales_tick_messages(tmp_path: Path) -> None:
+    config = {
+        "bgstally": {
+            "bgstally-msg-tick": {
+                "transform": {
+                    "scale": {
+                        "x": 1.0,
+                        "y": 0.7,
+                        "scale_anchor_point": {"x": 0.0, "y": 0.0},
+                    }
+                }
+            }
+        }
+    }
+    config_path = tmp_path / "plugin_overrides.json"
+    _write_config(config_path, config)
+    manager = _make_manager(config_path)
+    payload = {
+        "type": "message",
+        "id": "bgstally-msg-tick",
+        "plugin": "bgstally",
+        "ttl": 5,
+        "text": "Tick incoming",
+        "color": "white",
+        "x": 120,
+        "y": 480,
+        "raw": {
+            "plugin": "bgstally",
+            "text": "Tick incoming",
+            "x": 120,
+            "y": 480,
+        },
+    }
+
+    manager.apply(payload)
+
+    assert payload["x"] == 120
+    assert payload["y"] == 336
+    assert payload["raw"]["x"] == 120
+    assert payload["raw"]["y"] == 336

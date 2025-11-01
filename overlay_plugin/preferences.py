@@ -142,6 +142,7 @@ class PreferencesPanel:
         set_cycle_payload_callback: Optional[Callable[[bool], None]] = None,
         cycle_payload_prev_callback: Optional[Callable[[], None]] = None,
         cycle_payload_next_callback: Optional[Callable[[], None]] = None,
+        restart_overlay_callback: Optional[Callable[[], None]] = None,
     ) -> None:
         import tkinter as tk
         from tkinter import ttk
@@ -183,11 +184,13 @@ class PreferencesPanel:
         self._set_cycle_payload = set_cycle_payload_callback
         self._cycle_prev_callback = cycle_payload_prev_callback
         self._cycle_next_callback = cycle_payload_next_callback
+        self._restart_overlay = restart_overlay_callback
 
         self._legacy_client = None
         self._title_bar_height_spin = None
         self._cycle_prev_btn = None
         self._cycle_next_btn = None
+        self._restart_button = None
         self._test_var = tk.StringVar()
         self._test_x_var = tk.StringVar()
         self._test_y_var = tk.StringVar()
@@ -214,6 +217,14 @@ class PreferencesPanel:
         )
         checkbox.grid(row=0, column=0, sticky="w")
         helper.grid(row=1, column=0, sticky="w", pady=(2, 0))
+
+        restart_row = ttk.Frame(frame, style=self._frame_style)
+        restart_btn = nb.Button(restart_row, text="Restart overlay client", command=self._on_restart_overlay)
+        if self._restart_overlay is None:
+            restart_btn.configure(state="disabled")
+        restart_btn.pack(side="left")
+        restart_row.grid(row=2, column=0, sticky="w", pady=(6, 0))
+        self._restart_button = restart_btn
 
         status_row = ttk.Frame(frame, style=self._frame_style)
         status_checkbox = nb.Checkbutton(
@@ -246,7 +257,7 @@ class PreferencesPanel:
         )
         fps_checkbox.pack(side="left", padx=(16, 0))
 
-        status_row.grid(row=2, column=0, sticky="w", pady=(10, 0))
+        status_row.grid(row=3, column=0, sticky="w", pady=(10, 0))
 
         debug_checkbox = nb.Checkbutton(
             frame,
@@ -595,6 +606,17 @@ class PreferencesPanel:
                 self._cycle_next_callback()
             except Exception as exc:
                 self._status_var.set(f"Failed to cycle payload IDs: {exc}")
+
+    def _on_restart_overlay(self) -> None:
+        if self._restart_overlay is None:
+            self._status_var.set("Overlay restart unavailable.")
+            return
+        try:
+            self._restart_overlay()
+        except Exception as exc:  # pragma: no cover - defensive UI handler
+            self._status_var.set(f"Failed to restart overlay: {exc}")
+            return
+        self._status_var.set("Overlay restart requested.")
 
     def _on_log_retention_command(self) -> None:
         self._apply_log_retention()
