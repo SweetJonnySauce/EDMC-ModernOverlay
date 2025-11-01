@@ -252,3 +252,77 @@ def test_transform_scales_tick_messages(tmp_path: Path) -> None:
     assert payload["y"] == 336
     assert payload["raw"]["x"] == 120
     assert payload["raw"]["y"] == 336
+
+
+def test_transform_handles_mixed_case_plugin_and_id(tmp_path: Path) -> None:
+    config = {
+        "bgstally": {
+            "bgstally-msg-*": {
+                "transform": {
+                    "scale": {
+                        "x": 1.0,
+                        "y": 0.7,
+                        "scale_anchor_point": {"x": 0.0, "y": 0.0},
+                    }
+                }
+            }
+        }
+    }
+    config_path = tmp_path / "plugin_overrides.json"
+    _write_config(config_path, config)
+    manager = _make_manager(config_path)
+    payload = {
+        "type": "message",
+        "id": "BGSTally-msg-Tick",
+        "plugin": "BGSTally",
+        "ttl": 5,
+        "text": "Tick incoming",
+        "color": "white",
+        "x": 200,
+        "y": 500,
+        "raw": {
+            "plugin": "BGSTally",
+            "text": "Tick incoming",
+            "x": 200,
+            "y": 500,
+        },
+    }
+
+    manager.apply(payload)
+
+    assert payload["y"] == 350
+    assert payload["raw"]["y"] == 350
+
+
+def test_transform_infers_plugin_from_mixed_case_id(tmp_path: Path) -> None:
+    config = {
+        "bgstally": {
+            "__match__": {"id_prefixes": ["bgstally-"]},
+            "bgstally-msg-*": {
+                "transform": {
+                    "scale": {"x": 1.0, "y": 0.7, "scale_anchor_point": {"x": 0.0, "y": 0.0}}
+                }
+            }
+        }
+    }
+    config_path = tmp_path / "plugin_overrides.json"
+    _write_config(config_path, config)
+    manager = _make_manager(config_path)
+    payload = {
+        "type": "message",
+        "id": "BGSTally-msg-System_Tick",
+        "ttl": 5,
+        "text": "System tick",
+        "color": "white",
+        "x": 90,
+        "y": 420,
+        "raw": {
+            "text": "System tick",
+            "x": 90,
+            "y": 420,
+        },
+    }
+
+    manager.apply(payload)
+
+    assert payload["y"] == 294

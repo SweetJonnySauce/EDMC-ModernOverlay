@@ -17,6 +17,7 @@ JsonDict = Dict[str, Any]
 @dataclass
 class _PluginConfig:
     name: str
+    canonical_name: str
     match_id_prefixes: Tuple[str, ...]
     overrides: List[Tuple[str, JsonDict]]
     plugin_defaults: Optional[JsonDict]
@@ -38,6 +39,15 @@ class PluginOverrideManager:
     # ------------------------------------------------------------------
     # Public API
 
+    @staticmethod
+    def _canonical_plugin_name(name: Optional[str]) -> Optional[str]:
+        if not isinstance(name, str):
+            return None
+        token = name.strip()
+        if not token:
+            return None
+        return token.casefold()
+
     def apply(self, payload: MutableMapping[str, Any]) -> None:
         """Apply overrides to the payload in-place when configured."""
 
@@ -55,13 +65,14 @@ class PluginOverrideManager:
             return
 
         message_id = str(payload.get("id") or "")
+        display_name = config.name
 
         if config.plugin_defaults:
-            trace_defaults = self._should_trace(plugin_name, message_id)
+            trace_defaults = self._should_trace(display_name, message_id)
             if trace_defaults:
-                self._log_trace(plugin_name, message_id, "before_defaults", payload)
+                self._log_trace(display_name, message_id, "before_defaults", payload)
             self._apply_override(
-                plugin_name,
+                display_name,
                 "defaults",
                 config.plugin_defaults,
                 payload,
@@ -69,7 +80,7 @@ class PluginOverrideManager:
                 message_id=message_id,
             )
             if trace_defaults:
-                self._log_trace(plugin_name, message_id, "after_defaults", payload)
+                self._log_trace(display_name, message_id, "after_defaults", payload)
 
         if not message_id:
             return
@@ -90,11 +101,11 @@ class PluginOverrideManager:
                     min_x = min(xs)
                     max_x = max(xs)
                     center_x = (min_x + max_x) / 2.0
-                    key = (plugin_name, message_id.split("-")[0])
+                    key = (config.canonical_name, message_id.split("-")[0])
                     if key not in self._diagnostic_spans:
                         self._logger.info(
                             "override-diagnostic plugin=%s id=%s min_x=%.2f max_x=%.2f center=%.2f span=%.2f",
-                            plugin_name,
+                            display_name,
                             message_id,
                             min_x,
                             max_x,
@@ -103,11 +114,11 @@ class PluginOverrideManager:
                         )
                         self._diagnostic_spans[key] = (min_x, max_x, center_x)
 
-        trace_active = self._should_trace(plugin_name, message_id)
+        trace_active = self._should_trace(display_name, message_id)
         if trace_active:
-            self._log_trace(plugin_name, message_id, "before_override", payload)
+            self._log_trace(display_name, message_id, "before_override", payload)
         self._apply_override(
-            plugin_name,
+            display_name,
             pattern,
             override,
             payload,
@@ -115,7 +126,7 @@ class PluginOverrideManager:
             message_id=message_id,
         )
         if trace_active:
-            self._log_trace(plugin_name, message_id, "after_override", payload)
+            self._log_trace(display_name, message_id, "after_override", payload)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -157,6 +168,9 @@ class PluginOverrideManager:
         for plugin_name, plugin_payload in raw.items():
             if not isinstance(plugin_name, str) or not isinstance(plugin_payload, Mapping):
                 continue
+            canonical_name = self._canonical_plugin_name(plugin_name)
+            if canonical_name is None:
+                continue
 
             match_prefixes: Tuple[str, ...] = ()
             match_section = plugin_payload.get("__match__")
@@ -166,7 +180,7 @@ class PluginOverrideManager:
                     cleaned: List[str] = []
                     for value in prefixes:
                         if isinstance(value, str) and value:
-                            cleaned.append(value)
+                            cleaned.append(value.casefold())
                     match_prefixes = tuple(cleaned)
 
             overrides: List[Tuple[str, JsonDict]] = []
@@ -187,8 +201,9 @@ class PluginOverrideManager:
                     continue
                 overrides.append((str(key), dict(spec)))
 
-            plugins[plugin_name] = _PluginConfig(
+            plugins[canonical_name] = _PluginConfig(
                 name=plugin_name,
+                canonical_name=canonical_name,
                 match_id_prefixes=match_prefixes,
                 overrides=overrides,
                 plugin_defaults=plugin_defaults or None,
@@ -213,43 +228,53 @@ class PluginOverrideManager:
         if not isinstance(payload, Mapping):
             return None
         self._reload_if_needed()
-        return self._determine_plugin_name(payload)
+        canonical = self._determine_plugin_name(payload)
+        if canonical is None:
+            return None
+        config = self._plugins.get(canonical)
+        return config.name if config else canonical
 
     def _determine_plugin_name(self, payload: Mapping[str, Any]) -> Optional[str]:
         for key in ("plugin", "plugin_name", "source_plugin"):
             value = payload.get(key)
-            if isinstance(value, str) and value:
-                return value
+            canonical = self._canonical_plugin_name(value)
+            if canonical:
+                return canonical
 
         meta = payload.get("meta")
         if isinstance(meta, Mapping):
             for key in ("plugin", "plugin_name", "source_plugin"):
-                value = meta.get(key)
-                if isinstance(value, str) and value:
-                    return value
+                canonical = self._canonical_plugin_name(meta.get(key))
+                if canonical:
+                    return canonical
 
         raw = payload.get("raw")
         if isinstance(raw, Mapping):
             for key in ("plugin", "plugin_name", "source_plugin"):
-                value = raw.get(key)
-                if isinstance(value, str) and value:
-                    return value
+                canonical = self._canonical_plugin_name(raw.get(key))
+                if canonical:
+                    return canonical
 
         item_id = str(payload.get("id") or "")
         if not item_id:
             return None
 
+        item_id_cf = item_id.casefold()
+
         for name, config in self._plugins.items():
             if not config.match_id_prefixes:
                 continue
-            if any(item_id.startswith(prefix) for prefix in config.match_id_prefixes):
+            if any(item_id_cf.startswith(prefix) for prefix in config.match_id_prefixes):
                 return name
 
         return None
 
     def _select_override(self, config: _PluginConfig, message_id: str) -> Optional[Tuple[str, JsonDict]]:
+        message_id_cf = message_id.casefold()
         for pattern, spec in config.overrides:
             if fnmatchcase(message_id, pattern):
+                return pattern, spec
+            if fnmatchcase(message_id_cf, pattern.casefold()):
                 return pattern, spec
         return None
 
@@ -257,8 +282,13 @@ class PluginOverrideManager:
         cfg = self._debug_config
         if not cfg.trace_enabled:
             return False
-        if cfg.trace_plugin and cfg.trace_plugin != plugin:
-            return False
+        plugin_key = self._canonical_plugin_name(plugin)
+        if cfg.trace_plugin:
+            trace_key = self._canonical_plugin_name(cfg.trace_plugin)
+            if trace_key is None:
+                return False
+            if trace_key != plugin_key:
+                return False
         if cfg.trace_payload_ids:
             if not message_id:
                 return False
@@ -458,7 +488,7 @@ class PluginOverrideManager:
             return None
 
         mode = mode.lower().strip()
-        cache_key = plugin
+        cache_key = self._canonical_plugin_name(plugin) or plugin
 
         if mode == "derive_ratio_from_height":
             ratio = self._derive_ratio(payload)
