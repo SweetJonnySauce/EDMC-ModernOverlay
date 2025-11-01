@@ -34,6 +34,7 @@ class Preferences:
     title_bar_enabled: bool = False
     title_bar_height: int = 0
     cycle_payload_ids: bool = False
+    copy_payload_id_on_cycle: bool = False
 
     def __post_init__(self) -> None:
         self.plugin_dir = Path(self.plugin_dir)
@@ -89,6 +90,7 @@ class Preferences:
             bar_height = 0
         self.title_bar_height = max(0, bar_height)
         self.cycle_payload_ids = bool(data.get("cycle_payload_ids", False))
+        self.copy_payload_id_on_cycle = bool(data.get("copy_payload_id_on_cycle", False))
 
     def save(self) -> None:
         payload: Dict[str, Any] = {
@@ -110,6 +112,7 @@ class Preferences:
             "title_bar_enabled": bool(self.title_bar_enabled),
             "title_bar_height": int(self.title_bar_height),
             "cycle_payload_ids": bool(self.cycle_payload_ids),
+            "copy_payload_id_on_cycle": bool(self.copy_payload_id_on_cycle),
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 

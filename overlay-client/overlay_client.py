@@ -885,7 +885,7 @@ class OverlayWindow(QWidget):
                 lines.append(f"{section_name}: " + ", ".join(parts))
         pattern = transform_meta.get("pattern")
         if isinstance(pattern, str) and pattern:
-            lines.append(f"pattern: {pattern}")
+            lines.append(f"override pattern: {pattern}")
         return lines
 
     def _paint_cycle_overlay(self, painter: QPainter) -> None:

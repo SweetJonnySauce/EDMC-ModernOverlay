@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime
-from typing import Any, Callable, Mapping, Optional
+from typing import Any, Callable, Mapping, MutableMapping, Optional
 
 from legacy_store import LegacyItem, LegacyItemStore
 
@@ -69,6 +69,19 @@ def process_legacy_payload(
             "y": int(payload.get("y", 0)),
             "size": payload.get("size", "normal"),
         }
+        transform_meta = payload.get("__mo_transform__")
+        if isinstance(transform_meta, Mapping):
+            try:
+                data["__mo_transform__"] = dict(transform_meta)
+            except Exception:
+                data["__mo_transform__"] = transform_meta
+            raw_payload = payload.get("raw")
+            if isinstance(raw_payload, MutableMapping):
+                try:
+                    raw_copy = dict(transform_meta)
+                except Exception:
+                    raw_copy = transform_meta
+                raw_payload.setdefault("__mo_transform__", {}).update(raw_copy if isinstance(raw_copy, Mapping) else {})
         store.set(item_id, LegacyItem(item_id=item_id, kind="message", data=data, expiry=expiry, plugin=plugin_name))
         return True
 

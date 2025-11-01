@@ -17,3 +17,4 @@ This is particularly useful when capturing coordinates or validating plugin over
 - Toggle payload cycling with the controls in the preferences.
 - The connector line from the badge points toward the payload’s anchor point, helping locate overlapping elements quickly.
 - Plugin names and coordinates rely on the metadata provided by each payload; if a plugin does not populate `plugin` fields, the finder falls back to `unknown`.
+- Message overrides (e.g. `bgstally-msg-*`) are now tracked, so scale/offset adjustments applied via overrides show up in the badge.
