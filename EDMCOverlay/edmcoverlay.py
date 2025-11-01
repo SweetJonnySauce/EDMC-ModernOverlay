@@ -42,9 +42,10 @@ def normalise_legacy_payload(message: Mapping[str, Any]) -> Optional[Dict[str, A
     text = _lookup("text", "Text")
     shape = _legacy_coerce_str(_lookup("shape", "Shape"))
     ttl = _legacy_coerce_int(_lookup("ttl", "TTL"), default=4)
+    plugin = _legacy_coerce_str(_lookup("plugin", "Plugin", "plugin_name", "PluginName", "source_plugin"))
 
     if text is not None and text != "":
-        return {
+        payload = {
             "type": "message",
             "id": item_id or "",
             "text": str(text),
@@ -54,6 +55,9 @@ def normalise_legacy_payload(message: Mapping[str, Any]) -> Optional[Dict[str, A
             "y": _legacy_coerce_int(_lookup("y", "Y"), 0),
             "ttl": ttl,
         }
+        if plugin:
+            payload["plugin"] = plugin
+        return payload
 
     if shape:
         shape_lower = shape.lower()
@@ -78,17 +82,22 @@ def normalise_legacy_payload(message: Mapping[str, Any]) -> Optional[Dict[str, A
         else:
             if isinstance(vector, list):
                 payload["vector"] = vector
+        if plugin:
+            payload["plugin"] = plugin
         return payload
 
     if ttl <= 0 and item_id:
-        return {
+        payload = {
             "type": "legacy_clear",
             "id": item_id,
             "ttl": ttl,
         }
+        if plugin:
+            payload["plugin"] = plugin
+        return payload
 
     if item_id and text == "":
-        return {
+        payload = {
             "type": "message",
             "id": item_id,
             "text": "",
@@ -98,9 +107,15 @@ def normalise_legacy_payload(message: Mapping[str, Any]) -> Optional[Dict[str, A
             "y": _legacy_coerce_int(_lookup("y", "Y"), 0),
             "ttl": ttl,
         }
+        if plugin:
+            payload["plugin"] = plugin
+        return payload
 
     raw_value = dict(msg)
-    return {"type": "raw", "raw": raw_value, "id": item_id or "", "ttl": ttl}
+    payload = {"type": "raw", "raw": raw_value, "id": item_id or "", "ttl": ttl}
+    if plugin and "plugin" not in payload:
+        payload["plugin"] = plugin
+    return payload
 
 
 def trace(msg: str) -> str:

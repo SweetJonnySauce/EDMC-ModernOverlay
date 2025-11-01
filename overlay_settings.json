@@ -16,7 +16,7 @@
   "status_bottom_margin": 20,
   "title_bar_enabled": false,
   "title_bar_height": 30,
-  "cycle_payload_ids": false,
+  "cycle_payload_ids": true,
   "copy_payload_id_on_cycle": true,
   "scale_mode": "fill"
 }
