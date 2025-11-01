@@ -870,6 +870,10 @@ class OverlayWindow(QWidget):
             if isinstance(name, str) and name:
                 plugin_name = name
         plugin_line = f"Plugin name: {plugin_name}"
+        if anchor is not None:
+            center_line = f"Center: {anchor[0]}, {anchor[1]}"
+        else:
+            center_line = "Center: -, -"
         painter.save()
         text = self._cycle_current_id
         highlight_color = QColor("#ffb347")
@@ -892,11 +896,12 @@ class OverlayWindow(QWidget):
         padding_y = 8
         line_height_title = metrics.lineSpacing()
         line_height_plugin = plugin_metrics.lineSpacing()
-        total_lines = 2
+        total_small_lines = 2
         plugin_width = plugin_metrics.horizontalAdvance(plugin_line)
-        content_width = max(text_width, plugin_width)
+        center_width = plugin_metrics.horizontalAdvance(center_line)
+        content_width = max(text_width, plugin_width, center_width)
         rect_width = content_width + padding_x * 2
-        rect_height = line_height_title + line_height_plugin + padding_y * 2
+        rect_height = line_height_title + total_small_lines * line_height_plugin + padding_y * 2
         rect_left = center_x - rect_width // 2
         rect_top = center_y - rect_height // 2
         rect_right = rect_left + rect_width
@@ -909,7 +914,9 @@ class OverlayWindow(QWidget):
         painter.drawText(center_x - text_width // 2, baseline_top, text)
         painter.setFont(plugin_font)
         baseline_plugin = baseline_top + line_height_title
-        painter.drawText(center_x - plugin_metrics.horizontalAdvance(plugin_line) // 2, baseline_plugin, plugin_line)
+        painter.drawText(center_x - plugin_width // 2, baseline_plugin, plugin_line)
+        baseline_center = baseline_plugin + line_height_plugin
+        painter.drawText(center_x - center_width // 2, baseline_center, center_line)
         if anchor is not None:
             start_x = center_x
             start_y = center_y
