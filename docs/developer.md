@@ -7,6 +7,7 @@ Modern Overlay includes a developer-facing “payload ID finder” that helps tr
 - The active `payload_id`
 - The originating plugin name (if known)
 - The computed center coordinates of the payload on screen
+- Runtime diagnostics: remaining TTL (or `∞` when persistent), how long ago the payload last updated, the payload kind (message/rect/vector with relevant size info), and any override adjustments (scaled/offset coordinates, sizes, and matched pattern)
 
 This is particularly useful when capturing coordinates or validating plugin overrides.
 

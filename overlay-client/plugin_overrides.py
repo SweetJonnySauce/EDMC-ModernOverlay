@@ -429,6 +429,13 @@ class PluginOverrideManager:
             scale_x = float(scale_spec)
             scale_y = float(scale_spec)
 
+        try:
+            raw_x = float(payload.get("x", 0.0))
+            raw_y = float(payload.get("y", 0.0))
+        except (TypeError, ValueError):
+            return
+        raw_payload = payload.get("raw")
+
         if isinstance(offset_spec, Mapping):
             offset_x = self._coerce_float(offset_spec.get("x"), 0.0)
             offset_y = self._coerce_float(offset_spec.get("y"), 0.0)
@@ -440,17 +447,11 @@ class PluginOverrideManager:
                 "offset": {"x": offset_x, "y": offset_y},
                 "pattern": pattern,
                 "plugin": plugin,
+                "original": {"x": raw_x, "y": raw_y},
             }
             payload.setdefault("__mo_transform__", {}).update(transform_meta)
-            raw_payload = payload.get("raw")
             if isinstance(raw_payload, MutableMapping):
                 raw_payload.setdefault("__mo_transform__", {}).update(transform_meta)
-            return
-
-        try:
-            raw_x = float(payload.get("x", 0.0))
-            raw_y = float(payload.get("y", 0.0))
-        except (TypeError, ValueError):
             return
 
         new_x, new_y = self._transform_point((raw_x, raw_y), pivot, (scale_x, scale_y), (offset_x, offset_y))
@@ -470,7 +471,6 @@ class PluginOverrideManager:
 
         payload["x"] = rounded_x
         payload["y"] = rounded_y
-        raw_payload = payload.get("raw")
         if isinstance(raw_payload, MutableMapping):
             raw_payload["x"] = rounded_x
             raw_payload["y"] = rounded_y
@@ -481,6 +481,7 @@ class PluginOverrideManager:
             "offset": {"x": offset_x, "y": offset_y},
             "pattern": pattern,
             "plugin": plugin,
+            "original": {"x": raw_x, "y": raw_y},
         }
         payload.setdefault("__mo_transform__", {}).update(transform_meta)
         if isinstance(raw_payload, MutableMapping):
@@ -604,6 +605,32 @@ class PluginOverrideManager:
         scale_tuple = (scale_x, scale_y)
         offset_tuple = (offset_x, offset_y)
 
+        original_meta: Dict[str, Any] = {}
+        shape = str(payload.get("shape") or "").lower()
+        if shape == "rect":
+            try:
+                original_meta = {
+                    "x": float(payload.get("x", 0.0)),
+                    "y": float(payload.get("y", 0.0)),
+                    "w": float(payload.get("w", 0.0)),
+                    "h": float(payload.get("h", 0.0)),
+                }
+            except (TypeError, ValueError):
+                original_meta = {}
+        elif shape == "vect":
+            vector = payload.get("vector")
+            if isinstance(vector, Iterable):
+                points_list = [pt for pt in vector if isinstance(pt, Mapping)]
+                if points_list:
+                    original_meta["points"] = len(points_list)
+
+        if bounds is not None:
+            min_x, max_x, min_y, max_y = bounds
+            original_meta.setdefault(
+                "bounds",
+                {"min_x": min_x, "max_x": max_x, "min_y": min_y, "max_y": max_y},
+            )
+
         if trace:
             self._logger.debug(
                 "trace plugin=%s id=%s stage=%s pivot=(%.2f,%.2f) scale=(%.3f,%.3f) offset=(%.3f,%.3f)",
@@ -625,6 +652,8 @@ class PluginOverrideManager:
             "pattern": pattern,
             "plugin": plugin,
         }
+        if original_meta:
+            transform_meta["original"] = original_meta
         payload.setdefault("__mo_transform__", {}).update(transform_meta)
         raw_payload = payload.get("raw")
         if isinstance(raw_payload, MutableMapping):

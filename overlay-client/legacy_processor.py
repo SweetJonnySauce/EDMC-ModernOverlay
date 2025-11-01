@@ -57,6 +57,8 @@ def process_legacy_payload(
     expiry = None if ttl <= 0 else time.monotonic() + ttl
     plugin_name = _extract_plugin(payload)
 
+    now_iso = datetime.now(UTC).isoformat()
+
     if item_type == "message":
         text = payload.get("text", "")
         if not text:
@@ -82,6 +84,7 @@ def process_legacy_payload(
                 except Exception:
                     raw_copy = transform_meta
                 raw_payload.setdefault("__mo_transform__", {}).update(raw_copy if isinstance(raw_copy, Mapping) else {})
+        data["__mo_updated__"] = now_iso
         store.set(item_id, LegacyItem(item_id=item_id, kind="message", data=data, expiry=expiry, plugin=plugin_name))
         return True
 
@@ -105,6 +108,7 @@ def process_legacy_payload(
                     transform_meta = None
             if transform_meta is not None:
                 data["__mo_transform__"] = transform_meta
+            data["__mo_updated__"] = now_iso
             store.set(
                 item_id,
                 LegacyItem(item_id=item_id, kind="rect", data=data, expiry=expiry, plugin=plugin_name),
@@ -148,6 +152,7 @@ def process_legacy_payload(
                     transform_meta = None
             if transform_meta is not None:
                 data["__mo_transform__"] = transform_meta
+            data["__mo_updated__"] = now_iso
             if trace_fn:
                 trace_fn(
                     "legacy_processor:vector_normalised",

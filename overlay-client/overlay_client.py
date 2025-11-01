@@ -11,6 +11,7 @@ import queue
 import sys
 import threading
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
@@ -923,6 +924,71 @@ class OverlayWindow(QWidget):
             center_line = f"Center: {anchor[0]}, {anchor[1]}"
         else:
             center_line = "Center: -, -"
+        data = current_item.data if current_item is not None else {}
+        info_lines: List[str] = []
+        if current_item is not None:
+            if current_item.expiry is None:
+                info_lines.append("ttl: ∞")
+            else:
+                remaining = max(0.0, current_item.expiry - time.monotonic())
+                info_lines.append(f"ttl: {remaining:.1f}s")
+        updated_iso = data.get("__mo_updated__") if isinstance(data, Mapping) else None
+        if isinstance(updated_iso, str):
+            try:
+                updated_dt = datetime.fromisoformat(updated_iso)
+                if updated_dt.tzinfo is None:
+                    updated_dt = updated_dt.replace(tzinfo=UTC)
+                elapsed = datetime.now(UTC) - updated_dt.astimezone(UTC)
+                elapsed_s = max(0.0, elapsed.total_seconds())
+                info_lines.append(f"last seen: {elapsed_s:.1f}s ago")
+            except Exception:
+                info_lines.append(f"last seen: {updated_iso}")
+        kind_label = current_item.kind if current_item is not None else None
+        if kind_label == "message":
+            size_label = str(data.get("size", "unknown"))
+            info_lines.append(f"type: message (size={size_label})")
+        elif kind_label == "rect":
+            w_val = data.get("w")
+            h_val = data.get("h")
+            if isinstance(w_val, (int, float)) and isinstance(h_val, (int, float)):
+                info_lines.append(f"type: rect (w={w_val}, h={h_val})")
+            else:
+                info_lines.append("type: rect")
+        elif kind_label == "vector":
+            points_data = data.get("points")
+            if isinstance(points_data, list):
+                info_lines.append(f"type: vector (points={len(points_data)})")
+            else:
+                info_lines.append("type: vector")
+        elif kind_label:
+            info_lines.append(f"type: {kind_label}")
+
+        def _fmt_number(value: Any) -> Optional[str]:
+            if isinstance(value, (int, float)):
+                return f"{value:g}"
+            return None
+
+        transform_meta = data.get("__mo_transform__") if isinstance(data, Mapping) else None
+        if isinstance(transform_meta, Mapping):
+            original = transform_meta.get("original")
+            if isinstance(original, Mapping):
+                raw_x_fmt = _fmt_number(original.get("x"))
+                raw_y_fmt = _fmt_number(original.get("y"))
+                trans_x_fmt = _fmt_number(data.get("x"))
+                trans_y_fmt = _fmt_number(data.get("y"))
+                if raw_x_fmt is not None and raw_y_fmt is not None and trans_x_fmt is not None and trans_y_fmt is not None:
+                    info_lines.append(f"coords: ({raw_x_fmt},{raw_y_fmt}) → ({trans_x_fmt},{trans_y_fmt})")
+                raw_w_fmt = _fmt_number(original.get("w"))
+                raw_h_fmt = _fmt_number(original.get("h"))
+                trans_w_fmt = _fmt_number(data.get("w"))
+                trans_h_fmt = _fmt_number(data.get("h"))
+                size_parts: List[str] = []
+                if raw_w_fmt is not None and trans_w_fmt is not None:
+                    size_parts.append(f"w={raw_w_fmt}→{trans_w_fmt}")
+                if raw_h_fmt is not None and trans_h_fmt is not None:
+                    size_parts.append(f"h={raw_h_fmt}→{trans_h_fmt}")
+                if size_parts:
+                    info_lines.append("size: " + ", ".join(size_parts))
         override_lines = self._format_override_lines(current_item)
         painter.save()
         text = self._cycle_current_id
@@ -946,13 +1012,11 @@ class OverlayWindow(QWidget):
         padding_y = 8
         line_height_title = metrics.lineSpacing()
         line_height_plugin = plugin_metrics.lineSpacing()
-        total_small_lines = 2 + len(override_lines)
-        plugin_width = plugin_metrics.horizontalAdvance(plugin_line)
-        center_width = plugin_metrics.horizontalAdvance(center_line)
-        override_widths = [plugin_metrics.horizontalAdvance(line) for line in override_lines]
-        content_width = max([text_width, plugin_width, center_width, *override_widths] if override_widths else [text_width, plugin_width, center_width])
+        small_lines = [plugin_line, center_line] + info_lines + override_lines
+        small_widths = [plugin_metrics.horizontalAdvance(line) for line in small_lines]
+        content_width = max([text_width, *small_widths] if small_widths else [text_width])
         rect_width = content_width + padding_x * 2
-        rect_height = line_height_title + total_small_lines * line_height_plugin + padding_y * 2
+        rect_height = line_height_title + len(small_lines) * line_height_plugin + padding_y * 2
         rect_left = center_x - rect_width // 2
         rect_top = center_y - rect_height // 2
         rect_right = rect_left + rect_width
@@ -964,14 +1028,10 @@ class OverlayWindow(QWidget):
         baseline_top = rect_top + padding_y + metrics.ascent()
         painter.drawText(center_x - text_width // 2, baseline_top, text)
         painter.setFont(plugin_font)
-        baseline_plugin = baseline_top + line_height_title
-        painter.drawText(center_x - plugin_width // 2, baseline_plugin, plugin_line)
-        current_baseline = baseline_plugin + line_height_plugin
-        painter.drawText(center_x - center_width // 2, current_baseline, center_line)
-        if override_lines:
-            for line, width in zip(override_lines, override_widths):
-                current_baseline += line_height_plugin
-                painter.drawText(center_x - width // 2, current_baseline, line)
+        baseline_line = baseline_top + line_height_title
+        for line, width in zip(small_lines, small_widths):
+            painter.drawText(center_x - width // 2, baseline_line, line)
+            baseline_line += line_height_plugin
         if anchor is not None:
             start_x = center_x
             start_y = center_y
