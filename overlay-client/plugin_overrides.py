@@ -429,6 +429,26 @@ class PluginOverrideManager:
             return config.name, None
         return None
 
+    def group_is_configured(self, plugin: Optional[str], suffix: Optional[str]) -> bool:
+        self._reload_if_needed()
+        canonical = self._canonical_plugin_name(plugin)
+        if canonical is None:
+            return False
+        config = self._plugins.get(canonical)
+        if config is None or not config.group_mode:
+            return False
+        if config.group_mode == "plugin":
+            return suffix is None
+        if config.group_mode == "id_prefix":
+            if suffix is None:
+                return False
+            for spec in config.group_specs:
+                label_value = spec.label or (spec.prefixes[0] if spec.prefixes else None)
+                if label_value == suffix:
+                    return True
+            return False
+        return False
+
     def _should_trace(self, plugin: str, message_id: str) -> bool:
         cfg = self._debug_config
         if not cfg.trace_enabled:

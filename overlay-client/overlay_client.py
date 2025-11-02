@@ -504,6 +504,12 @@ class OverlayWindow(QWidget):
                 return original
         return data
 
+    def _group_has_override(self, plugin_label: Optional[str], suffix: Optional[str]) -> bool:
+        override_manager = getattr(self, "_override_manager", None)
+        if override_manager is None:
+            return False
+        return override_manager.group_is_configured(plugin_label, suffix)
+
     @staticmethod
     def _safe_float(value: Any, default: float = 0.0) -> float:
         try:
@@ -655,12 +661,20 @@ class OverlayWindow(QWidget):
         base_offset_y = mapper.offset_y
         width = float(self.width())
         height = float(self.height())
+        base_scale = mapper.transform.scale
+        if base_scale <= 0.0:
+            base_scale = 1.0
+        compensate_scale = 1.0 / base_scale if mapper.transform.mode is ScaleMode.FILL and base_scale > 1.0 else 1.0
         for key_tuple, bounds in group_bounds.items():
             if not bounds.is_valid():
                 continue
             dx = self._compute_fill_delta(bounds.min_x, bounds.max_x, scale, base_offset_x, width)
             dy = self._compute_fill_delta(bounds.min_y, bounds.max_y, scale, base_offset_y, height)
-            self._group_transform_cache.set(GroupKey(*key_tuple), GroupTransform(dx=dx, dy=dy))
+            plugin_label, suffix = key_tuple
+            group_scale = 1.0
+            if compensate_scale != 1.0 and self._group_has_override(plugin_label, suffix):
+                group_scale = compensate_scale
+            self._group_transform_cache.set(GroupKey(*key_tuple), GroupTransform(dx=dx, dy=dy, scale=group_scale))
 
     def _scaled_point_size(
         self,
@@ -2514,7 +2528,8 @@ class OverlayWindow(QWidget):
         color = QColor(str(item.get("color", "white")))
         size = str(item.get("size", "normal")).lower()
         scaled_point_size = self._legacy_preset_point_size(size)
-        scale = mapper.transform.scale
+        group_scale = group_transform.scale if group_transform else 1.0
+        scale = mapper.transform.scale * group_scale
         base_offset_x = mapper.offset_x
         base_offset_y = mapper.offset_y
         fill_dx_overlay, fill_dy_overlay = self._fill_overlay_delta(scale, group_transform)
@@ -2608,7 +2623,8 @@ class OverlayWindow(QWidget):
 
         painter.setPen(pen)
         painter.setBrush(brush)
-        scale = mapper.transform.scale
+        group_scale = group_transform.scale if group_transform else 1.0
+        scale = mapper.transform.scale * group_scale
         base_offset_x = mapper.offset_x
         base_offset_y = mapper.offset_y
         fill_dx_overlay, fill_dy_overlay = self._fill_overlay_delta(scale, group_transform)
@@ -2629,6 +2645,7 @@ class OverlayWindow(QWidget):
                     "w": raw_w,
                     "h": raw_h,
                     "scale": scale,
+                    "group_scale": group_scale,
                     "offset_x": base_offset_x,
                     "offset_y": base_offset_y,
                     "fill_dx_overlay": fill_dx_overlay,
@@ -2670,6 +2687,7 @@ class OverlayWindow(QWidget):
                     "pixel_y": y,
                     "pixel_w": w,
                     "pixel_h": h,
+                    "group_scale": group_scale,
                     "mode": mapper.transform.mode.value,
                 },
             )
@@ -2700,7 +2718,8 @@ class OverlayWindow(QWidget):
         plugin_name = legacy_item.plugin
         trace_enabled = self._should_trace_payload(plugin_name, item_id)
         adapter = _QtVectorPainterAdapter(self, painter)
-        scale = mapper.transform.scale
+        group_scale = group_transform.scale if group_transform else 1.0
+        scale = mapper.transform.scale * group_scale
         base_offset_x = mapper.offset_x
         base_offset_y = mapper.offset_y
         fill_dx_overlay, fill_dy_overlay = self._fill_overlay_delta(scale, group_transform)

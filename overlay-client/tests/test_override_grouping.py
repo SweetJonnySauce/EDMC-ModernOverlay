@@ -112,6 +112,50 @@ def test_grouping_prefix_defaults_apply(override_file: Path) -> None:
     assert offset.get("y") == -10.0
 
 
+def test_group_is_configured_plugin_mode(override_file: Path) -> None:
+    override_file.write_text(
+        json.dumps(
+            {
+                "LandingPad": {
+                    "grouping": {"mode": "plugin"}
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = _make_manager(override_file)
+
+    assert manager.group_is_configured("LandingPad", None) is True
+    assert manager.group_is_configured("LandingPad", "item:foo") is False
+    assert manager.group_is_configured("Other", None) is False
+
+
+def test_group_is_configured_id_prefix(override_file: Path) -> None:
+    override_file.write_text(
+        json.dumps(
+            {
+                "Example": {
+                    "grouping": {
+                        "mode": "id_prefix",
+                        "groups": {
+                            "alerts": {
+                                "id_prefixes": ["example.alert."],
+                            }
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = _make_manager(override_file)
+
+    assert manager.group_is_configured("Example", "alerts") is True
+    assert manager.group_is_configured("Example", "example.alert.") is False
+    assert manager.group_is_configured("Example", None) is False
+    assert manager.group_is_configured("Other", "alerts") is False
+
+
 def test_grouping_groups_block_applies_shared_transform(override_file: Path) -> None:
     override_file.write_text(
         json.dumps(
