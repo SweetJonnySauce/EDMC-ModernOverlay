@@ -449,6 +449,20 @@ class PluginOverrideManager:
             return False
         return False
 
+    def group_mode_for(self, plugin: Optional[str]) -> Optional[str]:
+        self._reload_if_needed()
+        canonical = self._canonical_plugin_name(plugin)
+        if canonical is None:
+            return None
+        config = self._plugins.get(canonical)
+        if config is not None and config.group_mode:
+            return config.group_mode
+        # Handle callers that pass display names directly.
+        for cfg in self._plugins.values():
+            if cfg.name == plugin and cfg.group_mode:
+                return cfg.group_mode
+        return None
+
     def _should_trace(self, plugin: str, message_id: str) -> bool:
         cfg = self._debug_config
         if not cfg.trace_enabled:
@@ -717,9 +731,6 @@ class PluginOverrideManager:
         if isinstance(offset_spec, Mapping):
             offset_x = self._coerce_float(offset_spec.get("x"), 0.0)
             offset_y = self._coerce_float(offset_spec.get("y"), 0.0)
-
-        if math.isclose(scale_x, 1.0, rel_tol=1e-9) and math.isclose(scale_y, 1.0, rel_tol=1e-9) and math.isclose(offset_x, 0.0, rel_tol=1e-9) and math.isclose(offset_y, 0.0, rel_tol=1e-9):
-            return
 
         points = self._extract_points_from_payload(payload)
         bounds = self._compute_bounds(points, bounds_spec)

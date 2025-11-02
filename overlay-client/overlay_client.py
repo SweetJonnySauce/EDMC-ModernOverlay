@@ -1190,6 +1190,29 @@ class OverlayWindow(QWidget):
     def _register_cycle_anchor(self, item_id: str, x: int, y: int) -> None:
         self._cycle_anchor_points[item_id] = (int(x), int(y))
 
+    def _resolve_group_override_pattern(
+        self,
+        legacy_item: Optional[LegacyItem],
+    ) -> Optional[Tuple[str, Optional[str]]]:
+        if legacy_item is None:
+            return None
+        override_manager = getattr(self, "_override_manager", None)
+        if override_manager is None:
+            return None
+        plugin_name = legacy_item.plugin
+        group_key = override_manager.grouping_key_for(plugin_name, legacy_item.item_id)
+        if group_key is None:
+            return None
+        plugin_label, suffix = group_key
+        if not override_manager.group_is_configured(plugin_label, suffix):
+            return None
+        mode = override_manager.group_mode_for(plugin_label) or override_manager.group_mode_for(plugin_name)
+        if isinstance(suffix, str) and suffix:
+            return f"group:{suffix}", mode
+        label = plugin_label if isinstance(plugin_label, str) and plugin_label else (legacy_item.plugin or "plugin")
+        label = str(label).strip() or "plugin"
+        return f"group:{label}", mode
+
     def _format_override_lines(self, legacy_item: Optional[LegacyItem]) -> List[str]:
         if legacy_item is None:
             return []
@@ -1197,29 +1220,46 @@ class OverlayWindow(QWidget):
         if not isinstance(data, Mapping):
             return []
         transform_meta = data.get("__mo_transform__")
-        if not isinstance(transform_meta, Mapping):
-            return []
         lines: List[str] = []
-        for section_name in ("scale", "offset", "pivot"):
-            block = transform_meta.get(section_name)
-            if not isinstance(block, Mapping):
-                continue
-            parts: List[str] = []
-            for key, value in block.items():
-                if not isinstance(value, (int, float)):
+        pattern_value: Optional[str] = None
+        pattern_mode: Optional[str] = None
+        if isinstance(transform_meta, Mapping):
+            for section_name in ("scale", "offset", "pivot"):
+                block = transform_meta.get(section_name)
+                if not isinstance(block, Mapping):
                     continue
-                if section_name == "scale":
-                    if math.isclose(value, 1.0, rel_tol=1e-6, abs_tol=1e-6):
+                parts: List[str] = []
+                for key, value in block.items():
+                    if not isinstance(value, (int, float)):
                         continue
-                else:
-                    if math.isclose(value, 0.0, rel_tol=1e-6, abs_tol=1e-6):
-                        continue
-                parts.append(f"{key}={value:g}")
-            if parts:
-                lines.append(f"{section_name}: " + ", ".join(parts))
-        pattern = transform_meta.get("pattern")
-        if isinstance(pattern, str) and pattern:
-            lines.append(f"override pattern: {pattern}")
+                    if section_name == "scale":
+                        if math.isclose(value, 1.0, rel_tol=1e-6, abs_tol=1e-6):
+                            continue
+                    else:
+                        if math.isclose(value, 0.0, rel_tol=1e-6, abs_tol=1e-6):
+                            continue
+                    parts.append(f"{key}={value:g}")
+                if parts:
+                    lines.append(f"{section_name}: " + ", ".join(parts))
+            pattern = transform_meta.get("pattern")
+            if isinstance(pattern, str) and pattern:
+                pattern_value = pattern
+        group_pattern = self._resolve_group_override_pattern(legacy_item)
+        if pattern_value:
+            if group_pattern:
+                group_pattern_value, group_mode = group_pattern
+                if group_pattern_value == pattern_value or pattern_value.startswith("group:"):
+                    pattern_mode = group_mode
+            if pattern_mode:
+                lines.append(f"override pattern: {pattern_value} (mode={pattern_mode})")
+            else:
+                lines.append(f"override pattern: {pattern_value}")
+        elif group_pattern:
+            group_pattern_value, group_mode = group_pattern
+            if group_mode:
+                lines.append(f"override pattern: {group_pattern_value} (mode={group_mode})")
+            else:
+                lines.append(f"override pattern: {group_pattern_value}")
         return lines
 
     def _paint_cycle_overlay(self, painter: QPainter) -> None:
