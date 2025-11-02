@@ -224,15 +224,25 @@ Fill mode zooms the overlay uniformly, which means we sometimes have to translat
   "grouping": {
     "mode": "id_prefix",
     "prefixes": {
-      "metrics": "edmcma.metric.",
-      "alerts": "edmcma.alert."
+      "metrics": {
+        "prefix": "edmcma.metric.",
+        "transform": {
+          "offset": { "x": 0.0, "y": 0.0 }
+        }
+      },
+      "alerts": {
+        "prefix": "edmcma.alert.",
+        "transform": {
+          "offset": { "x": 0.0, "y": -40.0 }
+        }
+      }
     }
   }
 }
 ```
 
 - `"plugin"` keeps every payload from the plugin in one rigid group (useful for single-widget overlays such as LandingPad).
-- `"id_prefix"` splits the plugin into named groups so unrelated widgets can move independently.
+- `"id_prefix"` splits the plugin into named groups so unrelated widgets can move independently; each entry may also carry default overrides (`transform`, `x_scale`, `x_shift`) that apply only to that prefix.
 - If a prefix isn’t listed, the renderer falls back to per-item grouping for that payload.
 
 ## Testing Your Overrides

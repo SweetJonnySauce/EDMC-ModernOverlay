@@ -68,3 +68,45 @@ def test_grouping_mode_id_prefix(override_file: Path) -> None:
     assert metrics_key == ("Example", "metrics")
     assert alerts_key == ("Example", "alerts")
     assert fallback_key == ("Example", None)
+
+
+def test_grouping_prefix_defaults_apply(override_file: Path) -> None:
+    override_file.write_text(
+        json.dumps(
+            {
+                "Example": {
+                    "grouping": {
+                        "mode": "id_prefix",
+                        "prefixes": {
+                            "alerts": {
+                                "prefix": "example.alert.",
+                                "transform": {
+                                    "offset": {"x": 5.0, "y": -10.0}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = _make_manager(override_file)
+    payload = {
+        "type": "message",
+        "id": "example.alert.value",
+        "text": "Warning",
+        "color": "white",
+        "x": 0,
+        "y": 0,
+        "ttl": 4,
+        "plugin": "Example",
+    }
+    manager.apply(payload)
+
+    transform_meta = payload.get("__mo_transform__")
+    assert isinstance(transform_meta, dict)
+    offset = transform_meta.get("offset")
+    assert isinstance(offset, dict)
+    assert offset.get("x") == 5.0
+    assert offset.get("y") == -10.0

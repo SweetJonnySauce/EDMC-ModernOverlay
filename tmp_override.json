@@ -1,0 +1,1 @@
+{"Example": {"grouping": {"mode": "id_prefix", "prefixes": {"alerts": {"prefix": "example.alert.", "transform": {"offset": {"x": 5.0, "y": -10.0}}}}}}}

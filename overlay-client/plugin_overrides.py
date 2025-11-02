@@ -15,6 +15,13 @@ JsonDict = Dict[str, Any]
 
 
 @dataclass
+class _GroupSpec:
+    prefix: str
+    label: Optional[str]
+    defaults: Optional[JsonDict]
+
+
+@dataclass
 class _PluginConfig:
     name: str
     canonical_name: str
@@ -22,7 +29,7 @@ class _PluginConfig:
     overrides: List[Tuple[str, JsonDict]]
     plugin_defaults: Optional[JsonDict]
     group_mode: Optional[str]
-    group_prefixes: Tuple[Tuple[str, str], ...]
+    group_specs: Tuple[_GroupSpec, ...]
 
 
 class PluginOverrideManager:
@@ -83,6 +90,23 @@ class PluginOverrideManager:
             )
             if trace_defaults:
                 self._log_trace(display_name, message_id, "after_defaults", payload)
+
+        group_defaults = self._group_defaults_for(config, message_id)
+        if group_defaults is not None:
+            label, defaults = group_defaults
+            trace_group = self._should_trace(display_name, message_id)
+            if trace_group:
+                self._log_trace(display_name, message_id, f"group:{label}:before", payload)
+            self._apply_override(
+                display_name,
+                f"group:{label}",
+                defaults,
+                payload,
+                trace=trace_group,
+                message_id=message_id,
+            )
+            if trace_group:
+                self._log_trace(display_name, message_id, f"group:{label}:after", payload)
 
         if not message_id:
             return
@@ -186,7 +210,7 @@ class PluginOverrideManager:
                     match_prefixes = tuple(cleaned)
 
             grouping_mode: Optional[str] = None
-            grouping_prefixes: List[Tuple[str, str]] = []
+            grouping_specs: List[_GroupSpec] = []
             grouping_section = plugin_payload.get("grouping")
             if isinstance(grouping_section, Mapping):
                 mode_raw = grouping_section.get("mode")
@@ -198,17 +222,31 @@ class PluginOverrideManager:
                     prefixes_spec = grouping_section.get("prefixes")
                     if isinstance(prefixes_spec, Mapping):
                         for label, prefix_value in prefixes_spec.items():
-                            if not isinstance(prefix_value, str) or not prefix_value:
-                                continue
-                            prefix_cf = prefix_value.casefold()
-                            if not prefix_cf:
-                                continue
-                            label_str = str(label) if isinstance(label, str) and label else prefix_value
-                            grouping_prefixes.append((prefix_cf, label_str))
+                            prefix_cf: Optional[str] = None
+                            prefix_label: Optional[str] = None
+                            defaults: Optional[JsonDict] = None
+                            if isinstance(prefix_value, str):
+                                prefix_cf = prefix_value.casefold()
+                                prefix_label = str(label) if isinstance(label, str) and label else prefix_value
+                            elif isinstance(prefix_value, Mapping):
+                                raw_prefix = prefix_value.get("prefix")
+                                if isinstance(raw_prefix, str) and raw_prefix:
+                                    prefix_cf = raw_prefix.casefold()
+                                if prefix_cf:
+                                    prefix_label = str(label) if isinstance(label, str) and label else raw_prefix
+                                defaults = {
+                                    key: dict(value) if isinstance(value, Mapping) else value
+                                    for key, value in prefix_value.items()
+                                    if key in {"transform", "x_scale", "x_shift"} and value is not None
+                                }
+                                if not defaults:
+                                    defaults = None
+                            if prefix_cf:
+                                grouping_specs.append(_GroupSpec(prefix=prefix_cf, label=prefix_label, defaults=defaults))
                     elif isinstance(prefixes_spec, Iterable):
                         for entry in prefixes_spec:
                             if isinstance(entry, str) and entry:
-                                grouping_prefixes.append((entry.casefold(), entry))
+                                grouping_specs.append(_GroupSpec(prefix=entry.casefold(), label=entry, defaults=None))
 
             overrides: List[Tuple[str, JsonDict]] = []
             plugin_defaults: JsonDict = {}
@@ -237,7 +275,7 @@ class PluginOverrideManager:
                 overrides=overrides,
                 plugin_defaults=plugin_defaults or None,
                 group_mode=grouping_mode,
-                group_prefixes=tuple(grouping_prefixes),
+                group_specs=tuple(grouping_specs),
             )
 
         self._plugins = plugins
@@ -309,6 +347,19 @@ class PluginOverrideManager:
                 return pattern, spec
         return None
 
+    def _group_defaults_for(self, config: _PluginConfig, message_id: str) -> Optional[Tuple[str, JsonDict]]:
+        if config.group_mode != "id_prefix" or not config.group_specs:
+            return None
+        if not message_id:
+            return None
+        message_id_cf = message_id.casefold()
+        for spec in config.group_specs:
+            if message_id_cf.startswith(spec.prefix):
+                if spec.defaults:
+                    return spec.label or spec.prefix, dict(spec.defaults)
+                break
+        return None
+
     def grouping_key_for(self, plugin: Optional[str], payload_id: Optional[str]) -> Optional[Tuple[str, Optional[str]]]:
         self._reload_if_needed()
         canonical = self._canonical_plugin_name(plugin)
@@ -322,9 +373,9 @@ class PluginOverrideManager:
             return config.name, None
         if mode == "id_prefix" and isinstance(payload_id, str) and payload_id:
             payload_cf = payload_id.casefold()
-            for prefix, label in config.group_prefixes:
-                if payload_cf.startswith(prefix):
-                    return config.name, label
+            for spec in config.group_specs:
+                if payload_cf.startswith(spec.prefix):
+                    return config.name, spec.label or spec.prefix
             return config.name, None
         return None
 
