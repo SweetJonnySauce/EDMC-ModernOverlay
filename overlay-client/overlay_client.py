@@ -602,6 +602,36 @@ class OverlayWindow(QWidget):
             return -scaled_min
         return 0.0
 
+    @staticmethod
+    def _compute_compensation_delta(
+        min_val: float,
+        max_val: float,
+        base_scale: float,
+        effective_scale: float,
+        base_offset: float,
+        extent: float,
+    ) -> float:
+        if not math.isfinite(base_scale) or not math.isfinite(effective_scale):
+            return 0.0
+        if math.isclose(effective_scale, 0.0, abs_tol=1e-9):
+            return 0.0
+        if math.isclose(base_scale, effective_scale, rel_tol=1e-9):
+            return 0.0
+        physical_left = min_val * base_scale + base_offset
+        physical_right = max_val * base_scale + base_offset
+        left_margin = max(physical_left, 0.0)
+        right_margin = max(extent - physical_right, 0.0)
+        safe_scale = effective_scale if not math.isclose(effective_scale, 0.0, abs_tol=1e-9) else 1.0
+        if right_margin + 1e-6 < left_margin:
+            target_physical = min(extent, max(0.0, extent - right_margin))
+            return (target_physical - base_offset) / safe_scale - max_val
+        if left_margin + 1e-6 < right_margin:
+            target_physical = max(0.0, left_margin)
+            return (target_physical - base_offset) / safe_scale - min_val
+        anchor_mid = (min_val + max_val) / 2.0
+        target_physical = anchor_mid * base_scale + base_offset
+        return (target_physical - base_offset) / safe_scale - anchor_mid
+
     def _accumulate_group_bounds(self, bounds: GroupBounds, item: LegacyItem, scale: float) -> None:
         data = item.data
         if not isinstance(data, Mapping):
@@ -678,15 +708,28 @@ class OverlayWindow(QWidget):
             dx = self._compute_fill_delta(bounds.min_x, bounds.max_x, effective_scale, base_offset_x, width)
             dy = self._compute_fill_delta(bounds.min_y, bounds.max_y, effective_scale, base_offset_y, height)
             if group_scale != 1.0:
-                remaining_left = bounds.min_x
-                remaining_right = max(BASE_WIDTH - bounds.max_x, 0.0)
-                anchor_x = bounds.max_x if remaining_right < remaining_left else bounds.min_x
-                remaining_top = bounds.min_y
-                remaining_bottom = max(BASE_HEIGHT - bounds.max_y, 0.0)
-                anchor_y = bounds.max_y if remaining_bottom < remaining_top else bounds.min_y
                 delta_scale = base_scale - effective_scale
-                dx += anchor_x * delta_scale
-                dy += anchor_y * delta_scale
+                canvas_h = BASE_HEIGHT * base_scale
+                if not math.isclose(delta_scale, 0.0, rel_tol=1e-9):
+                    dx = self._compute_compensation_delta(
+                        bounds.min_x,
+                        bounds.max_x,
+                        base_scale,
+                        effective_scale,
+                        base_offset_x,
+                        width,
+                    )
+                if canvas_h > height + 1e-6:
+                    logical_center_y = (bounds.min_y + bounds.max_y) / 2.0
+                    target_center = (logical_center_y / BASE_HEIGHT) * height
+                    current_center = logical_center_y * effective_scale + base_offset_y
+                    dy = target_center - current_center
+                    top = bounds.min_y * effective_scale + base_offset_y + dy
+                    bottom = bounds.max_y * effective_scale + base_offset_y + dy
+                    if top < 0.0:
+                        dy -= top
+                    elif bottom > height:
+                        dy -= bottom - height
             self._group_transform_cache.set(GroupKey(*key_tuple), GroupTransform(dx=dx, dy=dy, scale=group_scale))
 
     def _scaled_point_size(
@@ -848,6 +891,7 @@ class OverlayWindow(QWidget):
                 painter.drawText(2, baseline, text)
             painter.restore()
         self._paint_legacy(painter)
+        self._paint_overlay_outline(painter)
         self._paint_cycle_overlay(painter)
         if self._show_debug_overlay:
             self._paint_debug_overlay(painter)
@@ -2987,6 +3031,134 @@ class OverlayWindow(QWidget):
                 rect.top() + padding + metrics.ascent() + index * line_height,
                 line,
             )
+        painter.restore()
+
+    def _paint_overlay_outline(self, painter: QPainter) -> None:
+        if not self._debug_config.overlay_outline:
+            return
+        mapper = self._compute_legacy_mapper()
+        transform = mapper.transform
+        offset_x, offset_y = transform.offset
+        scaled_w, scaled_h = transform.scaled_size
+        window_w = float(self.width())
+        window_h = float(self.height())
+        left = offset_x
+        top = offset_y
+        right = offset_x + scaled_w
+        bottom = offset_y + scaled_h
+        overflow_left = left < 0.0
+        overflow_right = right > window_w
+        overflow_top = top < 0.0
+        overflow_bottom = bottom > window_h
+        vis_left = max(left, 0.0)
+        vis_right = min(right, window_w)
+        vis_top = max(top, 0.0)
+        vis_bottom = min(bottom, window_h)
+
+        painter.save()
+        pen = QPen(QColor(255, 136, 0))
+        pen.setWidth(4)
+        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+        painter.setPen(pen)
+
+        def draw_vertical_line(x_pos: float) -> None:
+            if vis_top >= vis_bottom:
+                return
+            x = int(round(x_pos))
+            painter.drawLine(x, int(round(vis_top)), x, int(round(vis_bottom)))
+
+        def draw_horizontal_line(y_pos: float) -> None:
+            if vis_left >= vis_right:
+                return
+            y = int(round(y_pos))
+            painter.drawLine(int(round(vis_left)), y, int(round(vis_right)), y)
+
+        arrow_length = 18.0
+        arrow_span_min = 60.0
+        arrow_count = 3
+
+        arrow_tip_margin = 4.0
+
+        def draw_vertical_arrows(edge_x: float, direction: int) -> None:
+            span_start = max(vis_top, 0.0)
+            span_end = min(vis_bottom, window_h)
+            if span_end <= span_start:
+                span_start = 0.0
+                span_end = window_h
+            span = max(span_end - span_start, arrow_span_min)
+            step = span / (arrow_count + 1)
+            if direction > 0:
+                tip_x = min(edge_x - arrow_tip_margin, window_w - arrow_tip_margin)
+                base_x = tip_x - arrow_length
+            else:
+                tip_x = max(edge_x + arrow_tip_margin, arrow_tip_margin)
+                base_x = tip_x + arrow_length
+            for i in range(1, arrow_count + 1):
+                y = span_start + step * i
+                painter.drawLine(int(round(base_x)), int(round(y)), int(round(tip_x)), int(round(y)))
+                painter.drawLine(
+                    int(round(tip_x)),
+                    int(round(y)),
+                    int(round(tip_x - direction * arrow_length * 0.45)),
+                    int(round(y - arrow_length * 0.4)),
+                )
+                painter.drawLine(
+                    int(round(tip_x)),
+                    int(round(y)),
+                    int(round(tip_x - direction * arrow_length * 0.45)),
+                    int(round(y + arrow_length * 0.4)),
+                )
+
+        def draw_horizontal_arrows(edge_y: float, direction: int) -> None:
+            span_start = max(vis_left, 0.0)
+            span_end = min(vis_right, window_w)
+            if span_end <= span_start:
+                span_start = 0.0
+                span_end = window_w
+            span = max(span_end - span_start, arrow_span_min)
+            step = span / (arrow_count + 1)
+            for i in range(1, arrow_count + 1):
+                x = span_start + step * i
+                if direction > 0:
+                    tip_y = min(edge_y - arrow_tip_margin, window_h - arrow_tip_margin)
+                    base_y = tip_y - arrow_length
+                else:
+                    tip_y = max(edge_y + arrow_tip_margin, arrow_tip_margin)
+                    base_y = tip_y + arrow_length
+                painter.drawLine(int(round(x)), int(round(base_y)), int(round(x)), int(round(tip_y)))
+                painter.drawLine(
+                    int(round(x)),
+                    int(round(tip_y)),
+                    int(round(x - arrow_length * 0.35)),
+                    int(round(tip_y - direction * arrow_length * 0.4)),
+                )
+                painter.drawLine(
+                    int(round(x)),
+                    int(round(tip_y)),
+                    int(round(x + arrow_length * 0.35)),
+                    int(round(tip_y - direction * arrow_length * 0.4)),
+                )
+
+        if not overflow_left:
+            draw_vertical_line(vis_left)
+        else:
+            draw_vertical_arrows(max(vis_left, 0.0), direction=-1)
+
+        if not overflow_right:
+            draw_vertical_line(vis_right)
+        else:
+            draw_vertical_arrows(min(vis_right, window_w), direction=1)
+
+        if not overflow_top:
+            draw_horizontal_line(vis_top)
+        else:
+            draw_horizontal_arrows(max(vis_top, 0.0), direction=-1)
+
+        if not overflow_bottom:
+            draw_horizontal_line(vis_bottom)
+        else:
+            draw_horizontal_arrows(min(vis_bottom, window_h), direction=1)
+
         painter.restore()
 
     def _apply_legacy_scale(self) -> None:

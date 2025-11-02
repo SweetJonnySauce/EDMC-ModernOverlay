@@ -15,80 +15,79 @@
     "grouping": {
       "mode": "plugin"
     }
-  }
-},
-"bgstally": {
-  "__match__": {
-    "id_prefixes": [
-      "bgstally-"
-    ]
   },
-  "notes": [
-    "I wanted a smaller text for BGS tally, but it left a large gap between lines.",
-    "So I scale down vertically to close the gap."
-  ],
-  "grouping": {
-    "mode": "id_prefix",
-    "groups": {
-      "colonisation": {
-        "id_prefixes": [
-          "bgstally-msg-colonisation-"
-        ],
-        "transform": {
-          "scale": {
-            "x": 1.0,
-            "y": 1.0
+  "bgstally": {
+    "__match__": {
+      "id_prefixes": [
+        "bgstally-"
+      ]
+    },
+    "notes": [
+      "I wanted a smaller text for BGS tally, but it left a large gap between lines.",
+      "So I scale down vertically to close the gap."
+    ],
+    "grouping": {
+      "mode": "id_prefix",
+      "groups": {
+        "colonisation": {
+          "id_prefixes": [
+            "bgstally-msg-colonisation-"
+          ],
+          "transform": {
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            }
+          }
+        },
+        "tick-notifications": {
+          "id_prefixes": [
+            "bgstally-frame-tick",
+            "bgstally-msg-tick-0",
+            "bgstally-frame-system_tick",
+            "bgstally-msg-system_tick-0"
+          ],
+          "transform": {
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            }
           }
         }
-      },
-      "tick-notifications": {
-        "id_prefixes": [
-          "bgstally-frame-tick",
-          "bgstally-msg-tick-0",
-          "bgstally-frame-system_tick",
-          "bgstally-msg-system_tick-0"
-        ],
-        "transform": {
-          "scale": {
-            "x": 1.0,
-            "y": 1.0
+      }
+    }
+  },
+  "EDR": {
+    "notes": [
+      "EDR omits the plugin field in its overlay payloads, so Modern Overlay cannot infer the source.",
+      "Treat any payload whose id starts with 'EDR-' as belonging to EDR so the payload finder shows the correct plugin name.",
+      "Group docking overlays by id prefix so Fill mode keeps related elements aligned."
+    ],
+    "__match__": {
+      "id_prefixes": [
+        "edr-"
+      ]
+    },
+    "grouping": {
+      "mode": "id_prefix",
+      "groups": {
+        "docking": {
+          "id_prefixes": [
+            "edr-docking-",
+            "edr-docking-station-"
+          ],
+          "transform": {
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "offset": {
+              "x": 0.0,
+              "y": 0.0
+            }
           }
         }
       }
     }
   }
-},
-"EDR": {
-  "notes": [
-    "EDR omits the plugin field in its overlay payloads, so Modern Overlay cannot infer the source.",
-    "Treat any payload whose id starts with 'EDR-' as belonging to EDR so the payload finder shows the correct plugin name.",
-    "Group docking overlays by id prefix so Fill mode keeps related elements aligned."
-  ],
-  "__match__": {
-    "id_prefixes": [
-      "edr-"
-    ]
-  },
-  "grouping": {
-    "mode": "id_prefix",
-    "groups": {
-      "docking": {
-        "id_prefixes": [
-          "edr-docking-",
-          "edr-docking-station-"
-        ],
-        "transform": {
-          "scale": {
-            "x": 1.0,
-            "y": 1.0
-          },
-          "offset": {
-            "x": 0.0,
-            "y": 0.0
-          }
-        }
-      }
-    }
-  }
-}
 }

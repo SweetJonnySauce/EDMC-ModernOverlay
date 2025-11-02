@@ -157,9 +157,34 @@ def main() -> None:
     root.minsize(width, height)
     root.configure(background="black")
 
+    def _aspect_ratio_label(w: int, h: int) -> str:
+        if w <= 0 or h <= 0:
+            return ""
+        ratio = w / float(h)
+        known = [
+            (32 / 9, "32:9"),
+            (21 / 9, "21:9"),
+            (18 / 9, "18:9"),
+            (16 / 10, "16:10"),
+            (16 / 9, "16:9"),
+            (4 / 3, "4:3"),
+            (5 / 4, "5:4"),
+            (1.0, "1:1"),
+        ]
+        for target, label in known:
+            if target > 0 and abs(ratio - target) / target < 0.03:
+                return label
+        from math import gcd
+
+        d = gcd(w, h)
+        return f"{w // d}:{h // d}"
+
+    aspect = _aspect_ratio_label(width, height)
+    ratio_text = f" ({aspect})" if aspect else ""
+
     info = tk.Label(
         root,
-        text=f"{args.title}\n{width}x{height}",
+        text=f"{args.title}\n{width}x{height}{ratio_text}",
         fg="#FFA500",
         bg="black",
         font=("Helvetica", 16, "bold"),

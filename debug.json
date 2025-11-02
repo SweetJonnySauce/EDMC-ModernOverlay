@@ -1,5 +1,5 @@
 {
-  "trace_enabled": true,
+  "trace_enabled": false,
   "plugin": "LandingPad",
   "payload_ids": [
     "line-2",
@@ -12,5 +12,7 @@
     "exclude_plugins": [
       "bgstally"
     ]
-  }
+  },
+  "fill_group_debug": true,
+  "overlay_outline": true
 }
