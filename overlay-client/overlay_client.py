@@ -516,6 +516,12 @@ class OverlayWindow(QWidget):
             return False
         return override_manager.group_is_configured(plugin_label, suffix)
 
+    def _group_preserve_fill_aspect(self, plugin_label: Optional[str], suffix: Optional[str]) -> Tuple[bool, str]:
+        override_manager = getattr(self, "_override_manager", None)
+        if override_manager is None:
+            return True, "first"
+        return override_manager.group_preserve_fill_aspect(plugin_label, suffix)
+
     @staticmethod
     def _safe_float(value: Any, default: float = 0.0) -> float:
         try:
@@ -536,6 +542,19 @@ class OverlayWindow(QWidget):
         if not math.isfinite(prop_y) or math.isclose(prop_y, 0.0, rel_tol=1e-9):
             prop_y = 1.0
         return transform.dx / (scale * prop_x), transform.dy / (scale * prop_y)
+
+    @staticmethod
+    def _fill_preserve_offsets(transform: Optional[GroupTransform]) -> Tuple[float, float]:
+
+        if transform is None:
+            return 0.0, 0.0
+        dx = transform.preserve_dx if isinstance(transform.preserve_dx, (int, float)) else 0.0
+        dy = transform.preserve_dy if isinstance(transform.preserve_dy, (int, float)) else 0.0
+        if not math.isfinite(dx):
+            dx = 0.0
+        if not math.isfinite(dy):
+            dy = 0.0
+        return dx, dy
 
     def _fill_proportional_factors(
         self,
@@ -789,6 +808,39 @@ class OverlayWindow(QWidget):
         except (TypeError, ValueError):
             pass
 
+    def _determine_group_anchor(self, item: LegacyItem) -> Tuple[float, float]:
+
+        data = item.data
+        if not isinstance(data, Mapping):
+            return 0.0, 0.0
+        logical = self._logical_mapping(data)
+        transform_meta = data.get("__mo_transform__") if isinstance(data, Mapping) else None
+        kind = item.kind
+        try:
+            if kind == "vector":
+                points = logical.get("points") if isinstance(logical, Mapping) else None
+                if not isinstance(points, list) or not points:
+                    points = data.get("points") if isinstance(data, Mapping) else None
+                if isinstance(points, list):
+                    for point in points:
+                        if not isinstance(point, Mapping):
+                            continue
+                        px = self._safe_float(point.get("x"), 0.0)
+                        py = self._safe_float(point.get("y"), 0.0)
+                        return self._apply_transform_meta_to_point(transform_meta, px, py, 0.0, 0.0)
+                return 0.0, 0.0
+            if kind == "rect":
+                px = self._safe_float(logical.get("x", data.get("x", 0.0)), 0.0)
+                py = self._safe_float(logical.get("y", data.get("y", 0.0)), 0.0)
+                return self._apply_transform_meta_to_point(transform_meta, px, py, 0.0, 0.0)
+            if kind == "message":
+                px = self._safe_float(logical.get("x", data.get("x", 0.0)), 0.0)
+                py = self._safe_float(logical.get("y", data.get("y", 0.0)), 0.0)
+                return self._apply_transform_meta_to_point(transform_meta, px, py, 0.0, 0.0)
+        except (TypeError, ValueError):
+            return 0.0, 0.0
+        return 0.0, 0.0
+
     def _prepare_fill_group_transforms(self, mapper: _LegacyMapper) -> None:
         self._group_transform_cache.reset()
         if mapper.transform.mode is not ScaleMode.FILL:
@@ -797,10 +849,13 @@ class OverlayWindow(QWidget):
         if scale <= 0.0:
             scale = 1.0
         group_bounds: Dict[Tuple[str, Optional[str]], GroupBounds] = {}
+        group_anchor: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         for item_id, legacy_item in self._legacy_items.items():
             group_key = self._group_key_for_item(item_id, legacy_item.plugin)
             bounds = group_bounds.setdefault(group_key.as_tuple(), GroupBounds())
             self._accumulate_group_bounds(bounds, legacy_item, scale)
+            if group_key.as_tuple() not in group_anchor:
+                group_anchor[group_key.as_tuple()] = self._determine_group_anchor(legacy_item)
         base_offset_x = mapper.offset_x
         base_offset_y = mapper.offset_y
         width = float(self.width())
@@ -817,35 +872,59 @@ class OverlayWindow(QWidget):
             if compensate_scale != 1.0 and self._group_has_override(plugin_label, suffix):
                 group_scale = compensate_scale
             effective_scale = scale * group_scale
-            proportion_x = self._compute_fill_proportion(
+            raw_proportion_x = self._compute_fill_proportion(
                 BASE_WIDTH,
                 effective_scale,
                 width,
                 mapper.transform.overflow_x,
             )
-            proportion_y = self._compute_fill_proportion(
+            raw_proportion_y = self._compute_fill_proportion(
                 BASE_HEIGHT,
                 effective_scale,
                 height,
                 mapper.transform.overflow_y,
             )
             proportion_x, proportion_y = self._normalise_group_proportions(
-                proportion_x,
-                proportion_y,
+                raw_proportion_x,
+                raw_proportion_y,
                 mapper.transform.overflow_x,
                 mapper.transform.overflow_y,
             )
+            preserve_enabled, preserve_anchor = self._group_preserve_fill_aspect(plugin_label, suffix)
+            anchor_coords = group_anchor.get(key_tuple)
+            anchor_x, anchor_y = anchor_coords if anchor_coords is not None else (0.0, 0.0)
+            if preserve_anchor == "centroid" or anchor_coords is None:
+                if bounds.is_valid():
+                    anchor_x = (bounds.min_x + bounds.max_x) / 2.0
+                    anchor_y = (bounds.min_y + bounds.max_y) / 2.0
+                else:
+                    anchor_x = anchor_y = 0.0
+            preserve_dx = 0.0
+            preserve_dy = 0.0
+            min_x_for_delta = bounds.min_x
+            max_x_for_delta = bounds.max_x
+            min_y_for_delta = bounds.min_y
+            max_y_for_delta = bounds.max_y
+            if preserve_enabled:
+                preserve_dx = anchor_x * (raw_proportion_x - 1.0)
+                preserve_dy = anchor_y * (raw_proportion_y - 1.0)
+                proportion_x = 1.0
+                proportion_y = 1.0
+                min_x_for_delta = bounds.min_x + preserve_dx
+                max_x_for_delta = bounds.max_x + preserve_dx
+                min_y_for_delta = bounds.min_y + preserve_dy
+                max_y_for_delta = bounds.max_y + preserve_dy
             dx = self._compute_fill_delta(
-                bounds.min_x,
-                bounds.max_x,
+                min_x_for_delta,
+                max_x_for_delta,
                 effective_scale,
                 base_offset_x,
                 width,
                 proportion_x,
             )
             dy = self._compute_fill_delta(
-                bounds.min_y,
-                bounds.max_y,
+                min_y_for_delta,
+                max_y_for_delta,
                 effective_scale,
                 base_offset_y,
                 height,
@@ -856,8 +935,8 @@ class OverlayWindow(QWidget):
                 canvas_h = BASE_HEIGHT * base_scale
                 if not math.isclose(delta_scale, 0.0, rel_tol=1e-9):
                     dx = self._compute_compensation_delta(
-                        bounds.min_x,
-                        bounds.max_x,
+                        min_x_for_delta,
+                        max_x_for_delta,
                         base_scale,
                         effective_scale,
                         base_offset_x,
@@ -867,10 +946,10 @@ class OverlayWindow(QWidget):
                 if canvas_h > height + 1e-6:
                     logical_center_y = (bounds.min_y + bounds.max_y) / 2.0
                     target_center = (logical_center_y / BASE_HEIGHT) * height
-                    current_center = logical_center_y * proportion_y * effective_scale + base_offset_y
+                    current_center = (logical_center_y * proportion_y + preserve_dy) * effective_scale + base_offset_y
                     dy = target_center - current_center
-                    top = bounds.min_y * proportion_y * effective_scale + base_offset_y + dy
-                    bottom = bounds.max_y * proportion_y * effective_scale + base_offset_y + dy
+                    top = (bounds.min_y * proportion_y + preserve_dy) * effective_scale + base_offset_y + dy
+                    bottom = (bounds.max_y * proportion_y + preserve_dy) * effective_scale + base_offset_y + dy
                     if top < 0.0:
                         dy -= top
                     elif bottom > height:
@@ -883,6 +962,8 @@ class OverlayWindow(QWidget):
                     scale=group_scale,
                     proportion_x=proportion_x,
                     proportion_y=proportion_y,
+                    preserve_dx=preserve_dx,
+                    preserve_dy=preserve_dy,
                 ),
             )
 
@@ -2801,8 +2882,9 @@ class OverlayWindow(QWidget):
             fill_dy_overlay,
         )
         prop_x, prop_y = self._fill_proportional_factors(mapper, group_transform)
-        adjusted_left *= prop_x
-        adjusted_top *= prop_y
+        preserve_dx, preserve_dy = self._fill_preserve_offsets(group_transform)
+        adjusted_left = adjusted_left * prop_x + preserve_dx
+        adjusted_top = adjusted_top * prop_y + preserve_dy
         text = str(item.get("text", ""))
         x = int(round(adjusted_left * scale + base_offset_x))
         metrics = painter.fontMetrics()
@@ -2918,8 +3000,11 @@ class OverlayWindow(QWidget):
             for cx, cy in corners_raw
         ]
         prop_x, prop_y = self._fill_proportional_factors(mapper, group_transform)
-        if not math.isclose(prop_x, 1.0, rel_tol=1e-9) or not math.isclose(prop_y, 1.0, rel_tol=1e-9):
-            transformed_overlay = [(pt_x * prop_x, pt_y * prop_y) for pt_x, pt_y in transformed_overlay]
+        preserve_dx, preserve_dy = self._fill_preserve_offsets(group_transform)
+        transformed_overlay = [
+            (pt_x * prop_x + preserve_dx, pt_y * prop_y + preserve_dy)
+            for pt_x, pt_y in transformed_overlay
+        ]
         xs_overlay = [pt[0] for pt in transformed_overlay]
         ys_overlay = [pt[1] for pt in transformed_overlay]
         min_x_overlay = min(xs_overlay)
@@ -2982,6 +3067,7 @@ class OverlayWindow(QWidget):
         fill_dx_overlay, fill_dy_overlay = self._fill_overlay_delta(scale, group_transform)
         transform_meta = item.get("__mo_transform__")
         prop_x, prop_y = self._fill_proportional_factors(mapper, group_transform)
+        preserve_dx, preserve_dy = self._fill_preserve_offsets(group_transform)
         if trace_enabled:
             self._log_legacy_trace(
                 plugin_name,
@@ -3020,8 +3106,8 @@ class OverlayWindow(QWidget):
                 fill_dy_overlay,
             )
             new_point = dict(point)
-            new_point["x"] = adj_x * prop_x
-            new_point["y"] = adj_y * prop_y
+            new_point["x"] = adj_x * prop_x + preserve_dx
+            new_point["y"] = adj_y * prop_y + preserve_dy
             transformed_points.append(new_point)
         if len(transformed_points) < 2:
             return None
