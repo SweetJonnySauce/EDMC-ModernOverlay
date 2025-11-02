@@ -16,8 +16,8 @@ JsonDict = Dict[str, Any]
 
 @dataclass
 class _GroupSpec:
-    prefix: str
     label: Optional[str]
+    prefixes: Tuple[str, ...]
     defaults: Optional[JsonDict]
 
 
@@ -219,34 +219,82 @@ class PluginOverrideManager:
                     if mode_token in {"plugin", "id_prefix"}:
                         grouping_mode = mode_token
                 if grouping_mode == "id_prefix":
+                    def _capture_defaults(source: Mapping[str, Any]) -> Optional[JsonDict]:
+                        defaults: JsonDict = {}
+                        for key in ("transform", "x_scale", "x_shift"):
+                            if key not in source:
+                                continue
+                            value = source[key]
+                            if value is None:
+                                continue
+                            defaults[key] = dict(value) if isinstance(value, Mapping) else value
+                        return defaults or None
+
+                    groups_spec = grouping_section.get("groups")
+                    if isinstance(groups_spec, Mapping):
+                        for label, group_value in groups_spec.items():
+                            if not isinstance(group_value, Mapping):
+                                continue
+                            prefixes_field = group_value.get("id_prefixes")
+                            prefixes_list: List[str] = []
+                            if isinstance(prefixes_field, str) and prefixes_field:
+                                prefixes_list = [prefixes_field]
+                            elif isinstance(prefixes_field, Iterable):
+                                for entry in prefixes_field:
+                                    if isinstance(entry, str) and entry:
+                                        prefixes_list.append(entry)
+                            if not prefixes_list:
+                                single_prefix = group_value.get("prefix")
+                                if isinstance(single_prefix, str) and single_prefix:
+                                    prefixes_list = [single_prefix]
+                            cleaned_prefixes = tuple(prefix.casefold() for prefix in prefixes_list if prefix)
+                            if not cleaned_prefixes:
+                                continue
+                            group_label = str(label).strip() if isinstance(label, str) and label else None
+                            defaults = _capture_defaults(group_value)
+                            grouping_specs.append(
+                                _GroupSpec(
+                                    label=group_label,
+                                    prefixes=cleaned_prefixes,
+                                    defaults=defaults,
+                                )
+                            )
+
                     prefixes_spec = grouping_section.get("prefixes")
                     if isinstance(prefixes_spec, Mapping):
                         for label, prefix_value in prefixes_spec.items():
-                            prefix_cf: Optional[str] = None
-                            prefix_label: Optional[str] = None
+                            prefixes: List[str] = []
                             defaults: Optional[JsonDict] = None
+                            label_value: Optional[str] = None
                             if isinstance(prefix_value, str):
-                                prefix_cf = prefix_value.casefold()
-                                prefix_label = str(label) if isinstance(label, str) and label else prefix_value
+                                prefixes = [prefix_value]
+                                label_value = str(label) if isinstance(label, str) and label else prefix_value
                             elif isinstance(prefix_value, Mapping):
                                 raw_prefix = prefix_value.get("prefix")
                                 if isinstance(raw_prefix, str) and raw_prefix:
-                                    prefix_cf = raw_prefix.casefold()
-                                if prefix_cf:
-                                    prefix_label = str(label) if isinstance(label, str) and label else raw_prefix
-                                defaults = {
-                                    key: dict(value) if isinstance(value, Mapping) else value
-                                    for key, value in prefix_value.items()
-                                    if key in {"transform", "x_scale", "x_shift"} and value is not None
-                                }
-                                if not defaults:
-                                    defaults = None
-                            if prefix_cf:
-                                grouping_specs.append(_GroupSpec(prefix=prefix_cf, label=prefix_label, defaults=defaults))
+                                    prefixes = [raw_prefix]
+                                label_value = str(label) if isinstance(label, str) and label else (raw_prefix or None)
+                                defaults = _capture_defaults(prefix_value)
+                            cleaned_prefixes = tuple(prefix.casefold() for prefix in prefixes if prefix)
+                            if not cleaned_prefixes:
+                                continue
+                            grouping_specs.append(
+                                _GroupSpec(
+                                    label=label_value,
+                                    prefixes=cleaned_prefixes,
+                                    defaults=defaults,
+                                )
+                            )
                     elif isinstance(prefixes_spec, Iterable):
                         for entry in prefixes_spec:
                             if isinstance(entry, str) and entry:
-                                grouping_specs.append(_GroupSpec(prefix=entry.casefold(), label=entry, defaults=None))
+                                grouping_specs.append(
+                                    _GroupSpec(
+                                        label=entry,
+                                        prefixes=(entry.casefold(),),
+                                        defaults=None,
+                                    )
+                                )
 
             overrides: List[Tuple[str, JsonDict]] = []
             plugin_defaults: JsonDict = {}
@@ -354,9 +402,10 @@ class PluginOverrideManager:
             return None
         message_id_cf = message_id.casefold()
         for spec in config.group_specs:
-            if message_id_cf.startswith(spec.prefix):
+            if any(message_id_cf.startswith(prefix) for prefix in spec.prefixes):
+                label_value = spec.label or (spec.prefixes[0] if spec.prefixes else "")
                 if spec.defaults:
-                    return spec.label or spec.prefix, dict(spec.defaults)
+                    return label_value, dict(spec.defaults)
                 break
         return None
 
@@ -374,8 +423,9 @@ class PluginOverrideManager:
         if mode == "id_prefix" and isinstance(payload_id, str) and payload_id:
             payload_cf = payload_id.casefold()
             for spec in config.group_specs:
-                if payload_cf.startswith(spec.prefix):
-                    return config.name, spec.label or spec.prefix
+                if any(payload_cf.startswith(prefix) for prefix in spec.prefixes):
+                    label_value = spec.label or (spec.prefixes[0] if spec.prefixes else None)
+                    return config.name, label_value
             return config.name, None
         return None
 

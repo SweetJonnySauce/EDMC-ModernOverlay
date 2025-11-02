@@ -110,3 +110,55 @@ def test_grouping_prefix_defaults_apply(override_file: Path) -> None:
     assert isinstance(offset, dict)
     assert offset.get("x") == 5.0
     assert offset.get("y") == -10.0
+
+
+def test_grouping_groups_block_applies_shared_transform(override_file: Path) -> None:
+    override_file.write_text(
+        json.dumps(
+            {
+                "EDR": {
+                    "grouping": {
+                        "mode": "id_prefix",
+                        "groups": {
+                            "docking": {
+                                "id_prefixes": [
+                                    "edr-docking-",
+                                    "edr-docking-station-"
+                                ],
+                                "transform": {
+                                    "offset": {"x": 0.0, "y": -100.0}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = _make_manager(override_file)
+    payload = {
+        "type": "shape",
+        "shape": "rect",
+        "id": "edr-docking-panel",
+        "plugin": "EDR",
+        "ttl": 4,
+        "x": 10,
+        "y": 20,
+        "w": 5,
+        "h": 5,
+    }
+
+    manager.apply(payload)
+
+    transform_meta = payload.get("__mo_transform__")
+    assert isinstance(transform_meta, dict)
+    offset = transform_meta.get("offset")
+    assert isinstance(offset, dict)
+    assert offset.get("y") == -100.0
+
+    grouping_key = manager.grouping_key_for("EDR", "edr-docking-panel")
+    assert grouping_key == ("EDR", "docking")
+
+    grouping_key_station = manager.grouping_key_for("EDR", "edr-docking-station-bar")
+    assert grouping_key_station == ("EDR", "docking")
