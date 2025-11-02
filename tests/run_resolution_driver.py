@@ -20,9 +20,15 @@ DEFAULT_CONFIG_PATH = PROJECT_ROOT / "test_resolution.json"
 PORT_PATH = PROJECT_ROOT / "port.json"
 
 MOCK_WINDOW_PATH = TESTS_DIR / "mock_elite_window.py"
-SEND_LANDINGPAD_PATH = TESTS_DIR / "send_overlay_landingpad.py"
 SEND_SHAPE_PATH = TESTS_DIR / "send_overlay_shape.py"
 SEND_TEXT_PATH = TESTS_DIR / "send_overlay_text.py"
+SEND_FROM_LOG_PATH = TESTS_DIR / "send_overlay_from_log.py"
+
+DEFAULT_LOG_REPLAYS: Dict[str, float] = {
+    str(TESTS_DIR / "edr-docking.log"): 2.0,
+    str(TESTS_DIR / "landingpad.log"): 2.0,
+}
+LOG_REPLAY_TTL = 2
 
 DEFAULT_TITLE = "Elite - Dangerous (Stub)"
 DEFAULT_WINDOW_DELAY = 1.0
@@ -140,24 +146,13 @@ def _terminate_process(process: Optional[subprocess.Popen[Any]]) -> None:
         process.wait(timeout=1.0)
 
 
-def _run_overlay_payloads(
-    ttl_seconds: float,
-    *,
-    resolution: Tuple[int, int],
-    phase: Optional[str] = None,
-) -> None:
-    ttl_arg = str(max(1, int(round(ttl_seconds))))
-    width, height = resolution
-    phase_label = f"{phase}: " if phase else ""
-    text_message = (
-        f"{phase_label}Resolution {width}x{height}"
-    )
-    commands = [
-        [sys.executable, str(SEND_LANDINGPAD_PATH), "--ttl", ttl_arg],
-        [sys.executable, str(SEND_SHAPE_PATH), "--ttl", ttl_arg],
-        [sys.executable, str(SEND_TEXT_PATH), text_message, "--ttl", ttl_arg],
-    ]
-    for command in commands:
+def _run_overlay_sequences(sequences: Iterable[Mapping[str, Any]]) -> None:
+    for entry in sequences:
+        if not isinstance(entry, Mapping):
+            continue
+        command = entry.get("command")
+        if not isinstance(command, list):
+            continue
         _run_subprocess(command)
 
 
@@ -200,6 +195,7 @@ def run_driver(
     config_path: Path,
     ttl: float,
     window_delay: float = DEFAULT_WINDOW_DELAY,
+    overlay_sequences: Optional[List[Mapping[str, Any]]] = None,
 ) -> None:
     _log(f"Loading resolution config from {config_path} …")
     resolutions = _load_resolutions(config_path)
@@ -221,25 +217,29 @@ def run_driver(
             mock_process = _launch_mock_window(width, height)
             time.sleep(max(0.1, window_delay))
 
-            first_duration = ttl / 2.0
-            second_duration = max(0.0, ttl - first_duration)
+            time.sleep(1.0)
+            if overlay_sequences:
+                _run_overlay_sequences(overlay_sequences)
+            time.sleep(1.0)
 
-            _run_overlay_payloads(
-                first_duration,
-                resolution=(width, height),
-                phase="first-half",
-            )
-            _log(f"Holding resolution for {first_duration:.2f}s (first half) …")
-            time.sleep(max(0.1, first_duration))
-
-            second_duration = max(0.1, second_duration)
-            _run_overlay_payloads(
-                second_duration,
-                resolution=(width, height),
-                phase="second-half",
-            )
-            _log(f"Holding resolution for {second_duration:.2f}s (second half) …")
-            time.sleep(max(0.1, second_duration))
+            shape_command = [
+                sys.executable,
+                str(SEND_SHAPE_PATH),
+                "--ttl",
+                str(int(LOG_REPLAY_TTL)),
+            ]
+            text_message = f"Resolution {width}x{height}"
+            text_command = [
+                sys.executable,
+                str(SEND_TEXT_PATH),
+                text_message,
+                "--ttl",
+                str(int(LOG_REPLAY_TTL)),
+            ]
+            _run_subprocess(shape_command)
+            time.sleep(1.0)
+            _run_subprocess(text_command)
+            time.sleep(5.0)
 
         _log("Resolution sweep completed successfully.")
     finally:
@@ -278,11 +278,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ttl = max(1.0, float(args.ttl))
     window_delay = max(0.1, float(args.window_delay))
 
+    sequences: List[Mapping[str, Any]] = []
+    for log_path, _ in DEFAULT_LOG_REPLAYS.items():
+        sequences.append(
+            {
+                "command": [
+                    sys.executable,
+                    str(SEND_FROM_LOG_PATH),
+                    "--logfile",
+                    str(log_path),
+                    "--ttl",
+                    str(int(LOG_REPLAY_TTL)),
+                    "--max-payloads",
+                    "0",
+                ],
+            }
+        )
+
     try:
         run_driver(
             config_path=args.config.resolve(),
             ttl=ttl,
             window_delay=window_delay,
+            overlay_sequences=sequences,
         )
     except DriverError as exc:
         _log(f"ERROR: {exc}")

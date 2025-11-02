@@ -126,15 +126,33 @@ def _resolve_logfile(path_str: str) -> Path:
     _fail(f"Log file not found: {path_str}")
 
 
+def _extract_json_segment(line: str, line_no: int) -> Optional[Dict[str, Any]]:
+    """Return the first JSON object found in a log line."""
+    start = line.find("{")
+    if start == -1:
+        return None
+    segment = line[start:]
+    try:
+        return json.loads(segment)
+    except json.JSONDecodeError:
+        _print_step(f"Skipping line {line_no}: JSON decode failed.")
+        return None
+
+
 def _extract_payload(
-    record: Dict[str, Any],
+    raw_line: str,
     line_no: int,
     *,
     ttl_override: Optional[int],
 ) -> Optional[Tuple[str, Dict[str, Any]]]:
+    record = _extract_json_segment(raw_line, line_no)
+    if record is None:
+        return None
     payload_obj = record.get("raw")
     if not isinstance(payload_obj, dict):
         payload_obj = record.get("payload")
+    if not isinstance(payload_obj, dict):
+        payload_obj = record
     if not isinstance(payload_obj, dict):
         _print_step(f"Skipping line {line_no}: payload object not found.")
         return None
@@ -205,23 +223,9 @@ def _build_cli_message(
 def _iter_cli_messages(log_path: Path, ttl_override: Optional[int]) -> Iterable[Dict[str, Any]]:
     with log_path.open("r", encoding="utf-8") as handle:
         for line_no, raw_line in enumerate(handle, start=1):
-            stripped = raw_line.strip()
-            if not stripped:
+            if not raw_line.strip():
                 continue
-            brace_index = stripped.find("{")
-            if brace_index == -1:
-                _print_step(f"Skipping line {line_no}: no JSON payload detected.")
-                continue
-            json_blob = stripped[brace_index:]
-            try:
-                record = json.loads(json_blob)
-            except json.JSONDecodeError as exc:
-                _print_step(f"Skipping line {line_no}: JSON decode error ({exc}).")
-                continue
-            if not isinstance(record, dict):
-                _print_step(f"Skipping line {line_no}: JSON payload is not an object.")
-                continue
-            extracted = _extract_payload(record, line_no, ttl_override=ttl_override)
+            extracted = _extract_payload(raw_line, line_no, ttl_override=ttl_override)
             if not extracted:
                 continue
             event, payload = extracted
