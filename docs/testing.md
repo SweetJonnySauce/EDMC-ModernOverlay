@@ -8,6 +8,8 @@ This document records the test coverage added (or required) for the aspect-ratio
 |-------|---------|---------|
 | Viewport helper | `pytest overlay-client/tests/test_viewport_helper.py` | Confirms the Fit and Fill strategies report expected scale factors and overflow flags for representative window sizes (16:9, 21:9, 4:3, tall portrait). |
 | Vector renderer | `pytest tests/test_vector_renderer.py` | Verifies that vect payloads honour the new `offset_x` / `offset_y` parameters so points, markers, and labels land in the correct pixels. |
+| Group transform cache | `pytest overlay-client/tests/test_group_transform.py` | Checks that per-group bounding boxes accumulate correctly and cache lookups are consistent. |
+| Override grouping parser | `pytest overlay-client/tests/test_override_grouping.py` | Ensures the override manager honours `grouping.mode` and explicit prefix maps when deriving Fill-mode groups. |
 | Import sanity | `python3 -m compileall overlay_plugin overlay-client` | Catches syntax/indent errors in the plugin, preferences UI, and client modules without requiring PyQt at runtime. |
 
 > **Note:** The existing `overlay-client/tests/test_geometry_override.py` suite needs PyQt6 present on the system; run it in environments where Qt is available to catch regressions in window sizing and guard code.
@@ -26,8 +28,13 @@ Because geometry rendering is visual, you should still smoke-test on real overla
    - Toggle the new “Overlay scaling mode” setting in preferences between **Fit** and **Fill**:
      * Fit should pillarbox the canvas—no clipping, equal padding on both sides.
      * Fill should expand the overlay and proportionally compress coordinates so radials still touch the dodecagon while utilising the full width; `scale.mode` should report `fill`.
+   - With `fill_group_debug` set to `true` (see `debug.json`), confirm the log shows a single Δ for every LandingPad payload—evidence that grouping keeps the pad rigid.
 
 3. **Alternative aspect (e.g., 4:3 or 3:2)**  
    - Check that both modes keep payloads visible; Fill will crop the shorter edge but never push geometry off-screen due to the proportional remap.
+
+4. **Prefix-based grouping (e.g., Mining Analytics)**  
+   - Ensure the plugin override declares `grouping.mode = "id_prefix"` with at least two prefixes (metrics vs. alerts).  
+   - Send sample payloads (Mining Analytics’ overlay refresh is sufficient) and, in Fill mode, verify that each prefix logs its own Δ while geometry inside each prefix stays aligned.
 
 Capture screenshots or debug overlay dumps for these steps whenever you introduce a change that affects scaling. That way we keep a rolling visual baseline to compare against regressions.

@@ -1,6 +1,6 @@
 # Fill Mode Baseline (Pre-Grouping)
 
-This note captures what we observed before introducing grouping-aware transforms in Fill mode. Keep it around as a reference when we start validating the new approach.
+This note captures what we observed before introducing grouping-aware transforms in Fill mode. Keep it around as a reference when validating the new approach; the debug logs should now show a consistent Δ per group rather than one per payload.
 
 ## LandingPad, Fill mode (3440×1440 overlay window)
 
