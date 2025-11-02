@@ -48,7 +48,7 @@
       "transform": {
         "scale": {
           "x": 1.0,
-          "y": 0.7,
+          "y": 0.6,
           "scale_anchor_point": {
             "x": 0.0,
             "y": 0.0
@@ -107,6 +107,16 @@
           }
         }
       }
+    }
+  }
+  ,
+  "EDR": {
+    "notes": [
+      "EDR omits the plugin field in its overlay payloads, so Modern Overlay cannot infer the source.",
+      "Treat any payload whose id starts with 'EDR-' as belonging to EDR so the payload finder shows the correct plugin name."
+    ],
+    "__match__": {
+      "id_prefixes": ["edr-"]
     }
   }
 }
