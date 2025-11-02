@@ -2285,19 +2285,45 @@ class OverlayWindow(QWidget):
 
     def _update_auto_legacy_scale(self, width: int, height: int) -> None:
         scale_x, scale_y = self._legacy_scale(use_physical=True)
+        mapper = self._compute_legacy_mapper()
+        transform = mapper.transform
         diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
         self._font_scale_diag = diagonal_scale
         self._update_message_font()
-        current = (round(scale_x, 4), round(scale_y, 4), round(diagonal_scale, 4))
+        current = (
+            round(scale_x, 4),
+            round(scale_y, 4),
+            round(diagonal_scale, 4),
+            round(transform.scale, 4),
+            round(transform.scaled_size[0], 1),
+            round(transform.scaled_size[1], 1),
+            round(mapper.offset_x, 1),
+            round(mapper.offset_y, 1),
+            transform.mode.value,
+            transform.overflow_x,
+            transform.overflow_y,
+        )
         if self._last_logged_scale != current:
             width_px, height_px = self._current_physical_size()
             _CLIENT_LOGGER.debug(
-                "Overlay scaling updated: window=%dx%d px scale_x=%.3f scale_y=%.3f diag=%.2f message_pt=%.1f",
+                (
+                    "Overlay scaling updated: window=%dx%d px mode=%s base_scale=%.4f "
+                    "scale_x=%.3f scale_y=%.3f diag=%.2f scaled=%.1fx%.1f "
+                    "offset=(%.1f,%.1f) overflow_x=%d overflow_y=%d message_pt=%.1f"
+                ),
                 int(round(width_px)),
                 int(round(height_px)),
+                transform.mode.value,
+                transform.scale,
                 scale_x,
                 scale_y,
                 diagonal_scale,
+                transform.scaled_size[0],
+                transform.scaled_size[1],
+                mapper.offset_x,
+                mapper.offset_y,
+                1 if transform.overflow_x else 0,
+                1 if transform.overflow_y else 0,
                 self._debug_message_point_size,
             )
             self._last_logged_scale = current
@@ -2777,7 +2803,8 @@ class OverlayWindow(QWidget):
         if not self._show_debug_overlay:
             return
         frame = self.frameGeometry()
-        scale_x, scale_y = self._legacy_coordinate_scale_factors()
+        mapper = self._compute_legacy_mapper()
+        scale_x, scale_y = mapper.scale_x, mapper.scale_y
         diagonal_scale = self._font_scale_diag
         if diagonal_scale <= 0.0:
             diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
@@ -2850,6 +2877,22 @@ class OverlayWindow(QWidget):
                 raw_line += f" ({raw_ratio})"
             overlay_lines.append(raw_line)
 
+        transform = mapper.transform
+        scaling_lines = [
+            "Scaling:",
+            "  mode={} base_scale={:.4f}".format(transform.mode.value, transform.scale),
+            "  scaled_canvas={:.1f}x{:.1f} offset=({:.1f},{:.1f})".format(
+                transform.scaled_size[0],
+                transform.scaled_size[1],
+                mapper.offset_x,
+                mapper.offset_y,
+            ),
+            "  overflow_x={} overflow_y={}".format(
+                "yes" if transform.overflow_x else "no",
+                "yes" if transform.overflow_y else "no",
+            ),
+        ]
+
         font_lines = [
             "Fonts:",
             "  scale_x={:.2f} scale_y={:.2f} diag={:.2f}".format(scale_x, scale_y, diagonal_scale),
@@ -2870,7 +2913,17 @@ class OverlayWindow(QWidget):
             "  applied_offset={}".format(self._last_title_bar_offset),
         ]
 
-        info_lines = monitor_lines + [""] + overlay_lines + [""] + font_lines + [""] + settings_lines
+        info_lines = (
+            monitor_lines
+            + [""]
+            + overlay_lines
+            + [""]
+            + scaling_lines
+            + [""]
+            + font_lines
+            + [""]
+            + settings_lines
+        )
         painter.save()
         debug_font = QFont(self._font_family, 10)
         painter.setFont(debug_font)

@@ -654,7 +654,12 @@ patterns = {
         r"Recorded WM authoritative rect \((?P<meta>[^)]*)\): actual=\((?P<actual>[^)]*)\) tracker=(?P<tracker>[^;]+);\s*size=(?P<size>[0-9]+x[0-9]+)px(?: scale_x=(?P<scale_x>[0-9.]+) scale_y=(?P<scale_y>[0-9.]+))?"
     ),
     "scaling": re.compile(
-        r"Overlay scaling updated: window=(?P<width>[0-9]+)x(?P<height>[0-9]+) px scale_x=(?P<scale_x>[0-9.]+) scale_y=(?P<scale_y>[0-9.]+) diag=(?P<diag>[0-9.]+) message_pt=(?P<message>[0-9.]+)"
+        r"Overlay scaling updated: window=(?P<width>[0-9]+)x(?P<height>[0-9]+) px "
+        r"mode=(?P<mode>[a-z]+) base_scale=(?P<base_scale>[0-9.]+) "
+        r"scale_x=(?P<scale_x>[0-9.]+) scale_y=(?P<scale_y>[0-9.]+) diag=(?P<diag>[0-9.]+) "
+        r"scaled=(?P<scaled_w>[0-9.]+)x(?P<scaled_h>[0-9.]+) "
+        r"offset=\((?P<offset_x>-?[0-9.]+),(?P<offset_y>-?[0-9.]+)\) "
+        r"overflow_x=(?P<overflow_x>[01]) overflow_y=(?P<overflow_y>[01]) message_pt=(?P<message>[0-9.]+)"
     ),
     "title_offset": re.compile(
         r"Title bar offset updated: enabled=(?P<enabled>True|False) height=(?P<height>[0-9]+) offset=(?P<offset>-?[0-9]+) scale_y=(?P<scale_y>[0-9.]+)"
@@ -702,6 +707,12 @@ def parse_point(text):
         pass
     return None
 
+def parse_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
 lines = [f"Source log: {abbreviate(log_path)}"]
 
 move_info = latest.get("move")
@@ -711,6 +722,34 @@ raw_info = latest.get("raw")
 calc_info = latest.get("calculated")
 scaling_info = latest.get("scaling")
 title_info = latest.get("title_offset")
+
+scaling_mode = None
+scaling_base = None
+scaling_scale_x = None
+scaling_scale_y = None
+scaling_diag = None
+scaling_scaled_w = None
+scaling_scaled_h = None
+scaling_offset_x = None
+scaling_offset_y = None
+scaling_overflow_x = None
+scaling_overflow_y = None
+scaling_message = None
+
+if scaling_info:
+    raw_mode = (scaling_info.get("mode") or "").strip()
+    scaling_mode = raw_mode if raw_mode else None
+    scaling_base = parse_float(scaling_info.get("base_scale"))
+    scaling_scale_x = parse_float(scaling_info.get("scale_x"))
+    scaling_scale_y = parse_float(scaling_info.get("scale_y"))
+    scaling_diag = parse_float(scaling_info.get("diag"))
+    scaling_scaled_w = parse_float(scaling_info.get("scaled_w"))
+    scaling_scaled_h = parse_float(scaling_info.get("scaled_h"))
+    scaling_offset_x = parse_float(scaling_info.get("offset_x"))
+    scaling_offset_y = parse_float(scaling_info.get("offset_y"))
+    scaling_overflow_x = scaling_info.get("overflow_x")
+    scaling_overflow_y = scaling_info.get("overflow_y")
+    scaling_message = parse_float(scaling_info.get("message"))
 
 lines.append("Monitor:")
 if move_info:
@@ -790,17 +829,49 @@ if move_info:
         lines.append(f"  move_event={move_size} scale={float(move_scale_x):.2f}x{float(move_scale_y):.2f}")
 
 lines.append("")
-lines.append("Fonts:")
+lines.append("Scaling:")
 if scaling_info:
-    scale_x = float(scaling_info.get("scale_x"))
-    scale_y = float(scaling_info.get("scale_y"))
-    diag = float(scaling_info.get("diag"))
-    message_pt = float(scaling_info.get("message"))
-    lines.append(f"  scale_x={scale_x:.2f} scale_y={scale_y:.2f} diag={diag:.2f}")
-    lines.append(f"  ui_scale={diag:.2f}")
+    mode_label = scaling_mode or "<unknown>"
+    if scaling_base is not None:
+        lines.append(f"  mode={mode_label} base_scale={scaling_base:.4f}")
+    else:
+        lines.append(f"  mode={mode_label}")
+    if scaling_scale_x is not None and scaling_scale_y is not None:
+        lines.append(f"  physical_scale={scaling_scale_x:.3f}x{scaling_scale_y:.3f}")
+    if (
+        scaling_scaled_w is not None
+        and scaling_scaled_h is not None
+        and scaling_offset_x is not None
+        and scaling_offset_y is not None
+    ):
+        lines.append(
+            "  scaled_canvas={:.1f}x{:.1f} offset=({:.1f},{:.1f})".format(
+                scaling_scaled_w,
+                scaling_scaled_h,
+                scaling_offset_x,
+                scaling_offset_y,
+            )
+        )
+    if scaling_overflow_x is not None and scaling_overflow_y is not None:
+        overflow_x = "yes" if str(scaling_overflow_x) == "1" else "no"
+        overflow_y = "yes" if str(scaling_overflow_y) == "1" else "no"
+        lines.append(f"  overflow_x={overflow_x} overflow_y={overflow_y}")
+else:
+    lines.append("  mode=<unavailable>")
+
+lines.append("")
+lines.append("Fonts:")
+if (
+    scaling_scale_x is not None
+    and scaling_scale_y is not None
+    and scaling_diag is not None
+    and scaling_message is not None
+):
+    lines.append(f"  scale_x={scaling_scale_x:.2f} scale_y={scaling_scale_y:.2f} diag={scaling_diag:.2f}")
+    lines.append(f"  ui_scale={scaling_diag:.2f}")
     lines.append(f"  bounds={min_font:.1f}-{max_font:.1f}")
-    lines.append(f"  message={message_pt:.1f}")
-    normal_point = max(min_font, min(max_font, 10.0 * diag))
+    lines.append(f"  message={scaling_message:.1f}")
+    normal_point = max(min_font, min(max_font, 10.0 * scaling_diag))
     small_point = max(1.0, normal_point - 2.0)
     large_point = max(1.0, normal_point + 2.0)
     huge_point = max(1.0, normal_point + 4.0)
@@ -812,10 +883,19 @@ if scaling_info:
         )
     )
 else:
-    lines.append("  scale_x=<unavailable> scale_y=<unavailable> diag=<unavailable>")
-    lines.append("  ui_scale=<unavailable>")
+    if scaling_scale_x is not None and scaling_scale_y is not None and scaling_diag is not None:
+        lines.append(f"  scale_x={scaling_scale_x:.2f} scale_y={scaling_scale_y:.2f} diag={scaling_diag:.2f}")
+    else:
+        lines.append("  scale_x=<unavailable> scale_y=<unavailable> diag=<unavailable>")
+    if scaling_diag is not None:
+        lines.append(f"  ui_scale={scaling_diag:.2f}")
+    else:
+        lines.append("  ui_scale=<unavailable>")
     lines.append(f"  bounds={min_font:.1f}-{max_font:.1f}")
-    lines.append("  message=<unavailable>")
+    if scaling_message is not None:
+        lines.append(f"  message={scaling_message:.1f}")
+    else:
+        lines.append("  message=<unavailable>")
     lines.append("  status=<unavailable>")
     lines.append("  legacy=<unavailable>")
     lines.append("  legacy presets: <unavailable>")
