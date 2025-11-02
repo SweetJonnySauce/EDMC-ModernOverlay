@@ -503,7 +503,11 @@ class OverlayWindow(QWidget):
         if isinstance(transform_meta, Mapping):
             original = transform_meta.get("original")
             if isinstance(original, Mapping):
-                return original
+                points_meta = original.get("points")
+                if isinstance(points_meta, list):
+                    return original
+                if any(key in original for key in ("x", "y", "w", "h")):
+                    return original
         return data
 
     def _group_has_override(self, plugin_label: Optional[str], suffix: Optional[str]) -> bool:

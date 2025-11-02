@@ -45,7 +45,9 @@
             "bgstally-frame-tick",
             "bgstally-msg-tick-0",
             "bgstally-frame-system_tick",
-            "bgstally-msg-system_tick-0"
+            "bgstally-msg-system_tick-0",
+            "bgstally-msg-tickwarn-",
+            "bgstally-frame-tickwarn"
           ],
           "transform": {
             "scale": {
