@@ -19,6 +19,8 @@ class GroupTransform:
     dx: float = 0.0
     dy: float = 0.0
     scale: float = 1.0
+    proportion_x: float = 1.0
+    proportion_y: float = 1.0
 
 
 @dataclass
