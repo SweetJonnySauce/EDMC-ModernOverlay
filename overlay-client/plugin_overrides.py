@@ -541,41 +541,6 @@ class PluginOverrideManager:
             offset_x = self._coerce_float(offset_spec.get("x"), 0.0)
             offset_y = self._coerce_float(offset_spec.get("y"), 0.0)
 
-        if math.isclose(scale_x, 1.0, rel_tol=1e-9) and math.isclose(scale_y, 1.0, rel_tol=1e-9) and math.isclose(offset_x, 0.0, rel_tol=1e-9) and math.isclose(offset_y, 0.0, rel_tol=1e-9):
-            transform_meta = {
-                "pivot": {"x": pivot[0], "y": pivot[1]},
-                "scale": {"x": scale_x, "y": scale_y},
-                "offset": {"x": offset_x, "y": offset_y},
-                "pattern": pattern,
-                "plugin": plugin,
-                "original": {"x": raw_x, "y": raw_y},
-            }
-            payload.setdefault("__mo_transform__", {}).update(transform_meta)
-            if isinstance(raw_payload, MutableMapping):
-                raw_payload.setdefault("__mo_transform__", {}).update(transform_meta)
-            return
-
-        new_x, new_y = self._transform_point((raw_x, raw_y), pivot, (scale_x, scale_y), (offset_x, offset_y))
-        rounded_x = self._round_coordinate(new_x)
-        rounded_y = self._round_coordinate(new_y)
-        if trace:
-            self._logger.debug(
-                "trace plugin=%s id=%s stage=%s coords=(%.2f,%.2f)->(%.2f,%.2f)",
-                plugin,
-                message_id,
-                f"{pattern}:message_transform",
-                raw_x,
-                raw_y,
-                new_x,
-                new_y,
-            )
-
-        payload["x"] = rounded_x
-        payload["y"] = rounded_y
-        if isinstance(raw_payload, MutableMapping):
-            raw_payload["x"] = rounded_x
-            raw_payload["y"] = rounded_y
-
         transform_meta = {
             "pivot": {"x": pivot[0], "y": pivot[1]},
             "scale": {"x": scale_x, "y": scale_y},
@@ -584,6 +549,14 @@ class PluginOverrideManager:
             "plugin": plugin,
             "original": {"x": raw_x, "y": raw_y},
         }
+        if trace:
+            self._logger.debug(
+                "trace plugin=%s id=%s stage=%s deferred_transform=%s",
+                plugin,
+                message_id,
+                f"{pattern}:message_transform",
+                transform_meta,
+            )
         payload.setdefault("__mo_transform__", {}).update(transform_meta)
         if isinstance(raw_payload, MutableMapping):
             raw_payload.setdefault("__mo_transform__", {}).update(transform_meta)
@@ -755,15 +728,18 @@ class PluginOverrideManager:
         }
         if original_meta:
             transform_meta["original"] = original_meta
+        if trace:
+            self._logger.debug(
+                "trace plugin=%s id=%s stage=%s deferred_transform=%s",
+                plugin,
+                message_id,
+                f"{pattern}:transform_params",
+                transform_meta,
+            )
         payload.setdefault("__mo_transform__", {}).update(transform_meta)
         raw_payload = payload.get("raw")
         if isinstance(raw_payload, MutableMapping):
             raw_payload.setdefault("__mo_transform__", {}).update(transform_meta)
-
-        if shape == "vect":
-            self._transform_vector_payload(payload, pivot, scale_tuple, offset_tuple)
-        elif shape == "rect":
-            self._transform_rect_payload(payload, pivot, scale_tuple, offset_tuple)
 
     def _coerce_float(self, value: Any, default: float) -> float:
         try:
@@ -847,129 +823,6 @@ class PluginOverrideManager:
             return 0.0, 0.0
         return min_x, min_y
 
-    def _transform_vector_payload(
-        self,
-        payload: MutableMapping[str, Any],
-        pivot: Tuple[float, float],
-        scale: Tuple[float, float],
-        offset: Tuple[float, float],
-    ) -> None:
-        vector = payload.get("vector")
-        if isinstance(vector, list):
-            for point in vector:
-                if not isinstance(point, MutableMapping):
-                    continue
-                try:
-                    x_val = float(point.get("x", 0.0))
-                    y_val = float(point.get("y", 0.0))
-                except (TypeError, ValueError):
-                    continue
-                new_x, new_y = self._transform_point((x_val, y_val), pivot, scale, offset)
-                point["x"] = self._round_coordinate(new_x)
-                point["y"] = self._round_coordinate(new_y)
-
-        raw = payload.get("raw")
-        if isinstance(raw, MutableMapping):
-            raw_vector = raw.get("vector")
-            if isinstance(raw_vector, list):
-                for point in raw_vector:
-                    if not isinstance(point, MutableMapping):
-                        continue
-                    try:
-                        x_val = float(point.get("x", 0.0))
-                        y_val = float(point.get("y", 0.0))
-                    except (TypeError, ValueError):
-                        continue
-                    new_x, new_y = self._transform_point((x_val, y_val), pivot, scale, offset)
-                    point["x"] = self._round_coordinate(new_x)
-                    point["y"] = self._round_coordinate(new_y)
-
-    def _transform_rect_payload(
-        self,
-        payload: MutableMapping[str, Any],
-        pivot: Tuple[float, float],
-        scale: Tuple[float, float],
-        offset: Tuple[float, float],
-    ) -> None:
-        try:
-            x_val = float(payload.get("x", 0.0))
-            y_val = float(payload.get("y", 0.0))
-            w_val = float(payload.get("w", 0.0))
-            h_val = float(payload.get("h", 0.0))
-        except (TypeError, ValueError):
-            return
-
-        corners = [
-            (x_val, y_val),
-            (x_val + w_val, y_val),
-            (x_val, y_val + h_val),
-            (x_val + w_val, y_val + h_val),
-        ]
-        transformed = [self._transform_point(corner, pivot, scale, offset) for corner in corners]
-        xs = [pt[0] for pt in transformed]
-        ys = [pt[1] for pt in transformed]
-
-        min_x = min(xs)
-        max_x = max(xs)
-        min_y = min(ys)
-        max_y = max(ys)
-
-        payload["x"] = self._round_coordinate(min_x)
-        payload["y"] = self._round_coordinate(min_y)
-        payload["w"] = max(1, self._round_coordinate(max_x - min_x))
-        payload["h"] = max(1, self._round_coordinate(max_y - min_y))
-
-        raw = payload.get("raw")
-        if isinstance(raw, MutableMapping):
-            try:
-                raw_x = float(raw.get("x", x_val))
-                raw_y = float(raw.get("y", y_val))
-                raw_w = float(raw.get("w", w_val))
-                raw_h = float(raw.get("h", h_val))
-            except (TypeError, ValueError):
-                raw_x = x_val
-                raw_y = y_val
-                raw_w = w_val
-                raw_h = h_val
-
-            raw_corners = [
-                (raw_x, raw_y),
-                (raw_x + raw_w, raw_y),
-                (raw_x, raw_y + raw_h),
-                (raw_x + raw_w, raw_y + raw_h),
-            ]
-            raw_transformed = [self._transform_point(corner, pivot, scale, offset) for corner in raw_corners]
-            raw_xs = [pt[0] for pt in raw_transformed]
-            raw_ys = [pt[1] for pt in raw_transformed]
-
-            raw_min_x = min(raw_xs)
-            raw_max_x = max(raw_xs)
-            raw_min_y = min(raw_ys)
-            raw_max_y = max(raw_ys)
-
-            raw["x"] = self._round_coordinate(raw_min_x)
-            raw["y"] = self._round_coordinate(raw_min_y)
-            raw["w"] = max(1, self._round_coordinate(raw_max_x - raw_min_x))
-            raw["h"] = max(1, self._round_coordinate(raw_max_y - raw_min_y))
-
-    def _transform_point(
-        self,
-        point: Tuple[float, float],
-        pivot: Tuple[float, float],
-        scale: Tuple[float, float],
-        offset: Tuple[float, float],
-    ) -> Tuple[float, float]:
-        pivot_x, pivot_y = pivot
-        scale_x, scale_y = scale
-        offset_x, offset_y = offset
-        scaled_x = pivot_x + (point[0] - pivot_x) * scale_x
-        scaled_y = pivot_y + (point[1] - pivot_y) * scale_y
-        return scaled_x + offset_x, scaled_y + offset_y
-
-    def _round_coordinate(self, value: float) -> int:
-        if math.isnan(value) or math.isinf(value):
-            return 0
-        return int(round(value))
 
     def _resolve_x_shift(
         self,

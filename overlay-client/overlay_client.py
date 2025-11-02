@@ -504,6 +504,67 @@ class OverlayWindow(QWidget):
                 return original
         return data
 
+    @staticmethod
+    def _safe_float(value: Any, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @classmethod
+    def _fill_overlay_delta(cls, scale: float, transform: Optional[GroupTransform]) -> Tuple[float, float]:
+        if transform is None:
+            return 0.0, 0.0
+        if not math.isfinite(scale) or math.isclose(scale, 0.0, rel_tol=1e-9):
+            return 0.0, 0.0
+        return transform.dx / scale, transform.dy / scale
+
+    @classmethod
+    def _apply_transform_meta_to_point(
+        cls,
+        meta: Optional[Mapping[str, Any]],
+        x: float,
+        y: float,
+        fill_dx: float,
+        fill_dy: float,
+    ) -> Tuple[float, float]:
+
+        x_adj = x + fill_dx
+        y_adj = y + fill_dy
+        if not isinstance(meta, Mapping):
+            return x_adj, y_adj
+
+        pivot_block = meta.get("pivot")
+        if isinstance(pivot_block, Mapping):
+            pivot_x = cls._safe_float(pivot_block.get("x"), 0.0)
+            pivot_y = cls._safe_float(pivot_block.get("y"), 0.0)
+        else:
+            pivot_x = 0.0
+            pivot_y = 0.0
+
+        scale_block = meta.get("scale")
+        if isinstance(scale_block, Mapping):
+            scale_x = cls._safe_float(scale_block.get("x"), 1.0)
+            scale_y = cls._safe_float(scale_block.get("y"), 1.0)
+        else:
+            scale_x = 1.0
+            scale_y = 1.0
+
+        offset_block = meta.get("offset")
+        if isinstance(offset_block, Mapping):
+            offset_x = cls._safe_float(offset_block.get("x"), 0.0)
+            offset_y = cls._safe_float(offset_block.get("y"), 0.0)
+        else:
+            offset_x = 0.0
+            offset_y = 0.0
+
+        pivot_x += fill_dx
+        pivot_y += fill_dy
+
+        scaled_x = pivot_x + (x_adj - pivot_x) * scale_x
+        scaled_y = pivot_y + (y_adj - pivot_y) * scale_y
+        return scaled_x + offset_x, scaled_y + offset_y
+
     def _group_key_for_item(self, item_id: str, plugin_name: Optional[str]) -> GroupKey:
         override_manager = getattr(self, "_override_manager", None)
         override_key: Optional[Tuple[str, Optional[str]]] = None
@@ -2428,8 +2489,10 @@ class OverlayWindow(QWidget):
         size = str(item.get("size", "normal")).lower()
         scaled_point_size = self._legacy_preset_point_size(size)
         scale = mapper.transform.scale
-        offset_x = mapper.offset_x + (group_transform.dx if group_transform else 0.0)
-        offset_y = mapper.offset_y + (group_transform.dy if group_transform else 0.0)
+        base_offset_x = mapper.offset_x
+        base_offset_y = mapper.offset_y
+        fill_dx_overlay, fill_dy_overlay = self._fill_overlay_delta(scale, group_transform)
+        transform_meta = item.get("__mo_transform__")
         font = QFont(self._font_family)
         font.setPointSizeF(scaled_point_size)
         font.setWeight(QFont.Weight.Normal)
@@ -2438,8 +2501,15 @@ class OverlayWindow(QWidget):
         painter.setFont(font)
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
+        adjusted_left, adjusted_top = self._apply_transform_meta_to_point(
+            transform_meta,
+            raw_left,
+            raw_top,
+            fill_dx_overlay,
+            fill_dy_overlay,
+        )
         text = str(item.get("text", ""))
-        x = int(round(raw_left * scale + offset_x))
+        x = int(round(adjusted_left * scale + base_offset_x))
         metrics = painter.fontMetrics()
         text_width = metrics.horizontalAdvance(text)
         margin = 12
@@ -2464,7 +2534,7 @@ class OverlayWindow(QWidget):
             x = min_x
         elif x > max_x:
             x = max_x
-        baseline = int(round(raw_top * scale + offset_y + metrics.ascent()))
+        baseline = int(round(adjusted_top * scale + base_offset_y + metrics.ascent()))
         painter.drawText(x, baseline, text)
         center_x = x + text_width // 2
         top = baseline - metrics.ascent()
@@ -2475,6 +2545,7 @@ class OverlayWindow(QWidget):
             plugin_label = plugin_name if isinstance(plugin_name, str) and plugin_name else "unknown"
             return (
                 f"{plugin_label}:{item_id} message raw=({raw_left:.1f},{raw_top:.1f}) "
+                f"adj=({adjusted_left:.1f},{adjusted_top:.1f}) "
                 f"px=({x},{baseline}) size={size}"
             )
         return None
@@ -2512,8 +2583,10 @@ class OverlayWindow(QWidget):
         painter.setPen(pen)
         painter.setBrush(brush)
         scale = mapper.transform.scale
-        offset_x = mapper.offset_x + (group_transform.dx if group_transform else 0.0)
-        offset_y = mapper.offset_y + (group_transform.dy if group_transform else 0.0)
+        base_offset_x = mapper.offset_x
+        base_offset_y = mapper.offset_y
+        fill_dx_overlay, fill_dy_overlay = self._fill_overlay_delta(scale, group_transform)
+        transform_meta = item.get("__mo_transform__")
         trace_enabled = self._should_trace_payload(plugin_name, item_id)
         raw_x = float(item.get("x", 0))
         raw_y = float(item.get("y", 0))
@@ -2530,25 +2603,43 @@ class OverlayWindow(QWidget):
                     "w": raw_w,
                     "h": raw_h,
                     "scale": scale,
-                    "offset_x": offset_x,
-                    "offset_y": offset_y,
+                    "offset_x": base_offset_x,
+                    "offset_y": base_offset_y,
+                    "fill_dx_overlay": fill_dx_overlay,
+                    "fill_dy_overlay": fill_dy_overlay,
                     "mode": mapper.transform.mode.value,
                 },
             )
-        x = int(round(raw_x * scale + offset_x))
-        y = int(round(raw_y * scale + offset_y))
-        w = max(1, int(round(max(raw_w, 0.0) * scale)))
-        h = max(1, int(round(max(raw_h, 0.0) * scale)))
+        corners_raw = [
+            (raw_x, raw_y),
+            (raw_x + raw_w, raw_y),
+            (raw_x, raw_y + raw_h),
+            (raw_x + raw_w, raw_y + raw_h),
+        ]
+        transformed_overlay = [
+            self._apply_transform_meta_to_point(transform_meta, cx, cy, fill_dx_overlay, fill_dy_overlay)
+            for cx, cy in corners_raw
+        ]
+        xs_overlay = [pt[0] for pt in transformed_overlay]
+        ys_overlay = [pt[1] for pt in transformed_overlay]
+        min_x_overlay = min(xs_overlay)
+        max_x_overlay = max(xs_overlay)
+        min_y_overlay = min(ys_overlay)
+        max_y_overlay = max(ys_overlay)
+        x = int(round(min_x_overlay * scale + base_offset_x))
+        y = int(round(min_y_overlay * scale + base_offset_y))
+        w = max(1, int(round(max(0.0, max_x_overlay - min_x_overlay) * scale)))
+        h = max(1, int(round(max(0.0, max_y_overlay - min_y_overlay) * scale)))
         if trace_enabled:
             self._log_legacy_trace(
                 plugin_name,
                 item_id,
                 "paint:rect_output",
                 {
-                    "adjusted_x": raw_x,
-                    "adjusted_y": raw_y,
-                    "adjusted_w": raw_w,
-                    "adjusted_h": raw_h,
+                    "adjusted_x": min_x_overlay,
+                    "adjusted_y": min_y_overlay,
+                    "adjusted_w": max_x_overlay - min_x_overlay,
+                    "adjusted_h": max_y_overlay - min_y_overlay,
                     "pixel_x": x,
                     "pixel_y": y,
                     "pixel_w": w,
@@ -2584,8 +2675,10 @@ class OverlayWindow(QWidget):
         trace_enabled = self._should_trace_payload(plugin_name, item_id)
         adapter = _QtVectorPainterAdapter(self, painter)
         scale = mapper.transform.scale
-        offset_x = mapper.offset_x + (group_transform.dx if group_transform else 0.0)
-        offset_y = mapper.offset_y + (group_transform.dy if group_transform else 0.0)
+        base_offset_x = mapper.offset_x
+        base_offset_y = mapper.offset_y
+        fill_dx_overlay, fill_dy_overlay = self._fill_overlay_delta(scale, group_transform)
+        transform_meta = item.get("__mo_transform__")
         if trace_enabled:
             self._log_legacy_trace(
                 plugin_name,
@@ -2593,8 +2686,10 @@ class OverlayWindow(QWidget):
                 "paint:scale_factors",
                 {
                     "scale": scale,
-                    "offset_x": offset_x,
-                    "offset_y": offset_y,
+                    "offset_x": base_offset_x,
+                    "offset_y": base_offset_y,
+                    "fill_dx_overlay": fill_dx_overlay,
+                    "fill_dy_overlay": fill_dy_overlay,
                     "mode": mapper.transform.mode.value,
                 },
             )
@@ -2604,7 +2699,33 @@ class OverlayWindow(QWidget):
                 "paint:raw_points",
                 {"points": item.get("points")},
             )
-        vector_payload = item
+        raw_points = item.get("points") or []
+        transformed_points: List[Mapping[str, Any]] = []
+        for point in raw_points:
+            if not isinstance(point, Mapping):
+                continue
+            try:
+                raw_px = float(point.get("x", 0.0))
+                raw_py = float(point.get("y", 0.0))
+            except (TypeError, ValueError):
+                continue
+            adj_x, adj_y = self._apply_transform_meta_to_point(
+                transform_meta,
+                raw_px,
+                raw_py,
+                fill_dx_overlay,
+                fill_dy_overlay,
+            )
+            new_point = dict(point)
+            new_point["x"] = adj_x
+            new_point["y"] = adj_y
+            transformed_points.append(new_point)
+        if len(transformed_points) < 2:
+            return None
+        vector_payload = {
+            "base_color": item.get("base_color"),
+            "points": transformed_points,
+        }
         trace_fn = None
         if trace_enabled:
             def trace_fn(stage: str, details: Mapping[str, Any]) -> None:
@@ -2613,11 +2734,9 @@ class OverlayWindow(QWidget):
         px_list: List[int] = []
         py_list: List[int] = []
         for point in vector_payload.get("points", []):
-            if not isinstance(point, Mapping):
-                continue
             try:
-                mapped_x = float(point.get("x", 0.0)) * scale + offset_x
-                mapped_y = float(point.get("y", 0.0)) * scale + offset_y
+                mapped_x = float(point.get("x", 0.0)) * scale + base_offset_x
+                mapped_y = float(point.get("y", 0.0)) * scale + base_offset_y
             except (TypeError, ValueError):
                 continue
             px = int(round(mapped_x))
@@ -2634,8 +2753,8 @@ class OverlayWindow(QWidget):
             vector_payload,
             scale,
             scale,
-            offset_x=offset_x,
-            offset_y=offset_y,
+            offset_x=base_offset_x,
+            offset_y=base_offset_y,
             trace=trace_fn,
         )
         if self._debug_config.fill_group_debug and mapper.transform.mode is ScaleMode.FILL:
@@ -2650,7 +2769,7 @@ class OverlayWindow(QWidget):
                 min_raw_x = min_raw_y = 0.0
             return (
                 f"{plugin_label}:{item_id} vector min_raw=({min_raw_x},{min_raw_y}) "
-                f"offset=({offset_x:.1f},{offset_y:.1f}) points={len(vector_payload.get('points', []))}"
+                f"offset=({base_offset_x:.1f},{base_offset_y:.1f}) points={len(vector_payload.get('points', []))}"
             )
         return None
 

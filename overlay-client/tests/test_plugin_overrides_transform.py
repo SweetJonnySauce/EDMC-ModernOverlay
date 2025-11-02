@@ -84,12 +84,21 @@ def test_transform_scales_landingpad_shell(landingpad_config: Path) -> None:
 
     manager.apply(payload)
 
-    expected = [(2 * x - 27, y + 150) for x, y in original_points]
+    # Coordinates are deferred; payload data remains unchanged for downstream transforms.
     transformed = [(point["x"], point["y"]) for point in payload["vector"]]
-    assert transformed == expected
-
+    assert transformed == original_points
     raw_transformed = [(point["x"], point["y"]) for point in payload["raw"]["vector"]]
-    assert raw_transformed == expected
+    assert raw_transformed == original_points
+
+    meta = payload.get("__mo_transform__")
+    assert isinstance(meta, dict)
+    assert meta["scale"]["x"] == pytest.approx(2.0)
+    assert meta["scale"]["y"] == pytest.approx(1.0)
+    assert meta["offset"]["y"] == pytest.approx(150.0)
+    assert meta["pivot"]["x"] == pytest.approx(27.0)
+    assert meta["pivot"]["y"] == pytest.approx(587.0)
+    # Raw copy receives the same metadata for renderer access.
+    assert payload["raw"].get("__mo_transform__") == meta
 
 
 def test_transform_scales_landingpad_rect(landingpad_config: Path) -> None:
@@ -115,16 +124,26 @@ def test_transform_scales_landingpad_rect(landingpad_config: Path) -> None:
 
     manager.apply(payload)
 
+    # Geometry untouched until renderer time.
     assert payload["x"] == 60
-    assert payload["y"] == 619
-    assert payload["w"] == 4
+    assert payload["y"] == 469
+    assert payload["w"] == 2
     assert payload["h"] == 9
 
     raw = payload["raw"]
     assert raw["x"] == 60
-    assert raw["y"] == 619
-    assert raw["w"] == 4
+    assert raw["y"] == 469
+    assert raw["w"] == 2
     assert raw["h"] == 9
+
+    meta = payload.get("__mo_transform__")
+    assert isinstance(meta, dict)
+    assert meta["scale"]["x"] == pytest.approx(2.0)
+    assert meta["scale"]["y"] == pytest.approx(1.0)
+    assert meta["offset"]["y"] == pytest.approx(150.0)
+    assert meta["pivot"]["x"] == pytest.approx(60.0)
+    assert meta["pivot"]["y"] == pytest.approx(478.0)
+    assert raw.get("__mo_transform__") == meta
 
 
 def test_transform_accepts_point_mapping(tmp_path: Path) -> None:
@@ -154,8 +173,15 @@ def test_transform_accepts_point_mapping(tmp_path: Path) -> None:
     manager.apply(payload)
 
     point = payload["vector"][0]
-    assert point["x"] == 70  # 50 + (60-50) * 2
-    assert point["y"] == 80  # unchanged
+    # Coordinates stay original; meta carries the transform.
+    assert point["x"] == 60
+    assert point["y"] == 80
+
+    meta = payload.get("__mo_transform__")
+    assert isinstance(meta, dict)
+    assert meta["scale"]["x"] == pytest.approx(2.0)
+    assert meta["pivot"]["x"] == pytest.approx(50.0)
+    assert meta["pivot"]["y"] == pytest.approx(75.0)
 
 
 def test_infer_plugin_name_uses_id_prefix(landingpad_config: Path) -> None:
@@ -207,9 +233,16 @@ def test_transform_scales_message_coordinates(tmp_path: Path) -> None:
     manager.apply(payload)
 
     assert payload["x"] == 75
-    assert payload["y"] == 200
+    assert payload["y"] == 400
     assert payload["raw"]["x"] == 75
-    assert payload["raw"]["y"] == 200
+    assert payload["raw"]["y"] == 400
+
+    meta = payload.get("__mo_transform__")
+    assert isinstance(meta, dict)
+    assert meta["scale"]["y"] == pytest.approx(0.5)
+    assert meta["pivot"]["x"] == pytest.approx(0.0)
+    assert meta["pivot"]["y"] == pytest.approx(0.0)
+    assert payload["raw"].get("__mo_transform__") == meta
 
 
 def test_transform_scales_tick_messages(tmp_path: Path) -> None:
@@ -249,9 +282,14 @@ def test_transform_scales_tick_messages(tmp_path: Path) -> None:
     manager.apply(payload)
 
     assert payload["x"] == 120
-    assert payload["y"] == 336
+    assert payload["y"] == 480
     assert payload["raw"]["x"] == 120
-    assert payload["raw"]["y"] == 336
+    assert payload["raw"]["y"] == 480
+
+    meta = payload.get("__mo_transform__")
+    assert isinstance(meta, dict)
+    assert meta["scale"]["y"] == pytest.approx(0.7)
+    assert payload["raw"].get("__mo_transform__") == meta
 
 
 def test_transform_handles_mixed_case_plugin_and_id(tmp_path: Path) -> None:
@@ -290,8 +328,13 @@ def test_transform_handles_mixed_case_plugin_and_id(tmp_path: Path) -> None:
 
     manager.apply(payload)
 
-    assert payload["y"] == 350
-    assert payload["raw"]["y"] == 350
+    assert payload["y"] == 500
+    assert payload["raw"]["y"] == 500
+
+    meta = payload.get("__mo_transform__")
+    assert isinstance(meta, dict)
+    assert meta["scale"]["y"] == pytest.approx(0.7)
+    assert payload["raw"].get("__mo_transform__") == meta
 
 
 def test_transform_infers_plugin_from_mixed_case_id(tmp_path: Path) -> None:
@@ -325,4 +368,10 @@ def test_transform_infers_plugin_from_mixed_case_id(tmp_path: Path) -> None:
 
     manager.apply(payload)
 
-    assert payload["y"] == 294
+    assert payload["y"] == 420
+
+    meta = payload.get("__mo_transform__")
+    assert isinstance(meta, dict)
+    assert meta["scale"]["y"] == pytest.approx(0.7)
+    assert meta["plugin"] == "bgstally"
+    assert payload["raw"].get("__mo_transform__") == meta
