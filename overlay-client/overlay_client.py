@@ -55,6 +55,7 @@ from legacy_processor import TraceCallback, process_legacy_payload  # type: igno
 from vector_renderer import render_vector, VectorPainterAdapter  # type: ignore  # noqa: E402
 from plugin_overrides import PluginOverrideManager  # type: ignore  # noqa: E402
 from debug_config import DebugConfig, load_debug_config  # type: ignore  # noqa: E402
+from group_transform import GroupBounds, GroupKey, GroupTransform, GroupTransformCache  # type: ignore  # noqa: E402
 from viewport_helper import (
     ScaleMode,
     ViewportTransform,
@@ -340,6 +341,7 @@ class OverlayWindow(QWidget):
         self._cycle_copy_clipboard: bool = bool(getattr(initial, "copy_payload_id_on_cycle", False))
         self._last_font_notice: Optional[Tuple[float, float]] = None
         self._scale_mode: str = "fit"
+        self._group_transform_cache = GroupTransformCache()
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -465,18 +467,11 @@ class OverlayWindow(QWidget):
         except ValueError:
             mode_enum = ScaleMode.FIT
         transform = compute_viewport_transform(width, height, mode_enum)
-        if transform.overflow_x:
-            scale_x = width / float(DEFAULT_WINDOW_BASE_WIDTH)
-            offset_x = 0.0
-        else:
-            scale_x = transform.scale
-            offset_x = transform.offset[0]
-        if transform.overflow_y:
-            scale_y = height / float(DEFAULT_WINDOW_BASE_HEIGHT)
-            offset_y = 0.0
-        else:
-            scale_y = transform.scale
-            offset_y = transform.offset[1]
+        base_scale = max(transform.scale, 0.0)
+        scale_x = base_scale
+        scale_y = base_scale
+        offset_x = transform.offset[0]
+        offset_y = transform.offset[1]
         return _LegacyMapper(
             scale_x=max(scale_x, 0.0),
             scale_y=max(scale_y, 0.0),
@@ -499,6 +494,94 @@ class OverlayWindow(QWidget):
 
     def _legacy_scale(self, *, use_physical: bool = True) -> Tuple[float, float]:
         return self._legacy_scale_components(use_physical=use_physical)
+
+    @staticmethod
+    def _logical_mapping(data: Mapping[str, Any]) -> Mapping[str, Any]:
+        transform_meta = data.get("__mo_transform__") if isinstance(data, Mapping) else None
+        if isinstance(transform_meta, Mapping):
+            original = transform_meta.get("original")
+            if isinstance(original, Mapping):
+                return original
+        return data
+
+    def _group_key_for_item(self, item_id: str, plugin_name: Optional[str]) -> GroupKey:
+        plugin_token = (plugin_name or "unknown").strip() or "unknown"
+        return GroupKey(plugin=plugin_token, suffix=None)
+
+    @staticmethod
+    def _compute_fill_delta(min_val: float, max_val: float, scale: float, base_offset: float, extent: float) -> float:
+        if not scale or min_val == float("inf") or max_val == float("-inf"):
+            return 0.0
+        scaled_min = min_val * scale + base_offset
+        scaled_max = max_val * scale + base_offset
+        if scaled_min >= 0.0 and scaled_max <= extent:
+            return 0.0
+        if scaled_min < 0.0 and scaled_max <= extent:
+            return -scaled_min
+        if scaled_max > extent and scaled_min >= 0.0:
+            return extent - scaled_max
+        if scaled_min < 0.0 and scaled_max > extent:
+            return -scaled_min
+        return 0.0
+
+    def _accumulate_group_bounds(self, bounds: GroupBounds, item: LegacyItem) -> None:
+        data = item.data
+        if not isinstance(data, Mapping):
+            return
+        logical = self._logical_mapping(data)
+        kind = item.kind
+        try:
+            if kind == "message":
+                x_val = float(logical.get("x", data.get("x", 0.0)))
+                y_val = float(logical.get("y", data.get("y", 0.0)))
+                bounds.update_point(x_val, y_val)
+            elif kind == "rect":
+                x_val = float(logical.get("x", data.get("x", 0.0)))
+                y_val = float(logical.get("y", data.get("y", 0.0)))
+                w_val = float(logical.get("w", data.get("w", 0.0)))
+                h_val = float(logical.get("h", data.get("h", 0.0)))
+                bounds.update_rect(x_val, y_val, x_val + w_val, y_val + h_val)
+            elif kind == "vector":
+                points = logical.get("points") if isinstance(logical, Mapping) else None
+                if not isinstance(points, list):
+                    points = data.get("points") if isinstance(data, Mapping) else None
+                if isinstance(points, list):
+                    for point in points:
+                        if not isinstance(point, Mapping):
+                            continue
+                        try:
+                            px = float(point.get("x", 0.0))
+                            py = float(point.get("y", 0.0))
+                        except (TypeError, ValueError):
+                            continue
+                        bounds.update_point(px, py)
+            else:
+                x_val = float(logical.get("x", data.get("x", 0.0)))
+                y_val = float(logical.get("y", data.get("y", 0.0)))
+                bounds.update_point(x_val, y_val)
+        except (TypeError, ValueError):
+            pass
+
+    def _prepare_fill_group_transforms(self, mapper: _LegacyMapper) -> None:
+        self._group_transform_cache.reset()
+        if mapper.transform.mode is not ScaleMode.FILL:
+            return
+        group_bounds: Dict[Tuple[str, Optional[str]], GroupBounds] = {}
+        for item_id, legacy_item in self._legacy_items.items():
+            group_key = self._group_key_for_item(item_id, legacy_item.plugin)
+            bounds = group_bounds.setdefault(group_key.as_tuple(), GroupBounds())
+            self._accumulate_group_bounds(bounds, legacy_item)
+        scale = mapper.transform.scale
+        base_offset_x = mapper.offset_x
+        base_offset_y = mapper.offset_y
+        width = float(self.width())
+        height = float(self.height())
+        for key_tuple, bounds in group_bounds.items():
+            if not bounds.is_valid():
+                continue
+            dx = self._compute_fill_delta(bounds.min_x, bounds.max_x, scale, base_offset_x, width)
+            dy = self._compute_fill_delta(bounds.min_y, bounds.max_y, scale, base_offset_y, height)
+            self._group_transform_cache.set(GroupKey(*key_tuple), GroupTransform(dx=dx, dy=dy))
 
     def _scaled_point_size(
         self,
@@ -2253,23 +2336,43 @@ class OverlayWindow(QWidget):
         self._cycle_anchor_points = {}
         mapper = self._compute_legacy_mapper()
         debug_fill = self._debug_config.fill_group_debug and mapper.transform.mode is ScaleMode.FILL
+        if mapper.transform.mode is ScaleMode.FILL:
+            self._prepare_fill_group_transforms(mapper)
+        else:
+            self._group_transform_cache.reset()
         fill_debug_rows: List[str] = []
         for item_id, item in self._legacy_items.items():
+            group_key = self._group_key_for_item(item_id, item.plugin)
+            group_transform = self._group_transform_cache.get(group_key)
             if item.kind == "message":
-                row_log = self._paint_legacy_message(painter, item_id, item.data, mapper, item.plugin)
-                if debug_fill and row_log:
-                    fill_debug_rows.append(row_log)
+                row_log = self._paint_legacy_message(
+                    painter,
+                    item_id,
+                    item.data,
+                    mapper,
+                    item.plugin,
+                    group_transform,
+                )
             elif item.kind == "rect":
-                row_log = self._paint_legacy_rect(painter, item_id, item.data, mapper, item.plugin)
-                if debug_fill and row_log:
-                    fill_debug_rows.append(row_log)
+                row_log = self._paint_legacy_rect(
+                    painter,
+                    item_id,
+                    item.data,
+                    mapper,
+                    item.plugin,
+                    group_transform,
+                )
             elif item.kind == "vector":
-                row_log = self._paint_legacy_vector(painter, item, mapper)
-                if debug_fill and row_log:
-                    fill_debug_rows.append(row_log)
+                row_log = self._paint_legacy_vector(painter, item, mapper, group_transform)
+            else:
+                row_log = None
+            if debug_fill and row_log:
+                if group_transform:
+                    row_log = f"{row_log} Δ=({group_transform.dx:.1f},{group_transform.dy:.1f})"
+                fill_debug_rows.append(row_log)
         if debug_fill and fill_debug_rows:
             _CLIENT_LOGGER.debug(
-                "fill-debug scale=%.3f size=(%.1f×%.1f) offset=(%.1f, %.1f): %s",
+                "fill-debug scale=%.3f size=(%.1f×%.1f) base_offset=(%.1f, %.1f): %s",
                 mapper.transform.scale,
                 mapper.transform.scaled_size[0],
                 mapper.transform.scaled_size[1],
@@ -2301,14 +2404,14 @@ class OverlayWindow(QWidget):
         item: Dict[str, Any],
         mapper: _LegacyMapper,
         plugin_name: Optional[str] = None,
+        group_transform: Optional[GroupTransform] = None,
     ) -> Optional[str]:
         color = QColor(str(item.get("color", "white")))
         size = str(item.get("size", "normal")).lower()
         scaled_point_size = self._legacy_preset_point_size(size)
-        scale_x = mapper.scale_x
-        scale_y = mapper.scale_y
-        offset_x = mapper.offset_x
-        offset_y = mapper.offset_y
+        scale = mapper.transform.scale
+        offset_x = mapper.offset_x + (group_transform.dx if group_transform else 0.0)
+        offset_y = mapper.offset_y + (group_transform.dy if group_transform else 0.0)
         font = QFont(self._font_family)
         font.setPointSizeF(scaled_point_size)
         font.setWeight(QFont.Weight.Normal)
@@ -2318,7 +2421,7 @@ class OverlayWindow(QWidget):
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
         text = str(item.get("text", ""))
-        x = int(round(raw_left * scale_x + offset_x))
+        x = int(round(raw_left * scale + offset_x))
         metrics = painter.fontMetrics()
         text_width = metrics.horizontalAdvance(text)
         margin = 12
@@ -2343,7 +2446,7 @@ class OverlayWindow(QWidget):
             x = min_x
         elif x > max_x:
             x = max_x
-        baseline = int(round(raw_top * scale_y + offset_y + metrics.ascent()))
+        baseline = int(round(raw_top * scale + offset_y + metrics.ascent()))
         painter.drawText(x, baseline, text)
         center_x = x + text_width // 2
         top = baseline - metrics.ascent()
@@ -2365,6 +2468,7 @@ class OverlayWindow(QWidget):
         item: Dict[str, Any],
         mapper: _LegacyMapper,
         plugin_name: Optional[str] = None,
+        group_transform: Optional[GroupTransform] = None,
     ) -> Optional[str]:
         border_spec = str(item.get("color", "white"))
         fill_spec = str(item.get("fill", "#00000000"))
@@ -2389,10 +2493,9 @@ class OverlayWindow(QWidget):
 
         painter.setPen(pen)
         painter.setBrush(brush)
-        scale_x = mapper.scale_x
-        scale_y = mapper.scale_y
-        offset_x = mapper.offset_x
-        offset_y = mapper.offset_y
+        scale = mapper.transform.scale
+        offset_x = mapper.offset_x + (group_transform.dx if group_transform else 0.0)
+        offset_y = mapper.offset_y + (group_transform.dy if group_transform else 0.0)
         trace_enabled = self._should_trace_payload(plugin_name, item_id)
         raw_x = float(item.get("x", 0))
         raw_y = float(item.get("y", 0))
@@ -2408,17 +2511,16 @@ class OverlayWindow(QWidget):
                     "y": raw_y,
                     "w": raw_w,
                     "h": raw_h,
-                    "scale_x": scale_x,
-                    "scale_y": scale_y,
+                    "scale": scale,
                     "offset_x": offset_x,
                     "offset_y": offset_y,
                     "mode": mapper.transform.mode.value,
                 },
             )
-        x = int(round(raw_x * scale_x + offset_x))
-        y = int(round(raw_y * scale_y + offset_y))
-        w = max(1, int(round(max(raw_w, 0.0) * scale_x)))
-        h = max(1, int(round(max(raw_h, 0.0) * scale_y)))
+        x = int(round(raw_x * scale + offset_x))
+        y = int(round(raw_y * scale + offset_y))
+        w = max(1, int(round(max(raw_w, 0.0) * scale)))
+        h = max(1, int(round(max(raw_h, 0.0) * scale)))
         if trace_enabled:
             self._log_legacy_trace(
                 plugin_name,
@@ -2456,24 +2558,23 @@ class OverlayWindow(QWidget):
         painter: QPainter,
         legacy_item: LegacyItem,
         mapper: _LegacyMapper,
+        group_transform: Optional[GroupTransform],
     ) -> Optional[str]:
         item_id = legacy_item.item_id
         item = legacy_item.data
         plugin_name = legacy_item.plugin
         trace_enabled = self._should_trace_payload(plugin_name, item_id)
         adapter = _QtVectorPainterAdapter(self, painter)
-        scale_x = mapper.scale_x
-        scale_y = mapper.scale_y
-        offset_x = mapper.offset_x
-        offset_y = mapper.offset_y
+        scale = mapper.transform.scale
+        offset_x = mapper.offset_x + (group_transform.dx if group_transform else 0.0)
+        offset_y = mapper.offset_y + (group_transform.dy if group_transform else 0.0)
         if trace_enabled:
             self._log_legacy_trace(
                 plugin_name,
                 item_id,
                 "paint:scale_factors",
                 {
-                    "scale_x": scale_x,
-                    "scale_y": scale_y,
+                    "scale": scale,
                     "offset_x": offset_x,
                     "offset_y": offset_y,
                     "mode": mapper.transform.mode.value,
@@ -2497,8 +2598,8 @@ class OverlayWindow(QWidget):
             if not isinstance(point, Mapping):
                 continue
             try:
-                mapped_x = float(point.get("x", 0.0)) * scale_x + offset_x
-                mapped_y = float(point.get("y", 0.0)) * scale_y + offset_y
+                mapped_x = float(point.get("x", 0.0)) * scale + offset_x
+                mapped_y = float(point.get("y", 0.0)) * scale + offset_y
             except (TypeError, ValueError):
                 continue
             px = int(round(mapped_x))
@@ -2513,8 +2614,8 @@ class OverlayWindow(QWidget):
         render_vector(
             adapter,
             vector_payload,
-            scale_x,
-            scale_y,
+            scale,
+            scale,
             offset_x=offset_x,
             offset_y=offset_y,
             trace=trace_fn,
