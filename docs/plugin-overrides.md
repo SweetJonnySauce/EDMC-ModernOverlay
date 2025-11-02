@@ -199,10 +199,41 @@ shown below remains valid in either mode.
 - No explicit `pivot` is required because the payload coordinates include all of the vertices the transform needs to
   deduce its bounds.
 - The plugin-level `notes` array is just documentation for humans; Modern Overlay ignores it, but it keeps the rationale beside the configuration.
+- You can add a `grouping` block to keep Fill-mode transforms rigid. `"mode": "plugin"` keeps every payload in one group; `"mode": "id_prefix"` lets you list the exact prefixes (see “Grouping vector payloads”).
 
 This pattern keeps the adjustment in the adapter layer while leaving the plugin’s source intact. If a future plugin
 applies a similar workaround (for example, only providing a single anchor point instead of polygons), you can set
 `source_bounds` to the rectangle the plugin was targeting and reuse the same transform logic.
+
+### Grouping vector payloads
+
+Fill mode zooms the overlay uniformly, which means we sometimes have to translate payloads back into the window to keep them visible. By default the overlay groups payloads by plugin, but you can override that behaviour:
+
+```jsonc
+"LandingPad": {
+  "__match__": { "id_prefixes": ["shell-", "line-"] },
+  "grouping": {
+    "mode": "plugin"
+  }
+}
+```
+
+```jsonc
+"EDMC-MiningAnalytics": {
+  "__match__": { "id_prefixes": ["edmcma.metric.", "edmcma.alert."] },
+  "grouping": {
+    "mode": "id_prefix",
+    "prefixes": {
+      "metrics": "edmcma.metric.",
+      "alerts": "edmcma.alert."
+    }
+  }
+}
+```
+
+- `"plugin"` keeps every payload from the plugin in one rigid group (useful for single-widget overlays such as LandingPad).
+- `"id_prefix"` splits the plugin into named groups so unrelated widgets can move independently.
+- If a prefix isn’t listed, the renderer falls back to per-item grouping for that payload.
 
 ## Testing Your Overrides
 

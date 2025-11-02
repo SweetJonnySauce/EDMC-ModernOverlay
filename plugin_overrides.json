@@ -16,6 +16,9 @@
         "pad-"
       ]
     },
+    "grouping": {
+      "mode": "plugin"
+    },
     "transform": {
       "scale": {
         "x": 1.0,

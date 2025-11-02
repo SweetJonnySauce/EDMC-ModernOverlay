@@ -21,6 +21,8 @@ class _PluginConfig:
     match_id_prefixes: Tuple[str, ...]
     overrides: List[Tuple[str, JsonDict]]
     plugin_defaults: Optional[JsonDict]
+    group_mode: Optional[str]
+    group_prefixes: Tuple[Tuple[str, str], ...]
 
 
 class PluginOverrideManager:
@@ -183,10 +185,37 @@ class PluginOverrideManager:
                             cleaned.append(value.casefold())
                     match_prefixes = tuple(cleaned)
 
+            grouping_mode: Optional[str] = None
+            grouping_prefixes: List[Tuple[str, str]] = []
+            grouping_section = plugin_payload.get("grouping")
+            if isinstance(grouping_section, Mapping):
+                mode_raw = grouping_section.get("mode")
+                if isinstance(mode_raw, str):
+                    mode_token = mode_raw.strip().lower()
+                    if mode_token in {"plugin", "id_prefix"}:
+                        grouping_mode = mode_token
+                if grouping_mode == "id_prefix":
+                    prefixes_spec = grouping_section.get("prefixes")
+                    if isinstance(prefixes_spec, Mapping):
+                        for label, prefix_value in prefixes_spec.items():
+                            if not isinstance(prefix_value, str) or not prefix_value:
+                                continue
+                            prefix_cf = prefix_value.casefold()
+                            if not prefix_cf:
+                                continue
+                            label_str = str(label) if isinstance(label, str) and label else prefix_value
+                            grouping_prefixes.append((prefix_cf, label_str))
+                    elif isinstance(prefixes_spec, Iterable):
+                        for entry in prefixes_spec:
+                            if isinstance(entry, str) and entry:
+                                grouping_prefixes.append((entry.casefold(), entry))
+
             overrides: List[Tuple[str, JsonDict]] = []
             plugin_defaults: JsonDict = {}
             for key, spec in plugin_payload.items():
                 if key == "notes":
+                    continue
+                if key == "grouping":
                     continue
                 if key == "transform" and isinstance(spec, Mapping):
                     plugin_defaults["transform"] = dict(spec)
@@ -207,6 +236,8 @@ class PluginOverrideManager:
                 match_id_prefixes=match_prefixes,
                 overrides=overrides,
                 plugin_defaults=plugin_defaults or None,
+                group_mode=grouping_mode,
+                group_prefixes=tuple(grouping_prefixes),
             )
 
         self._plugins = plugins
@@ -276,6 +307,25 @@ class PluginOverrideManager:
                 return pattern, spec
             if fnmatchcase(message_id_cf, pattern.casefold()):
                 return pattern, spec
+        return None
+
+    def grouping_key_for(self, plugin: Optional[str], payload_id: Optional[str]) -> Optional[Tuple[str, Optional[str]]]:
+        self._reload_if_needed()
+        canonical = self._canonical_plugin_name(plugin)
+        if canonical is None:
+            return None
+        config = self._plugins.get(canonical)
+        if config is None or not config.group_mode:
+            return None
+        mode = config.group_mode
+        if mode == "plugin":
+            return config.name, None
+        if mode == "id_prefix" and isinstance(payload_id, str) and payload_id:
+            payload_cf = payload_id.casefold()
+            for prefix, label in config.group_prefixes:
+                if payload_cf.startswith(prefix):
+                    return config.name, label
+            return config.name, None
         return None
 
     def _should_trace(self, plugin: str, message_id: str) -> bool:

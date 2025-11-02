@@ -505,8 +505,17 @@ class OverlayWindow(QWidget):
         return data
 
     def _group_key_for_item(self, item_id: str, plugin_name: Optional[str]) -> GroupKey:
+        override_manager = getattr(self, "_override_manager", None)
+        override_key: Optional[Tuple[str, Optional[str]]] = None
+        if override_manager is not None:
+            override_key = override_manager.grouping_key_for(plugin_name, item_id)
+        if override_key is not None:
+            plugin_token, suffix = override_key
+            plugin_token = (plugin_token or plugin_name or "unknown").strip() or "unknown"
+            return GroupKey(plugin=plugin_token, suffix=suffix)
         plugin_token = (plugin_name or "unknown").strip() or "unknown"
-        return GroupKey(plugin=plugin_token, suffix=None)
+        suffix = f"item:{item_id}" if item_id else None
+        return GroupKey(plugin=plugin_token, suffix=suffix)
 
     @staticmethod
     def _compute_fill_delta(min_val: float, max_val: float, scale: float, base_offset: float, extent: float) -> float:
