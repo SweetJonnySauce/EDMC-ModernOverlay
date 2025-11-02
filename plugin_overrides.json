@@ -113,10 +113,32 @@
   "EDR": {
     "notes": [
       "EDR omits the plugin field in its overlay payloads, so Modern Overlay cannot infer the source.",
-      "Treat any payload whose id starts with 'EDR-' as belonging to EDR so the payload finder shows the correct plugin name."
+      "Treat any payload whose id starts with 'EDR-' as belonging to EDR so the payload finder shows the correct plugin name.",
+      "Group docking overlays by id prefix so Fill mode keeps related elements aligned."
     ],
     "__match__": {
       "id_prefixes": ["edr-"]
+    },
+    "grouping": {
+      "mode": "id_prefix",
+      "prefixes": {
+        "docking-station": "edr-docking-station-",
+        "docking": "edr-docking-"
+      }
+    },
+    "transform": {
+      "scale": {
+        "x": 1.0,
+        "y": 1.0,
+        "scale_anchor_point": {
+          "x": 0.0,
+          "y": 0.0
+        }
+      },
+      "offset": {
+        "x": 0.0,
+        "y": 0.0
+      }
     }
   }
 }
