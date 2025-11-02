@@ -42,3 +42,7 @@ Enable **Show debug overlay** to surface a live diagnostics panel in the corner 
 - **Settings block** highlights the title-bar compensation flag and height, along with the actual pixel offset applied. If compensation is enabled but the offset seems wrong, this is the first place to verify the numbers.
 
 These details are helpful when debugging sizing issues (e.g., 21:9 vs. 16:9 monitors) or verifying that override transforms are behaving as expected.
+
+### Fill-mode diagnostics
+
+Set `fill_group_debug` to `true` in `debug.json` to log per-payload coordinates whenever Fill mode is active. Each paint pass prints the plugin, payload ID, raw logical coordinates, and the window-space result after scaling so you can sanity-check group offsets while tuning the transform.

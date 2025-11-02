@@ -13,6 +13,7 @@ class DebugConfig:
     trace_enabled: bool = False
     trace_plugin: Optional[str] = None
     trace_payload_ids: tuple[str, ...] = ()
+    fill_group_debug: bool = False
 
 
 def load_debug_config(path: Path) -> DebugConfig:
@@ -49,8 +50,11 @@ def load_debug_config(path: Path) -> DebugConfig:
     if trace_plugin is not None:
         trace_plugin = str(trace_plugin).strip() or None
 
+    fill_group_debug = bool(data.get("fill_group_debug", False))
+
     return DebugConfig(
         trace_enabled=trace_enabled,
         trace_plugin=trace_plugin,
         trace_payload_ids=payload_ids,
+        fill_group_debug=fill_group_debug,
     )

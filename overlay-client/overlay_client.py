@@ -2252,13 +2252,31 @@ class OverlayWindow(QWidget):
     def _paint_legacy(self, painter: QPainter) -> None:
         self._cycle_anchor_points = {}
         mapper = self._compute_legacy_mapper()
+        debug_fill = self._debug_config.fill_group_debug and mapper.transform.mode is ScaleMode.FILL
+        fill_debug_rows: List[str] = []
         for item_id, item in self._legacy_items.items():
             if item.kind == "message":
-                self._paint_legacy_message(painter, item_id, item.data, mapper)
+                row_log = self._paint_legacy_message(painter, item_id, item.data, mapper, item.plugin)
+                if debug_fill and row_log:
+                    fill_debug_rows.append(row_log)
             elif item.kind == "rect":
-                self._paint_legacy_rect(painter, item_id, item.data, mapper, item.plugin)
+                row_log = self._paint_legacy_rect(painter, item_id, item.data, mapper, item.plugin)
+                if debug_fill and row_log:
+                    fill_debug_rows.append(row_log)
             elif item.kind == "vector":
-                self._paint_legacy_vector(painter, item, mapper)
+                row_log = self._paint_legacy_vector(painter, item, mapper)
+                if debug_fill and row_log:
+                    fill_debug_rows.append(row_log)
+        if debug_fill and fill_debug_rows:
+            _CLIENT_LOGGER.debug(
+                "fill-debug scale=%.3f size=(%.1f×%.1f) offset=(%.1f, %.1f): %s",
+                mapper.transform.scale,
+                mapper.transform.scaled_size[0],
+                mapper.transform.scaled_size[1],
+                mapper.offset_x,
+                mapper.offset_y,
+                " | ".join(fill_debug_rows),
+            )
 
     def _legacy_coordinate_scale_factors(self) -> Tuple[float, float]:
         mapper = self._compute_legacy_mapper()
@@ -2282,7 +2300,8 @@ class OverlayWindow(QWidget):
         item_id: str,
         item: Dict[str, Any],
         mapper: _LegacyMapper,
-    ) -> None:
+        plugin_name: Optional[str] = None,
+    ) -> Optional[str]:
         color = QColor(str(item.get("color", "white")))
         size = str(item.get("size", "normal")).lower()
         scaled_point_size = self._legacy_preset_point_size(size)
@@ -2331,6 +2350,13 @@ class OverlayWindow(QWidget):
         bottom = baseline + metrics.descent()
         center_y = int(round((top + bottom) / 2.0))
         self._register_cycle_anchor(item_id, center_x, center_y)
+        if self._debug_config.fill_group_debug and mapper.transform.mode is ScaleMode.FILL:
+            plugin_label = plugin_name if isinstance(plugin_name, str) and plugin_name else "unknown"
+            return (
+                f"{plugin_label}:{item_id} message raw=({raw_left:.1f},{raw_top:.1f}) "
+                f"px=({x},{baseline}) size={size}"
+            )
+        return None
 
     def _paint_legacy_rect(
         self,
@@ -2339,7 +2365,7 @@ class OverlayWindow(QWidget):
         item: Dict[str, Any],
         mapper: _LegacyMapper,
         plugin_name: Optional[str] = None,
-    ) -> None:
+    ) -> Optional[str]:
         border_spec = str(item.get("color", "white"))
         fill_spec = str(item.get("fill", "#00000000"))
 
@@ -2417,13 +2443,20 @@ class OverlayWindow(QWidget):
             h,
         )
         self._register_cycle_anchor(item_id, x + w // 2, y + h // 2)
+        if self._debug_config.fill_group_debug and mapper.transform.mode is ScaleMode.FILL:
+            plugin_label = plugin_name if isinstance(plugin_name, str) and plugin_name else "unknown"
+            return (
+                f"{plugin_label}:{item_id} rect raw=({raw_x:.1f},{raw_y:.1f},{raw_w:.1f},{raw_h:.1f}) "
+                f"px=({x},{y},{w},{h})"
+            )
+        return None
 
     def _paint_legacy_vector(
         self,
         painter: QPainter,
         legacy_item: LegacyItem,
         mapper: _LegacyMapper,
-    ) -> None:
+    ) -> Optional[str]:
         item_id = legacy_item.item_id
         item = legacy_item.data
         plugin_name = legacy_item.plugin
@@ -2486,6 +2519,21 @@ class OverlayWindow(QWidget):
             offset_y=offset_y,
             trace=trace_fn,
         )
+        if self._debug_config.fill_group_debug and mapper.transform.mode is ScaleMode.FILL:
+            plugin_label = plugin_name if isinstance(plugin_name, str) and plugin_name else "unknown"
+            raw_points = [
+                point for point in vector_payload.get("points", []) if isinstance(point, Mapping)
+            ]
+            if raw_points:
+                min_raw_x = min(float(point.get("x", 0.0)) for point in raw_points)
+                min_raw_y = min(float(point.get("y", 0.0)) for point in raw_points)
+            else:
+                min_raw_x = min_raw_y = 0.0
+            return (
+                f"{plugin_label}:{item_id} vector min_raw=({min_raw_x},{min_raw_y}) "
+                f"offset=({offset_x:.1f},{offset_y:.1f}) points={len(vector_payload.get('points', []))}"
+            )
+        return None
 
     def _paint_debug_overlay(self, painter: QPainter) -> None:
         if not self._show_debug_overlay:
