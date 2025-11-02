@@ -1,11 +1,7 @@
 {
   "LandingPad": {
     "notes": [
-      "LandingPad added aspect_x years ago to compensate for the original Windows-only EDMCOverlay.exe.",
-      "That binary rendered into a fixed 1280x1024 virtual canvas, and the plugin's coordinates assumed it was being stretched to fit arbitrary screen sizes.",
-      "",
-      "By multiplying X by an extra factor derived from the monitor dimensions (calc_aspect_x), LandingPad tried to undo the horizontal stretch so the dodecagon stayed round.",
-      "ModernOverlay already handles that scaling, so leaving aspect_x active doubles the correction and flattens the pad."
+      "This groups the LandingPad overlay so Fill mode can handle the image as a single unit."
     ],
     "__match__": {
       "id_prefixes": [
@@ -35,75 +31,49 @@
     }
   },
   "bgstally": {
-    "notes": [
-      "I wanted a smaller text for BGS tally, but it left a large gap between lines.",
-      "So I scale down vertically to close the gap."
-    ],
     "__match__": {
       "id_prefixes": [
         "bgstally-"
       ]
     },
-    "bgstally-msg-colonisation-*": {
-      "transform": {
-        "scale": {
-          "x": 1.0,
-          "y": 0.6,
-          "scale_anchor_point": {
-            "x": 0.0,
-            "y": 0.0
-          },
-          "offset": {
-            "x": 0.0,
-            "y": 0.0
+    "notes": [
+      "I wanted a smaller text for BGS tally, but it left a large gap between lines.",
+      "So I scale down vertically to close the gap."
+    ],
+    "grouping": {
+      "mode": "id_prefix",
+      "groups": {
+        "colonisation": {
+          "id_prefixes": [
+            "bgstally-msg-colonisation-"
+          ],
+          "transform": {
+            "scale": {
+              "x": 1.0,
+              "y": 0.6,
+              "scale_anchor_point": {
+                "x": 0.0,
+                "y": 0.0
+              }
+            }
           }
-        }
-      }
-    },
-    "bgstally-msg-tick*": {
-      "transform": {
-        "scale": {
-          "x": 1.0,
-          "y": 0.7,
-          "scale_anchor_point": {
-            "x": 0.0,
-            "y": 0.0
-          }
-        }
-      }
-    },
-    "bgstally-frame-system_tick*": {
-      "transform": {
-        "scale": {
-          "x": 1.0,
-          "y": 0.7,
-          "scale_anchor_point": {
-            "x": 0.0,
-            "y": 0.0
-          }
-        }
-      }
-    },
-    "bgstally-frame-tick*": {
-      "transform": {
-        "scale": {
-          "x": 1.0,
-          "y": 0.7,
-          "scale_anchor_point": {
-            "x": 0.0,
-            "y": 0.0
-          }
-        }
-      }
-    },
-    "bgstally-msg-system_tick*": {
-      "transform": {
-        "scale": {
-          "x": 1.0,
-          "y": 0.7,
-          "scale_anchor_point": {
-            "x": 0.0,
-            "y": 0.0
+        },
+        "tick-notifications": {
+          "id_prefixes": [
+            "bgstally-frame-tick",
+            "bgstally-msg-tick-0",
+            "bgstally-frame-system_tick",
+            "bgstally-msg-system_tick-0"
+          ],
+          "transform": {
+            "scale": {
+              "x": 1.0,
+              "y": 0.7,
+              "scale_anchor_point": {
+                "x": 0.0,
+                "y": 0.0
+              }
+            }
           }
         }
       }
