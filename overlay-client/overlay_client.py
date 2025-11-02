@@ -533,17 +533,24 @@ class OverlayWindow(QWidget):
             return -scaled_min
         return 0.0
 
-    def _accumulate_group_bounds(self, bounds: GroupBounds, item: LegacyItem) -> None:
+    def _accumulate_group_bounds(self, bounds: GroupBounds, item: LegacyItem, scale: float) -> None:
         data = item.data
         if not isinstance(data, Mapping):
             return
         logical = self._logical_mapping(data)
         kind = item.kind
+        if scale <= 0.0:
+            scale = 1.0
         try:
             if kind == "message":
                 x_val = float(logical.get("x", data.get("x", 0.0)))
                 y_val = float(logical.get("y", data.get("y", 0.0)))
-                bounds.update_point(x_val, y_val)
+                size_label = str(data.get("size", "normal")) if isinstance(data, Mapping) else "normal"
+                font = QFont(self._font_family)
+                font.setPointSizeF(self._legacy_preset_point_size(size_label))
+                metrics = QFontMetrics(font)
+                line_height_logical = metrics.height() / scale
+                bounds.update_rect(x_val, y_val, x_val, y_val + max(0.0, line_height_logical))
             elif kind == "rect":
                 x_val = float(logical.get("x", data.get("x", 0.0)))
                 y_val = float(logical.get("y", data.get("y", 0.0)))
@@ -575,12 +582,14 @@ class OverlayWindow(QWidget):
         self._group_transform_cache.reset()
         if mapper.transform.mode is not ScaleMode.FILL:
             return
+        scale = mapper.transform.scale
+        if scale <= 0.0:
+            scale = 1.0
         group_bounds: Dict[Tuple[str, Optional[str]], GroupBounds] = {}
         for item_id, legacy_item in self._legacy_items.items():
             group_key = self._group_key_for_item(item_id, legacy_item.plugin)
             bounds = group_bounds.setdefault(group_key.as_tuple(), GroupBounds())
-            self._accumulate_group_bounds(bounds, legacy_item)
-        scale = mapper.transform.scale
+            self._accumulate_group_bounds(bounds, legacy_item, scale)
         base_offset_x = mapper.offset_x
         base_offset_y = mapper.offset_y
         width = float(self.width())
