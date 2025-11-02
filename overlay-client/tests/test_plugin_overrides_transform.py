@@ -56,7 +56,7 @@ def landingpad_config(tmp_path: Path) -> Path:
         "LandingPad": {
             "__match__": {"id_prefixes": ["shell-", "pad-"]},
             "transform": {
-                "scale": {"x": 2.0, "y": 1.0, "scale_anchor_point": "sw"},
+                "scale": {"x": 2.0, "y": 1.0, "pivot": "SW"},
                 "offset": {"x": 0.0, "y": 150.0},
             },
         }
@@ -153,7 +153,7 @@ def test_transform_accepts_point_mapping(tmp_path: Path) -> None:
                 "scale": {
                     "x": 2.0,
                     "y": 1.0,
-                    "scale_anchor_point": {"x": 50.0, "y": 75.0},
+                    "pivot": {"x": 50.0, "y": 75.0},
                 }
             }
         }
@@ -203,8 +203,7 @@ def test_transform_scales_message_coordinates(tmp_path: Path) -> None:
                 "transform": {
                     "scale": {
                         "x": 1.0,
-                        "y": 0.5,
-                        "scale_anchor_point": {"x": 0.0, "y": 0.0},
+                        "y": 0.5
                     }
                 }
             }
@@ -252,8 +251,7 @@ def test_transform_scales_tick_messages(tmp_path: Path) -> None:
                 "transform": {
                     "scale": {
                         "x": 1.0,
-                        "y": 0.7,
-                        "scale_anchor_point": {"x": 0.0, "y": 0.0},
+                        "y": 0.7
                     }
                 }
             }
@@ -299,8 +297,7 @@ def test_transform_handles_mixed_case_plugin_and_id(tmp_path: Path) -> None:
                 "transform": {
                     "scale": {
                         "x": 1.0,
-                        "y": 0.7,
-                        "scale_anchor_point": {"x": 0.0, "y": 0.0},
+                        "y": 0.7
                     }
                 }
             }
@@ -343,7 +340,7 @@ def test_transform_infers_plugin_from_mixed_case_id(tmp_path: Path) -> None:
             "__match__": {"id_prefixes": ["bgstally-"]},
             "bgstally-msg-*": {
                 "transform": {
-                    "scale": {"x": 1.0, "y": 0.7, "scale_anchor_point": {"x": 0.0, "y": 0.0}}
+                    "scale": {"x": 1.0, "y": 0.7}
                 }
             }
         }

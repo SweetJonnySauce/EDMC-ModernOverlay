@@ -571,11 +571,6 @@ class PluginOverrideManager:
             pivot_override = self._parse_point(scale_spec.get("pivot"))
             if pivot_override is not None:
                 pivot = pivot_override
-            else:
-                anchor_spec = scale_spec.get("scale_anchor_point", scale_spec.get("point"))
-                anchor_point = self._parse_point(anchor_spec)
-                if anchor_point is not None:
-                    pivot = anchor_point
         elif isinstance(scale_spec, (int, float)):
             scale_x = float(scale_spec)
             scale_y = float(scale_spec)
@@ -673,27 +668,28 @@ class PluginOverrideManager:
         scale_spec = spec.get("scale")
         offset_spec = spec.get("offset")
 
-        pivot_override = None
+        pivot_override: Optional[Tuple[float, float]] = None
+        pivot_label: Optional[str] = None
         if not isinstance(scale_spec, Mapping):
             scale_x = 1.0
             scale_y = 1.0
-            scale_anchor = "NW"
             bounds_spec = None
         else:
             scale_x = self._coerce_float(scale_spec.get("x"), 1.0)
             scale_y = self._coerce_float(scale_spec.get("y"), 1.0)
-            point_spec = scale_spec.get("scale_anchor_point", scale_spec.get("point", "NW"))
-            if isinstance(point_spec, Mapping):
+            pivot_spec = scale_spec.get("pivot", scale_spec.get("point"))
+            if isinstance(pivot_spec, Mapping):
                 try:
                     pivot_override = (
-                        float(point_spec.get("x", 0.0)),
-                        float(point_spec.get("y", 0.0)),
+                        float(pivot_spec.get("x", 0.0)),
+                        float(pivot_spec.get("y", 0.0)),
                     )
                 except (TypeError, ValueError):
                     pivot_override = None
-                scale_anchor = "NW"
-            else:
-                scale_anchor = str(point_spec or "NW")
+            elif isinstance(pivot_spec, str):
+                token = pivot_spec.strip()
+                if token:
+                    pivot_label = token
             bounds_spec = scale_spec.get("source_bounds")
 
         offset_x = 0.0
@@ -705,17 +701,6 @@ class PluginOverrideManager:
         if math.isclose(scale_x, 1.0, rel_tol=1e-9) and math.isclose(scale_y, 1.0, rel_tol=1e-9) and math.isclose(offset_x, 0.0, rel_tol=1e-9) and math.isclose(offset_y, 0.0, rel_tol=1e-9):
             return
 
-        if isinstance(scale_spec, Mapping):
-            pivot_candidate = scale_spec.get("pivot")
-            if isinstance(pivot_candidate, Mapping):
-                try:
-                    pivot_override = (
-                        float(pivot_candidate.get("x", 0.0)),
-                        float(pivot_candidate.get("y", 0.0)),
-                    )
-                except (TypeError, ValueError):
-                    pass
-
         points = self._extract_points_from_payload(payload)
         bounds = self._compute_bounds(points, bounds_spec)
         if bounds is None and pivot_override is None:
@@ -723,8 +708,12 @@ class PluginOverrideManager:
 
         if pivot_override is not None:
             pivot = pivot_override
+        elif pivot_label and bounds is not None:
+            pivot = self._resolve_pivot(bounds, pivot_label)
+        elif bounds is not None:
+            pivot = self._resolve_pivot(bounds, "NW")
         else:
-            pivot = self._resolve_pivot(bounds, scale_anchor)
+            pivot = (0.0, 0.0)
 
         scale_tuple = (scale_x, scale_y)
         offset_tuple = (offset_x, offset_y)
