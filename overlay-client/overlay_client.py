@@ -57,6 +57,8 @@ from plugin_overrides import PluginOverrideManager  # type: ignore  # noqa: E402
 from debug_config import DebugConfig, load_debug_config  # type: ignore  # noqa: E402
 from group_transform import GroupBounds, GroupKey, GroupTransform, GroupTransformCache  # type: ignore  # noqa: E402
 from viewport_helper import (
+    BASE_HEIGHT,
+    BASE_WIDTH,
     ScaleMode,
     ViewportTransform,
     compute_viewport_transform,
@@ -668,12 +670,23 @@ class OverlayWindow(QWidget):
         for key_tuple, bounds in group_bounds.items():
             if not bounds.is_valid():
                 continue
-            dx = self._compute_fill_delta(bounds.min_x, bounds.max_x, scale, base_offset_x, width)
-            dy = self._compute_fill_delta(bounds.min_y, bounds.max_y, scale, base_offset_y, height)
             plugin_label, suffix = key_tuple
             group_scale = 1.0
             if compensate_scale != 1.0 and self._group_has_override(plugin_label, suffix):
                 group_scale = compensate_scale
+            effective_scale = scale * group_scale
+            dx = self._compute_fill_delta(bounds.min_x, bounds.max_x, effective_scale, base_offset_x, width)
+            dy = self._compute_fill_delta(bounds.min_y, bounds.max_y, effective_scale, base_offset_y, height)
+            if group_scale != 1.0:
+                remaining_left = bounds.min_x
+                remaining_right = max(BASE_WIDTH - bounds.max_x, 0.0)
+                anchor_x = bounds.max_x if remaining_right < remaining_left else bounds.min_x
+                remaining_top = bounds.min_y
+                remaining_bottom = max(BASE_HEIGHT - bounds.max_y, 0.0)
+                anchor_y = bounds.max_y if remaining_bottom < remaining_top else bounds.min_y
+                delta_scale = base_scale - effective_scale
+                dx += anchor_x * delta_scale
+                dy += anchor_y * delta_scale
             self._group_transform_cache.set(GroupKey(*key_tuple), GroupTransform(dx=dx, dy=dy, scale=group_scale))
 
     def _scaled_point_size(
