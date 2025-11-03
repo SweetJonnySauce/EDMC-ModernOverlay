@@ -1,6 +1,6 @@
 {
   "settings": {
-    "wait_between_payload_tests": 1
+    "wait_between_payload_tests": 2
   },
   "resolutions": [
     {
@@ -45,7 +45,17 @@
     {
       "name": "landingpad",
       "source": "tests/landingpad.log",
-      "ttl": 2
+      "ttl": 5
+    },
+    {
+      "name": "Galaxy/System Tick",
+      "source": "tests/bgstally-tick.log",
+      "ttl": 5
+    },
+    {
+      "name": "BGSTally Colonisation",
+      "source": "tests/bgstally-colonisation.log",
+      "ttl": 5
     },
     {
       "name": "edr-bounty",
