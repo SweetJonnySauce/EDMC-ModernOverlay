@@ -556,6 +556,80 @@ class OverlayWindow(QWidget):
             dy = 0.0
         return dx, dy
 
+    @classmethod
+    def _transform_components(
+        cls,
+        meta: Optional[Mapping[str, Any]],
+    ) -> Tuple[float, float, float, float, float, float]:
+
+        if not isinstance(meta, Mapping):
+            return 0.0, 0.0, 1.0, 1.0, 0.0, 0.0
+
+        pivot_block = meta.get("pivot")
+        if isinstance(pivot_block, Mapping):
+            pivot_x = cls._safe_float(pivot_block.get("x"), 0.0)
+            pivot_y = cls._safe_float(pivot_block.get("y"), 0.0)
+        else:
+            pivot_x = 0.0
+            pivot_y = 0.0
+
+        scale_block = meta.get("scale")
+        if isinstance(scale_block, Mapping):
+            scale_x = cls._safe_float(scale_block.get("x"), 1.0)
+            scale_y = cls._safe_float(scale_block.get("y"), 1.0)
+        else:
+            scale_x = 1.0
+            scale_y = 1.0
+
+        offset_block = meta.get("offset")
+        if isinstance(offset_block, Mapping):
+            offset_x = cls._safe_float(offset_block.get("x"), 0.0)
+            offset_y = cls._safe_float(offset_block.get("y"), 0.0)
+        else:
+            offset_x = 0.0
+            offset_y = 0.0
+
+        return pivot_x, pivot_y, scale_x, scale_y, offset_x, offset_y
+
+    @staticmethod
+    def _apply_fill_then_override(
+        raw_x: float,
+        raw_y: float,
+        pivot_x: float,
+        pivot_y: float,
+        scale_x: float,
+        scale_y: float,
+        offset_x: float,
+        offset_y: float,
+        prop_x: float,
+        prop_y: float,
+        preserve_dx: float,
+        preserve_dy: float,
+        fill_dx_overlay: float,
+        fill_dy_overlay: float,
+    ) -> Tuple[float, float]:
+
+        if not math.isfinite(prop_x) or math.isclose(prop_x, 0.0, abs_tol=1e-9):
+            prop_x = 1.0
+        if not math.isfinite(prop_y) or math.isclose(prop_y, 0.0, abs_tol=1e-9):
+            prop_y = 1.0
+
+        fill_dx_scaled = fill_dx_overlay * prop_x
+        fill_dy_scaled = fill_dy_overlay * prop_y
+
+        base_x = raw_x * prop_x + preserve_dx + fill_dx_scaled
+        base_y = raw_y * prop_y + preserve_dy + fill_dy_scaled
+
+        pivot_x_fill = pivot_x * prop_x + preserve_dx + fill_dx_scaled
+        pivot_y_fill = pivot_y * prop_y + preserve_dy + fill_dy_scaled
+
+        offset_x_fill = offset_x * prop_x
+        offset_y_fill = offset_y * prop_y
+
+        result_x = pivot_x_fill + (base_x - pivot_x_fill) * scale_x + offset_x_fill
+        result_y = pivot_y_fill + (base_y - pivot_y_fill) * scale_y + offset_y_fill
+        return result_x, result_y
+
     def _fill_proportional_factors(
         self,
         mapper: _LegacyMapper,
@@ -614,12 +688,10 @@ class OverlayWindow(QWidget):
         meta: Optional[Mapping[str, Any]],
         x: float,
         y: float,
-        fill_dx: float,
-        fill_dy: float,
     ) -> Tuple[float, float]:
 
-        x_adj = x + fill_dx
-        y_adj = y + fill_dy
+        x_adj = x
+        y_adj = y
         if not isinstance(meta, Mapping):
             return x_adj, y_adj
 
@@ -646,9 +718,6 @@ class OverlayWindow(QWidget):
         else:
             offset_x = 0.0
             offset_y = 0.0
-
-        pivot_x += fill_dx
-        pivot_y += fill_dy
 
         scaled_x = pivot_x + (x_adj - pivot_x) * scale_x
         scaled_y = pivot_y + (y_adj - pivot_y) * scale_y
@@ -753,7 +822,7 @@ class OverlayWindow(QWidget):
         transform_meta = data.get("__mo_transform__") if isinstance(data, Mapping) else None
 
         def transform_point(x_val: float, y_val: float) -> Tuple[float, float]:
-            return self._apply_transform_meta_to_point(transform_meta, x_val, y_val, 0.0, 0.0)
+            return self._apply_transform_meta_to_point(transform_meta, x_val, y_val)
 
         kind = item.kind
         if scale <= 0.0:
@@ -827,16 +896,16 @@ class OverlayWindow(QWidget):
                             continue
                         px = self._safe_float(point.get("x"), 0.0)
                         py = self._safe_float(point.get("y"), 0.0)
-                        return self._apply_transform_meta_to_point(transform_meta, px, py, 0.0, 0.0)
+                        return self._apply_transform_meta_to_point(transform_meta, px, py)
                 return 0.0, 0.0
             if kind == "rect":
                 px = self._safe_float(logical.get("x", data.get("x", 0.0)), 0.0)
                 py = self._safe_float(logical.get("y", data.get("y", 0.0)), 0.0)
-                return self._apply_transform_meta_to_point(transform_meta, px, py, 0.0, 0.0)
+                return self._apply_transform_meta_to_point(transform_meta, px, py)
             if kind == "message":
                 px = self._safe_float(logical.get("x", data.get("x", 0.0)), 0.0)
                 py = self._safe_float(logical.get("y", data.get("y", 0.0)), 0.0)
-                return self._apply_transform_meta_to_point(transform_meta, px, py, 0.0, 0.0)
+                return self._apply_transform_meta_to_point(transform_meta, px, py)
         except (TypeError, ValueError):
             return 0.0, 0.0
         return 0.0, 0.0
@@ -2864,7 +2933,6 @@ class OverlayWindow(QWidget):
         scale = mapper.transform.scale * group_scale
         base_offset_x = mapper.offset_x
         base_offset_y = mapper.offset_y
-        fill_dx_overlay, fill_dy_overlay = self._fill_overlay_delta(scale, group_transform)
         transform_meta = item.get("__mo_transform__")
         font = QFont(self._font_family)
         font.setPointSizeF(scaled_point_size)
@@ -2874,17 +2942,26 @@ class OverlayWindow(QWidget):
         painter.setFont(font)
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
-        adjusted_left, adjusted_top = self._apply_transform_meta_to_point(
-            transform_meta,
+        pivot_x, pivot_y, scale_x_meta, scale_y_meta, offset_x_meta, offset_y_meta = self._transform_components(transform_meta)
+        fill_dx_overlay, fill_dy_overlay = self._fill_overlay_delta(scale, group_transform)
+        prop_x, prop_y = self._fill_proportional_factors(mapper, group_transform)
+        preserve_dx, preserve_dy = self._fill_preserve_offsets(group_transform)
+        adjusted_left, adjusted_top = self._apply_fill_then_override(
             raw_left,
             raw_top,
+            pivot_x,
+            pivot_y,
+            scale_x_meta,
+            scale_y_meta,
+            offset_x_meta,
+            offset_y_meta,
+            prop_x,
+            prop_y,
+            preserve_dx,
+            preserve_dy,
             fill_dx_overlay,
             fill_dy_overlay,
         )
-        prop_x, prop_y = self._fill_proportional_factors(mapper, group_transform)
-        preserve_dx, preserve_dy = self._fill_preserve_offsets(group_transform)
-        adjusted_left = adjusted_left * prop_x + preserve_dx
-        adjusted_top = adjusted_top * prop_y + preserve_dy
         text = str(item.get("text", ""))
         x = int(round(adjusted_left * scale + base_offset_x))
         metrics = painter.fontMetrics()
@@ -2963,13 +3040,14 @@ class OverlayWindow(QWidget):
         scale = mapper.transform.scale * group_scale
         base_offset_x = mapper.offset_x
         base_offset_y = mapper.offset_y
-        fill_dx_overlay, fill_dy_overlay = self._fill_overlay_delta(scale, group_transform)
         transform_meta = item.get("__mo_transform__")
         trace_enabled = self._should_trace_payload(plugin_name, item_id)
+        pivot_x, pivot_y, scale_x_meta, scale_y_meta, offset_x_meta, offset_y_meta = self._transform_components(transform_meta)
         raw_x = float(item.get("x", 0))
         raw_y = float(item.get("y", 0))
         raw_w = float(item.get("w", 0))
         raw_h = float(item.get("h", 0))
+        fill_dx_overlay, fill_dy_overlay = self._fill_overlay_delta(scale, group_transform)
         if trace_enabled:
             self._log_legacy_trace(
                 plugin_name,
@@ -2995,15 +3073,26 @@ class OverlayWindow(QWidget):
             (raw_x, raw_y + raw_h),
             (raw_x + raw_w, raw_y + raw_h),
         ]
-        transformed_overlay = [
-            self._apply_transform_meta_to_point(transform_meta, cx, cy, fill_dx_overlay, fill_dy_overlay)
-            for cx, cy in corners_raw
-        ]
         prop_x, prop_y = self._fill_proportional_factors(mapper, group_transform)
         preserve_dx, preserve_dy = self._fill_preserve_offsets(group_transform)
         transformed_overlay = [
-            (pt_x * prop_x + preserve_dx, pt_y * prop_y + preserve_dy)
-            for pt_x, pt_y in transformed_overlay
+            self._apply_fill_then_override(
+                cx,
+                cy,
+                pivot_x,
+                pivot_y,
+                scale_x_meta,
+                scale_y_meta,
+                offset_x_meta,
+                offset_y_meta,
+                prop_x,
+                prop_y,
+                preserve_dx,
+                preserve_dy,
+                fill_dx_overlay,
+                fill_dy_overlay,
+            )
+            for cx, cy in corners_raw
         ]
         xs_overlay = [pt[0] for pt in transformed_overlay]
         ys_overlay = [pt[1] for pt in transformed_overlay]
@@ -3068,6 +3157,7 @@ class OverlayWindow(QWidget):
         transform_meta = item.get("__mo_transform__")
         prop_x, prop_y = self._fill_proportional_factors(mapper, group_transform)
         preserve_dx, preserve_dy = self._fill_preserve_offsets(group_transform)
+        pivot_x, pivot_y, scale_x_meta, scale_y_meta, offset_x_meta, offset_y_meta = self._transform_components(transform_meta)
         if trace_enabled:
             self._log_legacy_trace(
                 plugin_name,
@@ -3098,16 +3188,25 @@ class OverlayWindow(QWidget):
                 raw_py = float(point.get("y", 0.0))
             except (TypeError, ValueError):
                 continue
-            adj_x, adj_y = self._apply_transform_meta_to_point(
-                transform_meta,
+            new_point = dict(point)
+            adj_x, adj_y = self._apply_fill_then_override(
                 raw_px,
                 raw_py,
+                pivot_x,
+                pivot_y,
+                scale_x_meta,
+                scale_y_meta,
+                offset_x_meta,
+                offset_y_meta,
+                prop_x,
+                prop_y,
+                preserve_dx,
+                preserve_dy,
                 fill_dx_overlay,
                 fill_dy_overlay,
             )
-            new_point = dict(point)
-            new_point["x"] = adj_x * prop_x + preserve_dx
-            new_point["y"] = adj_y * prop_y + preserve_dy
+            new_point["x"] = adj_x
+            new_point["y"] = adj_y
             transformed_points.append(new_point)
         if len(transformed_points) < 2:
             return None

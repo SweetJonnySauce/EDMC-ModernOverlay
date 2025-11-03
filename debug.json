@@ -10,9 +10,10 @@
   "payload_logging": {
     "overlay_payload_log_enabled": true,
     "exclude_plugins": [
-      "bgstallyx"
+      "bgstally",
+      "bioscan"
     ]
   },
-  "fill_group_debug": true,
+  "fill_group_debug": false,
   "overlay_outline": true
 }

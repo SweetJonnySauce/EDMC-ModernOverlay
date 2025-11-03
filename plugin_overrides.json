@@ -88,6 +88,21 @@
               "y": 0.0
             }
           }
+        },
+        "bounty": {
+          "id_prefixes": [
+            "edr-bounty"
+          ]
+        },
+        "intel": {
+          "id_prefixes": [
+            "edr-intel"
+          ]
+        },
+        "target": {
+          "id_prefixes": [
+            "edr-target"
+          ]
         }
       }
     }
