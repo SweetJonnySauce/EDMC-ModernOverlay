@@ -31,7 +31,8 @@
       "groups": {
         "colonisation": {
           "id_prefixes": [
-            "bgstally-msg-colonisation-"
+            "bgstally-msg-colonisation-",
+            "bgstally-frame-colonisation"
           ],
           "transform": {
             "scale": {

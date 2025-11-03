@@ -96,6 +96,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional settings file to read mock_window_width/mock_window_height defaults "
         "(default: %(default)s relative to script).",
     )
+    parser.add_argument(
+        "--payload-label",
+        dest="payload_label",
+        default="",
+        help="Optional label describing the active payload (displayed near the top of the window).",
+    )
+    parser.add_argument(
+        "--label-file",
+        dest="label_file",
+        default="",
+        help="Optional path to a text file whose contents should be mirrored in the payload label.",
+    )
     return parser
 
 
@@ -189,7 +201,37 @@ def main() -> None:
         bg="black",
         font=("Helvetica", 16, "bold"),
     )
-    info.pack(expand=True, fill="both")
+    info.pack(side="top", fill="x", padx=20, pady=20)
+
+    payload_var = tk.StringVar(value=str(args.payload_label or "").strip())
+    payload_label = tk.Label(
+        root,
+        textvariable=payload_var,
+        fg="#00AAFF",
+        bg="black",
+        font=("Helvetica", 18, "bold"),
+    )
+    payload_label.pack(side="top", pady=30)
+
+    spacer = tk.Frame(root, bg="black")
+    spacer.pack(expand=True, fill="both")
+
+    label_path = Path(args.label_file).expanduser() if args.label_file else None
+
+    def _poll_label() -> None:
+        if label_path:
+            try:
+                new_text = label_path.read_text(encoding="utf-8").strip()
+            except FileNotFoundError:
+                new_text = ""
+            except OSError:
+                new_text = payload_var.get()
+            if payload_var.get() != new_text:
+                payload_var.set(new_text)
+        root.after(250, _poll_label)
+
+    if label_path:
+        _poll_label()
 
     root.mainloop()
 

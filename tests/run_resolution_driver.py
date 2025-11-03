@@ -10,25 +10,18 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TESTS_DIR = PROJECT_ROOT / "tests"
-DEFAULT_CONFIG_PATH = PROJECT_ROOT / "test_resolution.json"
+DEFAULT_CONFIG_PATH = TESTS_DIR / "test_resolution.json"
 PORT_PATH = PROJECT_ROOT / "port.json"
 
 MOCK_WINDOW_PATH = TESTS_DIR / "mock_elite_window.py"
-SEND_SHAPE_PATH = TESTS_DIR / "send_overlay_shape.py"
-SEND_TEXT_PATH = TESTS_DIR / "send_overlay_text.py"
 SEND_FROM_LOG_PATH = TESTS_DIR / "send_overlay_from_log.py"
-
-DEFAULT_LOG_REPLAYS: Dict[str, float] = {
-    str(TESTS_DIR / "edr-docking.log"): 2.0,
-    str(TESTS_DIR / "landingpad.log"): 2.0,
-}
-LOG_REPLAY_TTL = 2
 
 DEFAULT_TITLE = "Elite - Dangerous (Stub)"
 DEFAULT_WINDOW_DELAY = 1.0
@@ -112,6 +105,8 @@ def _launch_mock_window(
     height: int,
     *,
     title: str = DEFAULT_TITLE,
+    payload_label: str = "",
+    label_file: Optional[Path] = None,
 ) -> subprocess.Popen[Any]:
     env = dict(os.environ)
     env["MOCK_ELITE_WIDTH"] = str(width)
@@ -124,6 +119,10 @@ def _launch_mock_window(
         "--size",
         f"{width}x{height}",
     ]
+    if payload_label:
+        command.extend(["--payload-label", payload_label])
+    if label_file:
+        command.extend(["--label-file", str(label_file)])
     _log(f"Launching mock Elite window at {width}x{height} …")
     process = subprocess.Popen(command, cwd=PROJECT_ROOT, env=env)
     return process
@@ -146,104 +145,189 @@ def _terminate_process(process: Optional[subprocess.Popen[Any]]) -> None:
         process.wait(timeout=1.0)
 
 
-def _run_overlay_sequences(sequences: Iterable[Mapping[str, Any]]) -> None:
-    for entry in sequences:
-        if not isinstance(entry, Mapping):
-            continue
-        command = entry.get("command")
-        if not isinstance(command, list):
-            continue
-        _run_subprocess(command)
+def _replay_log_payload(log_source: str, ttl_seconds: float) -> None:
+    ttl_seconds = max(0.1, ttl_seconds)
+    ttl_override = max(1, int(round(ttl_seconds)))
+    command = [
+        sys.executable,
+        str(SEND_FROM_LOG_PATH),
+        "--logfile",
+        log_source,
+        "--ttl",
+        str(ttl_override),
+        "--max-payloads",
+        "0",
+    ]
+    _run_subprocess(command)
 
 
-def _load_resolutions(path: Path) -> List[Dict[str, Any]]:
+def _write_payload_label(path: Path, label: str) -> None:
+    try:
+        path.write_text(label.strip() + "\n", encoding="utf-8")
+    except OSError as exc:
+        _log(f"Warning: unable to update payload label file {path}: {exc}")
+
+
+def _prompt_action(payload_name: str, resolution: Tuple[int, int], *, default: str = "continue") -> str:
+    prompt = (
+        f"[resolution-driver] Finished '{payload_name}' at {resolution[0]}x{resolution[1]}."
+        " Press Enter to continue, type 'a' to run all, or 's' to stop: "
+    )
+    try:
+        response = input(prompt).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return "stop"
+    if not response:
+        return default
+    if response in {"s", "stop"}:
+        return "stop"
+    if response in {"a", "all"}:
+        return "all"
+    return "continue"
+
+
+def _coerce_positive_float(value: Any, *, default: float, minimum: float = 0.0) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        numeric = default
+    if numeric < minimum:
+        numeric = minimum
+    return numeric
+
+
+def _load_test_plan(path: Path) -> Tuple[Dict[str, float], List[Dict[str, int]], List[Dict[str, str]]]:
     data = _read_json(path)
-    raw_list: Iterable[Any]
-    if isinstance(data, Mapping) and "resolutions" in data:
-        raw_list = data["resolutions"]
-    elif isinstance(data, Iterable):
-        raw_list = data
-    else:
-        raise DriverError(f"Unexpected resolution config format in {path}")
+    if not isinstance(data, Mapping):
+        raise DriverError(f"Resolution config must be a JSON object: {path}")
 
-    resolutions: List[Dict[str, Any]] = []
-    for item in raw_list:
-        if not isinstance(item, Mapping):
-            raise DriverError(f"Invalid resolution entry: {item!r}")
-        width = item.get("width")
-        height = item.get("height")
+    settings_raw = data.get("settings", {})
+    if not isinstance(settings_raw, Mapping):
+        settings_raw = {}
+
+    window_wait = _coerce_positive_float(settings_raw.get("window_wait_seconds"), default=DEFAULT_WINDOW_DELAY, minimum=0.0)
+    after_resolution_wait = _coerce_positive_float(
+        settings_raw.get("after_resolution_wait_seconds"),
+        default=1.0,
+        minimum=0.0,
+    )
+    payload_ttl = _coerce_positive_float(settings_raw.get("payload_ttl_seconds"), default=5.0, minimum=0.1)
+
+    settings = {
+        "window_wait_seconds": window_wait,
+        "after_resolution_wait_seconds": after_resolution_wait,
+        "payload_ttl_seconds": payload_ttl,
+    }
+
+    resolutions_raw = data.get("resolutions")
+    if not isinstance(resolutions_raw, Iterable):
+        raise DriverError(f"'resolutions' must be a list in {path}")
+    resolutions: List[Dict[str, int]] = []
+    for res_entry in resolutions_raw:
+        if not isinstance(res_entry, Mapping):
+            raise DriverError(f"Invalid resolution entry: {res_entry!r}")
+        width = res_entry.get("width")
+        height = res_entry.get("height")
         try:
             width_int = int(width)
             height_int = int(height)
         except (TypeError, ValueError) as exc:
-            raise DriverError(f"Resolution values must be integers: {item!r}") from exc
+            raise DriverError(f"Resolution values must be integers: {res_entry!r}") from exc
         if width_int <= 0 or height_int <= 0:
-            raise DriverError(f"Resolution values must be positive: {item!r}")
-        resolutions.append(
-            {
-                "width": width_int,
-                "height": height_int,
-            }
-        )
+            raise DriverError(f"Resolution values must be positive: {res_entry!r}")
+        resolutions.append({"width": width_int, "height": height_int})
     if not resolutions:
         raise DriverError(f"No resolutions found in configuration {path}")
-    return resolutions
+
+    payloads_raw = data.get("payloads")
+    if not isinstance(payloads_raw, Iterable):
+        raise DriverError(f"'payloads' must be a list in {path}")
+    payloads: List[Dict[str, str]] = []
+    for index, payload_entry in enumerate(payloads_raw, start=1):
+        if not isinstance(payload_entry, Mapping):
+            raise DriverError(f"Invalid payload entry: {payload_entry!r}")
+        name_value = payload_entry.get("name")
+        name = str(name_value).strip() if isinstance(name_value, str) else ""
+        if not name:
+            name = f"payload-{index}"
+        source_value = payload_entry.get("source")
+        if not isinstance(source_value, str) or not source_value.strip():
+            raise DriverError(f"Payload '{name}' missing valid source: {payload_entry!r}")
+        payloads.append({"name": name, "source": source_value.strip()})
+    if not payloads:
+        raise DriverError(f"No payloads found in configuration {path}")
+
+    return settings, resolutions, payloads
 
 
 def run_driver(
     *,
     config_path: Path,
-    ttl: float,
-    window_delay: float = DEFAULT_WINDOW_DELAY,
-    overlay_sequences: Optional[List[Mapping[str, Any]]] = None,
+    ttl_override: Optional[float] = None,
+    window_delay_override: Optional[float] = None,
 ) -> None:
     _log(f"Loading resolution config from {config_path} …")
-    resolutions = _load_resolutions(config_path)
-    _log(f"Loaded {len(resolutions)} resolutions.")
+    settings, resolutions, payloads = _load_test_plan(config_path)
+    _log(f"Loaded {len(resolutions)} resolution(s) and {len(payloads)} payload set(s).")
 
-    if ttl <= 0:
-        raise DriverError("TTL must be positive.")
+    if ttl_override is not None:
+        settings["payload_ttl_seconds"] = _coerce_positive_float(ttl_override, default=settings["payload_ttl_seconds"], minimum=0.1)
+    if window_delay_override is not None:
+        settings["window_wait_seconds"] = _coerce_positive_float(
+            window_delay_override,
+            default=settings["window_wait_seconds"],
+            minimum=0.0,
+        )
+
+    payload_ttl = settings["payload_ttl_seconds"]
+    window_wait = settings["window_wait_seconds"]
+    after_resolution_wait = settings["after_resolution_wait_seconds"]
 
     _ensure_overlay_running()
     port = _resolve_port()
     _log(f"ModernOverlay broadcaster port: {port}")
+    _log(f"Configured waits — window: {window_wait}s, after resolution: {after_resolution_wait}s")
+    _log(f"Payload TTL override: {payload_ttl}s")
+    label_file_handle = tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8")
+    label_file_path = Path(label_file_handle.name)
+    label_file_handle.close()
+    _write_payload_label(label_file_path, "")
     mock_process: Optional[subprocess.Popen[Any]] = None
+    run_all = False
     try:
         for index, case in enumerate(resolutions, start=1):
             width = case["width"]
             height = case["height"]
             _log(f"--- Resolution {index}/{len(resolutions)}: {width}x{height} ---")
             _terminate_process(mock_process)
-            mock_process = _launch_mock_window(width, height)
-            time.sleep(max(0.1, window_delay))
+            _write_payload_label(label_file_path, "")
+            mock_process = _launch_mock_window(width, height, payload_label="", label_file=label_file_path)
+            time.sleep(max(0.0, window_wait))
 
-            time.sleep(1.0)
-            if overlay_sequences:
-                _run_overlay_sequences(overlay_sequences)
-            time.sleep(1.0)
-
-            shape_command = [
-                sys.executable,
-                str(SEND_SHAPE_PATH),
-                "--ttl",
-                str(int(LOG_REPLAY_TTL)),
-            ]
-            text_message = f"Resolution {width}x{height}"
-            text_command = [
-                sys.executable,
-                str(SEND_TEXT_PATH),
-                text_message,
-                "--ttl",
-                str(int(LOG_REPLAY_TTL)),
-            ]
-            _run_subprocess(shape_command)
-            time.sleep(1.0)
-            _run_subprocess(text_command)
-            time.sleep(5.0)
+            for payload_index, payload_entry in enumerate(payloads, start=1):
+                payload_name = payload_entry["name"]
+                payload_source = payload_entry["source"]
+                _log(f"=== Payload {payload_index}/{len(payloads)} ({payload_name}) at {width}x{height} ===")
+                _log(f"Replaying payloads from {payload_source} …")
+                _write_payload_label(label_file_path, payload_name)
+                _replay_log_payload(payload_source, payload_ttl)
+                _write_payload_label(label_file_path, "")
+                if not run_all:
+                    action = _prompt_action(payload_name, (width, height))
+                    if action == "stop":
+                        _log("Stopping at user request.")
+                        return
+                    if action == "all":
+                        run_all = True
+                time.sleep(max(0.0, after_resolution_wait))
 
         _log("Resolution sweep completed successfully.")
     finally:
         _terminate_process(mock_process)
+        try:
+            label_file_path.unlink(missing_ok=True)  # type: ignore[arg-type]
+        except Exception:
+            pass
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -259,14 +343,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ttl",
         type=float,
-        default=5.0,
-        help="Master TTL in seconds to apply to overlay payloads and per-resolution hold time (default: %(default)s)",
+        default=None,
+        help="Optional override for payload TTL seconds (otherwise taken from config file).",
     )
     parser.add_argument(
         "--window-delay",
         type=float,
-        default=DEFAULT_WINDOW_DELAY,
-        help="Seconds to wait after spawning the mock window before sending payloads (default: %(default)s)",
+        default=None,
+        help="Optional override for initial window wait seconds (otherwise taken from config file).",
     )
     return parser
 
@@ -275,32 +359,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    ttl = max(1.0, float(args.ttl))
-    window_delay = max(0.1, float(args.window_delay))
-
-    sequences: List[Mapping[str, Any]] = []
-    for log_path, _ in DEFAULT_LOG_REPLAYS.items():
-        sequences.append(
-            {
-                "command": [
-                    sys.executable,
-                    str(SEND_FROM_LOG_PATH),
-                    "--logfile",
-                    str(log_path),
-                    "--ttl",
-                    str(int(LOG_REPLAY_TTL)),
-                    "--max-payloads",
-                    "0",
-                ],
-            }
-        )
-
     try:
         run_driver(
             config_path=args.config.resolve(),
-            ttl=ttl,
-            window_delay=window_delay,
-            overlay_sequences=sequences,
+            ttl_override=float(args.ttl) if args.ttl is not None else None,
+            window_delay_override=float(args.window_delay) if args.window_delay is not None else None,
         )
     except DriverError as exc:
         _log(f"ERROR: {exc}")

@@ -814,7 +814,13 @@ class OverlayWindow(QWidget):
         target_physical = anchor_mid * proportion * base_scale + base_offset
         return (target_physical - base_offset) / (proportion * safe_scale) - anchor_mid
 
-    def _accumulate_group_bounds(self, bounds: GroupBounds, item: LegacyItem, scale: float) -> None:
+    def _accumulate_group_bounds(
+        self,
+        bounds: GroupBounds,
+        item: LegacyItem,
+        scale: float,
+        group_scale_hint: float,
+    ) -> None:
         data = item.data
         if not isinstance(data, Mapping):
             return
@@ -838,8 +844,15 @@ class OverlayWindow(QWidget):
                 text_value = str(data.get("text", ""))
                 text_width_px = max(metrics.horizontalAdvance(text_value), 0)
                 line_height_px = max(metrics.height(), 0)
-                width_logical = text_width_px / scale
-                line_height_logical = line_height_px / scale
+                scale_block = transform_meta.get("scale") if isinstance(transform_meta, Mapping) else None
+                scale_x_meta = self._safe_float(scale_block.get("x"), 1.0) if isinstance(scale_block, Mapping) else 1.0
+                scale_y_meta = self._safe_float(scale_block.get("y"), 1.0) if isinstance(scale_block, Mapping) else 1.0
+                if not math.isfinite(group_scale_hint) or math.isclose(group_scale_hint, 0.0, rel_tol=1e-9, abs_tol=1e-9):
+                    group_scale_hint = 1.0
+                effective_scale_x = scale * group_scale_hint
+                effective_scale_y = scale * group_scale_hint
+                width_logical = (text_width_px * scale_x_meta) / effective_scale_x
+                line_height_logical = (line_height_px * scale_y_meta) / effective_scale_y
                 adj_x, adj_y = transform_point(x_val, y_val)
                 bounds.update_rect(
                     adj_x,
@@ -924,22 +937,27 @@ class OverlayWindow(QWidget):
         scale = mapper.transform.scale
         if scale <= 0.0:
             scale = 1.0
+        base_scale = scale
+        compensate_scale = 1.0 / base_scale if mapper.transform.mode is ScaleMode.FILL and base_scale > 1.0 else 1.0
         group_bounds: Dict[Tuple[str, Optional[str]], GroupBounds] = {}
         group_anchor: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
+        group_scale_hints: Dict[Tuple[str, Optional[str]], float] = {}
         for item_id, legacy_item in self._legacy_items.items():
             group_key = self._group_key_for_item(item_id, legacy_item.plugin)
             bounds = group_bounds.setdefault(group_key.as_tuple(), GroupBounds())
-            self._accumulate_group_bounds(bounds, legacy_item, scale)
+            scale_hint = group_scale_hints.get(group_key.as_tuple())
+            if scale_hint is None:
+                scale_hint = 1.0
+                if compensate_scale != 1.0 and self._group_has_override(group_key.plugin, group_key.suffix):
+                    scale_hint = compensate_scale
+                group_scale_hints[group_key.as_tuple()] = scale_hint
+            self._accumulate_group_bounds(bounds, legacy_item, scale, scale_hint)
             if group_key.as_tuple() not in group_anchor:
                 group_anchor[group_key.as_tuple()] = self._determine_group_anchor(legacy_item)
         base_offset_x = mapper.offset_x
         base_offset_y = mapper.offset_y
         width = float(self.width())
         height = float(self.height())
-        base_scale = mapper.transform.scale
-        if base_scale <= 0.0:
-            base_scale = 1.0
-        compensate_scale = 1.0 / base_scale if mapper.transform.mode is ScaleMode.FILL and base_scale > 1.0 else 1.0
         for key_tuple, bounds in group_bounds.items():
             if not bounds.is_valid():
                 continue

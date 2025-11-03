@@ -1,1 +1,63 @@
-{"resolutions": [{"width": 1024, "height": 768}]}
+{
+  "settings": {
+    "window_wait_seconds": 1.0,
+    "after_resolution_wait_seconds": 2.0,
+    "payload_ttl_seconds": 2.0
+  },
+  "resolutions": [
+    {
+      "width": 1280,
+      "height": 1024
+    },
+    {
+      "width": 1024,
+      "height": 768
+    },
+    {
+      "width": 1720,
+      "height": 1440
+    },
+    {
+      "width": 1920,
+      "height": 800
+    },
+    {
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "width": 1440,
+      "height": 960
+    },
+    {
+      "width": 2560,
+      "height": 1080
+    }
+  ],
+  "payloads": [
+    {
+      "name": "landingpad",
+      "source": "tests/landingpad.log"
+    },
+    {
+      "name": "edr-bounty",
+      "source": "tests/edr-bounty.log"
+    },
+    {
+      "name": "edr-target",
+      "source": "tests/edr-target.log"
+    },
+    {
+      "name": "edr-intel",
+      "source": "tests/edr-intel.log"
+    },
+    {
+      "name": "edr-docking",
+      "source": "tests/edr-docking.log"
+    }
+  ]
+}
