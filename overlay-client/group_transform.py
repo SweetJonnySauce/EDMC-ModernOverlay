@@ -23,6 +23,8 @@ class GroupTransform:
     proportion_y: float = 1.0
     preserve_dx: float = 0.0
     preserve_dy: float = 0.0
+    raw_proportion_x: float = 1.0
+    raw_proportion_y: float = 1.0
 
 
 @dataclass

@@ -7,7 +7,7 @@ Modern Overlay includes a developer-facing “payload ID finder” that helps tr
 - The active `payload_id`
 - The originating plugin name (if known)
 - The computed center coordinates of the payload on screen
-- Runtime diagnostics: remaining TTL (or `∞` when persistent), how long ago the payload last updated, the payload kind (message/rect/vector with relevant size info), and any override adjustments (scaled/offset coordinates, sizes, and matched pattern)
+- Runtime diagnostics: remaining TTL (or `∞` when persistent), how long ago the payload last updated, the payload kind (message/rect/vector with relevant size info), and a breakdown of every transform applied to the payload (Fill remap, preservation shift, fill translation, and the final plugin override)
 
 This is particularly useful when capturing coordinates or validating plugin overrides.
 
@@ -20,6 +20,12 @@ This is particularly useful when capturing coordinates or validating plugin over
 - The connector line from the badge points toward the payload’s anchor point, helping locate overlapping elements quickly.
 - Plugin names and coordinates rely on the metadata provided by each payload; if a plugin does not populate `plugin` fields, the finder falls back to `unknown`.
 - Message overrides (e.g. `bgstally-msg-*`) are now tracked, so scale/offset adjustments applied via overrides show up in the badge.
+- The transform breakdown is listed in the same order the renderer applies it:
+  1. **Fill scale** shows the raw X/Y proportions computed for Fill mode along with the effective values after aspect preservation (`raw → applied`).
+  2. **Fill preserve shift** appears when a group is preserving aspect; it reports the group-wide translation we inject to avoid squashing.
+  3. **Fill translation** is the per-group dx/dy derived from bounds that keeps the payload inside the window (assertion #7).
+  4. **Override scale/offset/pivot** are the final adjustments sourced from plugin overrides—they run after Fill-mode math, so you can reconcile the badge with your JSON overrides.
+  All values are in overlay coordinates to make it easy to compare against raw payload dumps (e.g. `tests/edr-docking.log`) when tuning overrides.
 
 ## Debug Overlay Reference
 
