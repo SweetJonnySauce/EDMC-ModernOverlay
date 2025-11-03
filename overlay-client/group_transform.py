@@ -29,6 +29,8 @@ class GroupTransform:
     bounds_min_y: float = 0.0
     bounds_max_x: float = 0.0
     bounds_max_y: float = 0.0
+    final_min_x: float = float("inf")
+    final_max_x: float = float("-inf")
 
 
 @dataclass

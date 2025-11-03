@@ -79,8 +79,15 @@
             "edr-docking-",
             "edr-docking-station-"
           ],
-          "preserve_fill_aspect": {
-            "anchor": "centroid"
+          "transform": {
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "offset": {
+              "x": -35,
+              "y": 0
+            }
           }
         },
         "bounty": {

@@ -3087,6 +3087,21 @@ class OverlayWindow(QWidget):
         elif x > max_x:
             x = max_x
         baseline = int(round(adjusted_top * scale + base_offset_y + metrics.ascent()))
+
+        if (
+            group_transform is not None
+            and math.isfinite(scale)
+            and not math.isclose(scale, 0.0, rel_tol=1e-9, abs_tol=1e-9)
+        ):
+            left_logical_final = (x - base_offset_x) / scale
+            width_logical_final = text_width / scale
+            right_logical_final = left_logical_final + width_logical_final
+            if math.isfinite(left_logical_final) and math.isfinite(right_logical_final):
+                if not math.isfinite(group_transform.final_min_x) or left_logical_final < group_transform.final_min_x:
+                    group_transform.final_min_x = left_logical_final
+                if not math.isfinite(group_transform.final_max_x) or right_logical_final > group_transform.final_max_x:
+                    group_transform.final_max_x = right_logical_final
+
         painter.drawText(x, baseline, text)
         center_x = x + text_width // 2
         top = baseline - metrics.ascent()
@@ -3365,8 +3380,11 @@ class OverlayWindow(QWidget):
         mapper: _LegacyMapper,
         transform: GroupTransform,
     ) -> None:
-        min_x = transform.bounds_min_x
-        max_x = transform.bounds_max_x
+        min_x = transform.final_min_x
+        max_x = transform.final_max_x
+        if not (math.isfinite(min_x) and math.isfinite(max_x) and min_x <= max_x):
+            min_x = transform.bounds_min_x
+            max_x = transform.bounds_max_x
         min_y = transform.bounds_min_y
         max_y = transform.bounds_max_y
         if not all(math.isfinite(value) for value in (min_x, max_x, min_y, max_y)):
