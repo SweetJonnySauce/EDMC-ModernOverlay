@@ -1,8 +1,6 @@
 {
   "settings": {
-    "window_wait_seconds": 1.0,
-    "after_resolution_wait_seconds": 2.0,
-    "payload_ttl_seconds": 2.0
+    "wait_between_payload_tests": 1
   },
   "resolutions": [
     {
@@ -40,24 +38,34 @@
   ],
   "payloads": [
     {
+      "name": "bogus landingpad",
+      "source": "tests/landingpad.log",
+      "ttl": 10
+    },
+    {
       "name": "landingpad",
-      "source": "tests/landingpad.log"
+      "source": "tests/landingpad.log",
+      "ttl": 2
     },
     {
       "name": "edr-bounty",
-      "source": "tests/edr-bounty.log"
+      "source": "tests/edr-bounty.log",
+      "ttl": 2
     },
     {
       "name": "edr-target",
-      "source": "tests/edr-target.log"
+      "source": "tests/edr-target.log",
+      "ttl": 2
     },
     {
       "name": "edr-intel",
-      "source": "tests/edr-intel.log"
+      "source": "tests/edr-intel.log",
+      "ttl": 2
     },
     {
       "name": "edr-docking",
-      "source": "tests/edr-docking.log"
+      "source": "tests/edr-docking.log",
+      "ttl": 2
     }
   ]
 }
