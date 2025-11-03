@@ -66,7 +66,15 @@ def _resolve_port() -> int:
     return port
 
 
-def _launch_mock_window(width: int, height: int, *, label_file: Path, title: str = DEFAULT_TITLE) -> subprocess.Popen[Any]:
+def _launch_mock_window(
+    width: int,
+    height: int,
+    *,
+    label_file: Path,
+    title: str = DEFAULT_TITLE,
+    crosshair_x: Optional[float] = None,
+    crosshair_y: Optional[float] = None,
+) -> subprocess.Popen[Any]:
     env = dict(os.environ)
     env["MOCK_ELITE_WIDTH"] = str(width)
     env["MOCK_ELITE_HEIGHT"] = str(height)
@@ -80,6 +88,10 @@ def _launch_mock_window(width: int, height: int, *, label_file: Path, title: str
         "--label-file",
         str(label_file),
     ]
+    if crosshair_x is not None:
+        command.extend(["--crosshair-x", str(crosshair_x)])
+    if crosshair_y is not None:
+        command.extend(["--crosshair-y", str(crosshair_y)])
     _log(f"Launching mock Elite window at {width}x{height} …")
     return subprocess.Popen(command, cwd=PROJECT_ROOT, env=env)
 
@@ -146,12 +158,24 @@ def _load_plan(path: Path) -> tuple[Dict[str, float], List[Dict[str, int]], List
     between_wait = _coerce_float(settings_raw.get("wait_between_payload_tests"), default=1.0, minimum=0.0)
     after_wait = _coerce_float(settings_raw.get("after_resolution_wait_seconds"), default=1.0, minimum=0.0)
     fallback_ttl = _coerce_float(settings_raw.get("payload_ttl_seconds"), default=5.0, minimum=0.1)
+    crosshair_x = settings_raw.get("crosshair_x_percent")
+    crosshair_y = settings_raw.get("crosshair_y_percent")
+    try:
+        crosshair_x_value = float(crosshair_x) if crosshair_x is not None else None
+    except (TypeError, ValueError):
+        crosshair_x_value = None
+    try:
+        crosshair_y_value = float(crosshair_y) if crosshair_y is not None else None
+    except (TypeError, ValueError):
+        crosshair_y_value = None
 
     settings = {
         "window_wait_seconds": window_wait,
         "wait_between_payload_tests": between_wait,
         "after_resolution_wait_seconds": after_wait,
         "payload_ttl_seconds": fallback_ttl,
+        "crosshair_x_percent": crosshair_x_value,
+        "crosshair_y_percent": crosshair_y_value,
     }
 
     resolutions_raw = data.get("resolutions")
@@ -201,6 +225,8 @@ def run_tests(config_path: Path) -> None:
     window_wait = settings["window_wait_seconds"]
     between_wait = settings["wait_between_payload_tests"]
     after_wait = settings["after_resolution_wait_seconds"]
+    crosshair_x = settings.get("crosshair_x_percent")
+    crosshair_y = settings.get("crosshair_y_percent")
 
     _ensure_overlay_running()
     port = _resolve_port()
@@ -218,7 +244,13 @@ def run_tests(config_path: Path) -> None:
             _log(f"--- Resolution {index}/{len(resolutions)}: {width}x{height} ---")
             _terminate_process(mock_process)
             _write_label(label_file_path, "")
-            mock_process = _launch_mock_window(width, height, label_file=label_file_path)
+            mock_process = _launch_mock_window(
+                width,
+                height,
+                label_file=label_file_path,
+                crosshair_x=crosshair_x,
+                crosshair_y=crosshair_y,
+            )
             time.sleep(window_wait)
 
             for payload in payloads:

@@ -108,6 +108,18 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Optional path to a text file whose contents should be mirrored in the payload label.",
     )
+    parser.add_argument(
+        "--crosshair-x",
+        type=float,
+        default=None,
+        help="Optional horizontal crosshair position as a percentage (0-100).",
+    )
+    parser.add_argument(
+        "--crosshair-y",
+        type=float,
+        default=None,
+        help="Optional vertical crosshair position as a percentage (0-100).",
+    )
     return parser
 
 
@@ -198,7 +210,7 @@ def main() -> None:
         root,
         text=f"{args.title}\n{width}x{height}{ratio_text}",
         fg="#FFA500",
-        bg="black",
+        bg=root.cget("bg"),
         font=("Helvetica", 16, "bold"),
     )
     info.pack(side="top", fill="x", padx=20, pady=20)
@@ -208,7 +220,7 @@ def main() -> None:
         root,
         textvariable=payload_var,
         fg="#00AAFF",
-        bg="black",
+        bg=root.cget("bg"),
         font=("Helvetica", 18, "bold"),
     )
     payload_label.pack(side="top", pady=30)
@@ -232,6 +244,36 @@ def main() -> None:
 
     if label_path:
         _poll_label()
+
+    if any(value is not None for value in (args.crosshair_x, args.crosshair_y)):
+        vertical_line: tk.Widget | None = None
+        horizontal_line: tk.Widget | None = None
+
+        def _draw_crosshair(event=None) -> None:
+            nonlocal vertical_line, horizontal_line
+            width = max(root.winfo_width(), 1)
+            height = max(root.winfo_height(), 1)
+
+            if args.crosshair_x is not None:
+                x = max(0.0, min(100.0, float(args.crosshair_x))) / 100.0 * width
+                if vertical_line is None:
+                    vertical_line = tk.Frame(root, bg="#FF8800", width=2, highlightthickness=0, bd=0)
+                vertical_line.place(x=max(int(round(x)) - 1, 0), y=0, width=2, height=height)
+                vertical_line.lift()
+            elif vertical_line is not None:
+                vertical_line.place_forget()
+
+            if args.crosshair_y is not None:
+                y = max(0.0, min(100.0, float(args.crosshair_y))) / 100.0 * height
+                if horizontal_line is None:
+                    horizontal_line = tk.Frame(root, bg="#FF8800", height=2, highlightthickness=0, bd=0)
+                horizontal_line.place(x=0, y=max(int(round(y)) - 1, 0), width=width, height=2)
+                horizontal_line.lift()
+            elif horizontal_line is not None:
+                horizontal_line.place_forget()
+
+        root.after_idle(_draw_crosshair)
+        root.bind("<Configure>", _draw_crosshair, add="+")
 
     root.mainloop()
 

@@ -7,6 +7,10 @@
   "resolutions": [
     {
       "width": 1280,
+      "height": 960
+    },
+    {
+      "width": 1280,
       "height": 1024
     },
     {
@@ -43,21 +47,6 @@
       "name": "bogus landingpad",
       "source": "tests/landingpad.log",
       "ttl": 0.5
-    },
-    {
-      "name": "landingpad",
-      "source": "tests/landingpad.log",
-      "ttl": 16
-    },
-    {
-      "name": "Galaxy/System Tick",
-      "source": "tests/bgstally-tick.log",
-      "ttl": 14
-    },
-    {
-      "name": "BGSTally Colonisation",
-      "source": "tests/bgstally-colonisation.log",
-      "ttl": 12
     },
     {
       "name": "edr-bounty",
