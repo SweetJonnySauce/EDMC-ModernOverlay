@@ -835,11 +835,18 @@ class OverlayWindow(QWidget):
                 font = QFont(self._font_family)
                 font.setPointSizeF(self._legacy_preset_point_size(size_label))
                 metrics = QFontMetrics(font)
-                scale_block = transform_meta.get("scale") if isinstance(transform_meta, Mapping) else None
-                scale_y_meta = self._safe_float(scale_block.get("y"), 1.0) if isinstance(scale_block, Mapping) else 1.0
-                line_height_logical = (metrics.height() * scale_y_meta) / scale
+                text_value = str(data.get("text", ""))
+                text_width_px = max(metrics.horizontalAdvance(text_value), 0)
+                line_height_px = max(metrics.height(), 0)
+                width_logical = text_width_px / scale
+                line_height_logical = line_height_px / scale
                 adj_x, adj_y = transform_point(x_val, y_val)
-                bounds.update_rect(adj_x, adj_y, adj_x, adj_y + max(0.0, line_height_logical))
+                bounds.update_rect(
+                    adj_x,
+                    adj_y,
+                    adj_x + max(0.0, width_logical),
+                    adj_y + max(0.0, line_height_logical),
+                )
             elif kind == "rect":
                 x_val = float(logical.get("x", data.get("x", 0.0)))
                 y_val = float(logical.get("y", data.get("y", 0.0)))
