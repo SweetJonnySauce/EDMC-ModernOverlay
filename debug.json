@@ -15,5 +15,6 @@
     ]
   },
   "fill_group_debug": false,
-  "overlay_outline": true
+  "overlay_outline": true,
+  "group_bounds_outline": true
 }

@@ -15,6 +15,7 @@ class DebugConfig:
     trace_payload_ids: tuple[str, ...] = ()
     fill_group_debug: bool = False
     overlay_outline: bool = False
+    group_bounds_outline: bool = False
 
 
 def load_debug_config(path: Path) -> DebugConfig:
@@ -53,6 +54,7 @@ def load_debug_config(path: Path) -> DebugConfig:
 
     fill_group_debug = bool(data.get("fill_group_debug", False))
     overlay_outline = bool(data.get("overlay_outline", False))
+    group_bounds_outline = bool(data.get("group_bounds_outline", False))
 
     return DebugConfig(
         trace_enabled=trace_enabled,
@@ -60,4 +62,5 @@ def load_debug_config(path: Path) -> DebugConfig:
         trace_payload_ids=payload_ids,
         fill_group_debug=fill_group_debug,
         overlay_outline=overlay_outline,
+        group_bounds_outline=group_bounds_outline,
     )

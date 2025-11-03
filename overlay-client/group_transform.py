@@ -25,6 +25,10 @@ class GroupTransform:
     preserve_dy: float = 0.0
     raw_proportion_x: float = 1.0
     raw_proportion_y: float = 1.0
+    bounds_min_x: float = 0.0
+    bounds_min_y: float = 0.0
+    bounds_max_x: float = 0.0
+    bounds_max_y: float = 0.0
 
 
 @dataclass

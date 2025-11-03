@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from fractions import Fraction
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Set
 
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect, QSize
 from PyQt6.QtGui import (
@@ -1035,6 +1035,10 @@ class OverlayWindow(QWidget):
                     preserve_dy=preserve_dy,
                     raw_proportion_x=raw_proportion_x,
                     raw_proportion_y=raw_proportion_y,
+                    bounds_min_x=bounds.min_x,
+                    bounds_min_y=bounds.min_y,
+                    bounds_max_x=bounds.max_x,
+                    bounds_max_y=bounds.max_y,
                 ),
             )
 
@@ -2923,6 +2927,8 @@ class OverlayWindow(QWidget):
         else:
             self._group_transform_cache.reset()
         fill_debug_rows: List[str] = []
+        draw_group_bounds = self._debug_config.group_bounds_outline
+        drawn_groups: Set[Tuple[str, Optional[str]]] = set()
         for item_id, item in self._legacy_items.items():
             group_key = self._group_key_for_item(item_id, item.plugin)
             group_transform = self._group_transform_cache.get(group_key)
@@ -2948,6 +2954,11 @@ class OverlayWindow(QWidget):
                 row_log = self._paint_legacy_vector(painter, item, mapper, group_transform)
             else:
                 row_log = None
+            if draw_group_bounds and group_transform is not None:
+                key_tuple = group_key.as_tuple()
+                if key_tuple not in drawn_groups:
+                    drawn_groups.add(key_tuple)
+                    self._draw_group_bounds_outline(painter, mapper, group_transform)
             if debug_fill and row_log:
                 if group_transform:
                     row_log = f"{row_log} Δ=({group_transform.dx:.1f},{group_transform.dy:.1f})"
@@ -3322,6 +3333,60 @@ class OverlayWindow(QWidget):
                 f"offset=({base_offset_x:.1f},{base_offset_y:.1f}) points={len(vector_payload.get('points', []))}"
             )
         return None
+
+    def _draw_group_bounds_outline(
+        self,
+        painter: QPainter,
+        mapper: _LegacyMapper,
+        transform: GroupTransform,
+    ) -> None:
+        min_x = transform.bounds_min_x
+        max_x = transform.bounds_max_x
+        min_y = transform.bounds_min_y
+        max_y = transform.bounds_max_y
+        if not all(math.isfinite(value) for value in (min_x, max_x, min_y, max_y)):
+            return
+        scale = mapper.transform.scale * transform.scale
+        if not math.isfinite(scale) or math.isclose(scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
+            return
+        prop_x, prop_y = self._fill_proportional_factors(mapper, transform)
+        fill_dx_overlay, fill_dy_overlay = self._fill_overlay_delta(scale, transform)
+        preserve_dx, preserve_dy = self._fill_preserve_offsets(transform)
+        if not all(math.isfinite(value) for value in (prop_x, prop_y, fill_dx_overlay, fill_dy_overlay, preserve_dx, preserve_dy)):
+            return
+        fill_dx_scaled = fill_dx_overlay * prop_x
+        fill_dy_scaled = fill_dy_overlay * prop_y
+        left_overlay = min_x * prop_x + preserve_dx + fill_dx_scaled
+        right_overlay = max_x * prop_x + preserve_dx + fill_dx_scaled
+        top_overlay = min_y * prop_y + preserve_dy + fill_dy_scaled
+        bottom_overlay = max_y * prop_y + preserve_dy + fill_dy_scaled
+        left_overlay, right_overlay = sorted((left_overlay, right_overlay))
+        top_overlay, bottom_overlay = sorted((top_overlay, bottom_overlay))
+
+        offset_x = mapper.offset_x
+        offset_y = mapper.offset_y
+        left_px = left_overlay * scale + offset_x
+        right_px = right_overlay * scale + offset_x
+        top_px = top_overlay * scale + offset_y
+        bottom_px = bottom_overlay * scale + offset_y
+        if not all(math.isfinite(value) for value in (left_px, right_px, top_px, bottom_px)):
+            return
+
+        rect_left = int(round(min(left_px, right_px)))
+        rect_top = int(round(min(top_px, bottom_px)))
+        rect_width = int(round(abs(right_px - left_px)))
+        rect_height = int(round(abs(bottom_px - top_px)))
+        if rect_width <= 0 or rect_height <= 0:
+            return
+
+        painter.save()
+        pen = QPen(QColor(255, 221, 0))
+        pen.setWidth(1)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(rect_left, rect_top, rect_width, rect_height)
+        painter.restore()
 
     def _paint_debug_overlay(self, painter: QPainter) -> None:
         if not self._show_debug_overlay:
