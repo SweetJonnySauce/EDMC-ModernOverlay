@@ -52,3 +52,4 @@ These details are helpful when debugging sizing issues (e.g., 21:9 vs. 16:9 moni
 ### Fill-mode diagnostics
 
 Set `fill_group_debug` to `true` in `debug.json` to log per-payload coordinates whenever Fill mode is active. Each paint pass prints the plugin, payload ID, raw logical coordinates, and the window-space result after scaling so you can sanity-check group offsets while tuning the transform.
+
