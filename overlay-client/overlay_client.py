@@ -1033,6 +1033,8 @@ class OverlayWindow(QWidget):
                     proportion_y=proportion_y,
                     preserve_dx=preserve_dx,
                     preserve_dy=preserve_dy,
+                    raw_proportion_x=raw_proportion_x,
+                    raw_proportion_y=raw_proportion_y,
                 ),
             )
 
@@ -1566,12 +1568,66 @@ class OverlayWindow(QWidget):
                 lines.append(f"override pattern: {group_pattern_value}")
         return lines
 
+    def _format_transform_chain(
+        self,
+        legacy_item: Optional[LegacyItem],
+        mapper: _LegacyMapper,
+        group_transform: Optional[GroupTransform],
+    ) -> List[str]:
+        if legacy_item is None:
+            return []
+        data = legacy_item.data
+        if not isinstance(data, Mapping):
+            return []
+
+        lines: List[str] = []
+        transform_meta = data.get("__mo_transform__")
+        pivot_x_meta, pivot_y_meta, scale_x_meta, scale_y_meta, offset_x_meta, offset_y_meta = self._transform_components(transform_meta)
+
+        proportion_x, proportion_y = self._fill_proportional_factors(mapper, group_transform)
+        raw_proportion_x = group_transform.raw_proportion_x if group_transform else proportion_x
+        raw_proportion_y = group_transform.raw_proportion_y if group_transform else proportion_y
+        preserve_dx, preserve_dy = self._fill_preserve_offsets(group_transform)
+        group_scale = group_transform.scale if group_transform else 1.0
+        scale_value = mapper.transform.scale * group_scale
+        fill_dx_overlay, fill_dy_overlay = self._fill_overlay_delta(scale_value, group_transform)
+
+        if mapper.transform.mode is ScaleMode.FILL:
+            if not (
+                math.isclose(raw_proportion_x, 1.0, rel_tol=1e-6, abs_tol=1e-6)
+                and math.isclose(raw_proportion_y, 1.0, rel_tol=1e-6, abs_tol=1e-6)
+                and math.isclose(proportion_x, raw_proportion_x, rel_tol=1e-6, abs_tol=1e-6)
+                and math.isclose(proportion_y, raw_proportion_y, rel_tol=1e-6, abs_tol=1e-6)
+            ):
+                lines.append(
+                    "fill scale: x={:.3f}→{:.3f}, y={:.3f}→{:.3f}".format(
+                        raw_proportion_x,
+                        proportion_x,
+                        raw_proportion_y,
+                        proportion_y,
+                    )
+                )
+            if not math.isclose(preserve_dx, 0.0, rel_tol=1e-6, abs_tol=1e-6) or not math.isclose(preserve_dy, 0.0, rel_tol=1e-6, abs_tol=1e-6):
+                lines.append("fill preserve shift: dx={:.1f}, dy={:.1f}".format(preserve_dx, preserve_dy))
+            if not math.isclose(fill_dx_overlay, 0.0, rel_tol=1e-6, abs_tol=1e-6) or not math.isclose(fill_dy_overlay, 0.0, rel_tol=1e-6, abs_tol=1e-6):
+                lines.append("fill translation: dx={:.1f}, dy={:.1f}".format(fill_dx_overlay, fill_dy_overlay))
+
+        if not math.isclose(scale_x_meta, 1.0, rel_tol=1e-6, abs_tol=1e-6) or not math.isclose(scale_y_meta, 1.0, rel_tol=1e-6, abs_tol=1e-6):
+            lines.append("override scale: x={:.3f}, y={:.3f}".format(scale_x_meta, scale_y_meta))
+        if not math.isclose(offset_x_meta, 0.0, rel_tol=1e-6, abs_tol=1e-6) or not math.isclose(offset_y_meta, 0.0, rel_tol=1e-6, abs_tol=1e-6):
+            lines.append("override offset: x={:.1f}, y={:.1f}".format(offset_x_meta, offset_y_meta))
+        if not math.isclose(pivot_x_meta, 0.0, rel_tol=1e-6, abs_tol=1e-6) or not math.isclose(pivot_y_meta, 0.0, rel_tol=1e-6, abs_tol=1e-6):
+            lines.append("override pivot: x={:.1f}, y={:.1f}".format(pivot_x_meta, pivot_y_meta))
+
+        return lines
+
     def _paint_cycle_overlay(self, painter: QPainter) -> None:
         if not self._cycle_payload_enabled:
             return
         self._sync_cycle_items()
         if not self._cycle_current_id:
             return
+        mapper = self._compute_legacy_mapper()
         anchor = self._cycle_anchor_points.get(self._cycle_current_id)
         plugin_name = "unknown"
         current_item = self._legacy_items.get(self._cycle_current_id)
@@ -1579,6 +1635,11 @@ class OverlayWindow(QWidget):
             name = current_item.plugin
             if isinstance(name, str) and name:
                 plugin_name = name
+        group_transform: Optional[GroupTransform] = None
+        if current_item is not None:
+            group_key = self._group_key_for_item(current_item.item_id, current_item.plugin)
+            if group_key is not None:
+                group_transform = self._group_transform_cache.get(group_key)
         plugin_line = f"Plugin name: {plugin_name}"
         if anchor is not None:
             center_line = f"Center: {anchor[0]}, {anchor[1]}"
@@ -1649,6 +1710,7 @@ class OverlayWindow(QWidget):
                     size_parts.append(f"h={raw_h_fmt}→{trans_h_fmt}")
                 if size_parts:
                     info_lines.append("size: " + ", ".join(size_parts))
+        transform_lines = self._format_transform_chain(current_item, mapper, group_transform)
         override_lines = self._format_override_lines(current_item)
         painter.save()
         text = self._cycle_current_id
@@ -1672,7 +1734,7 @@ class OverlayWindow(QWidget):
         padding_y = 8
         line_height_title = metrics.lineSpacing()
         line_height_plugin = plugin_metrics.lineSpacing()
-        small_lines = [plugin_line, center_line] + info_lines + override_lines
+        small_lines = [plugin_line, center_line] + info_lines + transform_lines + override_lines
         small_widths = [plugin_metrics.horizontalAdvance(line) for line in small_lines]
         content_width = max([text_width, *small_widths] if small_widths else [text_width])
         rect_width = content_width + padding_x * 2
