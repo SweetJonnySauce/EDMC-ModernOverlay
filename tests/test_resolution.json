@@ -40,7 +40,7 @@
     {
       "name": "bogus landingpad",
       "source": "tests/landingpad.log",
-      "ttl": 10
+      "ttl": 1
     },
     {
       "name": "landingpad",
