@@ -104,6 +104,11 @@
           "id_prefixes": [
             "edr-target"
           ]
+        },
+        "notice": {
+          "id_prefixes": [
+            "edr-notice-"
+          ]
         }
       }
     }

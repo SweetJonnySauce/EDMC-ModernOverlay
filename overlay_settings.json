@@ -1,7 +1,7 @@
 {
   "capture_output": true,
   "overlay_opacity": 0.0,
-  "show_connection_status": true,
+  "show_connection_status": false,
   "show_ed_bandwidth": false,
   "show_ed_fps": false,
   "debug_overlay_corner": "SE",

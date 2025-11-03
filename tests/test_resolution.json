@@ -45,36 +45,41 @@
     {
       "name": "landingpad",
       "source": "tests/landingpad.log",
-      "ttl": 10
+      "ttl": 16
     },
     {
       "name": "Galaxy/System Tick",
       "source": "tests/bgstally-tick.log",
-      "ttl": 8
+      "ttl": 14
     },
     {
       "name": "BGSTally Colonisation",
       "source": "tests/bgstally-colonisation.log",
-      "ttl": 6
+      "ttl": 12
     },
     {
       "name": "edr-bounty",
       "source": "tests/edr-bounty.log",
-      "ttl": 2
+      "ttl": 6
     },
     {
       "name": "edr-target",
       "source": "tests/edr-target.log",
-      "ttl": 2
+      "ttl": 8
     },
     {
       "name": "edr-intel",
       "source": "tests/edr-intel.log",
-      "ttl": 2
+      "ttl": 6
     },
     {
       "name": "edr-docking",
       "source": "tests/edr-docking.log",
+      "ttl": 4
+    },
+    {
+      "name": "edr-notice",
+      "source": "tests/edr-notice.log",
       "ttl": 2
     }
   ]
