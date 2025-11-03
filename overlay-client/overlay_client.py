@@ -1048,6 +1048,21 @@ class OverlayWindow(QWidget):
                         dy -= top
                     elif bottom > height:
                         dy -= bottom - height
+
+            margin = 12.0
+            screen_left = (bounds.min_x * proportion_x + preserve_dx) * effective_scale + dx + base_offset_x
+            screen_right = (bounds.max_x * proportion_x + preserve_dx) * effective_scale + dx + base_offset_x
+            if screen_left < margin:
+                shift = margin - screen_left
+                dx += shift
+                screen_left += shift
+                screen_right += shift
+            if screen_right > width - margin:
+                shift = (width - margin) - screen_right
+                dx += shift
+                screen_left += shift
+                screen_right += shift
+
             self._group_transform_cache.set(
                 GroupKey(*key_tuple),
                 GroupTransform(
@@ -1064,6 +1079,8 @@ class OverlayWindow(QWidget):
                     bounds_min_y=bounds.min_y,
                     bounds_max_x=bounds.max_x,
                     bounds_max_y=bounds.max_y,
+                    final_min_x=(screen_left - base_offset_x) / effective_scale if not math.isclose(effective_scale, 0.0, rel_tol=1e-9, abs_tol=1e-9) else bounds.min_x,
+                    final_max_x=(screen_right - base_offset_x) / effective_scale if not math.isclose(effective_scale, 0.0, rel_tol=1e-9, abs_tol=1e-9) else bounds.max_x,
                 ),
             )
 
@@ -3061,10 +3078,10 @@ class OverlayWindow(QWidget):
             fill_dy_overlay,
         )
         text = str(item.get("text", ""))
+        margin = 12
         x = int(round(adjusted_left * scale + base_offset_x))
         metrics = painter.fontMetrics()
         text_width = metrics.horizontalAdvance(text)
-        margin = 12
         max_x = self.width() - text_width - margin
         min_x = margin
         if max_x < min_x:
@@ -3380,11 +3397,13 @@ class OverlayWindow(QWidget):
         mapper: _LegacyMapper,
         transform: GroupTransform,
     ) -> None:
-        min_x = transform.final_min_x
-        max_x = transform.final_max_x
-        if not (math.isfinite(min_x) and math.isfinite(max_x) and min_x <= max_x):
-            min_x = transform.bounds_min_x
-            max_x = transform.bounds_max_x
+        final_available = (
+            math.isfinite(transform.final_min_x)
+            and math.isfinite(transform.final_max_x)
+            and transform.final_min_x <= transform.final_max_x
+        )
+        min_x = transform.final_min_x if final_available else transform.bounds_min_x
+        max_x = transform.final_max_x if final_available else transform.bounds_max_x
         min_y = transform.bounds_min_y
         max_y = transform.bounds_max_y
         if not all(math.isfinite(value) for value in (min_x, max_x, min_y, max_y)):
@@ -3399,8 +3418,12 @@ class OverlayWindow(QWidget):
             return
         fill_dx_scaled = fill_dx_overlay * prop_x
         fill_dy_scaled = fill_dy_overlay * prop_y
-        left_overlay = min_x * prop_x + preserve_dx + fill_dx_scaled
-        right_overlay = max_x * prop_x + preserve_dx + fill_dx_scaled
+        if final_available:
+            left_overlay = min_x
+            right_overlay = max_x
+        else:
+            left_overlay = min_x * prop_x + preserve_dx + fill_dx_scaled
+            right_overlay = max_x * prop_x + preserve_dx + fill_dx_scaled
         top_overlay = min_y * prop_y + preserve_dy + fill_dy_scaled
         bottom_overlay = max_y * prop_y + preserve_dy + fill_dy_scaled
         left_overlay, right_overlay = sorted((left_overlay, right_overlay))
