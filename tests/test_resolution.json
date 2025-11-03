@@ -40,22 +40,22 @@
     {
       "name": "bogus landingpad",
       "source": "tests/landingpad.log",
-      "ttl": 1
+      "ttl": 0.5
     },
     {
       "name": "landingpad",
       "source": "tests/landingpad.log",
-      "ttl": 5
+      "ttl": 10
     },
     {
       "name": "Galaxy/System Tick",
       "source": "tests/bgstally-tick.log",
-      "ttl": 5
+      "ttl": 8
     },
     {
       "name": "BGSTally Colonisation",
       "source": "tests/bgstally-colonisation.log",
-      "ttl": 5
+      "ttl": 6
     },
     {
       "name": "edr-bounty",
