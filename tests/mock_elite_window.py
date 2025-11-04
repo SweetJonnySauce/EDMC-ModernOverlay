@@ -12,10 +12,15 @@ import tkinter as tk
 DEFAULT_TITLE = "Elite - Dangerous (Stub)"
 DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 960
+DEFAULT_SCALE_MODE = "fill"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SETTINGS_PATH = PROJECT_ROOT / "overlay_settings.json"
 ENV_WIDTH = "MOCK_ELITE_WIDTH"
 ENV_HEIGHT = "MOCK_ELITE_HEIGHT"
+BASE_WIDTH = float(DEFAULT_WIDTH)
+BASE_HEIGHT = float(DEFAULT_HEIGHT)
+VALID_SCALE_MODES = {"fit", "fill"}
+
 def _parse_size_token(token: str) -> tuple[int, int]:
     parts = token.lower().replace("x", " ").split()
     if len(parts) != 2:
@@ -26,23 +31,28 @@ def _parse_size_token(token: str) -> tuple[int, int]:
     return width, height
 
 
-def _load_settings(path: str | None) -> tuple[int | None, int | None]:
+def _load_settings(path: str | None) -> tuple[int | None, int | None, str | None]:
     """Best-effort overlay_settings.json reader."""
     if not path:
-        return None, None
+        return None, None, None
     try:
         settings_path = Path(path).expanduser().resolve()
         data = json.loads(settings_path.read_text(encoding="utf-8"))
     except Exception:
-        return None, None
+        return None, None, None
     width = data.get("mock_window_width")
     height = data.get("mock_window_height")
+    scale_mode_raw = data.get("scale_mode")
     try:
         width_val = int(width) if width is not None else None
         height_val = int(height) if height is not None else None
     except (TypeError, ValueError):
-        return None, None
-    return width_val, height_val
+        return None, None, None
+    if isinstance(scale_mode_raw, str):
+        scale_mode_val = scale_mode_raw.strip().lower() or None
+    else:
+        scale_mode_val = None
+    return width_val, height_val, scale_mode_val
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -120,6 +130,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional vertical crosshair position as a percentage (0-100).",
     )
+    parser.add_argument(
+        "--scale-mode",
+        dest="scale_mode",
+        choices=sorted(VALID_SCALE_MODES),
+        default=None,
+        help="Scale mode used by the overlay client when mapping legacy coordinates (default: from settings.json or fill).",
+    )
     return parser
 
 
@@ -127,10 +144,13 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    settings_width, settings_height = _load_settings(args.settings)
+    settings_width, settings_height, settings_scale_mode = _load_settings(args.settings)
 
     width = settings_width or DEFAULT_WIDTH
     height = settings_height or DEFAULT_HEIGHT
+    initial_scale_mode = args.scale_mode or settings_scale_mode or DEFAULT_SCALE_MODE
+    if initial_scale_mode not in VALID_SCALE_MODES:
+        initial_scale_mode = DEFAULT_SCALE_MODE
 
     env_width = os.getenv(ENV_WIDTH)
     env_height = os.getenv(ENV_HEIGHT)
@@ -207,16 +227,112 @@ def main() -> None:
     overlay.pack(expand=True, fill="both")
 
     payload_var = tk.StringVar(value=str(args.payload_label or "").strip())
+    cursor_label_id: int | None = None
+    transform_state = {"scale": 1.0, "offset_x": 0.0, "offset_y": 0.0}
+    cursor_state = {"x": None, "y": None}
+    scale_mode_state = {"value": initial_scale_mode}
+    settings_watch = {
+        "path": Path(args.settings).expanduser().resolve() if not args.scale_mode else None,
+        "mtime": None,
+    }
+
+    if settings_watch["path"] is not None:
+        try:
+            settings_watch["mtime"] = settings_watch["path"].stat().st_mtime
+        except OSError:
+            settings_watch["mtime"] = None
+
+    def _format_cursor_text(overlay_x: float | None, overlay_y: float | None) -> str:
+        if overlay_x is None or overlay_y is None:
+            return "Overlay cursor: x=--, y=--"
+        return f"Overlay cursor: x={overlay_x:.1f}, y={overlay_y:.1f}"
+
+    def _reset_cursor_label(*_) -> None:
+        cursor_state["x"] = None
+        cursor_state["y"] = None
+        if cursor_label_id is not None:
+            overlay.itemconfigure(cursor_label_id, text=_format_cursor_text(None, None))
+
+    def _update_cursor_label(event=None) -> None:
+        if event is not None:
+            cursor_state["x"] = float(event.x)
+            cursor_state["y"] = float(event.y)
+        canvas_x = cursor_state["x"]
+        canvas_y = cursor_state["y"]
+        if canvas_x is None or canvas_y is None:
+            text = _format_cursor_text(None, None)
+        else:
+            scale = transform_state.get("scale", 1.0)
+            if scale <= 0:
+                scale = 1.0
+            offset_x = transform_state.get("offset_x", 0.0)
+            offset_y = transform_state.get("offset_y", 0.0)
+            overlay_x = (canvas_x - offset_x) / scale
+            overlay_y = (canvas_y - offset_y) / scale
+            text = _format_cursor_text(overlay_x, overlay_y)
+        if cursor_label_id is not None:
+            overlay.itemconfigure(cursor_label_id, text=text)
+
+    overlay.bind("<Motion>", _update_cursor_label, add="+")
+    overlay.bind("<Leave>", _reset_cursor_label, add="+")
+
+    def _refresh_scale_mode_from_settings() -> None:
+        path = settings_watch["path"]
+        if path is None:
+            return
+        try:
+            stat_result = path.stat()
+        except OSError:
+            return
+        mtime = stat_result.st_mtime
+        if settings_watch["mtime"] is not None and mtime <= settings_watch["mtime"]:
+            return
+        settings_watch["mtime"] = mtime
+        _, _, new_mode = _load_settings(str(path))
+        if new_mode in VALID_SCALE_MODES and new_mode != scale_mode_state["value"]:
+            scale_mode_state["value"] = new_mode
 
     def _redraw_overlay(event=None) -> None:
+        nonlocal cursor_label_id
+        _refresh_scale_mode_from_settings()
+        active_mode = scale_mode_state["value"]
         width = max(root.winfo_width(), 1)
         height = max(root.winfo_height(), 1)
         overlay.configure(width=width, height=height)
         overlay.delete("all")
 
+        width_f = float(width)
+        height_f = float(height)
+
+        if active_mode == "fit":
+            scale = min(width_f / BASE_WIDTH, height_f / BASE_HEIGHT)
+            scaled_w = BASE_WIDTH * scale
+            scaled_h = BASE_HEIGHT * scale
+            offset_x = (width_f - scaled_w) / 2.0
+            offset_y = (height_f - scaled_h) / 2.0
+        else:
+            scale = max(width_f / BASE_WIDTH, height_f / BASE_HEIGHT)
+            offset_x = 0.0
+            offset_y = 0.0
+        if scale <= 0:
+            scale = 1.0
+        transform_state["scale"] = scale
+        transform_state["offset_x"] = offset_x
+        transform_state["offset_y"] = offset_y
+
+        cursor_label_id = overlay.create_text(
+            10,
+            10,
+            text=_format_cursor_text(None, None),
+            fill="#FFA500",
+            font=("Helvetica", 12, "bold"),
+            anchor="nw",
+            tags=("label", "label-cursor"),
+        )
+
         aspect = _aspect_ratio_label(width, height)
         ratio_text = f" ({aspect})" if aspect else ""
-        info_text = f"{args.title}\n{width}x{height}{ratio_text}"
+        info_text = f"{args.title}\n{width}x{height}{ratio_text}\nmode: {active_mode.upper()}"
         info_id = overlay.create_text(
             width / 2,
             20,
@@ -272,6 +388,8 @@ def main() -> None:
             )
 
         overlay.tag_raise("crosshair")
+        overlay.tag_raise("label")
+        _update_cursor_label()
 
     payload_var.trace_add("write", lambda *_: _redraw_overlay())
 
