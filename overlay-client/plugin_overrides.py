@@ -285,6 +285,8 @@ class PluginOverrideManager:
                             prefixes: List[str] = []
                             defaults: Optional[JsonDict] = None
                             label_value: Optional[str] = None
+                            preserve_enabled: Optional[bool] = None
+                            preserve_anchor: Optional[str] = None
                             if isinstance(prefix_value, str):
                                 prefixes = [prefix_value]
                                 label_value = str(label) if isinstance(label, str) and label else prefix_value
