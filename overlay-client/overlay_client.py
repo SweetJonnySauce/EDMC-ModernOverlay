@@ -1076,6 +1076,7 @@ class OverlayWindow(QWidget):
         preserve_shift: float,
         min_val: float,
         max_val: float,
+        anchor_val: float,
         target_norm: float,
     ) -> float:
         if not overflow:
@@ -1086,12 +1087,13 @@ class OverlayWindow(QWidget):
             return 0.0
         if not math.isfinite(proportion) or proportion <= 0.0:
             proportion = 1.0
+        if not math.isfinite(preserve_shift):
+            preserve_shift = 0.0
+        if not math.isfinite(anchor_val):
+            anchor_val = (min_val + max_val) / 2.0
         safe_norm = cls._clamp_unit(target_norm)
-        source_center = (min_val + max_val) / 2.0
-        if not math.isfinite(source_center):
-            return 0.0
-        overlay_center = source_center * proportion + preserve_shift
-        current_screen = overlay_center * effective_scale + base_offset
+        anchor_overlay = anchor_val * proportion + preserve_shift
+        current_screen = anchor_overlay * effective_scale + base_offset
         target_screen = safe_norm * window_extent
         return target_screen - current_screen
 
@@ -1403,6 +1405,7 @@ class OverlayWindow(QWidget):
                 preserve_shift=preserve_dx,
                 min_val=bounds.min_x,
                 max_val=bounds.max_x,
+                anchor_val=anchor_x,
                 target_norm=target_norm_x,
             )
             dy = self._compute_group_band_shift(
@@ -1414,6 +1417,7 @@ class OverlayWindow(QWidget):
                 preserve_shift=preserve_dy,
                 min_val=bounds.min_y,
                 max_val=bounds.max_y,
+                anchor_val=anchor_y,
                 target_norm=target_norm_y,
             )
             if not math.isfinite(dx):
