@@ -205,12 +205,33 @@ def main() -> None:
         if w <= 0 or h <= 0:
             return ""
         ratio = w / float(h)
+        from math import gcd
+
+        d = gcd(w, h)
+        simplified_w = w // d
+        simplified_h = h // d
+        known_exact = {
+            (32, 9): "32:9",
+            (21, 9): "21:9",
+            (18, 9): "18:9",
+            (16, 10): "16:10",
+            (16, 9): "16:9",
+            (12, 5): "12:5",
+            (4, 3): "4:3",
+            (5, 4): "5:4",
+            (3, 2): "3:2",
+            (1, 1): "1:1",
+        }
+        exact_label = known_exact.get((simplified_w, simplified_h))
+        if exact_label:
+            return exact_label
         known = [
             (32 / 9, "32:9"),
             (21 / 9, "21:9"),
             (18 / 9, "18:9"),
             (16 / 10, "16:10"),
             (16 / 9, "16:9"),
+            (12 / 5, "12:5"),
             (4 / 3, "4:3"),
             (5 / 4, "5:4"),
             (1.0, "1:1"),
@@ -218,9 +239,6 @@ def main() -> None:
         for target, label in known:
             if target > 0 and abs(ratio - target) / target < 0.03:
                 return label
-        from math import gcd
-
-        d = gcd(w, h)
         return f"{w // d}:{h // d}"
 
     overlay = tk.Canvas(root, highlightthickness=0, bd=0, bg=root.cget("bg"))
