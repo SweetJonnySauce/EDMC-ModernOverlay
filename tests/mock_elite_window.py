@@ -243,6 +243,14 @@ def main() -> None:
         "mtime": None,
     }
 
+    def _overlay_to_canvas(x_overlay: float, y_overlay: float) -> tuple[float, float]:
+        scale = transform_state.get("scale", 1.0)
+        if scale <= 0:
+            scale = 1.0
+        base_offset_x = transform_state.get("base_offset_x", 0.0)
+        base_offset_y = transform_state.get("base_offset_y", 0.0)
+        return x_overlay * scale + base_offset_x, y_overlay * scale + base_offset_y
+
     if settings_watch["path"] is not None:
         try:
             settings_watch["mtime"] = settings_watch["path"].stat().st_mtime
@@ -415,8 +423,9 @@ def main() -> None:
             )
 
         if args.crosshair_x is not None:
-            x = max(0.0, min(100.0, float(args.crosshair_x))) / 100.0 * width
-            x_pos = max(0, min(int(round(x)), width - 1))
+            x_overlay = max(0.0, min(100.0, float(args.crosshair_x))) / 100.0 * BASE_WIDTH
+            x_canvas, _ = _overlay_to_canvas(x_overlay, 0.0)
+            x_pos = int(round(x_canvas))
             overlay.create_line(
                 x_pos,
                 0,
@@ -429,8 +438,9 @@ def main() -> None:
             )
 
         if args.crosshair_y is not None:
-            y = max(0.0, min(100.0, float(args.crosshair_y))) / 100.0 * height
-            y_pos = max(0, min(int(round(y)), height - 1))
+            y_overlay = max(0.0, min(100.0, float(args.crosshair_y))) / 100.0 * BASE_HEIGHT
+            _, y_canvas = _overlay_to_canvas(0.0, y_overlay)
+            y_pos = int(round(y_canvas))
             overlay.create_line(
                 0,
                 y_pos,
