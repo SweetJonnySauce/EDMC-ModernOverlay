@@ -203,30 +203,77 @@ def main() -> None:
         d = gcd(w, h)
         return f"{w // d}:{h // d}"
 
-    aspect = _aspect_ratio_label(width, height)
-    ratio_text = f" ({aspect})" if aspect else ""
-
-    info = tk.Label(
-        root,
-        text=f"{args.title}\n{width}x{height}{ratio_text}",
-        fg="#FFA500",
-        bg=root.cget("bg"),
-        font=("Helvetica", 16, "bold"),
-    )
-    info.pack(side="top", fill="x", padx=20, pady=20)
+    overlay = tk.Canvas(root, highlightthickness=0, bd=0, bg=root.cget("bg"))
+    overlay.pack(expand=True, fill="both")
 
     payload_var = tk.StringVar(value=str(args.payload_label or "").strip())
-    payload_label = tk.Label(
-        root,
-        textvariable=payload_var,
-        fg="#00AAFF",
-        bg=root.cget("bg"),
-        font=("Helvetica", 18, "bold"),
-    )
-    payload_label.pack(side="top", pady=30)
 
-    spacer = tk.Frame(root, bg="black")
-    spacer.pack(expand=True, fill="both")
+    def _redraw_overlay(event=None) -> None:
+        width = max(root.winfo_width(), 1)
+        height = max(root.winfo_height(), 1)
+        overlay.configure(width=width, height=height)
+        overlay.delete("all")
+
+        aspect = _aspect_ratio_label(width, height)
+        ratio_text = f" ({aspect})" if aspect else ""
+        info_text = f"{args.title}\n{width}x{height}{ratio_text}"
+        info_id = overlay.create_text(
+            width / 2,
+            20,
+            text=info_text,
+            fill="#FFA500",
+            font=("Helvetica", 16, "bold"),
+            anchor="n",
+            tags=("label", "label-info"),
+        )
+
+        payload_text = payload_var.get().strip()
+        payload_y = 80  # fallback spacing if bbox lookup fails
+        bbox = overlay.bbox(info_id)
+        if bbox:
+            payload_y = bbox[3] + 30
+        if payload_text:
+            overlay.create_text(
+                width / 2,
+                payload_y,
+                text=payload_text,
+                fill="#00AAFF",
+                font=("Helvetica", 18, "bold"),
+                anchor="n",
+                tags=("label", "label-payload"),
+            )
+
+        if args.crosshair_x is not None:
+            x = max(0.0, min(100.0, float(args.crosshair_x))) / 100.0 * width
+            x_pos = max(0, min(int(round(x)), width - 1))
+            overlay.create_line(
+                x_pos,
+                0,
+                x_pos,
+                height,
+                fill="#FF8800",
+                dash=(6, 4),
+                width=2,
+                tags=("crosshair", "crosshair-vertical"),
+            )
+
+        if args.crosshair_y is not None:
+            y = max(0.0, min(100.0, float(args.crosshair_y))) / 100.0 * height
+            y_pos = max(0, min(int(round(y)), height - 1))
+            overlay.create_line(
+                0,
+                y_pos,
+                width,
+                y_pos,
+                fill="#FF8800",
+                dash=(6, 4),
+                width=2,
+                tags=("crosshair", "crosshair-horizontal"),
+            )
+
+        overlay.tag_raise("crosshair")
+
+    payload_var.trace_add("write", lambda *_: _redraw_overlay())
 
     label_path = Path(args.label_file).expanduser() if args.label_file else None
 
@@ -245,35 +292,8 @@ def main() -> None:
     if label_path:
         _poll_label()
 
-    if any(value is not None for value in (args.crosshair_x, args.crosshair_y)):
-        vertical_line: tk.Widget | None = None
-        horizontal_line: tk.Widget | None = None
-
-        def _draw_crosshair(event=None) -> None:
-            nonlocal vertical_line, horizontal_line
-            width = max(root.winfo_width(), 1)
-            height = max(root.winfo_height(), 1)
-
-            if args.crosshair_x is not None:
-                x = max(0.0, min(100.0, float(args.crosshair_x))) / 100.0 * width
-                if vertical_line is None:
-                    vertical_line = tk.Frame(root, bg="#FF8800", width=2, highlightthickness=0, bd=0)
-                vertical_line.place(x=max(int(round(x)) - 1, 0), y=0, width=2, height=height)
-                vertical_line.lift()
-            elif vertical_line is not None:
-                vertical_line.place_forget()
-
-            if args.crosshair_y is not None:
-                y = max(0.0, min(100.0, float(args.crosshair_y))) / 100.0 * height
-                if horizontal_line is None:
-                    horizontal_line = tk.Frame(root, bg="#FF8800", height=2, highlightthickness=0, bd=0)
-                horizontal_line.place(x=0, y=max(int(round(y)) - 1, 0), width=width, height=2)
-                horizontal_line.lift()
-            elif horizontal_line is not None:
-                horizontal_line.place_forget()
-
-        root.after_idle(_draw_crosshair)
-        root.bind("<Configure>", _draw_crosshair, add="+")
+    root.after_idle(_redraw_overlay)
+    root.bind("<Configure>", _redraw_overlay, add="+")
 
     root.mainloop()
 

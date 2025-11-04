@@ -1,8 +1,8 @@
 {
   "settings": {
     "wait_between_payload_tests": 2,
-    "crosshair_x_percent": 29.375,
-    "crosshair_y_percent": 26.111
+    "crosshair_x_percent": 72.03125,
+    "crosshair_y_percent": 37.5
   },
   "resolutions": [
     {
@@ -46,7 +46,12 @@
     {
       "name": "bogus landingpad",
       "source": "tests/landingpad.log",
-      "ttl": 0.5
+      "ttl": 5
+    },
+    {
+      "name": "landingpad",
+      "source": "tests/landingpad.log",
+      "ttl": 5
     },
     {
       "name": "edr-bounty",

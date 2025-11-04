@@ -1,11 +1,11 @@
 {
   "//": "Configure pen widths (in pixels) for various overlay elements.",
   "grid": 1,
-  "legacy_rect": 2,
+  "legacy_rect": 1,
   "group_outline": 1,
   "viewport_indicator": 4,
-  "vector_line": 2,
-  "vector_marker": 2,
-  "vector_cross": 2,
+  "vector_line": 1,
+  "vector_marker": 1,
+  "vector_cross": 1,
   "cycle_connector": 2
 }

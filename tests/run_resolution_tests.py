@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -64,6 +65,26 @@ def _resolve_port() -> int:
     if not isinstance(port, int) or port <= 0:
         raise DriverError(f"port.json does not contain a valid port number: {data!r}")
     return port
+
+
+def _wait_for_overlay_ready(port: int, *, timeout: float = 180.0, poll_interval: float = 1.0) -> None:
+    """Wait until the overlay broadcaster accepts TCP connections."""
+    deadline = time.monotonic() + timeout
+    attempt = 0
+    _log(f"Waiting for ModernOverlay broadcaster on 127.0.0.1:{port} …")
+    while True:
+        attempt += 1
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=5.0):
+                _log(f"Overlay broadcaster reachable (attempt {attempt}).")
+                return
+        except OSError as exc:
+            now = time.monotonic()
+            if now >= deadline:
+                raise DriverError(
+                    f"Timed out after {timeout:.0f}s waiting for ModernOverlay broadcaster on port {port}: {exc}"
+                ) from exc
+            time.sleep(min(poll_interval, max(0.1, deadline - now)))
 
 
 def _launch_mock_window(
@@ -231,6 +252,7 @@ def run_tests(config_path: Path) -> None:
     _ensure_overlay_running()
     port = _resolve_port()
     _log(f"ModernOverlay broadcaster port: {port}")
+    _wait_for_overlay_ready(port)
 
     label_file_handle = tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8")
     label_file_path = Path(label_file_handle.name)
