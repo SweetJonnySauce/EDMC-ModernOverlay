@@ -26,6 +26,22 @@ This is particularly useful when capturing coordinates or validating plugin over
   3. **Fill translation** is the per-group dx/dy derived from bounds that keeps the payload inside the window (assertion #7).
   4. **Override scale/offset/pivot** are the final adjustments sourced from plugin overrides—they run after Fill-mode math, so you can reconcile the badge with your JSON overrides.
   All values are in overlay coordinates to make it easy to compare against raw payload dumps (e.g. `tests/edr-docking.log`) when tuning overrides.
+- The payload finder’s callout line is configurable. See **Line width overrides** below if you need a thicker/thinner connector.
+
+### Line width overrides
+
+Modern Overlay centralises common pen widths in `overlay-client/render_config.json`. Adjust the values to tune debug visuals without touching code:
+
+- `grid`: spacing grid rendered by the developer background toggle (debug only).
+- `group_outline`: dashed bounding box drawn when `fill_group_debug` is enabled (debug only).
+- `viewport_indicator`: the oversized orange guideline arrows that show Fill overflow (debug only).
+- `legacy_rect`: outline for legacy `shape="rect"` payloads.
+- `vector_line`: the main stroke used for vector payloads (sparklines, trend lines, guidance beams).
+- `vector_marker`: the filled circle marker drawn when a vector point specifies `"marker": "circle"`.
+- `vector_cross`: the X-shaped marker used for `"marker": "cross"` points.
+- `cycle_connector`: the payload finder’s connector from the center badge to the active overlay (debug only).
+
+Values are in pixels. Restart the overlay client after editing the JSON file.
 
 ## Debug Overlay Reference
 

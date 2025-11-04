@@ -72,6 +72,43 @@ _CLIENT_LOGGER.propagate = False
 DEFAULT_WINDOW_BASE_WIDTH = 1280
 DEFAULT_WINDOW_BASE_HEIGHT = 720
 
+_LINE_WIDTH_DEFAULTS: Dict[str, int] = {
+    "grid": 1,
+    "legacy_rect": 2,
+    "group_outline": 1,
+    "viewport_indicator": 4,
+    "vector_line": 2,
+    "vector_marker": 2,
+    "vector_cross": 2,
+    "cycle_connector": 2,
+}
+
+
+def _load_line_width_config() -> Dict[str, int]:
+    config = dict(_LINE_WIDTH_DEFAULTS)
+    path = CLIENT_DIR / "render_config.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        _CLIENT_LOGGER.debug("Line width config not found at %s; using defaults", path)
+        return config
+    except json.JSONDecodeError as exc:
+        _CLIENT_LOGGER.warning("Failed to parse %s; using default line widths (%s)", path, exc)
+        return config
+    if isinstance(data, Mapping):
+        for key, value in data.items():
+            if key not in _LINE_WIDTH_DEFAULTS:
+                continue
+            try:
+                width = int(round(float(value)))
+            except (TypeError, ValueError):
+                _CLIENT_LOGGER.warning("Ignoring invalid line width for '%s': %r", key, value)
+                continue
+            config[key] = max(0, width)
+    else:
+        _CLIENT_LOGGER.warning("Line width config at %s is not a JSON object; using defaults", path)
+    return config
+
 
 @dataclass(frozen=True)
 class _LegacyMapper:
@@ -344,6 +381,7 @@ class OverlayWindow(QWidget):
         self._last_font_notice: Optional[Tuple[float, float]] = None
         self._scale_mode: str = "fit"
         self._group_transform_cache = GroupTransformCache()
+        self._line_widths: Dict[str, int] = _load_line_width_config()
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -1208,7 +1246,7 @@ class OverlayWindow(QWidget):
         if render_grid:
             grid_color = QColor(200, 200, 200, grid_alpha)
             grid_pen = QPen(grid_color)
-            grid_pen.setWidth(1)
+            grid_pen.setWidth(self._line_width("grid"))
             painter.setPen(grid_pen)
             spacing = self._gridline_spacing
             width = self.width()
@@ -1825,7 +1863,7 @@ class OverlayWindow(QWidget):
             else:
                 start_x = center_x
                 start_y = rect_top + rect_height
-            painter.setPen(QPen(highlight_color, 2))
+            painter.setPen(QPen(highlight_color, self._line_width("cycle_connector")))
             painter.drawLine(start_x, start_y, anchor[0], anchor[1])
             painter.setBrush(highlight_color)
             painter.drawEllipse(anchor[0] - 4, anchor[1] - 4, 8, 8)
@@ -3154,7 +3192,7 @@ class OverlayWindow(QWidget):
             if not border_color.isValid():
                 border_color = QColor("white")
             pen = QPen(border_color)
-            pen.setWidth(2)
+            pen.setWidth(self._line_width("legacy_rect"))
 
         if not fill_spec or fill_spec.lower() == "none":
             brush = QBrush(Qt.BrushStyle.NoBrush)
@@ -3447,7 +3485,7 @@ class OverlayWindow(QWidget):
 
         painter.save()
         pen = QPen(QColor(255, 221, 0))
-        pen.setWidth(1)
+        pen.setWidth(self._line_width("group_outline"))
         pen.setStyle(Qt.PenStyle.DashLine)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -3636,7 +3674,7 @@ class OverlayWindow(QWidget):
 
         painter.save()
         pen = QPen(QColor(255, 136, 0))
-        pen.setWidth(4)
+        pen.setWidth(self._line_width("viewport_indicator"))
         pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
         painter.setPen(pen)
 
@@ -3851,18 +3889,28 @@ class OverlayWindow(QWidget):
         _CLIENT_LOGGER.warning("Preferred fonts unavailable; falling back to %s", default_family)
         return default_family
 
+    def _line_width(self, key: str) -> int:
+        default = _LINE_WIDTH_DEFAULTS.get(key, 1)
+        value = self._line_widths.get(key, default)
+        try:
+            width = int(round(float(value)))
+        except (TypeError, ValueError):
+            width = default
+        return max(0, width)
+
 
 class _QtVectorPainterAdapter(VectorPainterAdapter):
     def __init__(self, window: "OverlayWindow", painter: QPainter) -> None:
         self._window = window
         self._painter = painter
 
-    def set_pen(self, color: str, *, width: int = 2) -> None:
+    def set_pen(self, color: str, *, width: Optional[int] = None) -> None:
         q_color = QColor(color)
         if not q_color.isValid():
             q_color = QColor("white")
         pen = QPen(q_color)
-        pen.setWidth(width)
+        pen_width = self._window._line_width("vector_line") if width is None else max(0, int(width))
+        pen.setWidth(pen_width)
         self._painter.setPen(pen)
         self._painter.setBrush(Qt.BrushStyle.NoBrush)
 
@@ -3874,13 +3922,13 @@ class _QtVectorPainterAdapter(VectorPainterAdapter):
         if not q_color.isValid():
             q_color = QColor("white")
         pen = QPen(q_color)
-        pen.setWidth(2)
+        pen.setWidth(self._window._line_width("vector_marker"))
         self._painter.setPen(pen)
         self._painter.setBrush(QBrush(q_color))
         self._painter.drawEllipse(QPoint(x, y), radius, radius)
 
     def draw_cross_marker(self, x: int, y: int, size: int, color: str) -> None:
-        self.set_pen(color, width=2)
+        self.set_pen(color, width=self._window._line_width("vector_cross"))
         self._painter.drawLine(x - size, y - size, x + size, y + size)
         self._painter.drawLine(x - size, y + size, x + size, y - size)
 
