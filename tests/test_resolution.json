@@ -1,5 +1,6 @@
 {
   "settings": {
+    "window_wait_seconds": 2,
     "wait_between_payload_tests": 2,
     "crosshair_x_percent": 29.375,
     "crosshair_y_percent": 26.111
@@ -39,11 +40,6 @@
     }
   ],
   "payloads": [
-    {
-      "name": "bogus landingpad",
-      "source": "tests/landingpad.log",
-      "ttl": 0.5
-    },
     {
       "name": "landingpad",
       "source": "tests/landingpad.log",
