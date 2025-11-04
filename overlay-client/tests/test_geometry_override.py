@@ -53,16 +53,16 @@ def test_classifies_layout_for_fractional_follow_sizes() -> None:
     assert classification == "layout"
 
 
-def test_aspect_guard_trims_small_delta_for_near_16_9() -> None:
+def test_aspect_guard_trims_small_delta_for_near_base_ratio() -> None:
     dummy = type("DummyWindow", (), {"_aspect_guard_skip_logged": False})()
-    geometry = (0, 0, 1920, 1100)
-    original = (0, 0, 1920, 1080)
+    geometry = (0, 0, 1920, 1452)
+    original = (0, 0, 1920, 1440)
 
     adjusted = OverlayWindow._apply_aspect_guard(
         dummy, geometry, original_geometry=original, applied_title_offset=0
     )
 
-    assert adjusted == (0, 0, 1920, 1080)
+    assert adjusted == (0, 0, 1920, 1440)
     assert dummy._aspect_guard_skip_logged is False
 
 

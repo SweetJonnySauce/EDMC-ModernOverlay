@@ -21,7 +21,7 @@ This is particularly useful when capturing coordinates or validating plugin over
 - Plugin names and coordinates rely on the metadata provided by each payload; if a plugin does not populate `plugin` fields, the finder falls back to `unknown`.
 - Message overrides (e.g. `bgstally-msg-*`) are now tracked, so scale/offset adjustments applied via overrides show up in the badge.
 - The transform breakdown is listed in the same order the renderer applies it:
-  1. **Fill scale** shows the raw X/Y proportions computed for Fill mode along with the effective values after aspect preservation (`raw → applied`). Fill mode scales by the larger of the window’s horizontal/vertical ratios so the 1280×720 legacy canvas covers the window completely; one axis therefore overflows and requires proportional remapping. (Fit mode, by contrast, uses the smaller ratio so the entire canvas remains inside the window.)
+  1. **Fill scale** shows the raw X/Y proportions computed for Fill mode along with the effective values after aspect preservation (`raw → applied`). Fill mode scales by the larger of the window’s horizontal/vertical ratios so the 1280×960 legacy canvas covers the window completely; one axis therefore overflows and requires proportional remapping. (Fit mode, by contrast, uses the smaller ratio so the entire canvas remains inside the window.)
   2. **Fill preserve shift** appears when a group is preserving aspect; it reports the group-wide translation we inject to avoid squashing.
   3. **Fill translation** is the per-group dx/dy derived from bounds that keeps the payload inside the window (assertion #7).
   4. **Override scale/offset/pivot** are the final adjustments sourced from plugin overrides—they run after Fill-mode math, so you can reconcile the badge with your JSON overrides.
@@ -63,7 +63,7 @@ Enable **Show debug overlay** to surface a live diagnostics panel in the corner 
   - `legacy presets`: the resolved point sizes for the classic `small`, `normal`, `large`, and `huge` presets so you can see exactly what each payload’s `size` value maps to.
 - **Settings block** highlights the title-bar compensation flag and height, along with the actual pixel offset applied. If compensation is enabled but the offset seems wrong, this is the first place to verify the numbers.
 
-These details are helpful when debugging sizing issues (e.g., 21:9 vs. 16:9 monitors) or verifying that override transforms are behaving as expected.
+These details are helpful when debugging sizing issues (e.g., 21:9 vs. 4:3 monitors) or verifying that override transforms are behaving as expected.
 
 ### Fill-mode diagnostics
 

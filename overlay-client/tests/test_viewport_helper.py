@@ -25,8 +25,8 @@ def test_fit_mode_baseline():
 @pytest.mark.parametrize(
     ("window_w", "window_h", "expected_scale", "expected_offset_x", "expected_offset_y"),
     [
-        (1920.0, 1080.0, 1.5, 0.0, 0.0),
-        (3440.0, 1440.0, 2.0, (3440.0 - 2560.0) / 2.0, 0.0),
+        (1920.0, 1080.0, 1080.0 / BASE_HEIGHT, (1920.0 - (BASE_WIDTH * (1080.0 / BASE_HEIGHT))) / 2.0, 0.0),
+        (3440.0, 1440.0, 1440.0 / BASE_HEIGHT, (3440.0 - (BASE_WIDTH * (1440.0 / BASE_HEIGHT))) / 2.0, 0.0),
         (1024.0, 768.0, 1024.0 / BASE_WIDTH, 0.0, (768.0 - (BASE_HEIGHT * (1024.0 / BASE_WIDTH))) / 2.0),
     ],
 )
@@ -59,6 +59,6 @@ def test_fill_mode_tall_window_overflows_width():
 
 def test_compute_viewport_requires_positive_dimensions():
     with pytest.raises(ValueError):
-        compute_viewport_transform(0, 720, ScaleMode.FIT)
+        compute_viewport_transform(0, BASE_HEIGHT, ScaleMode.FIT)
     with pytest.raises(ValueError):
         compute_viewport_transform(1280, -1, ScaleMode.FILL)

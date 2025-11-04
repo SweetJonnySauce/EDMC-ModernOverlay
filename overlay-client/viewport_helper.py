@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Tuple
 
 BASE_WIDTH = 1280.0
-BASE_HEIGHT = 720.0
+BASE_HEIGHT = 960.0
 _EPSILON = 1e-9
 
 

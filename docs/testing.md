@@ -18,10 +18,10 @@ This document records the test coverage added (or required) for the aspect-ratio
 
 Because geometry rendering is visual, you should still smoke-test on real overlay windows after changes:
 
-1. **16:9 baseline (Fit mode)**  
-   - Launch the overlay in a 1920×1080 window.  
+1. **4:3 baseline (Fit mode)**  
+   - Launch the overlay in a 1920×1440 window.  
    - Enable the LandingPad CLI (`python3 tests/send_overlay_landingpad.py`).  
-   - Confirm the radial lines meet the dodecagon vertices and width/height debug metrics report `scale.mode = fit`.
+   - Confirm the radial lines meet the dodecagon vertices without pillarboxing and the debug metrics report `scale.mode = fit`.
 
 2. **21:9 ultrawide (Fit mode vs Fill mode)**  
    - Resize the overlay to 3440×1440 (or 2560×1080).  

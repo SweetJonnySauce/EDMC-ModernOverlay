@@ -11,7 +11,7 @@ import tkinter as tk
 
 DEFAULT_TITLE = "Elite - Dangerous (Stub)"
 DEFAULT_WIDTH = 1280
-DEFAULT_HEIGHT = 720
+DEFAULT_HEIGHT = 960
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SETTINGS_PATH = PROJECT_ROOT / "overlay_settings.json"
 ENV_WIDTH = "MOCK_ELITE_WIDTH"
@@ -47,7 +47,7 @@ def _load_settings(path: str | None) -> tuple[int | None, int | None]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Launch a simple 1280x720 window whose title matches the overlay tracker.",
+        description="Launch a simple 1280x960 window whose title matches the overlay tracker.",
     )
     parser.add_argument(
         "--title",
