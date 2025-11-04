@@ -228,7 +228,14 @@ def main() -> None:
 
     payload_var = tk.StringVar(value=str(args.payload_label or "").strip())
     cursor_label_id: int | None = None
-    transform_state = {"scale": 1.0, "offset_x": 0.0, "offset_y": 0.0}
+    logical_cursor_label_id: int | None = None
+    transform_state = {
+        "scale": 1.0,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "base_offset_x": 0.0,
+        "base_offset_y": 0.0,
+    }
     cursor_state = {"x": None, "y": None}
     scale_mode_state = {"value": initial_scale_mode}
     settings_watch = {
@@ -247,11 +254,18 @@ def main() -> None:
             return "Overlay cursor: x=--, y=--"
         return f"Overlay cursor: x={overlay_x:.1f}, y={overlay_y:.1f}"
 
+    def _format_logical_cursor_text(logical_x: float | None, logical_y: float | None) -> str:
+        if logical_x is None or logical_y is None:
+            return "Logical cursor: x=--, y=--"
+        return f"Logical cursor: x={logical_x:.1f}, y={logical_y:.1f}"
+
     def _reset_cursor_label(*_) -> None:
         cursor_state["x"] = None
         cursor_state["y"] = None
         if cursor_label_id is not None:
             overlay.itemconfigure(cursor_label_id, text=_format_cursor_text(None, None))
+        if logical_cursor_label_id is not None:
+            overlay.itemconfigure(logical_cursor_label_id, text=_format_logical_cursor_text(None, None))
 
     def _update_cursor_label(event=None) -> None:
         if event is not None:
@@ -259,41 +273,60 @@ def main() -> None:
             cursor_state["y"] = float(event.y)
         canvas_x = cursor_state["x"]
         canvas_y = cursor_state["y"]
-        if canvas_x is None or canvas_y is None:
-            text = _format_cursor_text(None, None)
-        else:
+        text = _format_cursor_text(None, None)
+        logical_text = _format_logical_cursor_text(None, None)
+        if canvas_x is not None and canvas_y is not None:
             scale = transform_state.get("scale", 1.0)
             if scale <= 0:
                 scale = 1.0
             offset_x = transform_state.get("offset_x", 0.0)
             offset_y = transform_state.get("offset_y", 0.0)
-            overlay_x = (canvas_x - offset_x) / scale
-            overlay_y = (canvas_y - offset_y) / scale
+            base_offset_x = transform_state.get("base_offset_x", 0.0)
+            base_offset_y = transform_state.get("base_offset_y", 0.0)
+            if scale_mode_state["value"] == "fit":
+                overlay_x = (canvas_x - offset_x) / scale
+                overlay_y = (canvas_y - offset_y) / scale
+            else:
+                overlay_x = canvas_x
+                overlay_y = canvas_y
             text = _format_cursor_text(overlay_x, overlay_y)
+            logical_x = (canvas_x - base_offset_x) / scale
+            logical_y = (canvas_y - base_offset_y) / scale
+            logical_text = _format_logical_cursor_text(logical_x, logical_y)
         if cursor_label_id is not None:
             overlay.itemconfigure(cursor_label_id, text=text)
+        if logical_cursor_label_id is not None:
+            overlay.itemconfigure(logical_cursor_label_id, text=logical_text)
 
     overlay.bind("<Motion>", _update_cursor_label, add="+")
     overlay.bind("<Leave>", _reset_cursor_label, add="+")
 
-    def _refresh_scale_mode_from_settings() -> None:
+    def _refresh_scale_mode_from_settings() -> bool:
         path = settings_watch["path"]
         if path is None:
-            return
+            return False
         try:
             stat_result = path.stat()
         except OSError:
-            return
+            return False
         mtime = stat_result.st_mtime
         if settings_watch["mtime"] is not None and mtime <= settings_watch["mtime"]:
-            return
+            return False
         settings_watch["mtime"] = mtime
         _, _, new_mode = _load_settings(str(path))
         if new_mode in VALID_SCALE_MODES and new_mode != scale_mode_state["value"]:
             scale_mode_state["value"] = new_mode
+            return True
+        return False
+
+    def _poll_scale_mode() -> None:
+        changed = _refresh_scale_mode_from_settings()
+        if changed:
+            _redraw_overlay()
+        root.after(500, _poll_scale_mode)
 
     def _redraw_overlay(event=None) -> None:
-        nonlocal cursor_label_id
+        nonlocal cursor_label_id, logical_cursor_label_id
         _refresh_scale_mode_from_settings()
         active_mode = scale_mode_state["value"]
         width = max(root.winfo_width(), 1)
@@ -310,15 +343,25 @@ def main() -> None:
             scaled_h = BASE_HEIGHT * scale
             offset_x = (width_f - scaled_w) / 2.0
             offset_y = (height_f - scaled_h) / 2.0
+            base_offset_x = offset_x
+            base_offset_y = offset_y
         else:
             scale = max(width_f / BASE_WIDTH, height_f / BASE_HEIGHT)
+            scaled_w = BASE_WIDTH * scale
+            scaled_h = BASE_HEIGHT * scale
+            trim_x = max(scaled_w - width_f, 0.0) / 2.0
+            trim_y = max(scaled_h - height_f, 0.0) / 2.0
             offset_x = 0.0
             offset_y = 0.0
+            base_offset_x = -trim_x
+            base_offset_y = -trim_y
         if scale <= 0:
             scale = 1.0
         transform_state["scale"] = scale
         transform_state["offset_x"] = offset_x
         transform_state["offset_y"] = offset_y
+        transform_state["base_offset_x"] = base_offset_x
+        transform_state["base_offset_y"] = base_offset_y
 
         cursor_label_id = overlay.create_text(
             10,
@@ -329,6 +372,18 @@ def main() -> None:
             anchor="nw",
             tags=("label", "label-cursor"),
         )
+        if active_mode == "fill":
+            logical_cursor_label_id = overlay.create_text(
+                10,
+                28,
+                text=_format_logical_cursor_text(None, None),
+                fill="#FFA500",
+                font=("Helvetica", 12, "bold"),
+                anchor="nw",
+                tags=("label", "label-cursor-logical"),
+            )
+        else:
+            logical_cursor_label_id = None
 
         aspect = _aspect_ratio_label(width, height)
         ratio_text = f" ({aspect})" if aspect else ""
@@ -409,6 +464,9 @@ def main() -> None:
 
     if label_path:
         _poll_label()
+
+    if settings_watch["path"] is not None:
+        root.after(500, _poll_scale_mode)
 
     root.after_idle(_redraw_overlay)
     root.bind("<Configure>", _redraw_overlay, add="+")

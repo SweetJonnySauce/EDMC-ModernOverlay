@@ -18,5 +18,5 @@
   "title_bar_height": 30,
   "cycle_payload_ids": false,
   "copy_payload_id_on_cycle": true,
-  "scale_mode": "fill"
+  "scale_mode": "fit"
 }
