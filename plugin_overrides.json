@@ -98,10 +98,7 @@
         "intel": {
           "id_prefixes": [
             "edr-intel"
-          ],
-          "preserve_fill_aspect": {
-            "anchor": "centroid"
-          }
+          ]
         },
         "target": {
           "id_prefixes": [

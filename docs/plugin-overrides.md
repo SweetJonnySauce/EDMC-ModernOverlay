@@ -53,8 +53,9 @@ Example:
 
 Pattern blocks are still evaluated in declaration order, but Modern Overlay no longer applies any built-in per-payload
 transforms. Legacy fields such as `transform`, `x_scale`, and `x_shift` are now ignored (they remain in the schema only
-for backward compatibility). Pattern objects can still carry future custom metadata, and grouping-related options
-(`preserve_fill_aspect`, etc.) continue to function as before.
+for backward compatibility). Pattern objects can still carry future custom metadata, and grouping-related options focus
+on how payloads are bucketed; Fill mode now always preserves aspect across the group, so historical
+`preserve_fill_aspect` settings are silently ignored.
 
 You can safely leave historical transform entries in `plugin_overrides.json`; they no longer affect rendering.
 - The plugin-level `notes` array is just documentation for humans; Modern Overlay ignores it, but it keeps the rationale beside the configuration.

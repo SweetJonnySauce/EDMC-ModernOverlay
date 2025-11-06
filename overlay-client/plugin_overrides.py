@@ -18,8 +18,6 @@ class _GroupSpec:
     label: Optional[str]
     prefixes: Tuple[str, ...]
     defaults: Optional[JsonDict]
-    preserve_fill_aspect_enabled: Optional[bool] = None
-    preserve_fill_aspect_anchor: Optional[str] = None
 
 
 @dataclass
@@ -216,20 +214,6 @@ class PluginOverrideManager:
                     mode_token = mode_raw.strip().lower()
                     if mode_token in {"plugin", "id_prefix"}:
                         grouping_mode = mode_token
-                def _parse_preserve(source: Mapping[str, Any]) -> Tuple[Optional[bool], Optional[str]]:
-                    block = source.get("preserve_fill_aspect")
-                    enabled_val: Optional[bool] = None
-                    anchor_val: Optional[str] = None
-                    if isinstance(block, Mapping):
-                        enabled_field = block.get("enabled")
-                        if isinstance(enabled_field, bool):
-                            enabled_val = enabled_field
-                        anchor_field = block.get("anchor")
-                        if isinstance(anchor_field, str):
-                            anchor_token = anchor_field.strip().lower()
-                            if anchor_token in {"first", "centroid"}:
-                                anchor_val = anchor_token
-                    return enabled_val, anchor_val
                 if grouping_mode == "id_prefix":
                     groups_spec = grouping_section.get("groups")
                     if isinstance(groups_spec, Mapping):
@@ -253,14 +237,11 @@ class PluginOverrideManager:
                                 continue
                             group_label = str(label).strip() if isinstance(label, str) and label else None
                             defaults = None
-                            preserve_enabled, preserve_anchor = _parse_preserve(group_value)
                             grouping_specs.append(
                                 _GroupSpec(
                                     label=group_label,
                                     prefixes=cleaned_prefixes,
                                     defaults=defaults,
-                                    preserve_fill_aspect_enabled=preserve_enabled,
-                                    preserve_fill_aspect_anchor=preserve_anchor,
                                 )
                             )
 
@@ -281,7 +262,6 @@ class PluginOverrideManager:
                                     prefixes = [raw_prefix]
                                 label_value = str(label) if isinstance(label, str) and label else (raw_prefix or None)
                                 defaults = None
-                                preserve_enabled, preserve_anchor = _parse_preserve(prefix_value)
                             cleaned_prefixes = tuple(prefix.casefold() for prefix in prefixes if prefix)
                             if not cleaned_prefixes:
                                 continue
@@ -290,8 +270,6 @@ class PluginOverrideManager:
                                     label=label_value,
                                     prefixes=cleaned_prefixes,
                                     defaults=defaults,
-                                    preserve_fill_aspect_enabled=preserve_enabled,
-                                    preserve_fill_aspect_anchor=preserve_anchor,
                                 )
                             )
                     elif isinstance(prefixes_spec, Iterable):
@@ -449,27 +427,8 @@ class PluginOverrideManager:
         return False
 
     def group_preserve_fill_aspect(self, plugin: Optional[str], suffix: Optional[str]) -> Tuple[bool, str]:
-        """Return whether fill-aspect preservation is enabled and which anchor to use."""
+        """Fill-mode preservation is always enabled; anchor selection defaults to 'first' (top-left)."""
 
-        self._reload_if_needed()
-        canonical = self._canonical_plugin_name(plugin)
-        if canonical is None:
-            return True, "first"
-        config = self._plugins.get(canonical)
-        if config is None or not config.group_mode:
-            return True, "first"
-        if config.group_mode == "plugin":
-            return True, "first"
-        if config.group_mode == "id_prefix":
-            if suffix is None:
-                return True, "first"
-            for spec in config.group_specs:
-                label_value = spec.label or (spec.prefixes[0] if spec.prefixes else None)
-                if label_value == suffix:
-                    enabled = True if spec.preserve_fill_aspect_enabled is None else bool(spec.preserve_fill_aspect_enabled)
-                    anchor = spec.preserve_fill_aspect_anchor or "first"
-                    return enabled, anchor
-            return True, "first"
         return True, "first"
 
     def group_mode_for(self, plugin: Optional[str]) -> Optional[str]:

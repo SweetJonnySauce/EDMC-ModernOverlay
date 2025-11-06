@@ -113,7 +113,7 @@ class FillGroupingHelper:
                 mapper.transform.overflow_x,
                 mapper.transform.overflow_y,
             )
-            preserve_enabled, preserve_anchor = self._group_preserve_fill_aspect(plugin_label, suffix)
+            _, preserve_anchor = self._group_preserve_fill_aspect(plugin_label, suffix)
             anchor_coords = group_anchor.get(key_tuple)
             anchor_x, anchor_y = anchor_coords if anchor_coords is not None else (0.0, 0.0)
             if preserve_anchor == "centroid" or anchor_coords is None:
@@ -174,25 +174,22 @@ class FillGroupingHelper:
             max_x_for_delta = bounds.max_x
             min_y_for_delta = bounds.min_y
             max_y_for_delta = bounds.max_y
-            if preserve_enabled:
-                preserve_dx = anchor_x * (raw_proportion_x - 1.0)
-                preserve_dy = anchor_y * (raw_proportion_y - 1.0)
-                proportion_x = 1.0
-                proportion_y = 1.0
-                min_x_for_delta = bounds.min_x + preserve_dx
-                max_x_for_delta = bounds.max_x + preserve_dx
-                min_y_for_delta = bounds.min_y + preserve_dy
-                max_y_for_delta = bounds.max_y + preserve_dy
+            preserve_dx = anchor_x * (raw_proportion_x - 1.0)
+            preserve_dy = anchor_y * (raw_proportion_y - 1.0)
+            proportion_x = 1.0
+            proportion_y = 1.0
+            min_x_for_delta = bounds.min_x + preserve_dx
+            max_x_for_delta = bounds.max_x + preserve_dx
+            min_y_for_delta = bounds.min_y + preserve_dy
+            max_y_for_delta = bounds.max_y + preserve_dy
             band_min_x = _normalise(bounds.min_x, base_width)
             band_max_x = _normalise(bounds.max_x, base_width)
             band_min_y = _normalise(bounds.min_y, base_height)
             band_max_y = _normalise(bounds.max_y, base_height)
-            center_x_norm = _normalise((bounds.min_x + bounds.max_x) / 2.0, base_width)
-            center_y_norm = _normalise((bounds.min_y + bounds.max_y) / 2.0, base_height)
             anchor_norm_x = _normalise(anchor_x, base_width)
             anchor_norm_y = _normalise(anchor_y, base_height)
-            target_norm_x = anchor_norm_x if preserve_enabled else center_x_norm
-            target_norm_y = anchor_norm_y if preserve_enabled else center_y_norm
+            target_norm_x = anchor_norm_x
+            target_norm_y = anchor_norm_y
 
             dx = self._compute_group_band_shift(
                 overflow=mapper.transform.overflow_x,
