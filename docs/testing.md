@@ -6,13 +6,37 @@ This document records the test coverage added (or required) for the aspect-ratio
 
 | Scope | Command | Purpose |
 |-------|---------|---------|
-| Viewport helper | `pytest overlay-client/tests/test_viewport_helper.py` | Confirms the Fit and Fill strategies report expected scale factors and overflow flags for representative window sizes (16:9, 21:9, 4:3, tall portrait). |
-| Vector renderer | `pytest tests/test_vector_renderer.py` | Verifies that vect payloads honour the new `offset_x` / `offset_y` parameters so points, markers, and labels land in the correct pixels. |
-| Group transform cache | `pytest overlay-client/tests/test_group_transform.py` | Checks that per-group bounding boxes accumulate correctly and cache lookups are consistent. |
-| Override grouping parser | `pytest overlay-client/tests/test_override_grouping.py` | Ensures the override manager honours `grouping.mode` and explicit prefix maps when deriving Fill-mode groups. |
+| Viewport helper | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_viewport_helper.py` | Confirms the Fit and Fill strategies report expected scale factors and overflow flags for representative window sizes (16:9, 21:9, 4:3, tall portrait). |
+| Vector renderer | `overlay-client/.venv/bin/python -m pytest tests/test_vector_renderer.py` | Verifies that vect payloads honour the new `offset_x` / `offset_y` parameters so points, markers, and labels land in the correct pixels. |
+| Group transform cache | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_group_transform.py` | Checks that per-group bounding boxes accumulate correctly and cache lookups are consistent. |
+| Override grouping parser | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_override_grouping.py` | Ensures the override manager honours `grouping.mode` and explicit prefix maps when deriving Fill-mode groups. |
 | Import sanity | `python3 -m compileall overlay_plugin overlay-client` | Catches syntax/indent errors in the plugin, preferences UI, and client modules without requiring PyQt at runtime. |
 
+### Environment setup
+
+Before running the suites:
+
+1. **Create/activate the client virtualenv** (if not already present):
+   ```bash
+   python3 -m venv overlay-client/.venv
+   source overlay-client/.venv/bin/activate
+   pip install -U pip
+   ```
+
+2. **Install development dependencies and the plugin in editable mode**:
+   ```bash
+   pip install -e .[dev]
+   ```
+   The `pyproject.toml` defines a minimal editable package; installing it ensures `from EDMCOverlay import edmcoverlay` succeeds during tests.
+
+3. **Run pytest via the venv interpreter**:
+   ```bash
+   overlay-client/.venv/bin/python -m pytest
+   ```
+
 > **Note:** The existing `overlay-client/tests/test_geometry_override.py` suite needs PyQt6 present on the system; run it in environments where Qt is available to catch regressions in window sizing and guard code.
+
+If you run tests from scratch (e.g. CI or fresh clone), steps 1–2 ensure the environment mirrors what pytest expects. For ad-hoc runs, `source overlay-client/.venv/bin/activate` followed by the relevant `pytest` command is sufficient.
 
 ## Manual Verification
 

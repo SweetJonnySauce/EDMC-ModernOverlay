@@ -64,6 +64,12 @@ from viewport_helper import (
     compute_viewport_transform,
 )  # type: ignore  # noqa: E402
 from grouping_helper import FillGroupingHelper  # type: ignore  # noqa: E402
+from payload_transform import (
+    remap_point,
+    remap_rect_points,
+    remap_vector_points,
+    transform_components,
+)  # type: ignore  # noqa: E402
 
 _LOGGER_NAME = "EDMC.ModernOverlay.Client"
 _CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
@@ -836,41 +842,6 @@ class OverlayWindow(QWidget):
         dy = FillViewport._compute_fill_overlay_delta(scale, cls._safe_float(getattr(transform, "dy", 0.0), 0.0), prop_y)
         return dx, dy
 
-    @classmethod
-    def _transform_components(
-        cls,
-        meta: Optional[Mapping[str, Any]],
-    ) -> Tuple[float, float, float, float, float, float]:
-
-        if not isinstance(meta, Mapping):
-            return 0.0, 0.0, 1.0, 1.0, 0.0, 0.0
-
-        pivot_block = meta.get("pivot")
-        if isinstance(pivot_block, Mapping):
-            pivot_x = cls._safe_float(pivot_block.get("x"), 0.0)
-            pivot_y = cls._safe_float(pivot_block.get("y"), 0.0)
-        else:
-            pivot_x = 0.0
-            pivot_y = 0.0
-
-        scale_block = meta.get("scale")
-        if isinstance(scale_block, Mapping):
-            scale_x = cls._safe_float(scale_block.get("x"), 1.0)
-            scale_y = cls._safe_float(scale_block.get("y"), 1.0)
-        else:
-            scale_x = 1.0
-            scale_y = 1.0
-
-        offset_block = meta.get("offset")
-        if isinstance(offset_block, Mapping):
-            offset_x = cls._safe_float(offset_block.get("x"), 0.0)
-            offset_y = cls._safe_float(offset_block.get("y"), 0.0)
-        else:
-            offset_x = 0.0
-            offset_y = 0.0
-
-        return pivot_x, pivot_y, scale_x, scale_y, offset_x, offset_y
-
     def _build_fill_viewport(
         self,
         mapper: _LegacyMapper,
@@ -1429,7 +1400,7 @@ class OverlayWindow(QWidget):
 
         lines: List[str] = []
         transform_meta = data.get("__mo_transform__")
-        pivot_x_meta, pivot_y_meta, scale_x_meta, scale_y_meta, offset_x_meta, offset_y_meta = self._transform_components(transform_meta)
+        pivot_x_meta, pivot_y_meta, scale_x_meta, scale_y_meta, offset_x_meta, offset_y_meta = transform_components(transform_meta)
 
         fill = self._build_fill_viewport(mapper, group_transform)
         proportion_x = fill.proportion_x
@@ -2906,17 +2877,7 @@ class OverlayWindow(QWidget):
         painter.setFont(font)
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
-        pivot_x, pivot_y, scale_x_meta, scale_y_meta, offset_x_meta, offset_y_meta = self._transform_components(transform_meta)
-        adjusted_left, adjusted_top = fill.remap_point(
-            raw_left,
-            raw_top,
-            pivot_x,
-            pivot_y,
-            scale_x_meta,
-            scale_y_meta,
-            offset_x_meta,
-            offset_y_meta,
-        )
+        adjusted_left, adjusted_top = remap_point(fill, transform_meta, raw_left, raw_top)
         text = str(item.get("text", ""))
         margin = 12
         x = int(round(fill.screen_x(adjusted_left)))
@@ -3013,7 +2974,6 @@ class OverlayWindow(QWidget):
         base_offset_y = fill.base_offset_y
         transform_meta = item.get("__mo_transform__")
         trace_enabled = self._should_trace_payload(plugin_name, item_id)
-        pivot_x, pivot_y, scale_x_meta, scale_y_meta, offset_x_meta, offset_y_meta = self._transform_components(transform_meta)
         raw_x = float(item.get("x", 0))
         raw_y = float(item.get("y", 0))
         raw_w = float(item.get("w", 0))
@@ -3039,15 +2999,7 @@ class OverlayWindow(QWidget):
                     "mode": mapper.transform.mode.value,
                 },
             )
-        corners_raw = [
-            (raw_x, raw_y),
-            (raw_x + raw_w, raw_y),
-            (raw_x, raw_y + raw_h),
-            (raw_x + raw_w, raw_y + raw_h),
-        ]
-        overlay_mapper_x = fill.overlay_mapper_x(pivot_x, scale_x_meta, offset_x_meta)
-        overlay_mapper_y = fill.overlay_mapper_y(pivot_y, scale_y_meta, offset_y_meta)
-        transformed_overlay = [(overlay_mapper_x(cx), overlay_mapper_y(cy)) for cx, cy in corners_raw]
+        transformed_overlay = remap_rect_points(fill, transform_meta, raw_x, raw_y, raw_w, raw_h)
         xs_overlay = [pt[0] for pt in transformed_overlay]
         ys_overlay = [pt[1] for pt in transformed_overlay]
         min_x_overlay = min(xs_overlay)
@@ -3111,7 +3063,6 @@ class OverlayWindow(QWidget):
         fill_dx_overlay = fill.axis_x.fill_overlay_delta
         fill_dy_overlay = fill.axis_y.fill_overlay_delta
         transform_meta = item.get("__mo_transform__")
-        pivot_x, pivot_y, scale_x_meta, scale_y_meta, offset_x_meta, offset_y_meta = self._transform_components(transform_meta)
         if trace_enabled:
             self._log_legacy_trace(
                 plugin_name,
@@ -3134,19 +3085,10 @@ class OverlayWindow(QWidget):
             )
         raw_points = item.get("points") or []
         transformed_points: List[Mapping[str, Any]] = []
-        overlay_mapper_x = fill.overlay_mapper_x(pivot_x, scale_x_meta, offset_x_meta)
-        overlay_mapper_y = fill.overlay_mapper_y(pivot_y, scale_y_meta, offset_y_meta)
-        for point in raw_points:
-            if not isinstance(point, Mapping):
-                continue
-            try:
-                raw_px = float(point.get("x", 0.0))
-                raw_py = float(point.get("y", 0.0))
-            except (TypeError, ValueError):
-                continue
-            new_point = dict(point)
-            new_point["x"] = overlay_mapper_x(raw_px)
-            new_point["y"] = overlay_mapper_y(raw_py)
+        for ox, oy, original_point in remap_vector_points(fill, transform_meta, raw_points):
+            new_point = dict(original_point)
+            new_point["x"] = ox
+            new_point["y"] = oy
             transformed_points.append(new_point)
         if len(transformed_points) < 2:
             return None

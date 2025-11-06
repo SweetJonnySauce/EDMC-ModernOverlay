@@ -3,13 +3,12 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, Mapping, Optional, Tuple, TYPE_CHECKING
 
-from PyQt6.QtGui import QFont, QFontMetrics
-
 from debug_config import DebugConfig
 from group_transform import GroupBounds, GroupKey, GroupTransform, GroupTransformCache
 from legacy_store import LegacyItem
 from plugin_overrides import PluginOverrideManager
 from viewport_helper import BASE_HEIGHT, BASE_WIDTH, ScaleMode
+from payload_transform import accumulate_group_bounds, determine_group_anchor
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard
     from overlay_client import OverlayWindow, _LegacyMapper
@@ -56,9 +55,16 @@ class FillGroupingHelper:
                 if compensate_scale != 1.0 and self._group_has_override(group_key.plugin, group_key.suffix):
                     scale_hint = compensate_scale
                 group_scale_hints[key_tuple] = scale_hint
-            self._accumulate_group_bounds(bounds, legacy_item, scale, scale_hint)
+            accumulate_group_bounds(
+                bounds,
+                legacy_item,
+                scale,
+                scale_hint,
+                self._owner._font_family,
+                self._owner._legacy_preset_point_size,
+            )
             if key_tuple not in group_anchor:
-                group_anchor[key_tuple] = self._determine_group_anchor(legacy_item)
+                group_anchor[key_tuple] = determine_group_anchor(legacy_item)
 
         base_offset_x = mapper.offset_x
         base_offset_y = mapper.offset_y
@@ -378,123 +384,6 @@ class FillGroupingHelper:
             new_min = 0.0
             new_max = base_extent
         return new_min, new_max
-
-    def _accumulate_group_bounds(
-        self,
-        bounds: GroupBounds,
-        item: LegacyItem,
-        scale: float,
-        group_scale_hint: float,
-    ) -> None:
-        data = item.data
-        if not isinstance(data, Mapping):
-            return
-        logical = self._logical_mapping(data)
-        transform_meta = data.get("__mo_transform__") if isinstance(data, Mapping) else None
-
-        def transform_point(x_val: float, y_val: float) -> Tuple[float, float]:
-            return self._apply_transform_meta_to_point(transform_meta, x_val, y_val)
-
-        kind = item.kind
-        if scale <= 0.0:
-            scale = 1.0
-        try:
-            if kind == "message":
-                x_val = float(logical.get("x", data.get("x", 0.0)))
-                y_val = float(logical.get("y", data.get("y", 0.0)))
-                size_label = str(data.get("size", "normal")) if isinstance(data, Mapping) else "normal"
-                font = QFont(self._owner._font_family)
-                font.setPointSizeF(self._owner._legacy_preset_point_size(size_label))
-                metrics = QFontMetrics(font)
-                text_value = str(data.get("text", ""))
-                text_width_px = max(metrics.horizontalAdvance(text_value), 0)
-                line_height_px = max(metrics.height(), 0)
-                scale_block = transform_meta.get("scale") if isinstance(transform_meta, Mapping) else None
-                scale_x_meta = self._safe_float(scale_block.get("x"), 1.0) if isinstance(scale_block, Mapping) else 1.0
-                scale_y_meta = self._safe_float(scale_block.get("y"), 1.0) if isinstance(scale_block, Mapping) else 1.0
-                if not math.isfinite(group_scale_hint) or math.isclose(group_scale_hint, 0.0, rel_tol=1e-9, abs_tol=1e-9):
-                    group_scale_hint = 1.0
-                effective_scale_x = scale * group_scale_hint
-                effective_scale_y = scale * group_scale_hint
-                width_logical = (text_width_px * scale_x_meta) / effective_scale_x
-                line_height_logical = (line_height_px * scale_y_meta) / effective_scale_y
-                adj_x, adj_y = transform_point(x_val, y_val)
-                bounds.update_rect(
-                    adj_x,
-                    adj_y,
-                    adj_x + max(0.0, width_logical),
-                    adj_y + max(0.0, line_height_logical),
-                )
-            elif kind == "rect":
-                x_val = float(logical.get("x", data.get("x", 0.0)))
-                y_val = float(logical.get("y", data.get("y", 0.0)))
-                w_val = float(logical.get("w", data.get("w", 0.0)))
-                h_val = float(logical.get("h", data.get("h", 0.0)))
-                corners = [
-                    transform_point(x_val, y_val),
-                    transform_point(x_val + w_val, y_val),
-                    transform_point(x_val, y_val + h_val),
-                    transform_point(x_val + w_val, y_val + h_val),
-                ]
-                xs = [pt[0] for pt in corners]
-                ys = [pt[1] for pt in corners]
-                bounds.update_rect(min(xs), min(ys), max(xs), max(ys))
-            elif kind == "vector":
-                points = logical.get("points") if isinstance(logical, Mapping) else None
-                if not isinstance(points, list):
-                    points = data.get("points") if isinstance(data, Mapping) else None
-                if isinstance(points, list):
-                    for point in points:
-                        if not isinstance(point, Mapping):
-                            continue
-                        try:
-                            px = float(point.get("x", 0.0))
-                            py = float(point.get("y", 0.0))
-                        except (TypeError, ValueError):
-                            continue
-                        adj_x, adj_y = transform_point(px, py)
-                        bounds.update_point(adj_x, adj_y)
-            else:
-                x_val = float(logical.get("x", data.get("x", 0.0)))
-                y_val = float(logical.get("y", data.get("y", 0.0)))
-                adj_x, adj_y = transform_point(x_val, y_val)
-                bounds.update_point(adj_x, adj_y)
-        except (TypeError, ValueError):
-            pass
-
-    def _determine_group_anchor(self, item: LegacyItem) -> Tuple[float, float]:
-        data = item.data
-        if not isinstance(data, Mapping):
-            return 0.0, 0.0
-        logical = self._logical_mapping(data)
-        transform_meta = data.get("__mo_transform__") if isinstance(data, Mapping) else None
-        kind = item.kind
-        try:
-            if kind == "vector":
-                points = logical.get("points") if isinstance(logical, Mapping) else None
-                if not isinstance(points, list) or not points:
-                    points = data.get("points") if isinstance(data, Mapping) else None
-                if isinstance(points, list):
-                    for point in points:
-                        if not isinstance(point, Mapping):
-                            continue
-                        px = self._safe_float(point.get("x"), 0.0)
-                        py = self._safe_float(point.get("y"), 0.0)
-                        return self._apply_transform_meta_to_point(transform_meta, px, py)
-                return 0.0, 0.0
-            if kind == "rect":
-                px = self._safe_float(logical.get("x", data.get("x", 0.0)), 0.0)
-                py = self._safe_float(logical.get("y", data.get("y", 0.0)), 0.0)
-                return self._apply_transform_meta_to_point(transform_meta, px, py)
-            if kind == "message":
-                px = self._safe_float(logical.get("x", data.get("x", 0.0)), 0.0)
-                py = self._safe_float(logical.get("y", data.get("y", 0.0)), 0.0)
-                return self._apply_transform_meta_to_point(transform_meta, px, py)
-        except (TypeError, ValueError):
-            return 0.0, 0.0
-        return 0.0, 0.0
-
-    @staticmethod
     def _logical_mapping(data: Mapping[str, Any]) -> Mapping[str, Any]:
         transform_meta = data.get("__mo_transform__") if isinstance(data, Mapping) else None
         if isinstance(transform_meta, Mapping):
@@ -506,8 +395,6 @@ class FillGroupingHelper:
                 if any(key in original for key in ("x", "y", "w", "h")):
                     return original
         return data
-
-    @staticmethod
     def _apply_transform_meta_to_point(
         meta: Optional[Mapping[str, Any]],
         x: float,

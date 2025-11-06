@@ -68,3 +68,11 @@ These details are helpful when debugging sizing issues (e.g., 21:9 vs. 4:3 monit
 ### Fill-mode diagnostics
 
 Set `fill_group_debug` to `true` in `debug.json` to log per-payload coordinates whenever Fill mode is active. In Fill mode the legacy canvas is scaled so that the window is completely filled, which means one axis overflows and we remap groups proportionally. Each paint pass prints the plugin, payload ID, raw logical coordinates, and the window-space result after scaling so you can sanity-check group offsets while tuning the transform.
+
+## Transform Pipeline Overview
+
+- `overlay-client/payload_transform.py` houses the logical transform helpers. It applies payload metadata (`__mo_transform__`), plugin overrides, and group offsets to produce normalised legacy-space coordinates that everything else uses.
+- `overlay-client/grouping_helper.py` iterates the live payloads, calls the payload transform helpers to build `GroupTransform` entries, and caches them for the painters. No Qt types leak in here, which makes it unit-test friendly.
+- `FillViewport` in `overlay_client.py` handles the final step: mapping overlay coordinates to screen pixels for Fit/Fill modes, incorporating the group deltas supplied by the cache.
+
+When adding new behaviour, prefer updating `payload_transform` first so grouping and rendering stay in sync, then layer any viewport-specific adjustments in `FillViewport`.

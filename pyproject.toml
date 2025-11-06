@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "edmc-modernoverlay"
+version = "0.0.0"
+description = "EDMC Modern Overlay plugin"
+authors = [
+    { name = "EDMC Modern Overlay maintainers" }
+]
+readme = "README.md"
+dependencies = []
+requires-python = ">=3.9"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[project.urls]
+homepage = "https://github.com/"
+
+[tool.setuptools.packages.find]
+include = [
+    "EDMCOverlay",
+    "overlay_client",
+    "overlay_plugin",
+    "debug",
+    "scripts",
+    "tests",
+]
