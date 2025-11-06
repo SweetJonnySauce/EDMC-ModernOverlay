@@ -2941,6 +2941,9 @@ class OverlayWindow(QWidget):
         if not math.isfinite(scale) or math.isclose(scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
             return
 
+        def preset_point_size(label: str) -> float:
+            return self._legacy_preset_point_size(label, state, mapper)
+
         bounds = GroupBounds()
         accumulate_group_bounds(
             bounds,
@@ -2948,7 +2951,7 @@ class OverlayWindow(QWidget):
             mapper.transform.scale,
             1.0,
             self._font_family,
-            self._legacy_preset_point_size,
+            preset_point_size,
         )
         if not bounds.is_valid():
             return

@@ -40,6 +40,11 @@ class FillGroupingHelper:
         scale = mapper.transform.scale
         if scale <= 0.0:
             scale = 1.0
+        state = self._owner._viewport_state()
+
+        def preset_point_size(label: str) -> float:
+            return self._owner._legacy_preset_point_size(label, state, mapper)
+
         base_scale = scale
         compensate_scale = 1.0 / base_scale if base_scale > 1.0 else 1.0
         group_bounds: Dict[Tuple[str, Optional[str]], GroupBounds] = {}
@@ -61,7 +66,7 @@ class FillGroupingHelper:
                 scale,
                 scale_hint,
                 self._owner._font_family,
-                self._owner._legacy_preset_point_size,
+                preset_point_size,
             )
             if key_tuple not in group_anchor:
                 group_anchor[key_tuple] = determine_group_anchor(legacy_item)
