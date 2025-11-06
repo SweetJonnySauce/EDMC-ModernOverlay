@@ -1,0 +1,119 @@
+from __future__ import annotations
+
+import math
+import sys
+from pathlib import Path
+
+import pytest
+
+OVERLAY_ROOT = Path(__file__).resolve().parents[1]
+if str(OVERLAY_ROOT) not in sys.path:
+    sys.path.append(str(OVERLAY_ROOT))
+
+from group_transform import GroupTransform  # noqa: E402
+from viewport_helper import BASE_HEIGHT, BASE_WIDTH, ScaleMode, compute_viewport_transform  # noqa: E402
+from viewport_transform import (  # noqa: E402
+    LegacyMapper,
+    ViewportState,
+    build_viewport,
+    fill_overlay_delta,
+    legacy_scale_components,
+    scaled_point_size,
+)
+
+
+def _make_mapper(mode: ScaleMode, window_w: float, window_h: float) -> LegacyMapper:
+    transform = compute_viewport_transform(window_w, window_h, mode)
+    return LegacyMapper(
+        scale_x=transform.scale,
+        scale_y=transform.scale,
+        offset_x=transform.offset[0],
+        offset_y=transform.offset[1],
+        transform=transform,
+    )
+
+
+def test_build_viewport_fit_mode_defaults() -> None:
+    mapper = _make_mapper(ScaleMode.FIT, BASE_WIDTH, BASE_HEIGHT)
+    state = ViewportState(width=BASE_WIDTH, height=BASE_HEIGHT, device_ratio=1.0)
+
+    fill = build_viewport(mapper, state, None, BASE_WIDTH, BASE_HEIGHT)
+
+    assert not fill.overflow_x
+    assert not fill.overflow_y
+    assert fill.proportion_x == pytest.approx(1.0)
+    assert fill.proportion_y == pytest.approx(1.0)
+    assert fill.axis_x.fill_overlay_delta == pytest.approx(0.0)
+    assert fill.axis_y.fill_overlay_delta == pytest.approx(0.0)
+
+
+def test_build_viewport_fill_mode_respects_group_transform() -> None:
+    window_w = BASE_WIDTH * 1.5
+    window_h = BASE_HEIGHT
+    mapper = _make_mapper(ScaleMode.FILL, window_w, window_h)
+    state = ViewportState(width=window_w, height=window_h, device_ratio=1.0)
+    group = GroupTransform(
+        dx=64.0,
+        dy=-32.0,
+        scale=0.75,
+        proportion_x=0.5,
+        proportion_y=1.0,
+        preserve_dx=12.0,
+        preserve_dy=-6.0,
+        raw_proportion_x=0.5,
+        raw_proportion_y=1.0,
+        band_min_x=-10.0,
+        band_max_x=20.0,
+        band_min_y=-5.0,
+        band_max_y=15.0,
+        band_anchor_x=2.0,
+        band_anchor_y=-3.0,
+        band_clamped_x=True,
+        band_clamped_y=False,
+    )
+
+    fill = build_viewport(mapper, state, group, BASE_WIDTH, BASE_HEIGHT)
+
+    assert fill.overflow_y
+    assert not fill.overflow_x
+    assert fill.proportion_x == pytest.approx(group.proportion_x)
+    assert fill.proportion_y == pytest.approx(group.proportion_y)
+    dx_overlay, dy_overlay = fill_overlay_delta(fill.scale, group)
+    assert fill.axis_x.fill_overlay_delta == pytest.approx(dx_overlay)
+    assert fill.axis_y.fill_overlay_delta == pytest.approx(dy_overlay)
+    assert fill.group_scale == pytest.approx(group.scale)
+    assert fill.band_clamped_x is True
+    assert fill.band_clamped_y is False
+
+
+def test_legacy_scale_components_applies_device_ratio() -> None:
+    mapper = _make_mapper(ScaleMode.FILL, BASE_WIDTH * 1.25, BASE_HEIGHT * 1.25)
+    state = ViewportState(width=BASE_WIDTH, height=BASE_HEIGHT, device_ratio=1.5)
+
+    scale_x, scale_y = legacy_scale_components(mapper, state)
+
+    expected = mapper.scale_x * state.device_ratio
+    assert scale_x == pytest.approx(expected)
+    assert scale_y == pytest.approx(expected)
+
+
+def test_scaled_point_size_clamps_to_bounds() -> None:
+    mapper = _make_mapper(ScaleMode.FILL, BASE_WIDTH, BASE_HEIGHT)
+    state = ViewportState(width=BASE_WIDTH, height=BASE_HEIGHT, device_ratio=2.0)
+
+    point = scaled_point_size(
+        state=state,
+        base_point=10.0,
+        font_scale_diag=0.0,
+        font_min_point=8.0,
+        font_max_point=12.0,
+        legacy_mapper=mapper,
+        use_physical=True,
+    )
+
+    # Device ratio should inflate the scale; clamping should keep the value within bounds.
+    assert 8.0 <= point <= 12.0
+    scale_x, scale_y = legacy_scale_components(mapper, state)
+    diag_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
+    expected = max(8.0, min(12.0, 10.0 * diag_scale))
+    assert point == pytest.approx(expected)

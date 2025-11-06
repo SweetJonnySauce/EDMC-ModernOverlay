@@ -13,14 +13,14 @@ pytest.importorskip("PyQt6")
 
 from group_transform import GroupTransform  # noqa: E402
 from grouping_helper import FillGroupingHelper  # noqa: E402
-from overlay_client import OverlayWindow  # noqa: E402
 from payload_transform import apply_transform_meta_to_point  # noqa: E402
 from viewport_helper import BASE_HEIGHT, BASE_WIDTH  # noqa: E402
+from viewport_transform import fill_overlay_delta  # noqa: E402
 
 
 def test_fill_overlay_delta_converts_pixels_to_overlay_units() -> None:
     transform = GroupTransform(dx=128.0, dy=-64.0)
-    dx, dy = OverlayWindow._fill_overlay_delta(scale=2.0, transform=transform)
+    dx, dy = fill_overlay_delta(scale=2.0, transform=transform)
 
     assert dx == pytest.approx(64.0)
     assert dy == pytest.approx(-32.0)
@@ -28,7 +28,7 @@ def test_fill_overlay_delta_converts_pixels_to_overlay_units() -> None:
 
 def test_fill_overlay_delta_honours_axis_proportion() -> None:
     transform = GroupTransform(dx=128.0, dy=0.0, proportion_x=0.5)
-    dx, _ = OverlayWindow._fill_overlay_delta(scale=2.0, transform=transform)
+    dx, _ = fill_overlay_delta(scale=2.0, transform=transform)
 
     assert dx == pytest.approx(128.0)
 

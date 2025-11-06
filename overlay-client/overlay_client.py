@@ -70,6 +70,15 @@ from payload_transform import (
     remap_vector_points,
     transform_components,
 )  # type: ignore  # noqa: E402
+from viewport_transform import (  # type: ignore  # noqa: E402
+    FillViewport,
+    LegacyMapper,
+    ViewportState,
+    build_viewport,
+    fill_overlay_delta,
+    legacy_scale_components,
+    scaled_point_size as viewport_scaled_point_size,
+)
 
 _LOGGER_NAME = "EDMC.ModernOverlay.Client"
 _CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
@@ -115,293 +124,6 @@ def _load_line_width_config() -> Dict[str, int]:
     else:
         _CLIENT_LOGGER.warning("Line width config at %s is not a JSON object; using defaults", path)
     return config
-
-
-@dataclass(frozen=True)
-class _LegacyMapper:
-    scale_x: float
-    scale_y: float
-    offset_x: float
-    offset_y: float
-    transform: ViewportTransform
-
-
-@dataclass(frozen=True)
-class FillAxisMapping:
-    """Axis-specific mapping details for fill mode transformations."""
-
-    proportion: float = 1.0
-    preserve_shift: float = 0.0
-    fill_overlay_delta: float = 0.0
-
-    @staticmethod
-    def _sanitise_proportion(value: float) -> float:
-        if not math.isfinite(value) or value <= 0.0:
-            return 1.0
-        return value
-
-    @staticmethod
-    def _sanitise_shift(value: float) -> float:
-        if not math.isfinite(value):
-            return 0.0
-        return value
-
-    @staticmethod
-    def _sanitise_delta(value: float) -> float:
-        if not math.isfinite(value):
-            return 0.0
-        return value
-
-    def remap(self, raw: float, pivot: float, scale_meta: float, offset_meta: float) -> float:
-        """Apply proportional remap plus override transform, returning overlay units."""
-        proportion = self._sanitise_proportion(self.proportion)
-        preserve = self._sanitise_shift(self.preserve_shift)
-        overlay_delta = self._sanitise_delta(self.fill_overlay_delta)
-        fill_shift = overlay_delta * proportion
-        base = raw * proportion + preserve + fill_shift
-        pivot_adj = pivot * proportion + preserve + fill_shift
-        offset_adj = offset_meta * proportion
-        return pivot_adj + (base - pivot_adj) * scale_meta + offset_adj
-
-
-@dataclass(frozen=True)
-class FillViewport:
-    """Convenience helper bundling fill-mode mapping data for rendering."""
-
-    scale: float
-    base_offset_x: float
-    base_offset_y: float
-    visible_width: float
-    visible_height: float
-    overflow_x: bool
-    overflow_y: bool
-    axis_x: FillAxisMapping
-    axis_y: FillAxisMapping
-    preserve_dx: float
-    preserve_dy: float
-    proportion_x: float
-    proportion_y: float
-    raw_proportion_x: float
-    raw_proportion_y: float
-    group_scale: float
-    band_min_x: float = 0.0
-    band_max_x: float = 0.0
-    band_min_y: float = 0.0
-    band_max_y: float = 0.0
-    band_anchor_x: float = 0.0
-    band_anchor_y: float = 0.0
-    band_clamped_x: bool = False
-    band_clamped_y: bool = False
-
-    def overlay_mapper_x(self, pivot: float, scale_meta: float, offset_meta: float) -> Callable[[float], float]:
-        axis = self.axis_x
-
-        def mapper(raw: float) -> float:
-            return axis.remap(raw, pivot, scale_meta, offset_meta)
-
-        return mapper
-
-    def overlay_mapper_y(self, pivot: float, scale_meta: float, offset_meta: float) -> Callable[[float], float]:
-        axis = self.axis_y
-
-        def mapper(raw: float) -> float:
-            return axis.remap(raw, pivot, scale_meta, offset_meta)
-
-        return mapper
-
-    def screen_mapper_x(self, pivot: float, scale_meta: float, offset_meta: float) -> Callable[[float], float]:
-        overlay_mapper = self.overlay_mapper_x(pivot, scale_meta, offset_meta)
-
-        def mapper(raw: float) -> float:
-            return self.screen_x(overlay_mapper(raw))
-
-        return mapper
-
-    def screen_mapper_y(self, pivot: float, scale_meta: float, offset_meta: float) -> Callable[[float], float]:
-        overlay_mapper = self.overlay_mapper_y(pivot, scale_meta, offset_meta)
-
-        def mapper(raw: float) -> float:
-            return self.screen_y(overlay_mapper(raw))
-
-        return mapper
-
-    def remap_point(
-        self,
-        raw_x: float,
-        raw_y: float,
-        pivot_x: float,
-        pivot_y: float,
-        scale_x_meta: float,
-        scale_y_meta: float,
-        offset_x_meta: float,
-        offset_y_meta: float,
-    ) -> Tuple[float, float]:
-        return (
-            self.axis_x.remap(raw_x, pivot_x, scale_x_meta, offset_x_meta),
-            self.axis_y.remap(raw_y, pivot_y, scale_y_meta, offset_y_meta),
-        )
-
-    def screen_x(self, overlay_value: float) -> float:
-        return overlay_value * self.scale + self.base_offset_x
-
-    def screen_y(self, overlay_value: float) -> float:
-        return overlay_value * self.scale + self.base_offset_y
-
-    @staticmethod
-    def _safe_float(value: float, default: float = 0.0) -> float:
-        try:
-            result = float(value)
-        except (TypeError, ValueError):
-            return default
-        if not math.isfinite(result):
-            return default
-        return result
-
-    @staticmethod
-    def _safe_scale(value: float, default: float = 1.0) -> float:
-        result = FillViewport._safe_float(value, default)
-        if math.isclose(result, 0.0, rel_tol=1e-9, abs_tol=1e-9):
-            return default
-        return result
-
-    @staticmethod
-    def _safe_proportion(value: float) -> float:
-        if not math.isfinite(value) or value <= 0.0:
-            return 1.0
-        return value
-
-    @staticmethod
-    def _compute_proportion(
-        base_extent: float,
-        effective_scale: float,
-        window_extent: float,
-        overflow: bool,
-    ) -> float:
-        if not overflow:
-            return 1.0
-        if not math.isfinite(base_extent) or not math.isfinite(effective_scale) or base_extent <= 0.0:
-            return 1.0
-        scaled_extent = base_extent * effective_scale
-        if not math.isfinite(scaled_extent) or scaled_extent <= 0.0:
-            return 1.0
-        if not math.isfinite(window_extent) or window_extent <= 0.0:
-            return 1.0
-        if scaled_extent <= window_extent + 1e-6:
-            return 1.0
-        return max(window_extent / scaled_extent, 0.0)
-
-    @staticmethod
-    def _compute_fill_overlay_delta(
-        scale: float,
-        delta_pixels: float,
-        proportion: float,
-    ) -> float:
-        if not math.isfinite(delta_pixels) or math.isclose(delta_pixels, 0.0, rel_tol=1e-9, abs_tol=1e-9):
-            return 0.0
-        if not math.isfinite(scale) or math.isclose(scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
-            return 0.0
-        proportion_safe = FillViewport._safe_proportion(proportion)
-        if math.isclose(proportion_safe, 0.0, rel_tol=1e-9, abs_tol=1e-9):
-            return 0.0
-        return delta_pixels / (scale * proportion_safe)
-
-    @classmethod
-    def from_mapper(
-        cls,
-        mapper: _LegacyMapper,
-        window_width: float,
-        window_height: float,
-        group_transform: Optional[GroupTransform],
-    ) -> "FillViewport":
-        transform = mapper.transform
-        base_scale = cls._safe_float(transform.scale, 0.0)
-        group_scale = 1.0
-        if group_transform is not None:
-            group_scale = cls._safe_float(group_transform.scale, 1.0)
-        scale_value = base_scale * group_scale
-
-        visible_width = cls._safe_float(window_width, 1.0)
-        visible_height = cls._safe_float(window_height, 1.0)
-
-        overflow_x = bool(transform.overflow_x)
-        overflow_y = bool(transform.overflow_y)
-
-        if transform.mode is not ScaleMode.FILL:
-            proportion_x = 1.0
-            proportion_y = 1.0
-            raw_proportion_x = 1.0
-            raw_proportion_y = 1.0
-            preserve_dx = 0.0
-            preserve_dy = 0.0
-            fill_dx_overlay = 0.0
-            fill_dy_overlay = 0.0
-        else:
-            if group_transform is not None:
-                raw_proportion_x = cls._safe_proportion(group_transform.raw_proportion_x)
-                raw_proportion_y = cls._safe_proportion(group_transform.raw_proportion_y)
-                proportion_x = cls._safe_proportion(group_transform.proportion_x)
-                proportion_y = cls._safe_proportion(group_transform.proportion_y)
-                preserve_dx = cls._safe_float(group_transform.preserve_dx, 0.0)
-                preserve_dy = cls._safe_float(group_transform.preserve_dy, 0.0)
-                fill_dx_overlay = cls._compute_fill_overlay_delta(scale_value, cls._safe_float(group_transform.dx, 0.0), proportion_x)
-                fill_dy_overlay = cls._compute_fill_overlay_delta(scale_value, cls._safe_float(group_transform.dy, 0.0), proportion_y)
-            else:
-                effective_scale = cls._safe_scale(base_scale, 1.0)
-                raw_proportion_x = cls._compute_proportion(BASE_WIDTH, effective_scale, visible_width, overflow_x)
-                raw_proportion_y = cls._compute_proportion(BASE_HEIGHT, effective_scale, visible_height, overflow_y)
-                proportion_x = cls._safe_proportion(raw_proportion_x)
-                proportion_y = cls._safe_proportion(raw_proportion_y)
-                preserve_dx = 0.0
-                preserve_dy = 0.0
-                fill_dx_overlay = 0.0
-                fill_dy_overlay = 0.0
-
-        axis_x = FillAxisMapping(
-            proportion=proportion_x,
-            preserve_shift=preserve_dx,
-            fill_overlay_delta=fill_dx_overlay,
-        )
-        axis_y = FillAxisMapping(
-            proportion=proportion_y,
-            preserve_shift=preserve_dy,
-            fill_overlay_delta=fill_dy_overlay,
-        )
-
-        band_min_x = cls._safe_float(getattr(group_transform, "band_min_x", 0.0), 0.0) if group_transform else 0.0
-        band_max_x = cls._safe_float(getattr(group_transform, "band_max_x", 0.0), 0.0) if group_transform else 0.0
-        band_min_y = cls._safe_float(getattr(group_transform, "band_min_y", 0.0), 0.0) if group_transform else 0.0
-        band_max_y = cls._safe_float(getattr(group_transform, "band_max_y", 0.0), 0.0) if group_transform else 0.0
-        band_anchor_x = cls._safe_float(getattr(group_transform, "band_anchor_x", 0.0), 0.0) if group_transform else 0.0
-        band_anchor_y = cls._safe_float(getattr(group_transform, "band_anchor_y", 0.0), 0.0) if group_transform else 0.0
-        band_clamped_x = bool(getattr(group_transform, "band_clamped_x", False)) if group_transform else False
-        band_clamped_y = bool(getattr(group_transform, "band_clamped_y", False)) if group_transform else False
-
-        return cls(
-            scale=scale_value,
-            base_offset_x=mapper.offset_x,
-            base_offset_y=mapper.offset_y,
-            visible_width=visible_width,
-            visible_height=visible_height,
-            overflow_x=overflow_x,
-            overflow_y=overflow_y,
-            axis_x=axis_x,
-            axis_y=axis_y,
-            preserve_dx=preserve_dx,
-            preserve_dy=preserve_dy,
-            proportion_x=proportion_x,
-            proportion_y=proportion_y,
-            raw_proportion_x=raw_proportion_x,
-            raw_proportion_y=raw_proportion_y,
-            group_scale=group_scale,
-            band_min_x=band_min_x,
-            band_max_x=band_max_x,
-            band_min_y=band_min_y,
-            band_max_y=band_max_y,
-            band_anchor_x=band_anchor_x,
-            band_anchor_y=band_anchor_y,
-            band_clamped_x=band_clamped_x,
-            band_clamped_y=band_clamped_y,
-        )
 
 
 def _initial_platform_context(initial: InitialClientSettings) -> PlatformContext:
@@ -788,7 +510,7 @@ class OverlayWindow(QWidget):
         frac = Fraction(width, height).limit_denominator(100)
         return f"{frac.numerator}:{frac.denominator}"
 
-    def _compute_legacy_mapper(self) -> _LegacyMapper:
+    def _compute_legacy_mapper(self) -> LegacyMapper:
         width = max(float(self.width()), 1.0)
         height = max(float(self.height()), 1.0)
         mode_value = (self._scale_mode or "fit").strip().lower()
@@ -802,7 +524,7 @@ class OverlayWindow(QWidget):
         scale_y = base_scale
         offset_x = transform.offset[0]
         offset_y = transform.offset[1]
-        return _LegacyMapper(
+        return LegacyMapper(
             scale_x=max(scale_x, 0.0),
             scale_y=max(scale_y, 0.0),
             offset_x=offset_x,
@@ -810,70 +532,29 @@ class OverlayWindow(QWidget):
             transform=transform,
         )
 
-    def _legacy_scale_components(self, *, use_physical: bool = True) -> Tuple[float, float]:
-        mapper = self._compute_legacy_mapper()
-        scale_x = mapper.scale_x
-        scale_y = mapper.scale_y
-        if use_physical:
-            ratio = self.devicePixelRatioF()
-            if ratio <= 0.0:
-                ratio = 1.0
-            scale_x *= ratio
-            scale_y *= ratio
-        return max(scale_x, 0.01), max(scale_y, 0.01)
-
-    def _legacy_scale(self, *, use_physical: bool = True) -> Tuple[float, float]:
-        return self._legacy_scale_components(use_physical=use_physical)
-
-    @staticmethod
-    def _safe_float(value: Any, default: float = 0.0) -> float:
+    def _viewport_state(self) -> ViewportState:
+        width = max(float(self.width()), 1.0)
+        height = max(float(self.height()), 1.0)
         try:
-            return float(value)
-        except (TypeError, ValueError):
-            return default
-
-    @classmethod
-    def _fill_overlay_delta(cls, scale: float, transform: Optional[GroupTransform]) -> Tuple[float, float]:
-        if transform is None:
-            return 0.0, 0.0
-        prop_x = FillViewport._safe_proportion(FillViewport._safe_float(getattr(transform, "proportion_x", 1.0), 1.0))
-        prop_y = FillViewport._safe_proportion(FillViewport._safe_float(getattr(transform, "proportion_y", 1.0), 1.0))
-        dx = FillViewport._compute_fill_overlay_delta(scale, cls._safe_float(getattr(transform, "dx", 0.0), 0.0), prop_x)
-        dy = FillViewport._compute_fill_overlay_delta(scale, cls._safe_float(getattr(transform, "dy", 0.0), 0.0), prop_y)
-        return dx, dy
-
-    def _build_fill_viewport(
-        self,
-        mapper: _LegacyMapper,
-        group_transform: Optional[GroupTransform],
-    ) -> FillViewport:
-        width = float(max(self.width(), 1))
-        height = float(max(self.height(), 1))
-        return FillViewport.from_mapper(
-            mapper,
-            width,
-            height,
-            group_transform,
-        )
-
-    def _scaled_point_size(
-        self,
-        base_point: float,
-        clamp_min: Optional[float] = None,
-        clamp_max: Optional[float] = None,
-    ) -> float:
-        if clamp_min is None:
-            clamp_min = self._font_min_point
-        if clamp_max is None:
-            clamp_max = self._font_max_point
-        diagonal_scale = self._font_scale_diag
-        if diagonal_scale <= 0.0:
-            scale_x, scale_y = self._legacy_scale()
-            diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
-        return max(clamp_min, min(clamp_max, base_point * diagonal_scale))
+            ratio = self.devicePixelRatioF()
+        except Exception:
+            ratio = 1.0
+        if ratio <= 0.0:
+            ratio = 1.0
+        return ViewportState(width=width, height=height, device_ratio=ratio)
 
     def _update_message_font(self) -> None:
-        target_point = self._scaled_point_size(self._base_message_point_size)
+        mapper = self._compute_legacy_mapper()
+        state = self._viewport_state()
+        target_point = viewport_scaled_point_size(
+            state,
+            self._base_message_point_size,
+            self._font_scale_diag,
+            self._font_min_point,
+            self._font_max_point,
+            mapper,
+            use_physical=True,
+        )
         if not math.isclose(target_point, self._debug_message_point_size, rel_tol=1e-3):
             font = self.message_label.font()
             font.setPointSizeF(target_point)
@@ -916,7 +597,9 @@ class OverlayWindow(QWidget):
         if client is None:
             return
         width_px, height_px = self._current_physical_size()
-        scale_x, scale_y = self._legacy_scale()
+        mapper = self._compute_legacy_mapper()
+        state = self._viewport_state()
+        scale_x, scale_y = legacy_scale_components(mapper, state)
         frame = self.frameGeometry()
         payload = {
             "cli": "overlay_metrics",
@@ -939,7 +622,9 @@ class OverlayWindow(QWidget):
 
     def format_scale_debug(self) -> str:
         width_px, height_px = self._current_physical_size()
-        scale_x, scale_y = self._legacy_scale()
+        mapper = self._compute_legacy_mapper()
+        state = self._viewport_state()
+        scale_x, scale_y = legacy_scale_components(mapper, state)
         return "size={:.0f}x{:.0f}px scale_x={:.2f} scale_y={:.2f}".format(
             width_px,
             height_px,
@@ -1389,7 +1074,7 @@ class OverlayWindow(QWidget):
     def _format_transform_chain(
         self,
         legacy_item: Optional[LegacyItem],
-        mapper: _LegacyMapper,
+        mapper: LegacyMapper,
         group_transform: Optional[GroupTransform],
     ) -> List[str]:
         if legacy_item is None:
@@ -1402,7 +1087,8 @@ class OverlayWindow(QWidget):
         transform_meta = data.get("__mo_transform__")
         pivot_x_meta, pivot_y_meta, scale_x_meta, scale_y_meta, offset_x_meta, offset_y_meta = transform_components(transform_meta)
 
-        fill = self._build_fill_viewport(mapper, group_transform)
+        state = self._viewport_state()
+        fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
         proportion_x = fill.proportion_x
         proportion_y = fill.proportion_y
         raw_proportion_x = fill.raw_proportion_x
@@ -1555,7 +1241,19 @@ class OverlayWindow(QWidget):
         highlight_color = QColor("#ffb347")
         background = QColor(0, 0, 0, 180)
         font = QFont(self._font_family)
-        title_point = max(20.0, self._scaled_point_size(18.0))
+        state = self._viewport_state()
+        title_point = max(
+            20.0,
+            viewport_scaled_point_size(
+                state,
+                18.0,
+                self._font_scale_diag,
+                self._font_min_point,
+                self._font_max_point,
+                mapper,
+                use_physical=True,
+            ),
+        )
         font.setPointSizeF(title_point)
         font.setWeight(QFont.Weight.Bold)
         painter.setFont(font)
@@ -2608,8 +2306,15 @@ class OverlayWindow(QWidget):
     # Legacy overlay handling ---------------------------------------------
 
     def _update_auto_legacy_scale(self, width: int, height: int) -> None:
-        scale_x, scale_y = self._legacy_scale(use_physical=True)
         mapper = self._compute_legacy_mapper()
+        try:
+            ratio = self.devicePixelRatioF()
+        except Exception:
+            ratio = 1.0
+        if ratio <= 0.0:
+            ratio = 1.0
+        state = ViewportState(width=float(max(width, 1)), height=float(max(height, 1)), device_ratio=ratio)
+        scale_x, scale_y = legacy_scale_components(mapper, state)
         transform = mapper.transform
         diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
         self._font_scale_diag = diagonal_scale
@@ -2835,13 +2540,17 @@ class OverlayWindow(QWidget):
                 " | ".join(fill_debug_rows),
             )
 
-    def _legacy_coordinate_scale_factors(self) -> Tuple[float, float]:
-        mapper = self._compute_legacy_mapper()
-        return mapper.scale_x, mapper.scale_y
-
-    def _legacy_preset_point_size(self, preset: str) -> float:
+    def _legacy_preset_point_size(self, preset: str, state: ViewportState, mapper: LegacyMapper) -> float:
         """Return the scaled font size for a legacy preset relative to normal."""
-        normal_point = self._scaled_point_size(10.0)
+        normal_point = viewport_scaled_point_size(
+            state,
+            10.0,
+            self._font_scale_diag,
+            self._font_min_point,
+            self._font_max_point,
+            mapper,
+            use_physical=True,
+        )
         offsets = {
             "small": -2.0,
             "normal": 0.0,
@@ -2856,14 +2565,15 @@ class OverlayWindow(QWidget):
         painter: QPainter,
         item_id: str,
         item: Dict[str, Any],
-        mapper: _LegacyMapper,
+        mapper: LegacyMapper,
         plugin_name: Optional[str] = None,
         group_transform: Optional[GroupTransform] = None,
     ) -> Optional[str]:
         color = QColor(str(item.get("color", "white")))
         size = str(item.get("size", "normal")).lower()
-        scaled_point_size = self._legacy_preset_point_size(size)
-        fill = self._build_fill_viewport(mapper, group_transform)
+        state = self._viewport_state()
+        scaled_point_size = self._legacy_preset_point_size(size, state, mapper)
+        fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
         group_scale = fill.group_scale
         scale = fill.scale
         base_offset_x = fill.base_offset_x
@@ -2940,7 +2650,7 @@ class OverlayWindow(QWidget):
         painter: QPainter,
         item_id: str,
         item: Dict[str, Any],
-        mapper: _LegacyMapper,
+        mapper: LegacyMapper,
         plugin_name: Optional[str] = None,
         group_transform: Optional[GroupTransform] = None,
     ) -> Optional[str]:
@@ -2967,7 +2677,8 @@ class OverlayWindow(QWidget):
 
         painter.setPen(pen)
         painter.setBrush(brush)
-        fill = self._build_fill_viewport(mapper, group_transform)
+        state = self._viewport_state()
+        fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
         group_scale = fill.group_scale
         scale = fill.scale
         base_offset_x = fill.base_offset_x
@@ -3047,7 +2758,7 @@ class OverlayWindow(QWidget):
         self,
         painter: QPainter,
         legacy_item: LegacyItem,
-        mapper: _LegacyMapper,
+        mapper: LegacyMapper,
         group_transform: Optional[GroupTransform],
     ) -> Optional[str]:
         item_id = legacy_item.item_id
@@ -3055,7 +2766,8 @@ class OverlayWindow(QWidget):
         plugin_name = legacy_item.plugin
         trace_enabled = self._should_trace_payload(plugin_name, item_id)
         adapter = _QtVectorPainterAdapter(self, painter)
-        fill = self._build_fill_viewport(mapper, group_transform)
+        state = self._viewport_state()
+        fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
         group_scale = fill.group_scale
         scale = fill.scale
         base_offset_x = fill.base_offset_x
@@ -3146,10 +2858,11 @@ class OverlayWindow(QWidget):
     def _draw_group_bounds_outline(
         self,
         painter: QPainter,
-        mapper: _LegacyMapper,
+        mapper: LegacyMapper,
         transform: GroupTransform,
     ) -> None:
-        fill = self._build_fill_viewport(mapper, transform)
+        state = self._viewport_state()
+        fill = build_viewport(mapper, state, transform, BASE_WIDTH, BASE_HEIGHT)
         final_available = (
             math.isfinite(transform.final_min_x)
             and math.isfinite(transform.final_max_x)
@@ -3216,14 +2929,15 @@ class OverlayWindow(QWidget):
             return
         frame = self.frameGeometry()
         mapper = self._compute_legacy_mapper()
-        scale_x, scale_y = mapper.scale_x, mapper.scale_y
+        state = self._viewport_state()
+        scale_x, scale_y = legacy_scale_components(mapper, state)
         diagonal_scale = self._font_scale_diag
         if diagonal_scale <= 0.0:
             diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
         width_px, height_px = self._current_physical_size()
         size_labels = [("S", "small"), ("N", "normal"), ("L", "large"), ("H", "huge")]
         legacy_sizes_str = " ".join(
-            "{}={:.1f}".format(label, self._legacy_preset_point_size(name))
+            "{}={:.1f}".format(label, self._legacy_preset_point_size(name, state, mapper))
             for label, name in size_labels
         )
         active_screen = self.windowHandle().screen() if self.windowHandle() else None
@@ -3658,7 +3372,9 @@ class _QtVectorPainterAdapter(VectorPainterAdapter):
         pen = QPen(q_color)
         self._painter.setPen(pen)
         font = QFont(self._window._font_family)
-        font.setPointSizeF(self._window._legacy_preset_point_size("small"))
+        mapper = self._window._compute_legacy_mapper()
+        state = self._window._viewport_state()
+        font.setPointSizeF(self._window._legacy_preset_point_size("small", state, mapper))
         font.setWeight(QFont.Weight.Normal)
         self._painter.setFont(font)
         self._painter.drawText(x, y, text)
