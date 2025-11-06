@@ -55,7 +55,7 @@ from legacy_processor import TraceCallback, process_legacy_payload  # type: igno
 from vector_renderer import render_vector, VectorPainterAdapter  # type: ignore  # noqa: E402
 from plugin_overrides import PluginOverrideManager  # type: ignore  # noqa: E402
 from debug_config import DebugConfig, load_debug_config  # type: ignore  # noqa: E402
-from group_transform import GroupBounds, GroupKey, GroupTransform, GroupTransformCache  # type: ignore  # noqa: E402
+from group_transform import GroupTransform  # type: ignore  # noqa: E402
 from viewport_helper import (
     BASE_HEIGHT,
     BASE_WIDTH,
@@ -63,6 +63,7 @@ from viewport_helper import (
     ViewportTransform,
     compute_viewport_transform,
 )  # type: ignore  # noqa: E402
+from grouping_helper import FillGroupingHelper  # type: ignore  # noqa: E402
 
 _LOGGER_NAME = "EDMC.ModernOverlay.Client"
 _CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
@@ -658,7 +659,6 @@ class OverlayWindow(QWidget):
         self._cycle_copy_clipboard: bool = bool(getattr(initial, "copy_payload_id_on_cycle", False))
         self._last_font_notice: Optional[Tuple[float, float]] = None
         self._scale_mode: str = "fit"
-        self._group_transform_cache = GroupTransformCache()
         self._line_widths: Dict[str, int] = _load_line_width_config()
 
         self._legacy_timer = QTimer(self)
@@ -717,6 +717,12 @@ class OverlayWindow(QWidget):
             ROOT_DIR / "plugin_overrides.json",
             _CLIENT_LOGGER,
             debug_config=self._debug_config,
+        )
+        self._grouping_helper = FillGroupingHelper(
+            self,
+            self._override_manager,
+            _CLIENT_LOGGER,
+            self._debug_config,
         )
         layout = QVBoxLayout()
         layout.addWidget(self.message_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -814,46 +820,11 @@ class OverlayWindow(QWidget):
         return self._legacy_scale_components(use_physical=use_physical)
 
     @staticmethod
-    def _logical_mapping(data: Mapping[str, Any]) -> Mapping[str, Any]:
-        transform_meta = data.get("__mo_transform__") if isinstance(data, Mapping) else None
-        if isinstance(transform_meta, Mapping):
-            original = transform_meta.get("original")
-            if isinstance(original, Mapping):
-                points_meta = original.get("points")
-                if isinstance(points_meta, list):
-                    return original
-                if any(key in original for key in ("x", "y", "w", "h")):
-                    return original
-        return data
-
-    def _group_has_override(self, plugin_label: Optional[str], suffix: Optional[str]) -> bool:
-        override_manager = getattr(self, "_override_manager", None)
-        if override_manager is None:
-            return False
-        return override_manager.group_is_configured(plugin_label, suffix)
-
-    def _group_preserve_fill_aspect(self, plugin_label: Optional[str], suffix: Optional[str]) -> Tuple[bool, str]:
-        override_manager = getattr(self, "_override_manager", None)
-        if override_manager is None:
-            return True, "first"
-        return override_manager.group_preserve_fill_aspect(plugin_label, suffix)
-
-    @staticmethod
     def _safe_float(value: Any, default: float = 0.0) -> float:
         try:
             return float(value)
         except (TypeError, ValueError):
             return default
-
-    @staticmethod
-    def _clamp_unit(value: float) -> float:
-        if not math.isfinite(value):
-            return 0.0
-        if value < 0.0:
-            return 0.0
-        if value > 1.0:
-            return 1.0
-        return value
 
     @classmethod
     def _fill_overlay_delta(cls, scale: float, transform: Optional[GroupTransform]) -> Tuple[float, float]:
@@ -913,601 +884,6 @@ class OverlayWindow(QWidget):
             height,
             group_transform,
         )
-
-    @staticmethod
-    def _normalise_group_proportions(
-        proportion_x: float,
-        proportion_y: float,
-        overflow_x: bool,
-        overflow_y: bool,
-    ) -> Tuple[float, float]:
-        """Ensure grouped payloads share a uniform remap to avoid aspect distortion."""
-        def _safe(value: float) -> float:
-            if not math.isfinite(value) or value <= 0.0:
-                return 1.0
-            return value
-        proportion_x = min(_safe(proportion_x), 1.0)
-        proportion_y = min(_safe(proportion_y), 1.0)
-        result_x = proportion_x if overflow_x else 1.0
-        result_y = proportion_y if overflow_y else 1.0
-        return result_x, result_y
-
-    @classmethod
-    def _apply_transform_meta_to_point(
-        cls,
-        meta: Optional[Mapping[str, Any]],
-        x: float,
-        y: float,
-        fill_dx: float = 0.0,
-        fill_dy: float = 0.0,
-    ) -> Tuple[float, float]:
-
-        x_adj = x
-        y_adj = y
-        if not isinstance(meta, Mapping):
-            fill_x = fill_dx if math.isfinite(fill_dx) else 0.0
-            fill_y = fill_dy if math.isfinite(fill_dy) else 0.0
-            return x_adj + fill_x, y_adj + fill_y
-
-        pivot_block = meta.get("pivot")
-        if isinstance(pivot_block, Mapping):
-            pivot_x = cls._safe_float(pivot_block.get("x"), 0.0)
-            pivot_y = cls._safe_float(pivot_block.get("y"), 0.0)
-        else:
-            pivot_x = 0.0
-            pivot_y = 0.0
-
-        scale_block = meta.get("scale")
-        if isinstance(scale_block, Mapping):
-            scale_x = cls._safe_float(scale_block.get("x"), 1.0)
-            scale_y = cls._safe_float(scale_block.get("y"), 1.0)
-        else:
-            scale_x = 1.0
-            scale_y = 1.0
-
-        offset_block = meta.get("offset")
-        if isinstance(offset_block, Mapping):
-            offset_x = cls._safe_float(offset_block.get("x"), 0.0)
-            offset_y = cls._safe_float(offset_block.get("y"), 0.0)
-        else:
-            offset_x = 0.0
-            offset_y = 0.0
-
-        scaled_x = pivot_x + (x_adj - pivot_x) * scale_x
-        scaled_y = pivot_y + (y_adj - pivot_y) * scale_y
-        fill_x = fill_dx if math.isfinite(fill_dx) else 0.0
-        fill_y = fill_dy if math.isfinite(fill_dy) else 0.0
-        return scaled_x + offset_x + fill_x, scaled_y + offset_y + fill_y
-
-    def _group_key_for_item(self, item_id: str, plugin_name: Optional[str]) -> GroupKey:
-        override_manager = getattr(self, "_override_manager", None)
-        override_key: Optional[Tuple[str, Optional[str]]] = None
-        if override_manager is not None:
-            override_key = override_manager.grouping_key_for(plugin_name, item_id)
-        if override_key is not None:
-            plugin_token, suffix = override_key
-            plugin_token = (plugin_token or plugin_name or "unknown").strip() or "unknown"
-            return GroupKey(plugin=plugin_token, suffix=suffix)
-        plugin_token = (plugin_name or "unknown").strip() or "unknown"
-        suffix = f"item:{item_id}" if item_id else None
-        return GroupKey(plugin=plugin_token, suffix=suffix)
-
-    @staticmethod
-    def _compute_fill_proportion(
-        base_extent: float,
-        effective_scale: float,
-        window_extent: float,
-        overflow: bool,
-    ) -> float:
-        return FillViewport._compute_proportion(
-            FillViewport._safe_float(base_extent, base_extent),
-            FillViewport._safe_float(effective_scale, effective_scale),
-            FillViewport._safe_float(window_extent, window_extent),
-            overflow,
-        )
-
-    @staticmethod
-    def _compute_fill_delta(
-        min_val: float,
-        max_val: float,
-        scale: float,
-        base_offset: float,
-        extent: float,
-        proportion: float,
-    ) -> float:
-        if not scale or min_val == float("inf") or max_val == float("-inf"):
-            return 0.0
-        if not math.isfinite(proportion) or proportion <= 0.0:
-            proportion = 1.0
-        scaled_min = min_val * proportion * scale + base_offset
-        scaled_max = max_val * proportion * scale + base_offset
-        if scaled_min >= 0.0 and scaled_max <= extent:
-            return 0.0
-        if scaled_min < 0.0 and scaled_max <= extent:
-            return -scaled_min
-        if scaled_max > extent and scaled_min >= 0.0:
-            return extent - scaled_max
-        if scaled_min < 0.0 and scaled_max > extent:
-            return -scaled_min
-        return 0.0
-
-    @staticmethod
-    def _compute_compensation_delta(
-        min_val: float,
-        max_val: float,
-        base_scale: float,
-        effective_scale: float,
-        base_offset: float,
-        extent: float,
-        proportion: float = 1.0,
-    ) -> float:
-        if not math.isfinite(base_scale) or not math.isfinite(effective_scale):
-            return 0.0
-        if math.isclose(effective_scale, 0.0, abs_tol=1e-9):
-            return 0.0
-        if math.isclose(base_scale, effective_scale, rel_tol=1e-9):
-            return 0.0
-        if not math.isfinite(proportion) or proportion <= 0.0:
-            proportion = 1.0
-        physical_left = min_val * proportion * base_scale + base_offset
-        physical_right = max_val * proportion * base_scale + base_offset
-        left_margin = max(physical_left, 0.0)
-        right_margin = max(extent - physical_right, 0.0)
-        safe_scale = effective_scale if not math.isclose(effective_scale, 0.0, abs_tol=1e-9) else 1.0
-        if right_margin + 1e-6 < left_margin:
-            target_physical = min(extent, max(0.0, extent - right_margin))
-            return (target_physical - base_offset) / (proportion * safe_scale) - max_val
-        if left_margin + 1e-6 < right_margin:
-            target_physical = max(0.0, left_margin)
-            return (target_physical - base_offset) / (proportion * safe_scale) - min_val
-        anchor_mid = (min_val + max_val) / 2.0
-        target_physical = anchor_mid * proportion * base_scale + base_offset
-        return (target_physical - base_offset) / (proportion * safe_scale) - anchor_mid
-
-    @classmethod
-    def _compute_group_band_shift(
-        cls,
-        *,
-        overflow: bool,
-        effective_scale: float,
-        base_offset: float,
-        window_extent: float,
-        proportion: float,
-        preserve_shift: float,
-        min_val: float,
-        max_val: float,
-        anchor_val: float,
-        target_norm: float,
-    ) -> float:
-        if not overflow:
-            return 0.0
-        if not math.isfinite(window_extent) or window_extent <= 0.0:
-            return 0.0
-        if not math.isfinite(effective_scale) or math.isclose(effective_scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
-            return 0.0
-        if not math.isfinite(proportion) or proportion <= 0.0:
-            proportion = 1.0
-        if not math.isfinite(preserve_shift):
-            preserve_shift = 0.0
-        if not math.isfinite(anchor_val):
-            anchor_val = (min_val + max_val) / 2.0
-        safe_norm = cls._clamp_unit(target_norm)
-        anchor_overlay = anchor_val * proportion + preserve_shift
-        current_screen = anchor_overlay * effective_scale + base_offset
-        target_screen = safe_norm * window_extent
-        return target_screen - current_screen
-
-    @staticmethod
-    def _clamp_bounds_to_canvas(
-        min_val: float,
-        max_val: float,
-        base_extent: float,
-    ) -> Tuple[float, float]:
-        if not math.isfinite(min_val) or not math.isfinite(max_val):
-            return min_val, max_val
-        if base_extent <= 0.0:
-            return min_val, max_val
-        span = max_val - min_val
-        if span <= base_extent + 1e-6:
-            return min_val, max_val
-        center = (min_val + max_val) / 2.0
-        half_extent = base_extent / 2.0
-        new_min = center - half_extent
-        new_max = center + half_extent
-        if new_min < 0.0:
-            adjustment = -new_min
-            new_min = 0.0
-            new_max += adjustment
-        if new_max > base_extent:
-            adjustment = new_max - base_extent
-            new_max = base_extent
-            new_min -= adjustment
-        if new_min < 0.0:
-            new_min = 0.0
-        if new_max > base_extent:
-            new_max = base_extent
-        if new_max - new_min > base_extent:
-            new_max = new_min + base_extent
-        if new_max - new_min < 1e-6:
-            new_min = 0.0
-            new_max = base_extent
-        return new_min, new_max
-
-    def _accumulate_group_bounds(
-        self,
-        bounds: GroupBounds,
-        item: LegacyItem,
-        scale: float,
-        group_scale_hint: float,
-    ) -> None:
-        data = item.data
-        if not isinstance(data, Mapping):
-            return
-        logical = self._logical_mapping(data)
-        transform_meta = data.get("__mo_transform__") if isinstance(data, Mapping) else None
-
-        def transform_point(x_val: float, y_val: float) -> Tuple[float, float]:
-            return self._apply_transform_meta_to_point(transform_meta, x_val, y_val)
-
-        kind = item.kind
-        if scale <= 0.0:
-            scale = 1.0
-        try:
-            if kind == "message":
-                x_val = float(logical.get("x", data.get("x", 0.0)))
-                y_val = float(logical.get("y", data.get("y", 0.0)))
-                size_label = str(data.get("size", "normal")) if isinstance(data, Mapping) else "normal"
-                font = QFont(self._font_family)
-                font.setPointSizeF(self._legacy_preset_point_size(size_label))
-                metrics = QFontMetrics(font)
-                text_value = str(data.get("text", ""))
-                text_width_px = max(metrics.horizontalAdvance(text_value), 0)
-                line_height_px = max(metrics.height(), 0)
-                scale_block = transform_meta.get("scale") if isinstance(transform_meta, Mapping) else None
-                scale_x_meta = self._safe_float(scale_block.get("x"), 1.0) if isinstance(scale_block, Mapping) else 1.0
-                scale_y_meta = self._safe_float(scale_block.get("y"), 1.0) if isinstance(scale_block, Mapping) else 1.0
-                if not math.isfinite(group_scale_hint) or math.isclose(group_scale_hint, 0.0, rel_tol=1e-9, abs_tol=1e-9):
-                    group_scale_hint = 1.0
-                effective_scale_x = scale * group_scale_hint
-                effective_scale_y = scale * group_scale_hint
-                width_logical = (text_width_px * scale_x_meta) / effective_scale_x
-                line_height_logical = (line_height_px * scale_y_meta) / effective_scale_y
-                adj_x, adj_y = transform_point(x_val, y_val)
-                bounds.update_rect(
-                    adj_x,
-                    adj_y,
-                    adj_x + max(0.0, width_logical),
-                    adj_y + max(0.0, line_height_logical),
-                )
-            elif kind == "rect":
-                x_val = float(logical.get("x", data.get("x", 0.0)))
-                y_val = float(logical.get("y", data.get("y", 0.0)))
-                w_val = float(logical.get("w", data.get("w", 0.0)))
-                h_val = float(logical.get("h", data.get("h", 0.0)))
-                corners = [
-                    transform_point(x_val, y_val),
-                    transform_point(x_val + w_val, y_val),
-                    transform_point(x_val, y_val + h_val),
-                    transform_point(x_val + w_val, y_val + h_val),
-                ]
-                xs = [pt[0] for pt in corners]
-                ys = [pt[1] for pt in corners]
-                bounds.update_rect(min(xs), min(ys), max(xs), max(ys))
-            elif kind == "vector":
-                points = logical.get("points") if isinstance(logical, Mapping) else None
-                if not isinstance(points, list):
-                    points = data.get("points") if isinstance(data, Mapping) else None
-                if isinstance(points, list):
-                    for point in points:
-                        if not isinstance(point, Mapping):
-                            continue
-                        try:
-                            px = float(point.get("x", 0.0))
-                            py = float(point.get("y", 0.0))
-                        except (TypeError, ValueError):
-                            continue
-                        adj_x, adj_y = transform_point(px, py)
-                        bounds.update_point(adj_x, adj_y)
-            else:
-                x_val = float(logical.get("x", data.get("x", 0.0)))
-                y_val = float(logical.get("y", data.get("y", 0.0)))
-                adj_x, adj_y = transform_point(x_val, y_val)
-                bounds.update_point(adj_x, adj_y)
-        except (TypeError, ValueError):
-            pass
-
-    def _determine_group_anchor(self, item: LegacyItem) -> Tuple[float, float]:
-
-        data = item.data
-        if not isinstance(data, Mapping):
-            return 0.0, 0.0
-        logical = self._logical_mapping(data)
-        transform_meta = data.get("__mo_transform__") if isinstance(data, Mapping) else None
-        kind = item.kind
-        try:
-            if kind == "vector":
-                points = logical.get("points") if isinstance(logical, Mapping) else None
-                if not isinstance(points, list) or not points:
-                    points = data.get("points") if isinstance(data, Mapping) else None
-                if isinstance(points, list):
-                    for point in points:
-                        if not isinstance(point, Mapping):
-                            continue
-                        px = self._safe_float(point.get("x"), 0.0)
-                        py = self._safe_float(point.get("y"), 0.0)
-                        return self._apply_transform_meta_to_point(transform_meta, px, py)
-                return 0.0, 0.0
-            if kind == "rect":
-                px = self._safe_float(logical.get("x", data.get("x", 0.0)), 0.0)
-                py = self._safe_float(logical.get("y", data.get("y", 0.0)), 0.0)
-                return self._apply_transform_meta_to_point(transform_meta, px, py)
-            if kind == "message":
-                px = self._safe_float(logical.get("x", data.get("x", 0.0)), 0.0)
-                py = self._safe_float(logical.get("y", data.get("y", 0.0)), 0.0)
-                return self._apply_transform_meta_to_point(transform_meta, px, py)
-        except (TypeError, ValueError):
-            return 0.0, 0.0
-        return 0.0, 0.0
-
-    def _prepare_fill_group_transforms(self, mapper: _LegacyMapper) -> None:
-        self._group_transform_cache.reset()
-        if mapper.transform.mode is not ScaleMode.FILL:
-            return
-        scale = mapper.transform.scale
-        if scale <= 0.0:
-            scale = 1.0
-        base_scale = scale
-        compensate_scale = 1.0 / base_scale if mapper.transform.mode is ScaleMode.FILL and base_scale > 1.0 else 1.0
-        group_bounds: Dict[Tuple[str, Optional[str]], GroupBounds] = {}
-        group_anchor: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
-        group_scale_hints: Dict[Tuple[str, Optional[str]], float] = {}
-        for item_id, legacy_item in self._legacy_items.items():
-            group_key = self._group_key_for_item(item_id, legacy_item.plugin)
-            bounds = group_bounds.setdefault(group_key.as_tuple(), GroupBounds())
-            scale_hint = group_scale_hints.get(group_key.as_tuple())
-            if scale_hint is None:
-                scale_hint = 1.0
-                if compensate_scale != 1.0 and self._group_has_override(group_key.plugin, group_key.suffix):
-                    scale_hint = compensate_scale
-                group_scale_hints[group_key.as_tuple()] = scale_hint
-            self._accumulate_group_bounds(bounds, legacy_item, scale, scale_hint)
-            if group_key.as_tuple() not in group_anchor:
-                group_anchor[group_key.as_tuple()] = self._determine_group_anchor(legacy_item)
-        base_offset_x = mapper.offset_x
-        base_offset_y = mapper.offset_y
-        width = float(self.width())
-        height = float(self.height())
-        margin = 12.0
-        base_width = BASE_WIDTH if BASE_WIDTH > 0.0 else 1.0
-        base_height = BASE_HEIGHT if BASE_HEIGHT > 0.0 else 1.0
-
-        def _normalise(value: float, base: float) -> float:
-            if base <= 0.0:
-                return 0.0
-            return self._clamp_unit(self._safe_float(value, 0.0) / base)
-
-        for key_tuple, bounds in group_bounds.items():
-            if not bounds.is_valid():
-                continue
-            plugin_label, suffix = key_tuple
-            group_label = str(plugin_label or "unknown")
-            if suffix:
-                group_label = f"{group_label}:{suffix}"
-            group_scale = 1.0
-            if compensate_scale != 1.0 and self._group_has_override(plugin_label, suffix):
-                group_scale = compensate_scale
-            effective_scale = scale * group_scale
-            raw_proportion_x = self._compute_fill_proportion(
-                BASE_WIDTH,
-                effective_scale,
-                width,
-                mapper.transform.overflow_x,
-            )
-            raw_proportion_y = self._compute_fill_proportion(
-                BASE_HEIGHT,
-                effective_scale,
-                height,
-                mapper.transform.overflow_y,
-            )
-            proportion_x, proportion_y = self._normalise_group_proportions(
-                raw_proportion_x,
-                raw_proportion_y,
-                mapper.transform.overflow_x,
-                mapper.transform.overflow_y,
-            )
-            preserve_enabled, preserve_anchor = self._group_preserve_fill_aspect(plugin_label, suffix)
-            anchor_coords = group_anchor.get(key_tuple)
-            anchor_x, anchor_y = anchor_coords if anchor_coords is not None else (0.0, 0.0)
-            if preserve_anchor == "centroid" or anchor_coords is None:
-                if bounds.is_valid():
-                    anchor_x = (bounds.min_x + bounds.max_x) / 2.0
-                    anchor_y = (bounds.min_y + bounds.max_y) / 2.0
-                else:
-                    anchor_x = anchor_y = 0.0
-            preserve_dx = 0.0
-            preserve_dy = 0.0
-            clamp_applied_x = False
-            clamp_applied_y = False
-            original_span_x = bounds.max_x - bounds.min_x
-            original_span_y = bounds.max_y - bounds.min_y
-            if mapper.transform.overflow_x and BASE_WIDTH > 0.0:
-                clamped_min_x, clamped_max_x = self._clamp_bounds_to_canvas(
-                    bounds.min_x,
-                    bounds.max_x,
-                    BASE_WIDTH,
-                )
-                if (
-                    not math.isclose(clamped_min_x, bounds.min_x, rel_tol=1e-6, abs_tol=1e-6)
-                    or not math.isclose(clamped_max_x, bounds.max_x, rel_tol=1e-6, abs_tol=1e-6)
-                ):
-                    clamp_applied_x = True
-                    bounds.min_x = clamped_min_x
-                    bounds.max_x = clamped_max_x
-                    anchor_x = max(bounds.min_x, min(anchor_x, bounds.max_x))
-                    _CLIENT_LOGGER.debug(
-                        "fill clamp: group=%s axis=x span=%.1f→%.1f (base=%.1f)",
-                        group_label,
-                        original_span_x,
-                        bounds.max_x - bounds.min_x,
-                        BASE_WIDTH,
-                    )
-            if mapper.transform.overflow_y and BASE_HEIGHT > 0.0:
-                clamped_min_y, clamped_max_y = self._clamp_bounds_to_canvas(
-                    bounds.min_y,
-                    bounds.max_y,
-                    BASE_HEIGHT,
-                )
-                if (
-                    not math.isclose(clamped_min_y, bounds.min_y, rel_tol=1e-6, abs_tol=1e-6)
-                    or not math.isclose(clamped_max_y, bounds.max_y, rel_tol=1e-6, abs_tol=1e-6)
-                ):
-                    clamp_applied_y = True
-                    bounds.min_y = clamped_min_y
-                    bounds.max_y = clamped_max_y
-                    anchor_y = max(bounds.min_y, min(anchor_y, bounds.max_y))
-                    _CLIENT_LOGGER.debug(
-                        "fill clamp: group=%s axis=y span=%.1f→%.1f (base=%.1f)",
-                        group_label,
-                        original_span_y,
-                        bounds.max_y - bounds.min_y,
-                        BASE_HEIGHT,
-                    )
-            min_x_for_delta = bounds.min_x
-            max_x_for_delta = bounds.max_x
-            min_y_for_delta = bounds.min_y
-            max_y_for_delta = bounds.max_y
-            if preserve_enabled:
-                preserve_dx = anchor_x * (raw_proportion_x - 1.0)
-                preserve_dy = anchor_y * (raw_proportion_y - 1.0)
-                proportion_x = 1.0
-                proportion_y = 1.0
-                min_x_for_delta = bounds.min_x + preserve_dx
-                max_x_for_delta = bounds.max_x + preserve_dx
-                min_y_for_delta = bounds.min_y + preserve_dy
-                max_y_for_delta = bounds.max_y + preserve_dy
-            band_min_x = _normalise(bounds.min_x, base_width)
-            band_max_x = _normalise(bounds.max_x, base_width)
-            band_min_y = _normalise(bounds.min_y, base_height)
-            band_max_y = _normalise(bounds.max_y, base_height)
-            center_x_norm = _normalise((bounds.min_x + bounds.max_x) / 2.0, base_width)
-            center_y_norm = _normalise((bounds.min_y + bounds.max_y) / 2.0, base_height)
-            anchor_norm_x = _normalise(anchor_x, base_width)
-            anchor_norm_y = _normalise(anchor_y, base_height)
-            target_norm_x = anchor_norm_x if preserve_enabled else center_x_norm
-            target_norm_y = anchor_norm_y if preserve_enabled else center_y_norm
-
-            dx = self._compute_group_band_shift(
-                overflow=mapper.transform.overflow_x,
-                effective_scale=effective_scale,
-                base_offset=base_offset_x,
-                window_extent=width,
-                proportion=proportion_x,
-                preserve_shift=preserve_dx,
-                min_val=bounds.min_x,
-                max_val=bounds.max_x,
-                anchor_val=anchor_x,
-                target_norm=target_norm_x,
-            )
-            dy = self._compute_group_band_shift(
-                overflow=mapper.transform.overflow_y,
-                effective_scale=effective_scale,
-                base_offset=base_offset_y,
-                window_extent=height,
-                proportion=proportion_y,
-                preserve_shift=preserve_dy,
-                min_val=bounds.min_y,
-                max_val=bounds.max_y,
-                anchor_val=anchor_y,
-                target_norm=target_norm_y,
-            )
-            if not math.isfinite(dx):
-                dx = 0.0
-            if not math.isfinite(dy):
-                dy = 0.0
-            if group_scale != 1.0:
-                delta_scale = base_scale - effective_scale
-                canvas_h = BASE_HEIGHT * base_scale
-                if not math.isclose(delta_scale, 0.0, rel_tol=1e-9):
-                    dx = self._compute_compensation_delta(
-                        min_x_for_delta,
-                        max_x_for_delta,
-                        base_scale,
-                        effective_scale,
-                        base_offset_x,
-                        width,
-                        proportion_x,
-                    )
-                if canvas_h > height + 1e-6:
-                    logical_center_y = (bounds.min_y + bounds.max_y) / 2.0
-                    target_center = (logical_center_y / BASE_HEIGHT) * height
-                    current_center = (logical_center_y * proportion_y + preserve_dy) * effective_scale + base_offset_y
-                    dy = target_center - current_center
-                    top = (bounds.min_y * proportion_y + preserve_dy) * effective_scale + base_offset_y + dy
-                    bottom = (bounds.max_y * proportion_y + preserve_dy) * effective_scale + base_offset_y + dy
-                    if top < 0.0:
-                        dy -= top
-                    elif bottom > height:
-                        dy -= bottom - height
-
-            overlay_left = bounds.min_x * proportion_x + preserve_dx
-            overlay_right = bounds.max_x * proportion_x + preserve_dx
-            overlay_top = bounds.min_y * proportion_y + preserve_dy
-            overlay_bottom = bounds.max_y * proportion_y + preserve_dy
-            screen_left = overlay_left * effective_scale + dx + base_offset_x
-            screen_right = overlay_right * effective_scale + dx + base_offset_x
-            if mapper.transform.overflow_x:
-                if screen_left < margin:
-                    shift = margin - screen_left
-                    dx += shift
-                    screen_left += shift
-                    screen_right += shift
-                if screen_right > width - margin:
-                    shift = (width - margin) - screen_right
-                    dx += shift
-                    screen_left += shift
-                    screen_right += shift
-            screen_top = overlay_top * effective_scale + dy + base_offset_y
-            screen_bottom = overlay_bottom * effective_scale + dy + base_offset_y
-            if mapper.transform.overflow_y:
-                if screen_top < 0.0:
-                    shift = -screen_top
-                    dy += shift
-                    screen_top += shift
-                    screen_bottom += shift
-                if screen_bottom > height:
-                    shift = height - screen_bottom
-                    dy += shift
-                    screen_top += shift
-                    screen_bottom += shift
-
-            self._group_transform_cache.set(
-                GroupKey(*key_tuple),
-                GroupTransform(
-                    dx=dx,
-                    dy=dy,
-                    scale=group_scale,
-                    proportion_x=proportion_x,
-                    proportion_y=proportion_y,
-                    preserve_dx=preserve_dx,
-                    preserve_dy=preserve_dy,
-                    raw_proportion_x=raw_proportion_x,
-                    raw_proportion_y=raw_proportion_y,
-                    band_min_x=band_min_x,
-                    band_max_x=band_max_x,
-                    band_min_y=band_min_y,
-                    band_max_y=band_max_y,
-                    band_anchor_x=target_norm_x,
-                    band_anchor_y=target_norm_y,
-                    band_clamped_x=clamp_applied_x,
-                    band_clamped_y=clamp_applied_y,
-                    bounds_min_x=bounds.min_x,
-                    bounds_min_y=bounds.min_y,
-                    bounds_max_x=bounds.max_x,
-                    bounds_max_y=bounds.max_y,
-                    final_min_x=(screen_left - base_offset_x) / effective_scale if not math.isclose(effective_scale, 0.0, rel_tol=1e-9, abs_tol=1e-9) else bounds.min_x,
-                    final_max_x=(screen_right - base_offset_x) / effective_scale if not math.isclose(effective_scale, 0.0, rel_tol=1e-9, abs_tol=1e-9) else bounds.max_x,
-                ),
-            )
 
     def _scaled_point_size(
         self,
@@ -2130,9 +1506,7 @@ class OverlayWindow(QWidget):
                 plugin_name = name
         group_transform: Optional[GroupTransform] = None
         if current_item is not None:
-            group_key = self._group_key_for_item(current_item.item_id, current_item.plugin)
-            if group_key is not None:
-                group_transform = self._group_transform_cache.get(group_key)
+            group_transform = self._grouping_helper.transform_for_item(current_item.item_id, current_item.plugin)
         plugin_line = f"Plugin name: {plugin_name}"
         if anchor is not None:
             center_line = f"Center: {anchor[0]}, {anchor[1]}"
@@ -3421,15 +2795,15 @@ class OverlayWindow(QWidget):
         mapper = self._compute_legacy_mapper()
         debug_fill = self._debug_config.fill_group_debug and mapper.transform.mode is ScaleMode.FILL
         if mapper.transform.mode is ScaleMode.FILL:
-            self._prepare_fill_group_transforms(mapper)
+            self._grouping_helper.prepare(mapper)
         else:
-            self._group_transform_cache.reset()
+            self._grouping_helper.reset()
         fill_debug_rows: List[str] = []
         draw_group_bounds = self._debug_config.group_bounds_outline
         drawn_groups: Set[Tuple[str, Optional[str]]] = set()
         for item_id, item in self._legacy_items.items():
-            group_key = self._group_key_for_item(item_id, item.plugin)
-            group_transform = self._group_transform_cache.get(group_key)
+            group_key = self._grouping_helper.group_key_for(item_id, item.plugin)
+            group_transform = self._grouping_helper.get_transform(group_key)
             if item.kind == "message":
                 row_log = self._paint_legacy_message(
                     painter,
