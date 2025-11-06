@@ -104,12 +104,7 @@ def test_grouping_prefix_defaults_apply(override_file: Path) -> None:
     }
     manager.apply(payload)
 
-    transform_meta = payload.get("__mo_transform__")
-    assert isinstance(transform_meta, dict)
-    offset = transform_meta.get("offset")
-    assert isinstance(offset, dict)
-    assert offset.get("x") == 5.0
-    assert offset.get("y") == -10.0
+    assert payload.get("__mo_transform__") is None
 
 
 def test_group_is_configured_plugin_mode(override_file: Path) -> None:
@@ -195,11 +190,7 @@ def test_grouping_groups_block_applies_shared_transform(override_file: Path) -> 
 
     manager.apply(payload)
 
-    transform_meta = payload.get("__mo_transform__")
-    assert isinstance(transform_meta, dict)
-    offset = transform_meta.get("offset")
-    assert isinstance(offset, dict)
-    assert offset.get("y") == -100.0
+    assert payload.get("__mo_transform__") is None
 
     grouping_key = manager.grouping_key_for("EDR", "edr-docking-panel")
     assert grouping_key == ("EDR", "docking")

@@ -7,9 +7,9 @@ Modern Overlay includes a developer-facing “payload ID finder” that helps tr
 - The active `payload_id`
 - The originating plugin name (if known)
 - The computed center coordinates of the payload on screen
-- Runtime diagnostics: remaining TTL (or `∞` when persistent), how long ago the payload last updated, the payload kind (message/rect/vector with relevant size info), and a breakdown of every transform applied to the payload (Fill remap, preservation shift, fill translation, and the final plugin override)
+- Runtime diagnostics: remaining TTL (or `∞` when persistent), how long ago the payload last updated, the payload kind (message/rect/vector with relevant size info), and a breakdown of the active Fill transforms (remap, preservation shift, translation)
 
-This is particularly useful when capturing coordinates or validating plugin overrides.
+This is particularly useful when capturing coordinates or validating grouping behaviour.
 
 > **Important:** If “Compensate for Elite Dangerous title bar” is enabled, the center coordinates displayed in the payload ID finder will be inaccurate. Title bar compensation translates the overlay to align with the game window, but the badge still uses the original, uncompensated coordinates. Disable the compensation setting when you need precise center values from the finder.
 
@@ -19,13 +19,11 @@ This is particularly useful when capturing coordinates or validating plugin over
 - Enable “Copy current payload ID to clipboard” if you want each ID handed to the clipboard automatically while stepping through items. The checkbox is automatically disabled (but keeps its state) whenever cycling itself is turned off, then becomes active again when cycling is re-enabled.
 - The connector line from the badge points toward the payload’s anchor point, helping locate overlapping elements quickly.
 - Plugin names and coordinates rely on the metadata provided by each payload; if a plugin does not populate `plugin` fields, the finder falls back to `unknown`.
-- Message overrides (e.g. `bgstally-msg-*`) are now tracked, so scale/offset adjustments applied via overrides show up in the badge.
 - The transform breakdown is listed in the same order the renderer applies it:
   1. **Fill scale** shows the raw X/Y proportions computed for Fill mode along with the effective values after aspect preservation (`raw → applied`). Fill mode scales by the larger of the window’s horizontal/vertical ratios so the 1280×960 legacy canvas covers the window completely; one axis therefore overflows and requires proportional remapping. (Fit mode, by contrast, uses the smaller ratio so the entire canvas remains inside the window.)
   2. **Fill preserve shift** appears when a group is preserving aspect; it reports the group-wide translation we inject to avoid squashing.
   3. **Fill translation** is the per-group dx/dy derived from bounds that keeps the payload inside the window (assertion #7).
-  4. **Override scale/offset/pivot** are the final adjustments sourced from plugin overrides—they run after Fill-mode math, so you can reconcile the badge with your JSON overrides.
-  All values are in overlay coordinates to make it easy to compare against raw payload dumps (e.g. `tests/edr-docking.log`) when tuning overrides.
+  All values are in overlay coordinates to make it easy to compare against raw payload dumps (e.g. `tests/edr-docking.log`) when tuning Fill behaviour.
 - The payload finder’s callout line is configurable. See **Line width overrides** below if you need a thicker/thinner connector.
 
 ### Line width overrides
@@ -54,7 +52,7 @@ Enable **Show debug overlay** to surface a live diagnostics panel in the corner 
   - `phys`: the size after multiplying by the device pixel ratio, i.e., the true number of physical screen pixels the overlay occupies.
   - `raw`: the Elite window geometry that legacy payloads are targeting; this is the reference rectangle used for coordinate normalisation.
   - `scale`: the resolved legacy scale factors (`legacy_x`, `legacy_y`) plus the active scaling `mode` (`fit` or `fill`).
-  These values are useful when diagnosing mismatched HUD scaling or when confirming that overrides line up with the monitored window.
+  These values are useful when diagnosing mismatched HUD scaling or when confirming that group offsets line up with the monitored window.
 - **Fonts block** records:
   - Legacy scale factors (`scale_x`, `scale_y`, `diag`) derived from window size.
   - `ui_scale`: the user’s current font scaling multiplier.
@@ -63,7 +61,7 @@ Enable **Show debug overlay** to surface a live diagnostics panel in the corner 
   - `legacy presets`: the resolved point sizes for the classic `small`, `normal`, `large`, and `huge` presets so you can see exactly what each payload’s `size` value maps to.
 - **Settings block** highlights the title-bar compensation flag and height, along with the actual pixel offset applied. If compensation is enabled but the offset seems wrong, this is the first place to verify the numbers.
 
-These details are helpful when debugging sizing issues (e.g., 21:9 vs. 4:3 monitors) or verifying that override transforms are behaving as expected.
+These details are helpful when debugging sizing issues (e.g., 21:9 vs. 4:3 monitors) or verifying that Fill-mode remaps are behaving as expected.
 
 ### Fill-mode diagnostics
 
@@ -71,7 +69,7 @@ Set `fill_group_debug` to `true` in `debug.json` to log per-payload coordinates 
 
 ## Transform Pipeline Overview
 
-- `overlay-client/payload_transform.py` houses the logical transform helpers. It applies payload metadata (`__mo_transform__`), plugin overrides, and group offsets to produce normalised legacy-space coordinates that everything else uses.
+- `overlay-client/payload_transform.py` houses the logical transform helpers. It applies payload metadata (`__mo_transform__`, when present) and group offsets to produce normalised legacy-space coordinates that everything else uses.
 - `overlay-client/grouping_helper.py` iterates the live payloads, calls the payload transform helpers to build `GroupTransform` entries, and caches them for the painters. No Qt types leak in here, which makes it unit-test friendly.
 - `FillViewport` in `overlay_client.py` handles the final step: mapping overlay coordinates to screen pixels for Fit/Fill modes, incorporating the group deltas supplied by the cache.
 
