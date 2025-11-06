@@ -64,7 +64,9 @@ from viewport_helper import (
     compute_viewport_transform,
 )  # type: ignore  # noqa: E402
 from grouping_helper import FillGroupingHelper  # type: ignore  # noqa: E402
+from group_transform import GroupBounds  # type: ignore  # noqa: E402
 from payload_transform import (
+    accumulate_group_bounds,
     remap_point,
     remap_rect_points,
     remap_vector_points,
@@ -2502,11 +2504,14 @@ class OverlayWindow(QWidget):
                 row_log = self._paint_legacy_vector(painter, item, mapper, group_transform)
             else:
                 row_log = None
-            if draw_group_bounds and group_transform is not None:
-                key_tuple = group_key.as_tuple()
-                if key_tuple not in drawn_groups:
-                    drawn_groups.add(key_tuple)
-                    self._draw_group_bounds_outline(painter, mapper, group_transform)
+            if draw_group_bounds:
+                if group_transform is not None:
+                    key_tuple = group_key.as_tuple()
+                    if key_tuple not in drawn_groups:
+                        drawn_groups.add(key_tuple)
+                        self._draw_group_bounds_outline(painter, mapper, group_transform)
+                else:
+                    self._draw_item_bounds_outline(painter, mapper, item)
             if debug_fill and row_log:
                 if group_transform:
                     row_log = f"{row_log} Δ=({group_transform.dx:.1f},{group_transform.dy:.1f})"
@@ -2905,6 +2910,59 @@ class OverlayWindow(QWidget):
         right_px = fill.screen_x(right_overlay)
         top_px = fill.screen_y(top_overlay)
         bottom_px = fill.screen_y(bottom_overlay)
+        if not all(math.isfinite(value) for value in (left_px, right_px, top_px, bottom_px)):
+            return
+
+        rect_left = int(round(min(left_px, right_px)))
+        rect_top = int(round(min(top_px, bottom_px)))
+        rect_width = int(round(abs(right_px - left_px)))
+        rect_height = int(round(abs(bottom_px - top_px)))
+        if rect_width <= 0 or rect_height <= 0:
+            return
+
+        painter.save()
+        pen = QPen(QColor(255, 221, 0))
+        pen.setWidth(self._line_width("group_outline"))
+        pen.setStyle(Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(rect_left, rect_top, rect_width, rect_height)
+        painter.restore()
+
+    def _draw_item_bounds_outline(
+        self,
+        painter: QPainter,
+        mapper: LegacyMapper,
+        legacy_item: LegacyItem,
+    ) -> None:
+        state = self._viewport_state()
+        fill = build_viewport(mapper, state, None, BASE_WIDTH, BASE_HEIGHT)
+        scale = fill.scale
+        if not math.isfinite(scale) or math.isclose(scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
+            return
+
+        bounds = GroupBounds()
+        accumulate_group_bounds(
+            bounds,
+            legacy_item,
+            mapper.transform.scale,
+            1.0,
+            self._font_family,
+            self._legacy_preset_point_size,
+        )
+        if not bounds.is_valid():
+            return
+
+        left_overlay = fill.axis_x.remap(bounds.min_x, 0.0, 1.0, 0.0)
+        right_overlay = fill.axis_x.remap(bounds.max_x, 0.0, 1.0, 0.0)
+        top_overlay = fill.axis_y.remap(bounds.min_y, 0.0, 1.0, 0.0)
+        bottom_overlay = fill.axis_y.remap(bounds.max_y, 0.0, 1.0, 0.0)
+
+        left_px = left_overlay * scale + fill.base_offset_x
+        right_px = right_overlay * scale + fill.base_offset_x
+        top_px = top_overlay * scale + fill.base_offset_y
+        bottom_px = bottom_overlay * scale + fill.base_offset_y
+
         if not all(math.isfinite(value) for value in (left_px, right_px, top_px, bottom_px)):
             return
 
