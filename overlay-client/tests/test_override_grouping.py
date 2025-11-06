@@ -197,3 +197,64 @@ def test_grouping_groups_block_applies_shared_transform(override_file: Path) -> 
 
     grouping_key_station = manager.grouping_key_for("EDR", "edr-docking-station-bar")
     assert grouping_key_station == ("EDR", "docking")
+
+
+def test_group_anchor_selection(override_file: Path) -> None:
+    override_file.write_text(
+        json.dumps(
+            {
+                "Example": {
+                    "grouping": {
+                        "mode": "id_prefix",
+                        "groups": {
+                            "alerts": {
+                                "id_prefixes": ["example.alert."],
+                                "anchor": "se"
+                            },
+                            "metrics": {
+                                "id_prefixes": ["example.metric."],
+                                "anchor": "center"
+                            },
+                            "default": {
+                                "id_prefixes": ["example.default."],
+                                "anchor": "invalid"
+                            }
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = _make_manager(override_file)
+    assert manager.group_preserve_fill_aspect("Example", "alerts") == (True, "se")
+    assert manager.group_preserve_fill_aspect("Example", "metrics") == (True, "center")
+    # invalid anchor falls back to nw
+    assert manager.group_preserve_fill_aspect("Example", "default") == (True, "nw")
+    # unknown suffix also falls back to nw
+    assert manager.group_preserve_fill_aspect("Example", "other") == (True, "nw")
+
+
+def test_legacy_preserve_anchor_mapping(override_file: Path) -> None:
+    override_file.write_text(
+        json.dumps(
+            {
+                "Legacy": {
+                    "grouping": {
+                        "mode": "id_prefix",
+                        "groups": {
+                            "payload": {
+                                "id_prefixes": ["legacy."],
+                                "preserve_fill_aspect": {
+                                    "anchor": "centroid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = _make_manager(override_file)
+    assert manager.group_preserve_fill_aspect("Legacy", "payload") == (True, "center")

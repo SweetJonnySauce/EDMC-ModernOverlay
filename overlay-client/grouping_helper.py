@@ -8,7 +8,7 @@ from group_transform import GroupBounds, GroupKey, GroupTransform, GroupTransfor
 from legacy_store import LegacyItem
 from plugin_overrides import PluginOverrideManager
 from viewport_helper import BASE_HEIGHT, BASE_WIDTH, ScaleMode
-from payload_transform import accumulate_group_bounds, determine_group_anchor
+from payload_transform import accumulate_group_bounds
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard
     from overlay_client import OverlayWindow, _LegacyMapper
@@ -48,7 +48,6 @@ class FillGroupingHelper:
         base_scale = scale
         compensate_scale = 1.0 / base_scale if base_scale > 1.0 else 1.0
         group_bounds: Dict[Tuple[str, Optional[str]], GroupBounds] = {}
-        group_anchor: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         group_scale_hints: Dict[Tuple[str, Optional[str]], float] = {}
         for item_id, legacy_item in self._owner._legacy_items.items():
             group_key = self.group_key_for(item_id, legacy_item.plugin)
@@ -68,8 +67,6 @@ class FillGroupingHelper:
                 self._owner._font_family,
                 preset_point_size,
             )
-            if key_tuple not in group_anchor:
-                group_anchor[key_tuple] = determine_group_anchor(legacy_item)
 
         base_offset_x = mapper.offset_x
         base_offset_y = mapper.offset_y
@@ -113,15 +110,7 @@ class FillGroupingHelper:
                 mapper.transform.overflow_x,
                 mapper.transform.overflow_y,
             )
-            _, preserve_anchor = self._group_preserve_fill_aspect(plugin_label, suffix)
-            anchor_coords = group_anchor.get(key_tuple)
-            anchor_x, anchor_y = anchor_coords if anchor_coords is not None else (0.0, 0.0)
-            if preserve_anchor == "centroid" or anchor_coords is None:
-                if bounds.is_valid():
-                    anchor_x = (bounds.min_x + bounds.max_x) / 2.0
-                    anchor_y = (bounds.min_y + bounds.max_y) / 2.0
-                else:
-                    anchor_x = anchor_y = 0.0
+            _, anchor_token = self._group_preserve_fill_aspect(plugin_label, suffix)
             preserve_dx = 0.0
             preserve_dy = 0.0
             clamp_applied_x = False
@@ -141,7 +130,6 @@ class FillGroupingHelper:
                     clamp_applied_x = True
                     bounds.min_x = clamped_min_x
                     bounds.max_x = clamped_max_x
-                    anchor_x = max(bounds.min_x, min(anchor_x, bounds.max_x))
                     self._logger.debug(
                         "fill clamp: group=%s axis=x span=%.1f→%.1f (base=%.1f)",
                         group_label,
@@ -162,7 +150,6 @@ class FillGroupingHelper:
                     clamp_applied_y = True
                     bounds.min_y = clamped_min_y
                     bounds.max_y = clamped_max_y
-                    anchor_y = max(bounds.min_y, min(anchor_y, bounds.max_y))
                     self._logger.debug(
                         "fill clamp: group=%s axis=y span=%.1f→%.1f (base=%.1f)",
                         group_label,
@@ -174,6 +161,10 @@ class FillGroupingHelper:
             max_x_for_delta = bounds.max_x
             min_y_for_delta = bounds.min_y
             max_y_for_delta = bounds.max_y
+            if bounds.is_valid():
+                anchor_x, anchor_y = self._anchor_from_bounds(bounds, anchor_token)
+            else:
+                anchor_x = anchor_y = 0.0
             preserve_dx = anchor_x * (raw_proportion_x - 1.0)
             preserve_dy = anchor_y * (raw_proportion_y - 1.0)
             proportion_x = 1.0
@@ -350,6 +341,26 @@ class FillGroupingHelper:
         result_x = proportion_x if overflow_x else 1.0
         result_y = proportion_y if overflow_y else 1.0
         return result_x, result_y
+
+    @staticmethod
+    def _anchor_from_bounds(bounds: GroupBounds, token: Optional[str]) -> Tuple[float, float]:
+        if not bounds.is_valid():
+            return 0.0, 0.0
+        mode = (token or "nw").strip().lower()
+        if mode == "first":
+            mode = "nw"
+        elif mode == "centroid":
+            mode = "center"
+        if mode == "center":
+            return (bounds.min_x + bounds.max_x) / 2.0, (bounds.min_y + bounds.max_y) / 2.0
+        if mode == "ne":
+            return bounds.max_x, bounds.min_y
+        if mode == "sw":
+            return bounds.min_x, bounds.max_y
+        if mode == "se":
+            return bounds.max_x, bounds.max_y
+        # default and "nw"
+        return bounds.min_x, bounds.min_y
 
     @staticmethod
     def _clamp_bounds_to_canvas(

@@ -12,12 +12,15 @@ from debug_config import DebugConfig
 
 JsonDict = Dict[str, Any]
 
+_ANCHOR_OPTIONS = {"nw", "ne", "sw", "se", "center"}
+
 
 @dataclass
 class _GroupSpec:
     label: Optional[str]
     prefixes: Tuple[str, ...]
     defaults: Optional[JsonDict]
+    anchor: Optional[str] = None
 
 
 @dataclass
@@ -214,6 +217,16 @@ class PluginOverrideManager:
                     mode_token = mode_raw.strip().lower()
                     if mode_token in {"plugin", "id_prefix"}:
                         grouping_mode = mode_token
+                def _parse_anchor(source: Mapping[str, Any]) -> Optional[str]:
+                    anchor_field = source.get("anchor")
+                    if isinstance(anchor_field, str) and anchor_field.strip():
+                        return anchor_field.strip()
+                    legacy_block = source.get("preserve_fill_aspect")
+                    if isinstance(legacy_block, Mapping):
+                        legacy_anchor = legacy_block.get("anchor")
+                        if isinstance(legacy_anchor, str) and legacy_anchor.strip():
+                            return legacy_anchor.strip()
+                    return None
                 if grouping_mode == "id_prefix":
                     groups_spec = grouping_section.get("groups")
                     if isinstance(groups_spec, Mapping):
@@ -237,11 +250,13 @@ class PluginOverrideManager:
                                 continue
                             group_label = str(label).strip() if isinstance(label, str) and label else None
                             defaults = None
+                            anchor_token = _parse_anchor(group_value)
                             grouping_specs.append(
                                 _GroupSpec(
                                     label=group_label,
                                     prefixes=cleaned_prefixes,
                                     defaults=defaults,
+                                    anchor=anchor_token,
                                 )
                             )
 
@@ -251,8 +266,7 @@ class PluginOverrideManager:
                             prefixes: List[str] = []
                             defaults: Optional[JsonDict] = None
                             label_value: Optional[str] = None
-                            preserve_enabled: Optional[bool] = None
-                            preserve_anchor: Optional[str] = None
+                            anchor_token: Optional[str] = None
                             if isinstance(prefix_value, str):
                                 prefixes = [prefix_value]
                                 label_value = str(label) if isinstance(label, str) and label else prefix_value
@@ -262,6 +276,7 @@ class PluginOverrideManager:
                                     prefixes = [raw_prefix]
                                 label_value = str(label) if isinstance(label, str) and label else (raw_prefix or None)
                                 defaults = None
+                                anchor_token = _parse_anchor(prefix_value)
                             cleaned_prefixes = tuple(prefix.casefold() for prefix in prefixes if prefix)
                             if not cleaned_prefixes:
                                 continue
@@ -270,6 +285,7 @@ class PluginOverrideManager:
                                     label=label_value,
                                     prefixes=cleaned_prefixes,
                                     defaults=defaults,
+                                    anchor=anchor_token,
                                 )
                             )
                     elif isinstance(prefixes_spec, Iterable):
@@ -427,9 +443,20 @@ class PluginOverrideManager:
         return False
 
     def group_preserve_fill_aspect(self, plugin: Optional[str], suffix: Optional[str]) -> Tuple[bool, str]:
-        """Fill-mode preservation is always enabled; anchor selection defaults to 'first' (top-left)."""
+        """Fill-mode preservation is always enabled; anchor selection is derived from overrides."""
 
-        return True, "first"
+        self._reload_if_needed()
+        canonical = self._canonical_plugin_name(plugin)
+        anchor_token: Optional[str] = None
+        if canonical is not None:
+            config = self._plugins.get(canonical)
+            if config is not None and config.group_mode == "id_prefix" and suffix is not None:
+                for spec in config.group_specs:
+                    label_value = spec.label or (spec.prefixes[0] if spec.prefixes else None)
+                    if label_value == suffix:
+                        anchor_token = spec.anchor
+                        break
+        return True, self._normalise_anchor_token(anchor_token)
 
     def group_mode_for(self, plugin: Optional[str]) -> Optional[str]:
         self._reload_if_needed()
@@ -444,6 +471,21 @@ class PluginOverrideManager:
             if cfg.name == plugin and cfg.group_mode:
                 return cfg.group_mode
         return None
+
+    @staticmethod
+    def _normalise_anchor_token(anchor: Optional[str]) -> str:
+        if not isinstance(anchor, str):
+            return "nw"
+        token = anchor.strip().lower()
+        if not token:
+            return "nw"
+        if token == "first":
+            token = "nw"
+        elif token == "centroid":
+            token = "center"
+        if token not in _ANCHOR_OPTIONS:
+            return "nw"
+        return token
 
     def _should_trace(self, plugin: str, message_id: str) -> bool:
         cfg = self._debug_config

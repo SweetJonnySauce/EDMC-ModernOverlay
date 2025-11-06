@@ -60,6 +60,7 @@ on how payloads are bucketed; Fill mode now always preserves aspect across the g
 You can safely leave historical transform entries in `plugin_overrides.json`; they no longer affect rendering.
 - The plugin-level `notes` array is just documentation for humans; Modern Overlay ignores it, but it keeps the rationale beside the configuration.
 - You can add a `grouping` block to keep Fill-mode transforms rigid. `"mode": "plugin"` keeps every payload in one group; `"mode": "id_prefix"` lets you list the exact prefixes (see “Grouping vector payloads”).
+- Each group can declare an `anchor` (`"nw"`, `"ne"`, `"sw"`, `"se"`, `"center"`), which picks the point inside the group bounds that Fill mode preserves. When omitted, the north-west corner (`"nw"`) is used.
 
 This pattern keeps the adjustment in the adapter layer while leaving the plugin’s source intact. If a future plugin
 applies a similar workaround (for example, only providing a single anchor point instead of polygons), you can set
