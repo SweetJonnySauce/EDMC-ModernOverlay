@@ -2578,31 +2578,9 @@ class OverlayWindow(QWidget):
         raw_top = float(item.get("y", 0))
         adjusted_left, adjusted_top = remap_point(fill, transform_meta, raw_left, raw_top)
         text = str(item.get("text", ""))
-        margin = 12
         x = int(round(fill.screen_x(adjusted_left)))
         metrics = painter.fontMetrics()
         text_width = metrics.horizontalAdvance(text)
-        max_x = self.width() - text_width - margin
-        min_x = margin
-        if max_x < min_x:
-            max_x = min_x
-        available_width = max(1, self.width() - (2 * margin))
-        if text_width > available_width:
-            shrink_ratio = available_width / float(text_width)
-            adjusted_point = max(4.0, scaled_point_size * shrink_ratio)
-            if adjusted_point < font.pointSizeF() - 0.1:
-                font.setPointSizeF(adjusted_point)
-                painter.setFont(font)
-                metrics = painter.fontMetrics()
-                text_width = metrics.horizontalAdvance(text)
-                max_x = self.width() - text_width - margin
-                if max_x < min_x:
-                    max_x = min_x
-                self._debug_legacy_point_size = adjusted_point
-        if x < min_x:
-            x = min_x
-        elif x > max_x:
-            x = max_x
         baseline = int(round(fill.screen_y(adjusted_top) + metrics.ascent()))
 
         painter.drawText(x, baseline, text)
