@@ -25,7 +25,6 @@ The JSON file is a dictionary keyed by plugin name. Each plugin entry contains t
 - `__match__` (optional) provides hints for discovering the plugin when a payload does not
   explicitly state its origin.
 - `notes` (optional) is freeform documentation (string or array of strings) explaining why the plugin needs overrides. Modern Overlay ignores this field entirely; it exists purely for humans reviewing the JSON.
-- `transform`, `x_scale`, `x_shift` placed directly under the plugin act as plugin-wide defaults that run before any pattern-specific overrides.
 - Every other key is a glob pattern (`fnmatch` rules) that will be compared against the payload’s
   `id`. The corresponding object lists the overrides to apply.
 
@@ -51,13 +50,7 @@ Example:
 
 ### Pattern Blocks
 
-Pattern blocks are still evaluated in declaration order, but Modern Overlay no longer applies any built-in per-payload
-transforms. Legacy fields such as `transform`, `x_scale`, and `x_shift` are now ignored (they remain in the schema only
-for backward compatibility). Pattern objects can still carry future custom metadata, and grouping-related options focus
-on how payloads are bucketed; Fill mode now always preserves aspect across the group, so historical
-`preserve_fill_aspect` settings are silently ignored.
-
-You can safely leave historical transform entries in `plugin_overrides.json`; they no longer affect rendering.
+Pattern blocks are still evaluated in declaration order, but Modern Overlay no longer supports user-specified `transform` / scale / offset directives. Only grouping metadata is honoured today; any historical transform fields should be removed from the JSON (they are ignored if left in place). Pattern objects can still carry future custom metadata, and grouping-related options focus on how payloads are bucketed; Fill mode now always preserves aspect across the group, so historical `preserve_fill_aspect` settings are silently ignored.
 - The plugin-level `notes` array is just documentation for humans; Modern Overlay ignores it, but it keeps the rationale beside the configuration.
 - You can add a `grouping` block to keep Fill-mode transforms rigid. `"mode": "plugin"` keeps every payload in one group; `"mode": "id_prefix"` lets you list the exact prefixes (see “Grouping vector payloads”).
 - Each group can declare an `anchor` (`"nw"`, `"ne"`, `"sw"`, `"se"`, `"center"`), which picks the point inside the group bounds that Fill mode preserves. When omitted, the north-west corner (`"nw"`) is used.
@@ -87,15 +80,11 @@ Fill mode zooms the overlay uniformly, which means we sometimes have to translat
     "prefixes": {
       "metrics": {
         "prefix": "edmcma.metric.",
-        "transform": {
-          "offset": { "x": 0.0, "y": 0.0 }
-        }
+        "anchor": "center"
       },
       "alerts": {
         "prefix": "edmcma.alert.",
-        "transform": {
-          "offset": { "x": 0.0, "y": -40.0 }
-        }
+        "anchor": "se"
       }
     }
   }
@@ -103,7 +92,7 @@ Fill mode zooms the overlay uniformly, which means we sometimes have to translat
 ```
 
 - `"plugin"` keeps every payload from the plugin in one rigid group (useful for single-widget overlays such as LandingPad).
-- `"id_prefix"` splits the plugin into named groups so unrelated widgets can move independently; each entry may also carry default overrides (`transform`, `x_scale`, `x_shift`) that apply only to that prefix.
+- `"id_prefix"` splits the plugin into named groups so unrelated widgets can move independently; each entry can define an anchor.
 - If a prefix isn’t listed, the renderer falls back to per-item grouping for that payload.
 
 ## Testing Your Overrides

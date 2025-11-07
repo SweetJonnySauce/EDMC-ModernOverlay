@@ -33,13 +33,7 @@
           "id_prefixes": [
             "bgstally-msg-colonisation-",
             "bgstally-frame-colonisation"
-          ],
-          "transform": {
-            "scale": {
-              "x": 1.0,
-              "y": 1.0
-            }
-          }
+          ]
         },
         "tick-notifications": {
           "id_prefixes": [
@@ -49,13 +43,7 @@
             "bgstally-msg-system_tick-0",
             "bgstally-msg-tickwarn-",
             "bgstally-frame-tickwarn"
-          ],
-          "transform": {
-            "scale": {
-              "x": 1.0,
-              "y": 1.0
-            }
-          }
+          ]
         }
       }
     }
@@ -78,17 +66,7 @@
           "id_prefixes": [
             "edr-docking-",
             "edr-docking-station-"
-          ],
-          "transform": {
-            "scale": {
-              "x": 1.0,
-              "y": 1.0
-            },
-            "offset": {
-              "x": 0,
-              "y": 0
-            }
-          }
+          ]
         },
         "bounty": {
           "id_prefixes": [

@@ -70,7 +70,7 @@ def test_grouping_mode_id_prefix(override_file: Path) -> None:
     assert fallback_key == ("Example", None)
 
 
-def test_grouping_prefix_defaults_apply(override_file: Path) -> None:
+def test_grouping_prefix_configuration_without_transform(override_file: Path) -> None:
     override_file.write_text(
         json.dumps(
             {
@@ -79,10 +79,7 @@ def test_grouping_prefix_defaults_apply(override_file: Path) -> None:
                         "mode": "id_prefix",
                         "prefixes": {
                             "alerts": {
-                                "prefix": "example.alert.",
-                                "transform": {
-                                    "offset": {"x": 5.0, "y": -10.0}
-                                }
+                                "prefix": "example.alert."
                             }
                         }
                     }
@@ -151,7 +148,7 @@ def test_group_is_configured_id_prefix(override_file: Path) -> None:
     assert manager.group_is_configured("Other", "alerts") is False
 
 
-def test_grouping_groups_block_applies_shared_transform(override_file: Path) -> None:
+def test_grouping_groups_block_configures_prefixes(override_file: Path) -> None:
     override_file.write_text(
         json.dumps(
             {
@@ -163,10 +160,7 @@ def test_grouping_groups_block_applies_shared_transform(override_file: Path) -> 
                                 "id_prefixes": [
                                     "edr-docking-",
                                     "edr-docking-station-"
-                                ],
-                                "transform": {
-                                    "offset": {"x": 0.0, "y": -100.0}
-                                }
+                                ]
                             }
                         }
                     }
