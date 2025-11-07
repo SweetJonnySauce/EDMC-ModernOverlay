@@ -2829,6 +2829,23 @@ class OverlayWindow(QWidget):
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(rect_left, rect_top, rect_width, rect_height)
+        anchor_overlay_x = transform.band_anchor_x * BASE_WIDTH
+        anchor_overlay_y = transform.band_anchor_y * BASE_HEIGHT
+        if (
+            math.isfinite(anchor_overlay_x)
+            and math.isfinite(anchor_overlay_y)
+        ):
+            anchor_px = fill.screen_x(anchor_overlay_x)
+            anchor_py = fill.screen_y(anchor_overlay_y)
+            if math.isfinite(anchor_px) and math.isfinite(anchor_py):
+                dot_radius = max(4, self._line_width("group_outline") * 2)
+                painter.setBrush(QColor(255, 255, 255))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawEllipse(
+                    QPoint(int(round(anchor_px)), int(round(anchor_py))),
+                    dot_radius,
+                    dot_radius,
+                )
         painter.restore()
     def _draw_item_bounds_outline(
         self,
