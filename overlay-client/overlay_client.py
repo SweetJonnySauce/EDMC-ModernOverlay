@@ -552,6 +552,35 @@ class OverlayWindow(QWidget):
         state = self._viewport_state()
         return build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
 
+    @staticmethod
+    def _group_anchor_point(transform: Optional[GroupTransform]) -> Optional[Tuple[float, float]]:
+        if transform is None:
+            return None
+        anchor_x = transform.band_anchor_x * BASE_WIDTH
+        anchor_y = transform.band_anchor_y * BASE_HEIGHT
+        if not (math.isfinite(anchor_x) and math.isfinite(anchor_y)):
+            return None
+        return anchor_x, anchor_y
+
+    @staticmethod
+    def _apply_inverse_group_scale(
+        value_x: float,
+        value_y: float,
+        anchor: Optional[Tuple[float, float]],
+        scale: float,
+    ) -> Tuple[float, float]:
+        if anchor is None:
+            return value_x, value_y
+        if not math.isfinite(scale) or math.isclose(scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
+            return value_x, value_y
+        if math.isclose(scale, 1.0, rel_tol=1e-9, abs_tol=1e-9):
+            return value_x, value_y
+        anchor_x, anchor_y = anchor
+        return (
+            anchor_x + (value_x - anchor_x) / scale,
+            anchor_y + (value_y - anchor_y) / scale,
+        )
+
     def _update_message_font(self) -> None:
         mapper = self._compute_legacy_mapper()
         state = self._viewport_state()
@@ -2565,6 +2594,7 @@ class OverlayWindow(QWidget):
         scaled_point_size = self._legacy_preset_point_size(size, state, mapper)
         fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
         scale = fill.scale
+        anchor_point = self._group_anchor_point(group_transform)
         base_offset_x = fill.base_offset_x
         base_offset_y = fill.base_offset_y
         transform_meta = item.get("__mo_transform__")
@@ -2577,6 +2607,7 @@ class OverlayWindow(QWidget):
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
         adjusted_left, adjusted_top = remap_point(fill, transform_meta, raw_left, raw_top)
+        adjusted_left, adjusted_top = self._apply_inverse_group_scale(adjusted_left, adjusted_top, anchor_point, scale)
         text = str(item.get("text", ""))
         x = int(round(fill.screen_x(adjusted_left)))
         metrics = painter.fontMetrics()
@@ -2658,6 +2689,13 @@ class OverlayWindow(QWidget):
                 },
             )
         transformed_overlay = remap_rect_points(fill, transform_meta, raw_x, raw_y, raw_w, raw_h)
+        anchor_point = self._group_anchor_point(group_transform)
+        if anchor_point is not None:
+            compensated: List[Tuple[float, float]] = []
+            for px, py in transformed_overlay:
+                comp_x, comp_y = self._apply_inverse_group_scale(px, py, anchor_point, scale)
+                compensated.append((comp_x, comp_y))
+            transformed_overlay = compensated
         xs_overlay = [pt[0] for pt in transformed_overlay]
         ys_overlay = [pt[1] for pt in transformed_overlay]
         min_x_overlay = min(xs_overlay)
@@ -2738,7 +2776,11 @@ class OverlayWindow(QWidget):
             )
         raw_points = item.get("points") or []
         transformed_points: List[Mapping[str, Any]] = []
-        for ox, oy, original_point in remap_vector_points(fill, transform_meta, raw_points):
+        remapped = remap_vector_points(fill, transform_meta, raw_points)
+        anchor_point = self._group_anchor_point(group_transform)
+        for ox, oy, original_point in remapped:
+            if anchor_point is not None:
+                ox, oy = self._apply_inverse_group_scale(ox, oy, anchor_point, scale)
             new_point = dict(original_point)
             new_point["x"] = ox
             new_point["y"] = oy
@@ -2809,6 +2851,9 @@ class OverlayWindow(QWidget):
         max_y = transform.bounds_max_y
         if not all(math.isfinite(value) for value in (min_x, max_x, min_y, max_y)):
             return
+        anchor_point = self._group_anchor_point(transform)
+        min_x, min_y = self._apply_inverse_group_scale(min_x, min_y, anchor_point, fill.scale)
+        max_x, max_y = self._apply_inverse_group_scale(max_x, max_y, anchor_point, fill.scale)
         left_px = fill.screen_x(min_x)
         right_px = fill.screen_x(max_x)
         top_px = fill.screen_y(min_y)

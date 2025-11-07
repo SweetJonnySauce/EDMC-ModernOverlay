@@ -45,6 +45,11 @@
   ],
   "payloads": [
     {
+      "name": "landingpad",
+      "source": "tests/landingpad.log",
+      "ttl": 6
+    },
+    {
       "name": "edr-bounty",
       "source": "tests/edr-bounty.log",
       "ttl": 6
