@@ -73,6 +73,7 @@ The current scaling flow is intentionally broken into Qt-aware and Qt-free layer
 
 1. **Window → ViewportTransform**  
    `OverlayWindow` samples the widget width/height and devicePixelRatioF, then calls `viewport_helper.compute_viewport_transform()`. That helper decides the Fit/Fill scale about logical `(0,0)` and returns the canvas offsets that center or pin the 1280×960 surface inside the window, along with `overflow_x/overflow_y`.
+   - In **Fill** mode the helper keeps the legacy origin anchored at the window’s `(0,0)` corner; overflow simply extends past the right/bottom edges so coordinate systems remain aligned with the physical window.
 
 2. **ViewportTransform → LegacyMapper**  
    We wrap just the uniform `scale_x/scale_y` and base `offset_x/offset_y` into a `LegacyMapper`. This struct carries the Qt-derived values to code that otherwise never touches Qt.

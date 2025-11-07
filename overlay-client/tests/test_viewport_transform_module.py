@@ -72,6 +72,18 @@ def test_build_viewport_fill_mode_respects_group_transform() -> None:
     assert fill.band_anchor_y == pytest.approx(group.band_anchor_y)
 
 
+def test_compute_viewport_transform_fill_mode_pins_origin() -> None:
+    narrower_width = BASE_WIDTH * 0.8
+    transform = compute_viewport_transform(narrower_width, BASE_HEIGHT, ScaleMode.FILL)
+    assert transform.offset[0] == pytest.approx(0.0)
+    assert transform.offset[1] == pytest.approx(0.0)
+
+    shorter_height = BASE_HEIGHT * 0.75
+    transform_y = compute_viewport_transform(BASE_WIDTH, shorter_height, ScaleMode.FILL)
+    assert transform_y.offset[0] == pytest.approx(0.0)
+    assert transform_y.offset[1] == pytest.approx(0.0)
+
+
 def test_legacy_scale_components_applies_device_ratio() -> None:
     mapper = _make_mapper(ScaleMode.FILL, BASE_WIDTH * 1.25, BASE_HEIGHT * 1.25)
     state = ViewportState(width=BASE_WIDTH, height=BASE_HEIGHT, device_ratio=1.5)

@@ -375,12 +375,10 @@ def main() -> None:
             scale = max(width_f / BASE_WIDTH, height_f / BASE_HEIGHT)
             scaled_w = BASE_WIDTH * scale
             scaled_h = BASE_HEIGHT * scale
-            trim_x = max(scaled_w - width_f, 0.0) / 2.0
-            trim_y = max(scaled_h - height_f, 0.0) / 2.0
             offset_x = 0.0
             offset_y = 0.0
-            base_offset_x = -trim_x
-            base_offset_y = -trim_y
+            base_offset_x = 0.0
+            base_offset_y = 0.0
         if scale <= 0:
             scale = 1.0
         transform_state["scale"] = scale
