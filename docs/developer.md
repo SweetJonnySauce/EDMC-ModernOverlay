@@ -69,8 +69,18 @@ Set `fill_group_debug` to `true` in `debug.json` to log per-payload coordinates 
 
 ## Transform Pipeline Overview
 
-- `overlay-client/payload_transform.py` houses the logical transform helpers. It applies payload metadata (`__mo_transform__`, when present) and group offsets to produce normalised legacy-space coordinates that everything else uses.
-- `overlay-client/grouping_helper.py` iterates the live payloads, calls the payload transform helpers to build `GroupTransform` entries, and caches them for the painters. No Qt types leak in here, which makes it unit-test friendly.
-- `FillViewport` in `overlay_client.py` handles the final step: mapping overlay coordinates to screen pixels for Fit/Fill modes, incorporating the group deltas supplied by the cache.
+The current scaling flow is intentionally broken into Qt-aware and Qt-free layers so we can reason about transforms everywhere (Fit, Fill, grouping) without leaking widget details:
 
-When adding new behaviour, prefer updating `payload_transform` first so grouping and rendering stay in sync, then layer any viewport-specific adjustments in `FillViewport`.
+1. **Window → ViewportTransform**  
+   `OverlayWindow` samples the widget width/height and devicePixelRatioF, then calls `viewport_helper.compute_viewport_transform()`. That helper decides the Fit/Fill scale about logical `(0,0)` and returns the canvas offsets that center or pin the 1280×960 surface inside the window, along with `overflow_x/overflow_y`.
+
+2. **ViewportTransform → LegacyMapper**  
+   We wrap just the uniform `scale_x/scale_y` and base `offset_x/offset_y` into a `LegacyMapper`. This struct carries the Qt-derived values to code that otherwise never touches Qt.
+
+3. **LegacyMapper → FillViewport**  
+   `viewport_transform.build_viewport()` receives the mapper, a plain `ViewportState` (width, height, device ratio), and any cached `GroupTransform`. It produces a `FillViewport` object that painters use to map logical coordinates to screen pixels, while preserving group anchors/metadata. This is the first place payload coordinates are evaluated after the base Fit/Fill scale.
+
+4. **FillViewport → payload remappers**  
+   `payload_transform.py` (messages/rectangles/vectors) consumes `FillViewport` to remap payload points, apply plugin overrides, and hand back overlay coordinates. `grouping_helper.py` iterates live payloads, accumulates `GroupTransform` bounds/anchors, and caches them for subsequent paint calls.
+
+When adding new behaviour, update `payload_transform` first so grouping and rendering stay in sync, then layer viewport-specific adjustments in `viewport_transform`. `OverlayWindow` should remain the only place that touches PyQt6 APIs.

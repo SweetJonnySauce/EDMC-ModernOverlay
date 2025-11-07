@@ -12,14 +12,7 @@ if str(OVERLAY_ROOT) not in sys.path:
 
 from group_transform import GroupTransform  # noqa: E402
 from viewport_helper import BASE_HEIGHT, BASE_WIDTH, ScaleMode, compute_viewport_transform  # noqa: E402
-from viewport_transform import (  # noqa: E402
-    LegacyMapper,
-    ViewportState,
-    build_viewport,
-    fill_overlay_delta,
-    legacy_scale_components,
-    scaled_point_size,
-)
+from viewport_transform import LegacyMapper, ViewportState, build_viewport, legacy_scale_components, scaled_point_size  # noqa: E402
 
 
 def _make_mapper(mode: ScaleMode, window_w: float, window_h: float) -> LegacyMapper:
@@ -41,10 +34,8 @@ def test_build_viewport_fit_mode_defaults() -> None:
 
     assert not fill.overflow_x
     assert not fill.overflow_y
-    assert fill.proportion_x == pytest.approx(1.0)
-    assert fill.proportion_y == pytest.approx(1.0)
-    assert fill.axis_x.fill_overlay_delta == pytest.approx(0.0)
-    assert fill.axis_y.fill_overlay_delta == pytest.approx(0.0)
+    assert fill.band_min_x == pytest.approx(0.0)
+    assert fill.band_min_y == pytest.approx(0.0)
 
 
 def test_build_viewport_fill_mode_respects_group_transform() -> None:
@@ -53,15 +44,6 @@ def test_build_viewport_fill_mode_respects_group_transform() -> None:
     mapper = _make_mapper(ScaleMode.FILL, window_w, window_h)
     state = ViewportState(width=window_w, height=window_h, device_ratio=1.0)
     group = GroupTransform(
-        dx=64.0,
-        dy=-32.0,
-        scale=0.75,
-        proportion_x=0.5,
-        proportion_y=1.0,
-        preserve_dx=12.0,
-        preserve_dy=-6.0,
-        raw_proportion_x=0.5,
-        raw_proportion_y=1.0,
         band_min_x=-10.0,
         band_max_x=20.0,
         band_min_y=-5.0,
@@ -70,20 +52,24 @@ def test_build_viewport_fill_mode_respects_group_transform() -> None:
         band_anchor_y=-3.0,
         band_clamped_x=True,
         band_clamped_y=False,
+        bounds_min_x=-10.0,
+        bounds_min_y=-5.0,
+        bounds_max_x=20.0,
+        bounds_max_y=15.0,
     )
 
     fill = build_viewport(mapper, state, group, BASE_WIDTH, BASE_HEIGHT)
 
     assert fill.overflow_y
     assert not fill.overflow_x
-    assert fill.proportion_x == pytest.approx(group.proportion_x)
-    assert fill.proportion_y == pytest.approx(group.proportion_y)
-    dx_overlay, dy_overlay = fill_overlay_delta(fill.scale, group)
-    assert fill.axis_x.fill_overlay_delta == pytest.approx(dx_overlay)
-    assert fill.axis_y.fill_overlay_delta == pytest.approx(dy_overlay)
-    assert fill.group_scale == pytest.approx(group.scale)
     assert fill.band_clamped_x is True
     assert fill.band_clamped_y is False
+    assert fill.band_min_x == pytest.approx(group.band_min_x)
+    assert fill.band_max_x == pytest.approx(group.band_max_x)
+    assert fill.band_min_y == pytest.approx(group.band_min_y)
+    assert fill.band_max_y == pytest.approx(group.band_max_y)
+    assert fill.band_anchor_x == pytest.approx(group.band_anchor_x)
+    assert fill.band_anchor_y == pytest.approx(group.band_anchor_y)
 
 
 def test_legacy_scale_components_applies_device_ratio() -> None:

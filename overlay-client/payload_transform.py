@@ -172,7 +172,6 @@ def accumulate_group_bounds(
     bounds: "GroupBounds",
     item: LegacyItem,
     scale: float,
-    group_scale_hint: float,
     font_family: str,
     preset_point_size: Callable[[str], float],
 ) -> None:
@@ -205,12 +204,8 @@ def accumulate_group_bounds(
             scale_block = transform_meta.get("scale") if isinstance(transform_meta, Mapping) else None
             scale_x_meta = _safe_float(scale_block.get("x"), 1.0) if isinstance(scale_block, Mapping) else 1.0
             scale_y_meta = _safe_float(scale_block.get("y"), 1.0) if isinstance(scale_block, Mapping) else 1.0
-            if not math.isfinite(group_scale_hint) or math.isclose(group_scale_hint, 0.0, rel_tol=1e-9, abs_tol=1e-9):
-                group_scale_hint = 1.0
-            effective_scale_x = scale * group_scale_hint
-            effective_scale_y = scale * group_scale_hint
-            width_logical = (text_width_px * scale_x_meta) / effective_scale_x
-            line_height_logical = (line_height_px * scale_y_meta) / effective_scale_y
+            width_logical = (text_width_px * scale_x_meta) / scale
+            line_height_logical = (line_height_px * scale_y_meta) / scale
             adj_x, adj_y = transform_point(x_val, y_val)
             bounds.update_rect(
                 adj_x,
