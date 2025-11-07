@@ -454,6 +454,21 @@ def main() -> None:
                 width=2,
                 tags=("crosshair", "crosshair-vertical"),
             )
+            label_offset = 8
+            label_x = x_pos + label_offset
+            label_anchor = "nw"
+            if label_x > width - 20:
+                label_x = x_pos - label_offset
+                label_anchor = "ne"
+            overlay.create_text(
+                label_x,
+                18,
+                text=f"x={x_overlay:.1f}",
+                fill="#FF8800",
+                font=("Helvetica", 12, "bold"),
+                anchor=label_anchor,
+                tags=("crosshair", "crosshair-vertical", "crosshair-label"),
+            )
 
         if args.crosshair_y is not None:
             y_overlay = max(0.0, min(100.0, float(args.crosshair_y))) / 100.0 * BASE_HEIGHT
@@ -468,6 +483,21 @@ def main() -> None:
                 dash=(6, 4),
                 width=2,
                 tags=("crosshair", "crosshair-horizontal"),
+            )
+            label_offset = 8
+            label_y = y_pos - label_offset
+            label_anchor = "w"
+            if label_y < 20:
+                label_y = y_pos + label_offset
+                label_anchor = "w"
+            overlay.create_text(
+                12,
+                label_y,
+                text=f"y={y_overlay:.1f}",
+                fill="#FF8800",
+                font=("Helvetica", 12, "bold"),
+                anchor=label_anchor,
+                tags=("crosshair", "crosshair-horizontal", "crosshair-label"),
             )
 
         overlay.tag_raise("crosshair")

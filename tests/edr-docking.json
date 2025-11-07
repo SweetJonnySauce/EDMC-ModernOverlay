@@ -2,8 +2,8 @@
     "settings": {
         "window_wait_seconds": 2,
         "wait_between_payload_tests": 1000,
-        "crosshair_x_percent": 72.03125,
-        "crosshair_y_percent": 37.5
+        "crosshair_x_percent": 71.875,
+        "crosshair_y_percent": 34.375
     },
     "resolutions": [
         {
