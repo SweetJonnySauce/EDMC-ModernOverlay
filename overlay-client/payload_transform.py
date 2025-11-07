@@ -7,9 +7,61 @@ from typing import Any, Callable, Iterable, List, Mapping, Optional, Sequence, T
 from PyQt6.QtGui import QFont, QFontMetrics
 
 from legacy_store import LegacyItem
+from viewport_helper import BASE_HEIGHT, BASE_WIDTH
 
 if TYPE_CHECKING:  # pragma: no cover
     from overlay_client import FillViewport
+
+
+class PayloadAxisContext:
+    __slots__ = ("overflow", "min_bound", "max_bound")
+
+    def __init__(self, overflow: bool, min_bound: float, max_bound: float) -> None:
+        self.overflow = overflow
+        self.min_bound = min_bound
+        self.max_bound = max_bound
+
+
+class PayloadTransformContext:
+    __slots__ = ("axis_x", "axis_y")
+
+    def __init__(self, axis_x: PayloadAxisContext, axis_y: PayloadAxisContext) -> None:
+        self.axis_x = axis_x
+        self.axis_y = axis_y
+
+
+def build_payload_transform_context(fill: "FillViewport") -> PayloadTransformContext:
+    axis_x = PayloadAxisContext(
+        overflow=fill.overflow_x,
+        min_bound=0.0,
+        max_bound=BASE_WIDTH,
+    )
+    axis_y = PayloadAxisContext(
+        overflow=fill.overflow_y,
+        min_bound=0.0,
+        max_bound=BASE_HEIGHT,
+    )
+    return PayloadTransformContext(axis_x=axis_x, axis_y=axis_y)
+
+
+def _clamp_axis(value: float, axis: PayloadAxisContext) -> float:
+    if axis.overflow:
+        return value
+    if value < axis.min_bound:
+        return axis.min_bound
+    if value > axis.max_bound:
+        return axis.max_bound
+    return value
+
+
+def _clamp_axis(value: float, axis: PayloadAxisContext) -> float:
+    if axis.overflow:
+        return value
+    if value < axis.min_bound:
+        return axis.min_bound
+    if value > axis.max_bound:
+        return axis.max_bound
+    return value
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -113,9 +165,10 @@ def remap_point(
     transform_meta: Optional[Mapping[str, Any]],
     raw_x: float,
     raw_y: float,
+    context: Optional[PayloadTransformContext] = None,
 ) -> Tuple[float, float]:
     pivot_x, pivot_y, scale_x_meta, scale_y_meta, offset_x_meta, offset_y_meta = transform_components(transform_meta)
-    return fill.remap_point(
+    point = fill.remap_point(
         raw_x,
         raw_y,
         pivot_x,
@@ -125,6 +178,11 @@ def remap_point(
         offset_x_meta,
         offset_y_meta,
     )
+    if context is None:
+        return point
+    clamped_x = _clamp_axis(point[0], context.axis_x)
+    clamped_y = _clamp_axis(point[1], context.axis_y)
+    return clamped_x, clamped_y
 
 
 def remap_rect_points(
@@ -134,6 +192,7 @@ def remap_rect_points(
     raw_y: float,
     raw_w: float,
     raw_h: float,
+    context: Optional[PayloadTransformContext] = None,
 ) -> List[Tuple[float, float]]:
     pivot_x, pivot_y, scale_x_meta, scale_y_meta, offset_x_meta, offset_y_meta = transform_components(transform_meta)
     mapper_x = fill.overlay_mapper_x(pivot_x, scale_x_meta, offset_x_meta)
@@ -144,13 +203,17 @@ def remap_rect_points(
         (raw_x, raw_y + raw_h),
         (raw_x + raw_w, raw_y + raw_h),
     ]
-    return [(mapper_x(cx), mapper_y(cy)) for cx, cy in corners]
+    points = [(mapper_x(cx), mapper_y(cy)) for cx, cy in corners]
+    if context is None:
+        return points
+    return [(_clamp_axis(px, context.axis_x), _clamp_axis(py, context.axis_y)) for px, py in points]
 
 
 def remap_vector_points(
     fill: "FillViewport",
     transform_meta: Optional[Mapping[str, Any]],
     points: Sequence[Mapping[str, Any]],
+    context: Optional[PayloadTransformContext] = None,
 ) -> List[Tuple[float, float, Mapping[str, Any]]]:
     pivot_x, pivot_y, scale_x_meta, scale_y_meta, offset_x_meta, offset_y_meta = transform_components(transform_meta)
     mapper_x = fill.overlay_mapper_x(pivot_x, scale_x_meta, offset_x_meta)
@@ -164,7 +227,12 @@ def remap_vector_points(
             py = float(point.get("y", 0.0))
         except (TypeError, ValueError):
             continue
-        resolved.append((mapper_x(px), mapper_y(py), point))
+        mapped_x = mapper_x(px)
+        mapped_y = mapper_y(py)
+        if context is not None:
+            mapped_x = _clamp_axis(mapped_x, context.axis_x)
+            mapped_y = _clamp_axis(mapped_y, context.axis_y)
+        resolved.append((mapped_x, mapped_y, point))
     return resolved
 
 

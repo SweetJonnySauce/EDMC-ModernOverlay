@@ -67,6 +67,7 @@ from grouping_helper import FillGroupingHelper  # type: ignore  # noqa: E402
 from group_transform import GroupBounds  # type: ignore  # noqa: E402
 from payload_transform import (
     accumulate_group_bounds,
+    build_payload_transform_context,
     remap_point,
     remap_rect_points,
     remap_vector_points,
@@ -1127,6 +1128,9 @@ class OverlayWindow(QWidget):
 
         state = self._viewport_state()
         fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
+        transform_context = build_payload_transform_context(fill)
+        transform_context = build_payload_transform_context(fill)
+        transform_context = build_payload_transform_context(fill)
         scale_value = fill.scale
 
         if mapper.transform.mode is ScaleMode.FILL:
@@ -2593,6 +2597,7 @@ class OverlayWindow(QWidget):
         state = self._viewport_state()
         scaled_point_size = self._legacy_preset_point_size(size, state, mapper)
         fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
+        transform_context = build_payload_transform_context(fill)
         scale = fill.scale
         anchor_point = self._group_anchor_point(group_transform)
         base_offset_x = fill.base_offset_x
@@ -2606,7 +2611,7 @@ class OverlayWindow(QWidget):
         painter.setFont(font)
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
-        adjusted_left, adjusted_top = remap_point(fill, transform_meta, raw_left, raw_top)
+        adjusted_left, adjusted_top = remap_point(fill, transform_meta, raw_left, raw_top, context=transform_context)
         adjusted_left, adjusted_top = self._apply_inverse_group_scale(adjusted_left, adjusted_top, anchor_point, scale)
         text = str(item.get("text", ""))
         x = int(round(fill.screen_x(adjusted_left)))
@@ -2663,6 +2668,7 @@ class OverlayWindow(QWidget):
         painter.setBrush(brush)
         state = self._viewport_state()
         fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
+        transform_context = build_payload_transform_context(fill)
         scale = fill.scale
         base_offset_x = fill.base_offset_x
         base_offset_y = fill.base_offset_y
@@ -2688,7 +2694,7 @@ class OverlayWindow(QWidget):
                     "mode": mapper.transform.mode.value,
                 },
             )
-        transformed_overlay = remap_rect_points(fill, transform_meta, raw_x, raw_y, raw_w, raw_h)
+        transformed_overlay = remap_rect_points(fill, transform_meta, raw_x, raw_y, raw_w, raw_h, context=transform_context)
         anchor_point = self._group_anchor_point(group_transform)
         if anchor_point is not None:
             compensated: List[Tuple[float, float]] = []
@@ -2752,6 +2758,7 @@ class OverlayWindow(QWidget):
         adapter = _QtVectorPainterAdapter(self, painter)
         state = self._viewport_state()
         fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
+        transform_context = build_payload_transform_context(fill)
         scale = fill.scale
         base_offset_x = fill.base_offset_x
         base_offset_y = fill.base_offset_y
@@ -2776,7 +2783,7 @@ class OverlayWindow(QWidget):
             )
         raw_points = item.get("points") or []
         transformed_points: List[Mapping[str, Any]] = []
-        remapped = remap_vector_points(fill, transform_meta, raw_points)
+        remapped = remap_vector_points(fill, transform_meta, raw_points, context=transform_context)
         anchor_point = self._group_anchor_point(group_transform)
         for ox, oy, original_point in remapped:
             if anchor_point is not None:
