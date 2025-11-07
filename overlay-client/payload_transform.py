@@ -54,6 +54,10 @@ def _clamp_axis(value: float, axis: PayloadAxisContext) -> float:
     return value
 
 
+def remap_axis_value(value: float, axis: PayloadAxisContext) -> float:
+    return _clamp_axis(value, axis)
+
+
 def _clamp_axis(value: float, axis: PayloadAxisContext) -> float:
     if axis.overflow:
         return value
@@ -357,6 +361,7 @@ __all__ = [
     "accumulate_group_bounds",
     "determine_group_anchor",
     "logical_mapping",
+    "remap_axis_value",
     "remap_point",
     "remap_rect_points",
     "remap_vector_points",

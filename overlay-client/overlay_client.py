@@ -68,6 +68,7 @@ from group_transform import GroupBounds  # type: ignore  # noqa: E402
 from payload_transform import (
     accumulate_group_bounds,
     build_payload_transform_context,
+    remap_axis_value,
     remap_point,
     remap_rect_points,
     remap_vector_points,
@@ -2851,7 +2852,9 @@ class OverlayWindow(QWidget):
         mapper: LegacyMapper,
         transform: GroupTransform,
     ) -> None:
-        fill = self._build_fill_viewport(mapper, transform)
+        state = self._viewport_state()
+        fill = build_viewport(mapper, state, transform, BASE_WIDTH, BASE_HEIGHT)
+        transform_context = build_payload_transform_context(fill)
         min_x = transform.bounds_min_x
         max_x = transform.bounds_max_x
         min_y = transform.bounds_min_y
@@ -2883,6 +2886,9 @@ class OverlayWindow(QWidget):
         painter.drawRect(rect_left, rect_top, rect_width, rect_height)
         anchor_overlay_x = transform.band_anchor_x * BASE_WIDTH
         anchor_overlay_y = transform.band_anchor_y * BASE_HEIGHT
+        anchor_overlay_x = remap_axis_value(anchor_overlay_x, transform_context.axis_x)
+        anchor_overlay_y = remap_axis_value(anchor_overlay_y, transform_context.axis_y)
+        anchor_overlay_x, anchor_overlay_y = self._apply_inverse_group_scale(anchor_overlay_x, anchor_overlay_y, anchor_point, fill.scale)
         if (
             math.isfinite(anchor_overlay_x)
             and math.isfinite(anchor_overlay_y)
@@ -2893,11 +2899,26 @@ class OverlayWindow(QWidget):
                 dot_radius = max(4, self._line_width("group_outline") * 2)
                 painter.setBrush(QColor(255, 255, 255))
                 painter.setPen(Qt.PenStyle.NoPen)
+                anchor_point_qt = QPoint(int(round(anchor_px)), int(round(anchor_py)))
                 painter.drawEllipse(
-                    QPoint(int(round(anchor_px)), int(round(anchor_py))),
+                    anchor_point_qt,
                     dot_radius,
                     dot_radius,
                 )
+                painter.setPen(QColor(255, 255, 255))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                text = "({:.1f}, {:.1f})".format(anchor_overlay_x, anchor_overlay_y)
+                metrics = painter.fontMetrics()
+                text_rect = metrics.boundingRect(text)
+                offset_x = dot_radius + 6
+                offset_y = -dot_radius - 6
+                label_x = anchor_point_qt.x() + offset_x
+                label_y = anchor_point_qt.y() + offset_y
+                if label_x + text_rect.width() > fill.visible_width:
+                    label_x = anchor_point_qt.x() - offset_x - text_rect.width()
+                if label_y - text_rect.height() < 0:
+                    label_y = anchor_point_qt.y() + offset_y + text_rect.height()
+                painter.drawText(label_x, label_y, text)
         painter.restore()
     def _draw_item_bounds_outline(
         self,
