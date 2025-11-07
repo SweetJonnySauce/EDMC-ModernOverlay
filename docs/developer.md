@@ -80,6 +80,7 @@ The current scaling flow is intentionally broken into Qt-aware and Qt-free layer
 
 3. **LegacyMapper → FillViewport**  
    `viewport_transform.build_viewport()` receives the mapper, a plain `ViewportState` (width, height, device ratio), and any cached `GroupTransform`. It produces a `FillViewport` object that painters use to map logical coordinates to screen pixels, while preserving group anchors/metadata. This is the first place payload coordinates are evaluated after the base Fit/Fill scale.
+   - When the mapper is in Fill mode we cache each group’s anchor so the renderer can “undo” the Fill scale around that pivot, keeping grouped payloads at their original logical size even though the viewport itself was scaled up.
 
 4. **FillViewport → payload remappers**  
    `payload_transform.py` (messages/rectangles/vectors) consumes `FillViewport` to remap payload points, apply plugin overrides, and hand back overlay coordinates. `grouping_helper.py` iterates live payloads, accumulates `GroupTransform` bounds/anchors, and caches them for subsequent paint calls.
