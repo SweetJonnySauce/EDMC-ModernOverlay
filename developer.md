@@ -1,5 +1,23 @@
 # Developer Notes
 
+## Development Tips
+
+- VS Code launch configurations exist for the overlay client and the standalone broadcast server harness.
+- Plugin-side logs route through EDMC when `config.log` is present; otherwise they fall back to stdout. The overlay client writes to `logs/EDMC-ModernOverlay/overlay-client.log`.
+- Background tasks run on daemon threads so EDMC can exit cleanly even if the overlay client is still doing work.
+- When testing the window-follow path, toggle the developer debug overlay (Shift+F10 by default) to inspect monitor, overlay, and font metrics. The status label now only reports the connection banner and window position so it never changes the overlay geometry.
+
+## Versioning
+
+- The release number lives in `version.py` (`__version__`). Bump it before tagging so EDMC, the overlay client, and API consumers remain in sync.
+- `load.py` exposes that version via EDMC metadata fields and records it in `port.json` next to the broadcast port.
+- The overlay client shows the running version in the “Connected to …” banner, making it easy to confirm which build is active.
+
+## Tests
+
+- Lightweight regression scenarios live in `overlay-client/tests`. `test_geometry_override.py` covers window-manager override classification, including fractional window sizes that previously caused geometry thrash.
+- Install `pytest` in the client virtualenv and run `python -m pytest overlay-client/tests` to execute the suite.
+
 ## Payload ID Finder Overlay
 
 Modern Overlay includes a developer-facing “payload ID finder” that helps trace which legacy payload is currently targeted. When you enable **Cycle through Payload IDs** in the preferences, the overlay shows a floating badge containing:
@@ -19,7 +37,7 @@ This is particularly useful when capturing coordinates or validating grouping be
 - Enable “Copy current payload ID to clipboard” if you want each ID handed to the clipboard automatically while stepping through items. The checkbox is automatically disabled (but keeps its state) whenever cycling itself is turned off, then becomes active again when cycling is re-enabled.
 - The connector line from the badge points toward the payload’s anchor point, helping locate overlapping elements quickly.
 - Plugin names and coordinates rely on the metadata provided by each payload; if a plugin does not populate `plugin` fields, the finder falls back to `unknown`.
-- The transform breakdown is listed in the same order the renderer applies it:
+- The transform breakdown is listed in the order the renderer applies it:
   1. **Fill scale** shows the raw X/Y proportions computed for Fill mode along with the effective values after aspect preservation (`raw → applied`). Fill mode scales by the larger of the window’s horizontal/vertical ratios so the 1280×960 legacy canvas covers the window completely; one axis therefore overflows and requires proportional remapping. (Fit mode, by contrast, uses the smaller ratio so the entire canvas remains inside the window.)
   2. **Fill preserve shift** appears when a group is preserving aspect; it reports the group-wide translation we inject to avoid squashing.
   3. **Fill translation** is the per-group dx/dy derived from bounds that keeps the payload inside the window (assertion #7).
