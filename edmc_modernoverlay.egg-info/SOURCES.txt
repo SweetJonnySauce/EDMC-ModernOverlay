@@ -16,6 +16,7 @@ overlay_plugin/overlay_watchdog.py
 overlay_plugin/preferences.py
 tests/configure_pytest_environment.py
 utils/mock_elite_window.py
+utils/plugin_group_manager.py
 tests/run_resolution_tests.py
 tests/send_overlay_from_log.py
 tests/send_overlay_shape.py
