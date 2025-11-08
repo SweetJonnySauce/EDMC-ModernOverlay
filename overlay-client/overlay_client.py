@@ -2482,11 +2482,10 @@ class OverlayWindow(QWidget):
         plugin_name = self._extract_plugin_name(payload)
         message_id = str(payload.get("id") or "")
         self._override_manager.apply(payload)
-        if not payload.get("plugin"):
-            inferred = self._override_manager.infer_plugin_name(payload)
-            if inferred:
-                payload["plugin"] = inferred
-                plugin_name = inferred
+        inferred = self._override_manager.infer_plugin_name(payload)
+        if inferred:
+            payload["plugin"] = inferred
+            plugin_name = inferred
         else:
             plugin_name = self._extract_plugin_name(payload)
         trace_enabled = self._should_trace_payload(plugin_name, message_id)

@@ -344,6 +344,17 @@ class PluginOverrideManager:
         config = self._plugins.get(canonical)
         return config.name if config else canonical
 
+    def _config_for_payload_id(self, payload_id: str) -> Optional[_PluginConfig]:
+        if not isinstance(payload_id, str) or not payload_id:
+            return None
+        payload_cf = payload_id.casefold()
+        for config in self._plugins.values():
+            if not config.match_id_prefixes:
+                continue
+            if any(payload_cf.startswith(prefix) for prefix in config.match_id_prefixes):
+                return config
+        return None
+
     def _determine_plugin_name(self, payload: Mapping[str, Any]) -> Optional[str]:
         for key in ("plugin", "plugin_name", "source_plugin"):
             value = payload.get(key)
@@ -404,22 +415,35 @@ class PluginOverrideManager:
 
     def grouping_key_for(self, plugin: Optional[str], payload_id: Optional[str]) -> Optional[Tuple[str, Optional[str]]]:
         self._reload_if_needed()
+        config: Optional[_PluginConfig] = None
+        plugin_label: Optional[str] = None
+
         canonical = self._canonical_plugin_name(plugin)
-        if canonical is None:
+        if canonical is not None:
+            config = self._plugins.get(canonical)
+            if config is not None:
+                plugin_label = config.name
+
+        if config is None and isinstance(payload_id, str) and payload_id:
+            config = self._config_for_payload_id(payload_id)
+            if config is not None:
+                plugin_label = config.name
+
+        if config is None or not config.group_mode or plugin_label is None:
             return None
-        config = self._plugins.get(canonical)
-        if config is None or not config.group_mode:
-            return None
+
         mode = config.group_mode
         if mode == "plugin":
-            return config.name, None
+            return plugin_label, None
+
         if mode == "id_prefix" and isinstance(payload_id, str) and payload_id:
             payload_cf = payload_id.casefold()
             for spec in config.group_specs:
                 if any(payload_cf.startswith(prefix) for prefix in spec.prefixes):
                     label_value = spec.label or (spec.prefixes[0] if spec.prefixes else None)
-                    return config.name, label_value
-            return config.name, None
+                    return plugin_label, label_value
+            return plugin_label, None
+
         return None
 
     def group_is_configured(self, plugin: Optional[str], suffix: Optional[str]) -> bool:

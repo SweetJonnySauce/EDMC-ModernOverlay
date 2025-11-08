@@ -240,10 +240,37 @@ def remap_vector_points(
     return resolved
 
 
+def _measure_text_block(metrics: QFontMetrics, text_value: str) -> Tuple[int, int]:
+    """Return the pixel width/height of a potentially multi-line text block."""
+    if metrics is None:
+        return 0, 0
+    normalised = (
+        str(text_value)
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+    )
+    lines = normalised.split("\n")
+    if not lines:
+        lines = [""]
+    max_width = 0
+    for line in lines:
+        try:
+            advance = metrics.horizontalAdvance(line)
+        except Exception:
+            advance = 0
+        if advance > max_width:
+            max_width = advance
+    line_spacing = max(metrics.lineSpacing(), metrics.height(), 0)
+    if line_spacing <= 0:
+        line_spacing = 0
+    total_height = line_spacing * max(1, len(lines))
+    return max(0, max_width), max(0, total_height)
+
+
 def accumulate_group_bounds(
     bounds: "GroupBounds",
     item: LegacyItem,
-    scale: float,
+    pixels_per_overlay_unit: float,
     font_family: str,
     preset_point_size: Callable[[str], float],
 ) -> None:
@@ -260,8 +287,8 @@ def accumulate_group_bounds(
         return apply_transform_meta_to_point(transform_meta, x_val, y_val)
 
     kind = item.kind
-    if scale <= 0.0:
-        scale = 1.0
+    if pixels_per_overlay_unit <= 0.0 or not math.isfinite(pixels_per_overlay_unit):
+        pixels_per_overlay_unit = 1.0
     try:
         if kind == "message":
             x_val = float(logical.get("x", data.get("x", 0.0)))
@@ -271,19 +298,22 @@ def accumulate_group_bounds(
             font.setPointSizeF(preset_point_size(size_label))
             metrics = QFontMetrics(font)
             text_value = str(data.get("text", ""))
-            text_width_px = max(metrics.horizontalAdvance(text_value), 0)
-            line_height_px = max(metrics.height(), 0)
-            scale_block = transform_meta.get("scale") if isinstance(transform_meta, Mapping) else None
-            scale_x_meta = _safe_float(scale_block.get("x"), 1.0) if isinstance(scale_block, Mapping) else 1.0
-            scale_y_meta = _safe_float(scale_block.get("y"), 1.0) if isinstance(scale_block, Mapping) else 1.0
-            width_logical = (text_width_px * scale_x_meta) / scale
-            line_height_logical = (line_height_px * scale_y_meta) / scale
+            text_width_px, block_height_px = _measure_text_block(metrics, text_value)
+            if text_width_px <= 0 and text_value:
+                try:
+                    text_width_px = max(metrics.averageCharWidth() * len(text_value), 0)
+                except Exception:
+                    text_width_px = 0
+            if block_height_px <= 0 and text_value:
+                block_height_px = metrics.height()
+            width_logical = max(0.0, text_width_px / pixels_per_overlay_unit)
+            height_logical = max(0.0, block_height_px / pixels_per_overlay_unit)
             adj_x, adj_y = transform_point(x_val, y_val)
             bounds.update_rect(
                 adj_x,
                 adj_y,
-                adj_x + max(0.0, width_logical),
-                adj_y + max(0.0, line_height_logical),
+                adj_x + width_logical,
+                adj_y + height_logical,
             )
         elif kind == "rect":
             x_val = float(logical.get("x", data.get("x", 0.0)))

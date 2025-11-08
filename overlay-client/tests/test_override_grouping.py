@@ -193,6 +193,37 @@ def test_grouping_groups_block_configures_prefixes(override_file: Path) -> None:
     assert grouping_key_station == ("EDR", "docking")
 
 
+def test_grouping_key_infers_plugin_when_missing_plugin_name(override_file: Path) -> None:
+    override_file.write_text(
+        json.dumps(
+            {
+                "EDR": {
+                    "__match__": {
+                        "id_prefixes": ["edr-"]
+                    },
+                    "grouping": {
+                        "mode": "id_prefix",
+                        "groups": {
+                            "docking": {
+                                "id_prefixes": [
+                                    "edr-docking-",
+                                    "edr-docking-station-"
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = _make_manager(override_file)
+
+    inferred_key = manager.grouping_key_for(None, "edr-docking-foo")
+
+    assert inferred_key == ("EDR", "docking")
+
+
 def test_group_anchor_selection(override_file: Path) -> None:
     override_file.write_text(
         json.dumps(

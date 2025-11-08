@@ -37,9 +37,10 @@ class FillGroupingHelper:
         self._cache.reset()
         if mapper.transform.mode is not ScaleMode.FILL:
             return
-        scale = mapper.transform.scale
-        if scale <= 0.0:
-            scale = 1.0
+        # Fill mode keeps grouped geometry at the original logical size by
+        # counter-scaling around the anchor, so one overlay unit maps to one
+        # on-screen pixel regardless of the viewport scale.
+        pixel_scale = 1.0
         state = self._owner._viewport_state()
 
         def preset_point_size(label: str) -> float:
@@ -53,7 +54,7 @@ class FillGroupingHelper:
             accumulate_group_bounds(
                 bounds,
                 legacy_item,
-                scale,
+                pixel_scale,
                 self._owner._font_family,
                 preset_point_size,
             )
