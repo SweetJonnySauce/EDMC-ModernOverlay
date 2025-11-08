@@ -8,13 +8,13 @@
     "pad-"
   ],
   "payload_logging": {
-    "overlay_payload_log_enabled": false
+    "overlay_payload_log_enabled": true,
     "exclude_plugins": [
       "bgstally",
       "bioscan"
     ]
   },
-  "fill_group_debug": false,
-  "overlay_outline": false,
-  "group_bounds_outline": false
+  "fill_group_debug": true,
+  "overlay_outline": true,
+  "group_bounds_outline": true
 }

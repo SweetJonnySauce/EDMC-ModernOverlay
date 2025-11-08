@@ -42,9 +42,10 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 try:  # pragma: no cover - defensive fallback when running standalone
-    from version import __version__ as MODERN_OVERLAY_VERSION
+    from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR
 except Exception:  # pragma: no cover - fallback when module unavailable
     MODERN_OVERLAY_VERSION = "unknown"
+    DEV_MODE_ENV_VAR = "MODERN_OVERLAY_DEV_MODE"
 
 from client_config import InitialClientSettings, load_initial_settings  # type: ignore  # noqa: E402
 from developer_helpers import DeveloperHelperController  # type: ignore  # noqa: E402
@@ -54,7 +55,7 @@ from legacy_store import LegacyItem, LegacyItemStore  # type: ignore  # noqa: E4
 from legacy_processor import TraceCallback, process_legacy_payload  # type: ignore  # noqa: E402
 from vector_renderer import render_vector, VectorPainterAdapter  # type: ignore  # noqa: E402
 from plugin_overrides import PluginOverrideManager  # type: ignore  # noqa: E402
-from debug_config import DebugConfig, load_debug_config  # type: ignore  # noqa: E402
+from debug_config import DEBUG_CONFIG_ENABLED, DebugConfig, load_debug_config  # type: ignore  # noqa: E402
 from group_transform import GroupTransform  # type: ignore  # noqa: E402
 from viewport_helper import (
     BASE_HEIGHT,
@@ -3498,6 +3499,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     initial_settings = load_initial_settings(settings_path)
     debug_config_path = (CLIENT_DIR.parent / "debug.json").resolve()
     debug_config = load_debug_config(debug_config_path)
+    if not DEBUG_CONFIG_ENABLED:
+        _CLIENT_LOGGER.debug(
+            "debug.json ignored (release mode). Export %s=1 or use a -dev version to enable trace toggles.",
+            DEV_MODE_ENV_VAR,
+        )
     helper = DeveloperHelperController(_CLIENT_LOGGER, CLIENT_DIR, initial_settings)
 
     _CLIENT_LOGGER.info("Starting overlay client (pid=%s)", os.getpid())

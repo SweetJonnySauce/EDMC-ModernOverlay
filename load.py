@@ -251,6 +251,7 @@ class _PluginRuntime:
         self._payload_filter_mtime: Optional[float] = None
         self._payload_filter_excludes: Set[str] = set()
         self._payload_logging_enabled: bool = False
+        self._debug_config_notice_logged = False
         self._load_payload_debug_config(force=True)
         self._configure_payload_logger()
 
@@ -429,6 +430,18 @@ class _PluginRuntime:
         return plugin_root
 
     def _load_payload_debug_config(self, *, force: bool = False) -> None:
+        if not DEV_BUILD:
+            if force or self._payload_filter_excludes or self._payload_logging_enabled or self._payload_filter_mtime is not None:
+                self._payload_filter_excludes = set()
+                self._payload_logging_enabled = False
+                self._payload_filter_mtime = None
+            if force and not self._debug_config_notice_logged:
+                LOGGER.debug(
+                    "Ignoring debug.json overrides because dev mode is disabled. Set %s=1 or use a -dev build to enable developer payload logging.",
+                    DEV_MODE_ENV_VAR,
+                )
+                self._debug_config_notice_logged = True
+            return
         try:
             stat = self._payload_filter_path.stat()
         except FileNotFoundError:

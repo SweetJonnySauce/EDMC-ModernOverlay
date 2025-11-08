@@ -3,9 +3,30 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+try:  # pragma: no cover - overlay client may run without package metadata
+    from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR, is_dev_build
+except Exception:  # pragma: no cover - fallback when version module unavailable
+    MODERN_OVERLAY_VERSION = None
+    DEV_MODE_ENV_VAR = "MODERN_OVERLAY_DEV_MODE"
+
+    def is_dev_build(version: Optional[str] = None) -> bool:
+        value = os.getenv(DEV_MODE_ENV_VAR)
+        if value is None:
+            return False
+        token = value.strip().lower()
+        if token in {"1", "true", "yes", "on"}:
+            return True
+        if token in {"0", "false", "no", "off"}:
+            return False
+        return False
+
+
+DEBUG_CONFIG_ENABLED = is_dev_build(MODERN_OVERLAY_VERSION)
 
 
 @dataclass(frozen=True)
@@ -19,6 +40,8 @@ class DebugConfig:
 
 
 def load_debug_config(path: Path) -> DebugConfig:
+    if not DEBUG_CONFIG_ENABLED:
+        return DebugConfig()
     try:
         raw_text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
