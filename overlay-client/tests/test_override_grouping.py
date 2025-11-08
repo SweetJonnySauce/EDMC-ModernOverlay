@@ -16,7 +16,7 @@ from plugin_overrides import PluginOverrideManager  # noqa: E402
 
 @pytest.fixture()
 def override_file(tmp_path: Path) -> Path:
-    return tmp_path / "plugin_overrides.json"
+    return tmp_path / "overlay_groupings.json"
 
 
 def _make_manager(config_path: Path) -> PluginOverrideManager:

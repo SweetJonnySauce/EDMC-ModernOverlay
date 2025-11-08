@@ -1,6 +1,6 @@
 # Plugin Override Developer Guide
 
-Modern Overlay keeps plugin-specific quirks in `plugin_overrides.json` at the repository root. The override engine runs exclusively inside the overlay client (`overlay-client/plugin_overrides.py`) so third-party plugins do not need to ship different payload formats. Today the engine focuses on two things:
+Modern Overlay keeps plugin-specific quirks in `overlay_groupings.json` at the repository root. The override engine runs exclusively inside the overlay client (`overlay-client/plugin_overrides.py`) so third-party plugins do not need to ship different payload formats. Today the engine focuses on two things:
 
 - Identifying payloads even when the plugin name is missing.
 - Declaring grouping/anchor metadata so Fill mode can keep related payloads rigid.

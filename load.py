@@ -1055,7 +1055,7 @@ class _PluginRuntime:
         self.broadcaster.publish(dict(message))
 
     def _load_plugin_prefix_map(self) -> Dict[str, str]:
-        config_path = self.plugin_dir / "plugin_overrides.json"
+        config_path = self.plugin_dir / "overlay_groupings.json"
         try:
             raw_text = config_path.read_text(encoding="utf-8")
         except FileNotFoundError:

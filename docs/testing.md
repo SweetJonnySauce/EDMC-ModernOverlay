@@ -9,7 +9,7 @@ This guide documents the automated suites and manual spot checks that keep the F
 | Viewport helper | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_viewport_helper.py` | Verifies that `compute_viewport_transform()` reports the correct scales, offsets, and overflow flags for 4:3, 16:9, 21:9, and portrait windows. |
 | Viewport transform | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_viewport_transform_module.py` | Exercises `build_viewport()`, proportional translations, and scaled font helpers to ensure Fill remapping math stays consistent. |
 | Group transform cache | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_group_transform.py` | Confirms `GroupTransformCache` tracks bounds per plugin/prefix and resets cleanly between frames. |
-| Override grouping parser | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_override_grouping.py` | Guards the JSON parser that turns `plugin_overrides.json` into grouping metadata (prefix matching, anchors, plugin-level group detection). |
+| Override grouping parser | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_override_grouping.py` | Guards the JSON parser that turns `overlay_groupings.json` into grouping metadata (prefix matching, anchors, plugin-level group detection). |
 | Payload bounds (PyQt) | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_payload_bounds.py` | Uses PyQt’s font metrics to prove that message/rect bounds scale correctly before grouping. Skipped automatically if PyQt6 is missing. |
 | Payload text metrics (PyQt) | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_payload_text_metrics.py` | Tests `_measure_text_block` so multi-line labels produce consistent bounds. Requires PyQt6. |
 | Renderer transform order (PyQt) | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_renderer_transform_order.py` | Ensures Fill translations are applied before scaling when `__mo_transform__` metadata is present. Requires PyQt6. |
@@ -55,7 +55,7 @@ Automated tests cannot replace eyeballing the overlay, especially when dealing w
    - Verify Fill mode now translates horizontally (overflow_x) while Fit applies letterboxing above/below.
 
 4. **Prefix-based grouping**  
-   - Ensure `plugin_overrides.json` declares `grouping.mode = "id_prefix"` for Mining Analytics (or another multi-widget plugin).  
+   - Ensure `overlay_groupings.json` declares `grouping.mode = "id_prefix"` for Mining Analytics (or another multi-widget plugin).  
    - Replay `tests/edr-docking.log` or your plugin’s log via `tests/send_overlay_from_log.py`.  
    - In Fill mode, `fill-debug` output should list distinct group suffixes (`metrics`, `alerts`, etc.) with their own `band=` data, while the dashed `group_bounds_outline` rectangles stay rigid around each widget.
 

@@ -448,7 +448,7 @@ class OverlayWindow(QWidget):
         self._font_min_point = max(1.0, min(float(min_font), 48.0))
         self._font_max_point = max(self._font_min_point, min(float(max_font), 72.0))
         self._override_manager = PluginOverrideManager(
-            ROOT_DIR / "plugin_overrides.json",
+            ROOT_DIR / "overlay_groupings.json",
             _CLIENT_LOGGER,
             debug_config=self._debug_config,
         )
