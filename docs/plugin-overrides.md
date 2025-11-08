@@ -1,89 +1,66 @@
 # Plugin Override Developer Guide
 
-This document explains how Modern Overlay’s plugin override system works and how to extend it
-when you need to massage payloads coming from a specific plugin.
+Modern Overlay keeps plugin-specific quirks in `plugin_overrides.json` at the repository root. The override engine runs exclusively inside the overlay client (`overlay-client/plugin_overrides.py`) so third-party plugins do not need to ship different payload formats. Today the engine focuses on two things:
 
-The override engine lives entirely on the overlay client side. It inspects each incoming
-`LegacyOverlay` payload, figures out which plugin produced it, and (when a matching rule exists)
-mutates the payload before it gets stored/rendered. The configuration is stored in
-`plugin_overrides.json` at the repository root.
+- Identifying payloads even when the plugin name is missing.
+- Declaring grouping/anchor metadata so Fill mode can keep related payloads rigid.
 
-## File Layout
+The historical “transform this payload in-place” directives were removed. Pattern entries still parse but `_apply_override()` intentionally does not mutate payload geometry. Use grouping metadata to control Fill behaviour and keep notes in the JSON to explain why a plugin needs special handling.
 
-The JSON file is a dictionary keyed by plugin name. Each plugin entry contains two kinds of keys:
+## File layout
+
+The JSON root is a dictionary keyed by display name:
 
 ```jsonc
 {
   "LandingPad": {
-    "__match__": { ... },     // optional helper metadata
-    "pattern": { ... },       // payload overrides
-    "pattern2": { ... }
+    "notes": ["Keep pad geometry rigid in Fill mode."],
+    "__match__": {
+      "id_prefixes": ["shell-", "pad-", "line-"]
+    },
+    "grouping": {
+      "mode": "plugin"
+    },
+    "shell-*": {
+      "anchor": "center"
+    }
   }
 }
 ```
 
-- `__match__` (optional) provides hints for discovering the plugin when a payload does not
-  explicitly state its origin.
-- `notes` (optional) is freeform documentation (string or array of strings) explaining why the plugin needs overrides. Modern Overlay ignores this field entirely; it exists purely for humans reviewing the JSON.
-- Every other key is a glob pattern (`fnmatch` rules) that will be compared against the payload’s
-  `id`. The corresponding object lists the overrides to apply.
+Key blocks:
 
-### Match Helpers
+- `notes` (optional) – for humans only; Modern Overlay ignores the contents.
+- `__match__` (optional) – hints used when the payload does not state its plugin.
+- `grouping` (optional but strongly recommended) – controls how Fill mode buckets payloads.
+- Everything else is a glob pattern (`fnmatchcase`). The engine currently keeps these entries for forward compatibility but does not read their contents.
 
-Modern Overlay tries to read the plugin name from the payload (`payload["plugin"]`,
-`payload["meta"]["plugin"]`, or `payload["raw"]["plugin"]`). When the plugin field is missing,
-`__match__` helps narrow down the source.
+## Matching plugins
 
-Supported helper fields:
+`PluginOverrideManager` tries multiple locations in order: `payload["plugin"]`, `payload["meta"]["plugin"]`, then `payload["raw"]["plugin"]`. When those are missing it:
 
-| Field         | Type           | Description                                                   |
-| ------------- | -------------- | ------------------------------------------------------------- |
-| `id_prefixes` | array of string| Treat payloads whose `id` starts with any prefix as this plugin. |
+1. Canonicalises the payload ID (`id.casefold()`).
+2. Looks for an override whose `__match__.id_prefixes` contains that prefix.
 
-Example:
+Prefix comparisons are case-insensitive, so normalise every prefix to the form you expect to receive from EDMC/your plugin.
 
-```jsonc
-"__match__": {
-  "id_prefixes": ["shell-", "line-", "toaster-"]
-}
-```
+## Grouping configuration
 
-### Pattern Blocks
-
-Pattern blocks are still evaluated in declaration order, but Modern Overlay no longer supports user-specified `transform` / scale / offset directives. Only grouping metadata is honoured today; any historical transform fields should be removed from the JSON (they are ignored if left in place). Pattern objects can still carry future custom metadata, and grouping-related options focus on how payloads are bucketed; Fill mode now always preserves aspect across the group, so historical `preserve_fill_aspect` settings are silently ignored.
-- The plugin-level `notes` array is just documentation for humans; Modern Overlay ignores it, but it keeps the rationale beside the configuration.
-- You can add a `grouping` block to keep Fill-mode transforms rigid. `"mode": "plugin"` keeps every payload in one group; `"mode": "id_prefix"` lets you list the exact prefixes (see “Grouping vector payloads”).
-- Each group can declare an `anchor` (`"nw"`, `"ne"`, `"sw"`, `"se"`, `"center"`), which picks the point inside the group bounds that Fill mode preserves. When omitted, the north-west corner (`"nw"`) is used.
-
-This pattern keeps the adjustment in the adapter layer while leaving the plugin’s source intact. If a future plugin
-applies a similar workaround (for example, only providing a single anchor point instead of polygons), you can set
-`source_bounds` to the rectangle the plugin was targeting and reuse the same transform logic.
-
-### Grouping vector payloads
-
-Fill mode zooms the overlay uniformly, which means we sometimes have to translate payloads back into the window to keep them visible. By default the overlay groups payloads by plugin, but you can override that behaviour:
+Grouping metadata is the only part of the JSON that affects runtime behaviour today.
 
 ```jsonc
-"LandingPad": {
-  "__match__": { "id_prefixes": ["shell-", "line-"] },
-  "grouping": {
-    "mode": "plugin"
-  }
-}
-```
-
-```jsonc
-"EDMC-MiningAnalytics": {
-  "__match__": { "id_prefixes": ["edmcma.metric.", "edmcma.alert."] },
+"SomePlugin": {
   "grouping": {
     "mode": "id_prefix",
-    "prefixes": {
+    "groups": {
       "metrics": {
-        "prefix": "edmcma.metric.",
+        "id_prefixes": ["sp.metric.", "sp.sparkline."],
         "anchor": "center"
-      },
+      }
+    },
+    "prefixes": {
       "alerts": {
-        "prefix": "edmcma.alert.",
+        "prefix": "sp.alert.",
         "anchor": "se"
       }
     }
@@ -91,44 +68,51 @@ Fill mode zooms the overlay uniformly, which means we sometimes have to translat
 }
 ```
 
-- `"plugin"` keeps every payload from the plugin in one rigid group (useful for single-widget overlays such as LandingPad).
-- `"id_prefix"` splits the plugin into named groups so unrelated widgets can move independently; each entry can define an anchor.
-- If a prefix isn’t listed, the renderer falls back to per-item grouping for that payload.
+- `"mode": "plugin"` keeps every payload in one group. Use this for single-overlay UIs like LandingPad that must scale as a unit.
+- `"mode": "id_prefix"` lets you split a plugin into named buckets. Two helper syntaxes are available:
+  - `groups`: declare rich entries with an explicit label and `id_prefixes` array. Useful when multiple prefixes should share the same transform/anchor.
+  - `prefixes`: shorthand for simple `label → prefix` mappings.
+- `anchor` picks the point that must remain stationary when Fill mode nudges a group back on-screen. Supported values: `nw`, `ne`, `sw`, `se`, `center`. Legacy `preserve_fill_aspect.anchor` blocks are still parsed and converted automatically.
 
-## Testing Your Overrides
+If a payload does not match any configured prefix the renderer falls back to “per-item” grouping, so it will still render but it will not benefit from rigid Fill translations.
 
-1. Run `python3 -m compileall overlay-client` to ensure the Python modules still compile.
-2. With `payload_logging.overlay_payload_log_enabled` set to `true` in `debug.json`,
-   the plugin writes payload mirrors into `logs/EDMC-ModernOverlay/overlay-payloads.log`.
-   Inspect that file to verify overrides are active—look for DEBUG lines mentioning “Loaded … plugin override”.
-3. Use the CLI helper in `tests/send_overlay_landingpad.py` or your plugin’s test harness to emit a payload
-   and check that the rendered output matches expectations.
+## Testing overrides
 
-## Extending the Override Engine
+1. **Validate JSON** – `python3 -m compileall overlay-client overlay_plugin` is a quick syntax sanity-check before launching the overlay.
+2. **Replay real payloads** – the CLI helpers in `tests/` talk to the running overlay client:
+   - `python3 tests/send_overlay_from_log.py --log tests/landingpad.log` replays a recorded session.
+   - `python3 tests/send_overlay_shape.py` and `python3 tests/send_overlay_text.py` craft quick vector/text payloads.
+3. **Watch the debug overlay** – enable `Show debug overlay` and confirm `scale.mode = fill`, then toggle `group_bounds_outline` to ensure all relevant payloads share the same dashed rectangle.
 
-When you need a new override type (e.g., gutters or font tweaks):
+The CLI scripts warn if `debug.json` does not have payload mirroring enabled. Flip `payload_logging.overlay_payload_log_enabled` to `true` when you need to capture the transformed payloads in `logs/EDMC-ModernOverlay/overlay-payloads.log`.
 
-1. Add the key to the JSON.
-2. Update `PluginOverrideManager._apply_override` to interpret the new directive.
-3. Implement the helper (likely alongside `_scale_vector` / `_scale_rect`).
-4. Document the new option in this guide.
+## Tracing specific payloads
 
-Because the JSON is declarative, most adjustments can be achieved without touching plugin code—ideal
-for keeping third-party plugins compatible with Modern Overlay going forward.
-
-## Debugging Overrides
-
-To trace how a specific payload is transformed, create `debug.json` alongside
-`plugin_overrides.json` with the following structure:
+`debug.json` lets you focus on particular payload IDs during override work:
 
 ```json
 {
   "trace_enabled": true,
   "plugin": "LandingPad",
-  "payload_id": "line-0"
+  "payload_ids": [
+    "shell-",
+    "pad-"
+  ]
 }
 ```
 
-When tracing is enabled the overlay client logs each transformation stage (scale/shift) for the
-matching payload ID, making it easier to reconcile expected vs. actual coordinates. Set
-`trace_enabled` back to `false` when you are done to avoid noisy logs.
+- `trace_enabled` turns on tracing.
+- `plugin` narrows logs to a single plugin (optional).
+- `payload_ids` accepts a list of prefixes; the engine matches `str.startswith`.
+
+With tracing enabled the overlay client logs `trace plugin=… stage=…` entries for each paint stage (raw points, adjusted rects, etc.), making it easier to confirm that grouping metadata is being honoured.
+
+## Extending the override engine
+
+If you reintroduce payload mutation in the future:
+
+1. Extend the JSON schema (for example, add a `"font"` block to a pattern).
+2. Implement the behaviour inside `PluginOverrideManager._apply_override()`.
+3. Add targeted tests under `overlay-client/tests` and update this guide accordingly.
+
+Until then, keep overrides declarative and prefer adding more precise grouping metadata rather than baking per-payload offsets.
