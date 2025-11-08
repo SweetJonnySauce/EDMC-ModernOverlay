@@ -20,7 +20,7 @@ TESTS_DIR = PROJECT_ROOT / "tests"
 CONFIG_PATH = TESTS_DIR / "test_resolution.json"
 PORT_PATH = PROJECT_ROOT / "port.json"
 
-MOCK_WINDOW_PATH = TESTS_DIR / "mock_elite_window.py"
+MOCK_WINDOW_PATH = PROJECT_ROOT / "utils" / "mock_elite_window.py"
 SEND_FROM_LOG_PATH = TESTS_DIR / "send_overlay_from_log.py"
 
 DEFAULT_TITLE = "Elite - Dangerous (Stub)"
