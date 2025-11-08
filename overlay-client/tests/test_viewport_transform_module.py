@@ -12,7 +12,14 @@ if str(OVERLAY_ROOT) not in sys.path:
 
 from group_transform import GroupTransform  # noqa: E402
 from viewport_helper import BASE_HEIGHT, BASE_WIDTH, ScaleMode, compute_viewport_transform  # noqa: E402
-from viewport_transform import LegacyMapper, ViewportState, build_viewport, legacy_scale_components, scaled_point_size  # noqa: E402
+from viewport_transform import (  # noqa: E402
+    LegacyMapper,
+    ViewportState,
+    build_viewport,
+    compute_proportional_translation,
+    legacy_scale_components,
+    scaled_point_size,
+)
 
 
 def _make_mapper(mode: ScaleMode, window_w: float, window_h: float) -> LegacyMapper:
@@ -111,3 +118,43 @@ def test_scaled_point_size_clamps_to_bounds() -> None:
     diag_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
     expected = max(8.0, min(12.0, 10.0 * diag_scale))
     assert point == pytest.approx(expected)
+
+
+def test_compute_proportional_translation_overflow_x_axis() -> None:
+    window_w = BASE_WIDTH
+    window_h = BASE_HEIGHT * 2.0
+    mapper = _make_mapper(ScaleMode.FILL, window_w, window_h)
+    state = ViewportState(width=window_w, height=window_h, device_ratio=1.0)
+    group = GroupTransform(
+        band_anchor_x=0.5,
+        band_anchor_y=0.25,
+    )
+    fill = build_viewport(mapper, state, group, BASE_WIDTH, BASE_HEIGHT)
+    anchor_point = (480.0, 120.0)
+
+    dx, dy = compute_proportional_translation(fill, group, anchor_point)
+
+    expected_visible = window_w / fill.scale
+    expected_target = group.band_anchor_x * expected_visible
+    assert dx == pytest.approx(expected_target - anchor_point[0])
+    assert dy == pytest.approx(0.0)
+
+
+def test_compute_proportional_translation_overflow_y_axis() -> None:
+    window_w = BASE_WIDTH * 2.0
+    window_h = BASE_HEIGHT
+    mapper = _make_mapper(ScaleMode.FILL, window_w, window_h)
+    state = ViewportState(width=window_w, height=window_h, device_ratio=1.0)
+    group = GroupTransform(
+        band_anchor_x=0.25,
+        band_anchor_y=0.75,
+    )
+    fill = build_viewport(mapper, state, group, BASE_WIDTH, BASE_HEIGHT)
+    anchor_point = (200.0, 700.0)
+
+    dx, dy = compute_proportional_translation(fill, group, anchor_point)
+
+    expected_visible = window_h / fill.scale
+    expected_target = group.band_anchor_y * expected_visible
+    assert dx == pytest.approx(0.0)
+    assert dy == pytest.approx(expected_target - anchor_point[1])
