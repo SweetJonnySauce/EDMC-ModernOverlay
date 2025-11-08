@@ -8,8 +8,8 @@
   },
   "resolutions": [
     {
-      "width": 1920,
-      "height": 800
+      "width": 1440,
+      "height": 900
     }
   ],
   "payloads": [
@@ -29,8 +29,8 @@
       "ttl": 1000
     },
     {
-      "name": "edr-bounty",
-      "source": "tests/edr-bounty.log",
+      "name": "edr-docking",
+      "source": "tests/edr-docking.log",
       "ttl": 1000
     },
     {
