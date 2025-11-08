@@ -179,6 +179,7 @@ def _load_plan(path: Path) -> tuple[Dict[str, float], List[Dict[str, int]], List
     between_wait = _coerce_float(settings_raw.get("wait_between_payload_tests"), default=1.0, minimum=0.0)
     after_wait = _coerce_float(settings_raw.get("after_resolution_wait_seconds"), default=1.0, minimum=0.0)
     fallback_ttl = _coerce_float(settings_raw.get("payload_ttl_seconds"), default=5.0, minimum=0.1)
+    wait_to_finish = _coerce_float(settings_raw.get("wait_to_finish_seconds"), default=1.0, minimum=0.0)
     crosshair_x = settings_raw.get("crosshair_x_percent")
     crosshair_y = settings_raw.get("crosshair_y_percent")
     try:
@@ -197,6 +198,7 @@ def _load_plan(path: Path) -> tuple[Dict[str, float], List[Dict[str, int]], List
         "payload_ttl_seconds": fallback_ttl,
         "crosshair_x_percent": crosshair_x_value,
         "crosshair_y_percent": crosshair_y_value,
+        "wait_to_finish_seconds": wait_to_finish,
     }
 
     resolutions_raw = data.get("resolutions")
@@ -239,7 +241,7 @@ def _load_plan(path: Path) -> tuple[Dict[str, float], List[Dict[str, int]], List
     return settings, resolutions, payloads
 
 
-def run_tests(config_path: Path) -> None:
+def run_tests(config_path: Path, *, wait_override: Optional[float] = None) -> None:
     _log(f"Loading configuration from {config_path} …")
     settings, resolutions, payloads = _load_plan(config_path)
 
@@ -248,6 +250,9 @@ def run_tests(config_path: Path) -> None:
     after_wait = settings["after_resolution_wait_seconds"]
     crosshair_x = settings.get("crosshair_x_percent")
     crosshair_y = settings.get("crosshair_y_percent")
+    wait_to_finish = settings.get("wait_to_finish_seconds", 1.0)
+    if wait_override is not None:
+        wait_to_finish = max(wait_override, 0.0)
 
     _ensure_overlay_running()
     port = _resolve_port()
@@ -287,6 +292,9 @@ def run_tests(config_path: Path) -> None:
             _write_label(label_file_path, "")
             time.sleep(after_wait)
 
+        if wait_to_finish > 0.0:
+            _log(f"Waiting {wait_to_finish:.1f}s before closing mock window …")
+            time.sleep(wait_to_finish)
         _log("Resolution payload sweep completed successfully.")
     finally:
         _terminate_process(mock_process)
@@ -304,6 +312,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=CONFIG_PATH,
         help="Path to the resolution configuration file (default: %(default)s)",
     )
+    parser.add_argument(
+        "--wait-to-finish",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="Override wait time before closing the mock window at the end (default from config, fallback 1s)",
+    )
     return parser
 
 
@@ -311,7 +326,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        run_tests(args.config.resolve())
+        run_tests(args.config.resolve(), wait_override=args.wait_to_finish)
     except DriverError as exc:
         _log(f"ERROR: {exc}")
         return 1

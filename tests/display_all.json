@@ -1,85 +1,52 @@
 {
   "settings": {
     "window_wait_seconds": 2,
-    "wait_between_payload_tests": 2,
-    "wait_to_finish_seconds": 1,
-    "crosshair_x_percent": 29.375,
-    "crosshair_y_percent": 26.111
+    "wait_between_payload_tests": 0,
+    "wait_to_finish_seconds": 1000,
+    "crosshair_x_percent": 71.875,
+    "crosshair_y_percent": 34.375
   },
   "resolutions": [
     {
-      "width": 1280,
-      "height": 1024
-    },
-    {
-      "width": 1024,
-      "height": 768
-    },
-    {
-      "width": 1720,
-      "height": 1440
-    },
-    {
       "width": 1920,
       "height": 800
-    },
-    {
-      "width": 1920,
-      "height": 1080
-    },
-    {
-      "width": 1440,
-      "height": 900
-    },
-    {
-      "width": 1440,
-      "height": 960
-    },
-    {
-      "width": 2560,
-      "height": 1080
     }
   ],
   "payloads": [
     {
       "name": "landingpad",
       "source": "tests/landingpad.log",
-      "ttl": 16
+      "ttl": 1000
     },
     {
       "name": "Galaxy/System Tick",
       "source": "tests/bgstally-tick.log",
-      "ttl": 14
+      "ttl": 1000
     },
     {
       "name": "BGSTally Colonisation",
       "source": "tests/bgstally-colonisation.log",
-      "ttl": 12
+      "ttl": 1000
     },
     {
       "name": "edr-bounty",
       "source": "tests/edr-bounty.log",
-      "ttl": 6
+      "ttl": 1000
     },
     {
       "name": "edr-target",
       "source": "tests/edr-target.log",
-      "ttl": 8
+      "ttl": 1000
     },
     {
       "name": "edr-intel",
       "source": "tests/edr-intel.log",
-      "ttl": 6
-    },
-    {
-      "name": "edr-docking",
-      "source": "tests/edr-docking.log",
-      "ttl": 4
+      "ttl": 1000
     },
     {
       "name": "edr-notice",
       "source": "tests/edr-notice.log",
-      "ttl": 2
+      "ttl": 1000
     }
   ]
 }

@@ -76,8 +76,7 @@
         "intel": {
           "id_prefixes": [
             "edr-intel"
-          ],
-          "anchor": "center"
+          ]
         },
         "target": {
           "id_prefixes": [
