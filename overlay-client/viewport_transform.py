@@ -48,8 +48,6 @@ class FillViewport:
     band_max_y: float = 0.0
     band_anchor_x: float = 0.0
     band_anchor_y: float = 0.0
-    band_clamped_x: bool = False
-    band_clamped_y: bool = False
 
     def overlay_mapper_x(self, pivot: float, scale_meta: float, offset_meta: float) -> Callable[[float], float]:
         axis = self.axis_x
@@ -114,12 +112,9 @@ def build_viewport(
         band_max_y = _safe_float(group_transform.band_max_y, 0.0)
         band_anchor_x = _safe_float(group_transform.band_anchor_x, 0.0)
         band_anchor_y = _safe_float(group_transform.band_anchor_y, 0.0)
-        band_clamped_x = bool(group_transform.band_clamped_x)
-        band_clamped_y = bool(group_transform.band_clamped_y)
     else:
         band_min_x = band_max_x = band_min_y = band_max_y = 0.0
         band_anchor_x = band_anchor_y = 0.0
-        band_clamped_x = band_clamped_y = False
 
     axis_x = FillAxisMapping()
     axis_y = FillAxisMapping()
@@ -140,8 +135,6 @@ def build_viewport(
         band_max_y=band_max_y,
         band_anchor_x=band_anchor_x,
         band_anchor_y=band_anchor_y,
-        band_clamped_x=band_clamped_x,
-        band_clamped_y=band_clamped_y,
     )
 
 

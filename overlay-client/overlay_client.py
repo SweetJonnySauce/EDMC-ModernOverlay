@@ -1157,13 +1157,6 @@ class OverlayWindow(QWidget):
                     fill.band_anchor_y,
                 )
             )
-            clamp_axes = []
-            if fill.band_clamped_x:
-                clamp_axes.append("x")
-            if fill.band_clamped_y:
-                clamp_axes.append("y")
-            if clamp_axes:
-                band_line = f"{band_line} clamped={','.join(clamp_axes)}"
             lines.append(band_line)
             if group_transform is not None:
                 logical_anchor_x = group_transform.band_anchor_x * BASE_WIDTH
@@ -2571,13 +2564,6 @@ class OverlayWindow(QWidget):
                             group_transform.band_anchor_y,
                         )
                     )
-                    clamp_axes: List[str] = []
-                    if getattr(group_transform, "band_clamped_x", False):
-                        clamp_axes.append("x")
-                    if getattr(group_transform, "band_clamped_y", False):
-                        clamp_axes.append("y")
-                    if clamp_axes:
-                        band_str = f"{band_str} clamped={','.join(clamp_axes)}"
                     row_log = f"{row_log} {band_str}"
                 fill_debug_rows.append(row_log)
         if debug_fill and fill_debug_rows:

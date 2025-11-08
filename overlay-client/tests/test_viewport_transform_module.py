@@ -50,8 +50,6 @@ def test_build_viewport_fill_mode_respects_group_transform() -> None:
         band_max_y=15.0,
         band_anchor_x=2.0,
         band_anchor_y=-3.0,
-        band_clamped_x=True,
-        band_clamped_y=False,
         bounds_min_x=-10.0,
         bounds_min_y=-5.0,
         bounds_max_x=20.0,
@@ -62,8 +60,6 @@ def test_build_viewport_fill_mode_respects_group_transform() -> None:
 
     assert fill.overflow_y
     assert not fill.overflow_x
-    assert fill.band_clamped_x is True
-    assert fill.band_clamped_y is False
     assert fill.band_min_x == pytest.approx(group.band_min_x)
     assert fill.band_max_x == pytest.approx(group.band_max_x)
     assert fill.band_min_y == pytest.approx(group.band_min_y)

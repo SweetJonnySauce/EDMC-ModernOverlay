@@ -78,9 +78,6 @@ class FillGroupingHelper:
             band_max_y = _normalise(bounds.max_y, base_height)
             anchor_norm_x = _normalise(anchor_x, base_width)
             anchor_norm_y = _normalise(anchor_y, base_height)
-            clamp_x = bounds.min_x < 0.0 or bounds.max_x > BASE_WIDTH
-            clamp_y = bounds.min_y < 0.0 or bounds.max_y > BASE_HEIGHT
-
             self._cache.set(
                 GroupKey(*key_tuple),
                 GroupTransform(
@@ -92,8 +89,6 @@ class FillGroupingHelper:
                     band_max_y=band_max_y,
                     band_anchor_x=anchor_norm_x,
                     band_anchor_y=anchor_norm_y,
-                    band_clamped_x=clamp_x,
-                    band_clamped_y=clamp_y,
                     bounds_min_x=bounds.min_x,
                     bounds_min_y=bounds.min_y,
                     bounds_max_x=bounds.max_x,

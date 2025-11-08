@@ -24,8 +24,6 @@ class GroupTransform:
     band_max_y: float = 0.0
     band_anchor_x: float = 0.0
     band_anchor_y: float = 0.0
-    band_clamped_x: bool = False
-    band_clamped_y: bool = False
     bounds_min_x: float = 0.0
     bounds_min_y: float = 0.0
     bounds_max_x: float = 0.0
