@@ -12,6 +12,7 @@
 - The release number lives in `version.py` (`__version__`). Bump it before tagging so EDMC, the overlay client, and API consumers remain in sync.
 - `load.py` exposes that version via EDMC metadata fields and records it in `port.json` next to the broadcast port.
 - The overlay client shows the running version in the “Connected to …” banner, making it easy to confirm which build is active.
+- Developer builds inherit BGSTally-style semantics: append `-dev` (or any `.dev*` suffix) to `__version__` **or** export `MODERN_OVERLAY_DEV_MODE=1` before launching EDMC to force dev mode. Dev builds default the plugin logger to DEBUG and log a startup banner; set `MODERN_OVERLAY_DEV_MODE=0` to suppress dev behaviour while keeping the `-dev` version string.
 
 ## Tests
 

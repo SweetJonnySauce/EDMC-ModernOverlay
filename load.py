@@ -13,7 +13,11 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Set, Tuple
 
 if __package__:
-    from .version import __version__ as MODERN_OVERLAY_VERSION
+    from .version import (
+        __version__ as MODERN_OVERLAY_VERSION,
+        DEV_MODE_ENV_VAR,
+        is_dev_build,
+    )
     from .overlay_plugin.overlay_watchdog import OverlayWatchdog
     from .overlay_plugin.overlay_socket_server import WebSocketBroadcaster
     from .overlay_plugin.preferences import Preferences, PreferencesPanel
@@ -25,7 +29,7 @@ if __package__:
     )
     from .EDMCOverlay.edmcoverlay import normalise_legacy_payload
 else:  # pragma: no cover - EDMC loads as top-level module
-    from version import __version__ as MODERN_OVERLAY_VERSION
+    from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR, is_dev_build
     from overlay_plugin.overlay_watchdog import OverlayWatchdog
     from overlay_plugin.overlay_socket_server import WebSocketBroadcaster
     from overlay_plugin.preferences import Preferences, PreferencesPanel
@@ -39,13 +43,14 @@ else:  # pragma: no cover - EDMC loads as top-level module
 
 PLUGIN_NAME = "EDMC-ModernOverlay"
 PLUGIN_VERSION = MODERN_OVERLAY_VERSION
+DEV_BUILD = is_dev_build(MODERN_OVERLAY_VERSION)
 LOGGER_NAME = "EDMC.ModernOverlay"
 LOG_TAG = "EDMC-ModernOverlay"
 
 DEFAULT_WINDOW_BASE_WIDTH = 1280
 DEFAULT_WINDOW_BASE_HEIGHT = 960
 
-EDMC_DEFAULT_LOG_LEVEL = logging.INFO
+EDMC_DEFAULT_LOG_LEVEL = logging.DEBUG if DEV_BUILD else logging.INFO
 _LEVEL_NAME_MAP = {
     "CRITICAL": logging.CRITICAL,
     "FATAL": logging.CRITICAL,
@@ -184,6 +189,12 @@ def _configure_logger() -> logging.Logger:
 
 
 LOGGER = _configure_logger()
+if DEV_BUILD:
+    LOGGER.info(
+        "Running Modern Overlay dev build (%s); override via %s=0 to force release behaviour.",
+        MODERN_OVERLAY_VERSION,
+        DEV_MODE_ENV_VAR,
+    )
 PAYLOAD_LOGGER_NAME = f"{LOGGER_NAME}.payloads"
 PAYLOAD_LOG_FILE_NAME = "overlay-payloads.log"
 PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
