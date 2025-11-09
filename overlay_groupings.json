@@ -113,5 +113,22 @@
         }
       }
     }
+  },
+  "bioscan": {
+    "grouping": {
+      "groups": {
+        "Bioscan Payloads": {
+          "id_prefixes": [
+            "bioscan_"
+          ],
+          "anchor": "nw"
+        }
+      }
+    },
+    "__match__": {
+      "id_prefixes": [
+        "bioscan_"
+      ]
+    }
   }
 }

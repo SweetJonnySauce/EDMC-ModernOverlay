@@ -1139,7 +1139,7 @@ class PluginGroupManagerApp:
         right_panel.grid(row=0, column=1, sticky="nsew")
         right_panel.rowconfigure(2, weight=1)
 
-        top_section = ttk.LabelFrame(left_panel, text="Watcher / Gather")
+        top_section = self._create_label_frame(left_panel, "Watcher / Gather")
         top_section.pack(fill="x", expand=False, pady=(0, 12))
 
         control_row = ttk.Frame(top_section)
@@ -1178,15 +1178,15 @@ class PluginGroupManagerApp:
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.payload_list.yview)
         scrollbar.pack(side="right", fill="y")
         self.payload_list.configure(yscrollcommand=scrollbar.set)
-        ttk.Label(
-            left_panel,
-            text="Tip: double-click a payload to inspect its JSON details.",
-            foreground="#5a5a5a",
-        ).pack(
-            fill="x",
-            padx=8,
-            pady=(0, 8),
-        )
+        tips_frame = ttk.Frame(left_panel)
+        tips_frame.pack(fill="x", padx=8, pady=(0, 8))
+        ttk.Label(tips_frame, text="Tips:", font=self._group_title_font).pack(anchor="w")
+        tip_texts = [
+            "Double-click a payload to inspect its JSON details.",
+            "Right-click a payload to create plugin or ID prefix groups quickly.",
+        ]
+        for text in tip_texts:
+            ttk.Label(tips_frame, text=f"• {text}", foreground="#5a5a5a", justify="left").pack(anchor="w", pady=(2, 0))
 
         selector_row = ttk.Frame(right_panel)
         selector_row.pack(fill="x", padx=8, pady=(0, 8))
@@ -1207,7 +1207,7 @@ class PluginGroupManagerApp:
         ).grid(row=0, column=2, sticky="e", padx=(8, 0))
         selector_row.columnconfigure(1, weight=1)
 
-        info_section = ttk.LabelFrame(right_panel, text="Plugin Group")
+        info_section = self._create_label_frame(right_panel, "Plugin Group")
         info_section.pack(fill="x", padx=8, pady=(0, 8))
         info_grid = ttk.Frame(info_section)
         info_grid.pack(fill="x", padx=8, pady=8)
@@ -1232,7 +1232,7 @@ class PluginGroupManagerApp:
             pady=(4, 0),
         )
 
-        grouping_section = ttk.LabelFrame(right_panel, text="ID Prefix Groups")
+        grouping_section = self._create_label_frame(right_panel, "ID Prefix Groups")
         grouping_section.pack(fill="both", expand=True, padx=8, pady=(0, 8))
         grouping_action_row = ttk.Frame(grouping_section)
         grouping_action_row.pack(fill="x", padx=8, pady=(8, 0))
@@ -1258,6 +1258,11 @@ class PluginGroupManagerApp:
             self._group_scroll_targets.append(self.grouping_entries_frame)
         self._enable_group_scroll(None)
 
+
+    def _create_label_frame(self, parent: tk.Widget, text: str) -> ttk.LabelFrame:
+        label = ttk.Label(parent, text=text, font=self._group_title_font)
+        frame = ttk.LabelFrame(parent, labelwidget=label)
+        return frame
 
     def _create_vertical_scroll_frame(
         self, parent: tk.Widget
@@ -1486,9 +1491,6 @@ class PluginGroupManagerApp:
         self.group_notes_var.set(notes_text)
 
         entries: List[Dict[str, object]] = list(view.get("groupings", []))
-        unmatched = self._unmatched_by_group.get(group_name, [])
-        if unmatched:
-            entries = [{"label": "ungrouped", "prefixes": unmatched, "anchor": None, "notes": ""}] + entries
         self._render_grouping_entries(group_name, entries)
         self._reset_grouping_scroll()
 
@@ -1528,10 +1530,6 @@ class PluginGroupManagerApp:
                 padx=(12, 0),
                 pady=(0, 4),
             )
-            if label == "ungrouped":
-                if index < len(entries) - 1:
-                    ttk.Separator(self.grouping_entries_frame, orient="horizontal").pack(fill="x", padx=4, pady=(0, 4))
-                continue
             button_frame = ttk.Frame(entry_frame)
             button_frame.grid(row=0, column=2, rowspan=2, padx=(18, 0), pady=(0, 4), sticky="n")
             ttk.Button(
