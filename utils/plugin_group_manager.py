@@ -1154,6 +1154,8 @@ class PluginGroupManagerApp:
         self.payload_list.pack(side="left", fill="both", expand=True)
         self.payload_list.bind("<<TreeviewSelect>>", self._on_payload_selection_changed)
         self.payload_list.bind("<Double-1>", self._inspect_selected_payload)
+        self.payload_list.bind("<Button-3>", self._show_payload_context_menu)
+        self.payload_list.bind("<Button-2>", self._show_payload_context_menu)
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.payload_list.yview)
         scrollbar.pack(side="right", fill="y")
         self.payload_list.configure(yscrollcommand=scrollbar.set)
@@ -1310,6 +1312,42 @@ class PluginGroupManagerApp:
             if self.selected_group_var.get() != target_group:
                 self.selected_group_var.set(target_group)
                 self._on_group_selected()
+
+    def _show_payload_context_menu(self, event) -> None:
+        if not hasattr(self, "payload_list"):
+            return
+        row_id = self.payload_list.identify_row(event.y)
+        if not row_id:
+            return
+        self.payload_list.selection_set(row_id)
+        self.payload_list.focus(row_id)
+        meta = self._payload_meta.get(row_id)
+        if not meta:
+            return
+        status, target_group = meta
+        menu = tk.Menu(self.root, tearoff=False)
+        if status == "Unmatched":
+            menu.add_command(label="Create new group", command=self._open_new_group_dialog)
+        elif status == "Ungrouped" and target_group:
+            label = f"Create new ID Prefix Group in {target_group}"
+            menu.add_command(
+                label=label,
+                command=lambda group=target_group: self._open_new_grouping_dialog_from_payload(group),
+            )
+        if menu.index("end") is None:
+            return
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _open_new_grouping_dialog_from_payload(self, group_name: str) -> None:
+        if group_name not in self._group_views:
+            return
+        if self.selected_group_var.get() != group_name:
+            self.selected_group_var.set(group_name)
+            self._on_group_selected()
+        self._open_new_grouping_dialog(group_name)
 
     def _refresh_group_data(self, target_group: Optional[str] = None) -> None:
         views = self._group_store.iter_group_views()
