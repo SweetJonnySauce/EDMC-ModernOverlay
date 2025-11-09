@@ -817,6 +817,7 @@ class PluginGroupManagerApp:
         self.status_var = tk.StringVar(value="Idle.")
         self.payload_count_var = tk.StringVar()
         self._payload_index: List[str] = []
+        self._group_scroll_bound = False
 
         self._build_ui()
         self._refresh_payload_list()
@@ -877,13 +878,10 @@ class PluginGroupManagerApp:
         self.group_frame = ttk.Frame(self.group_canvas)
         self.group_frame_window = self.group_canvas.create_window((0, 0), window=self.group_frame, anchor="nw")
         self.group_frame.bind("<Configure>", lambda _: self.group_canvas.configure(scrollregion=self.group_canvas.bbox("all")))
-        self.group_canvas.bind(
-            "<Configure>",
-            lambda event: self.group_canvas.itemconfigure(
-                self.group_frame_window,
-                width=max(event.width - 4, 100),
-            ),
-        )
+        self.group_canvas.bind("<Configure>", self._resize_group_canvas)
+        group_scroll_frame.bind("<Enter>", self._enable_group_scroll)
+        group_scroll_frame.bind("<Leave>", self._disable_group_scroll)
+
 
     def _refresh_payload_list(self) -> None:
         self.payload_list.delete(0, tk.END)
@@ -961,6 +959,12 @@ class PluginGroupManagerApp:
             else:
                 ttk.Label(frame, text="No groupings defined.", padding=(8, 2)).pack(anchor="w")
 
+    def _resize_group_canvas(self, event) -> None:
+        if not hasattr(self, "group_frame_window"):
+            return
+        width = max(event.width - 4, 120)
+        self.group_canvas.itemconfigure(self.group_frame_window, width=width)
+
     # Actions -------------------------------------------------------------
     def _toggle_watcher(self) -> None:
         if self.watch_var.get():
@@ -1020,6 +1024,31 @@ class PluginGroupManagerApp:
         self._update_payload_count()
         message = f"Removed {removed} payload(s) that now match configured groupings."
         self.status_var.set(message)
+
+    def _enable_group_scroll(self, _event) -> None:
+        if self._group_scroll_bound:
+            return
+        self.root.bind_all("<MouseWheel>", self._on_mouse_wheel)
+        self.root.bind_all("<Button-4>", self._on_mouse_wheel)
+        self.root.bind_all("<Button-5>", self._on_mouse_wheel)
+        self._group_scroll_bound = True
+
+    def _disable_group_scroll(self, _event) -> None:
+        if not self._group_scroll_bound:
+            return
+        self.root.unbind_all("<MouseWheel>")
+        self.root.unbind_all("<Button-4>")
+        self.root.unbind_all("<Button-5>")
+        self._group_scroll_bound = False
+
+    def _on_mouse_wheel(self, event) -> None:
+        if event.delta:
+            self.group_canvas.yview_scroll(int(-event.delta / 120), "units")
+        else:
+            if event.num == 4:
+                self.group_canvas.yview_scroll(-3, "units")
+            elif event.num == 5:
+                self.group_canvas.yview_scroll(3, "units")
 
     def _inspect_selected_payload(self, event) -> None:
         selection = self.payload_list.curselection()
