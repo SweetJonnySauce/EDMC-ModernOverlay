@@ -39,6 +39,7 @@ DEBUG_CONFIG_PATH = ROOT_DIR / "debug.json"
 PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
 PAYLOAD_LOG_BASENAMES = ("overlay-payloads.log", "overlay_payloads.log")
 ANCHOR_CHOICES = ("nw", "ne", "sw", "se", "center")
+GENERIC_PAYLOAD_TOKENS = {"vect", "shape", "text"}
 GROUP_SELECTOR_STYLE = "ModernOverlayGroupSelect.TCombobox"
 
 
@@ -821,18 +822,27 @@ class GroupConfigStore:
 class NewGroupDialog(simpledialog.Dialog):
     """Dialog for creating a brand new plugin group."""
 
+    def __init__(self, parent: tk.Tk, title: str = "Create new group", suggestion: Optional[Mapping[str, object]] = None) -> None:
+        self._suggestion = suggestion or {}
+        super().__init__(parent, title=title)
+
     def body(self, master: tk.Tk) -> tk.Widget:  # type: ignore[override]
         ttk.Label(master, text="Group name").grid(row=0, column=0, sticky="w")
-        self.name_var = tk.StringVar()
+        default_name = str(self._suggestion.get("name") or "")
+        self.name_var = tk.StringVar(value=default_name)
         ttk.Entry(master, textvariable=self.name_var, width=40).grid(row=0, column=1, sticky="ew")
 
         master.grid_columnconfigure(1, weight=1)
         ttk.Label(master, text="Match prefixes (comma separated)").grid(row=1, column=0, sticky="w")
-        self.match_prefix_var = tk.StringVar()
+        default_prefixes = ", ".join(self._suggestion.get("match_prefixes", [])) if self._suggestion else ""
+        self.match_prefix_var = tk.StringVar(value=default_prefixes)
         ttk.Entry(master, textvariable=self.match_prefix_var, width=40).grid(row=1, column=1, sticky="ew")
 
         ttk.Label(master, text="Notes (optional)").grid(row=2, column=0, sticky="nw")
         self.notes_text = tk.Text(master, width=40, height=4, font=tkfont.nametofont("TkDefaultFont"))
+        default_notes = str(self._suggestion.get("notes") or "")
+        if default_notes:
+            self.notes_text.insert("1.0", default_notes)
         self.notes_text.grid(row=2, column=1, sticky="nsew")
         master.rowconfigure(2, weight=1)
         return master
@@ -923,28 +933,37 @@ class EditGroupDialog(simpledialog.Dialog):
 class NewGroupingDialog(simpledialog.Dialog):
     """Dialog for adding a grouping to an existing plugin."""
 
-    def __init__(self, parent: tk.Tk, group_name: str) -> None:
+    def __init__(
+        self,
+        parent: tk.Tk,
+        group_name: str,
+        suggestion: Optional[Mapping[str, object]] = None,
+    ) -> None:
         self._group_name = group_name
+        self._suggestion = suggestion or {}
         super().__init__(parent, title=f"Add grouping to {group_name}")
 
     def body(self, master: tk.Tk) -> tk.Widget:  # type: ignore[override]
         ttk.Label(master, text=f"Group: {self._group_name}").grid(row=0, column=0, columnspan=2, sticky="w")
         ttk.Label(master, text="Label").grid(row=1, column=0, sticky="w")
-        self.label_var = tk.StringVar()
+        default_label = str(self._suggestion.get("label") or "")
+        self.label_var = tk.StringVar(value=default_label)
         ttk.Entry(master, textvariable=self.label_var, width=40).grid(row=1, column=1, sticky="ew")
 
         ttk.Label(master, text="ID prefixes (comma separated)").grid(row=2, column=0, sticky="w")
-        self.prefix_var = tk.StringVar()
+        prefix_values = ", ".join(self._suggestion.get("prefixes", [])) if self._suggestion else ""
+        self.prefix_var = tk.StringVar(value=prefix_values)
         ttk.Entry(master, textvariable=self.prefix_var, width=40).grid(row=2, column=1, sticky="ew")
 
         ttk.Label(master, text="Anchor").grid(row=3, column=0, sticky="w")
-        self.anchor_var = tk.StringVar(value="nw")
+        default_anchor = str(self._suggestion.get("anchor") or "nw")
+        self.anchor_var = tk.StringVar(value=default_anchor or "nw")
         ttk.Combobox(master, values=ANCHOR_CHOICES, textvariable=self.anchor_var, state="readonly").grid(
             row=3, column=1, sticky="w"
         )
 
         ttk.Label(master, text="Notes").grid(row=4, column=0, sticky="w")
-        self.notes_var = tk.StringVar()
+        self.notes_var = tk.StringVar(value=str(self._suggestion.get("notes") or ""))
         ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=4, column=1, sticky="ew")
         return master
 
@@ -1181,7 +1200,11 @@ class PluginGroupManagerApp:
         )
         self.group_selector.grid(row=0, column=1, sticky="w", padx=(8, 0))
         self.group_selector.bind("<<ComboboxSelected>>", lambda _: self._on_group_selected())
-        ttk.Button(selector_row, text="New group", command=self._open_new_group_dialog).grid(row=0, column=2, sticky="e", padx=(8, 0))
+        ttk.Button(
+            selector_row,
+            text="New group",
+            command=lambda: self._open_new_group_dialog(self._build_group_dialog_suggestion()),
+        ).grid(row=0, column=2, sticky="e", padx=(8, 0))
         selector_row.columnconfigure(1, weight=1)
 
         info_section = ttk.LabelFrame(right_panel, text="Plugin Group")
@@ -1216,7 +1239,9 @@ class PluginGroupManagerApp:
         ttk.Button(
             grouping_action_row,
             text="Add grouping",
-            command=lambda: self._open_new_grouping_dialog(self.selected_group_var.get()),
+            command=lambda: self._open_new_grouping_dialog(
+                self.selected_group_var.get(), suggestion=self._build_grouping_dialog_suggestion(self.selected_group_var.get())
+            ),
         ).pack(side="right")
         (
             entries_container,
@@ -1297,6 +1322,81 @@ class PluginGroupManagerApp:
                 return name
         return None
 
+    def _current_payload_record(self) -> Optional[PayloadRecord]:
+        if not hasattr(self, "payload_list"):
+            return None
+        selection = self.payload_list.selection()
+        if not selection:
+            return None
+        payload_id = selection[0]
+        return self._payload_store.get(payload_id)
+
+    @staticmethod
+    def _tokenise_payload_id(payload_id: str) -> List[str]:
+        tokens = re.split(r"[-_.]+", payload_id)
+        return [token for token in tokens if token]
+
+    @staticmethod
+    def _titleise_token(token: str) -> str:
+        return token.replace("_", " ").replace("-", " ").replace(".", " ").title()
+
+    @staticmethod
+    def _extract_prefix(payload_id: str, segments: int) -> str:
+        if segments <= 0:
+            return payload_id
+        count = 0
+        for idx, char in enumerate(payload_id):
+            if char in "-_.":
+                count += 1
+                if count == segments:
+                    return payload_id[: idx + 1]
+        return payload_id
+
+    @staticmethod
+    def _select_descriptive_tokens(tokens: List[str], max_tokens: int = 2) -> List[str]:
+        if not tokens:
+            return []
+        filtered = [token for token in tokens if token.casefold() not in GENERIC_PAYLOAD_TOKENS]
+        if not filtered:
+            filtered = tokens
+        return filtered[:max_tokens] if max_tokens > 0 else filtered
+
+    def _build_group_dialog_suggestion(self) -> Optional[Dict[str, object]]:
+        record = self._current_payload_record()
+        if not record or not record.payload_id:
+            return None
+        tokens = self._tokenise_payload_id(record.payload_id)
+        name_tokens = self._select_descriptive_tokens(tokens, max_tokens=2)
+        if record.plugin:
+            name = record.plugin
+        else:
+            name = " ".join(self._titleise_token(token) for token in name_tokens) or record.payload_id
+        prefix = self._extract_prefix(record.payload_id, segments=1)
+        suggestion: Dict[str, object] = {
+            "name": name,
+            "match_prefixes": [prefix.casefold()],
+        }
+        return suggestion
+
+    def _build_grouping_dialog_suggestion(self, group_name: Optional[str]) -> Optional[Dict[str, object]]:
+        if not group_name:
+            return None
+        record = self._current_payload_record()
+        if not record or not record.payload_id:
+            return None
+        meta = self._payload_meta.get(record.payload_id)
+        if not meta or meta[0] != "Ungrouped" or meta[1] != group_name:
+            return None
+        tokens = self._tokenise_payload_id(record.payload_id)
+        label_tokens = self._select_descriptive_tokens(tokens, max_tokens=2)
+        label = " ".join(self._titleise_token(token) for token in label_tokens) or record.payload_id
+        prefix = self._extract_prefix(record.payload_id, segments=2)
+        suggestion: Dict[str, object] = {
+            "label": label,
+            "prefixes": [prefix.casefold()],
+        }
+        return suggestion
+
     def _on_payload_selection_changed(self, _event=None) -> None:
         if not hasattr(self, "payload_list"):
             return
@@ -1327,7 +1427,10 @@ class PluginGroupManagerApp:
         status, target_group = meta
         menu = tk.Menu(self.root, tearoff=False)
         if status == "Unmatched":
-            menu.add_command(label="Create new group", command=self._open_new_group_dialog)
+            menu.add_command(
+                label="Create new group",
+                command=lambda: self._open_new_group_dialog(self._build_group_dialog_suggestion()),
+            )
         elif status == "Ungrouped" and target_group:
             label = f"Create new ID Prefix Group in {target_group}"
             menu.add_command(
@@ -1347,7 +1450,8 @@ class PluginGroupManagerApp:
         if self.selected_group_var.get() != group_name:
             self.selected_group_var.set(group_name)
             self._on_group_selected()
-        self._open_new_grouping_dialog(group_name)
+        suggestion = self._build_grouping_dialog_suggestion(group_name)
+        self._open_new_grouping_dialog(group_name, suggestion=suggestion)
 
     def _refresh_group_data(self, target_group: Optional[str] = None) -> None:
         views = self._group_store.iter_group_views()
@@ -1642,8 +1746,8 @@ class PluginGroupManagerApp:
         text_frame.rowconfigure(0, weight=1)
         text_frame.columnconfigure(0, weight=1)
 
-    def _open_new_group_dialog(self) -> None:
-        dialog = NewGroupDialog(self.root, title="Create new group")
+    def _open_new_group_dialog(self, suggestion: Optional[Mapping[str, object]] = None) -> None:
+        dialog = NewGroupDialog(self.root, title="Create new group", suggestion=suggestion)
         if dialog.result is None:
             return
         data = dialog.result
@@ -1692,11 +1796,11 @@ class PluginGroupManagerApp:
         self.status_var.set(f"Updated group '{data['name']}'.")
         self._purge_matched()
 
-    def _open_new_grouping_dialog(self, group_name: str) -> None:
+    def _open_new_grouping_dialog(self, group_name: str, suggestion: Optional[Mapping[str, object]] = None) -> None:
         if not group_name:
             messagebox.showerror("Add grouping", "Select a plugin group first.")
             return
-        dialog = NewGroupingDialog(self.root, group_name)
+        dialog = NewGroupingDialog(self.root, group_name, suggestion=suggestion)
         if dialog.result is None:
             return
         data = dialog.result
