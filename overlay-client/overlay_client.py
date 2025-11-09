@@ -1050,7 +1050,7 @@ class OverlayWindow(QWidget):
     def _resolve_group_override_pattern(
         self,
         legacy_item: Optional[LegacyItem],
-    ) -> Optional[Tuple[str, Optional[str]]]:
+    ) -> Optional[str]:
         if legacy_item is None:
             return None
         override_manager = getattr(self, "_override_manager", None)
@@ -1063,12 +1063,11 @@ class OverlayWindow(QWidget):
         plugin_label, suffix = group_key
         if not override_manager.group_is_configured(plugin_label, suffix):
             return None
-        mode = override_manager.group_mode_for(plugin_label) or override_manager.group_mode_for(plugin_name)
         if isinstance(suffix, str) and suffix:
-            return f"group:{suffix}", mode
+            return f"group:{suffix}"
         label = plugin_label if isinstance(plugin_label, str) and plugin_label else (legacy_item.plugin or "plugin")
         label = str(label).strip() or "plugin"
-        return f"group:{label}", mode
+        return f"group:{label}"
 
     def _format_override_lines(self, legacy_item: Optional[LegacyItem]) -> List[str]:
         if legacy_item is None:
@@ -1079,7 +1078,6 @@ class OverlayWindow(QWidget):
         transform_meta = data.get("__mo_transform__")
         lines: List[str] = []
         pattern_value: Optional[str] = None
-        pattern_mode: Optional[str] = None
         if isinstance(transform_meta, Mapping):
             for section_name in ("scale", "offset", "pivot"):
                 block = transform_meta.get(section_name)
@@ -1103,20 +1101,9 @@ class OverlayWindow(QWidget):
                 pattern_value = pattern
         group_pattern = self._resolve_group_override_pattern(legacy_item)
         if pattern_value:
-            if group_pattern:
-                group_pattern_value, group_mode = group_pattern
-                if group_pattern_value == pattern_value or pattern_value.startswith("group:"):
-                    pattern_mode = group_mode
-            if pattern_mode:
-                lines.append(f"override pattern: {pattern_value} (mode={pattern_mode})")
-            else:
-                lines.append(f"override pattern: {pattern_value}")
+            lines.append(f"override pattern: {pattern_value}")
         elif group_pattern:
-            group_pattern_value, group_mode = group_pattern
-            if group_mode:
-                lines.append(f"override pattern: {group_pattern_value} (mode={group_mode})")
-            else:
-                lines.append(f"override pattern: {group_pattern_value}")
+            lines.append(f"override pattern: {group_pattern}")
         return lines
 
     def _format_transform_chain(

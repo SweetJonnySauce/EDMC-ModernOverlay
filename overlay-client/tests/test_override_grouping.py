@@ -27,29 +27,12 @@ def _make_manager(config_path: Path) -> PluginOverrideManager:
     return PluginOverrideManager(config_path, logger)
 
 
-def test_grouping_mode_plugin(override_file: Path) -> None:
-    override_file.write_text(
-        json.dumps(
-            {
-                "MyPlugin": {
-                    "grouping": {"mode": "plugin"}
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    manager = _make_manager(override_file)
-    key = manager.grouping_key_for("MyPlugin", "payload-1")
-    assert key == ("MyPlugin", None)
-
-
-def test_grouping_mode_id_prefix(override_file: Path) -> None:
+def test_grouping_by_id_prefix(override_file: Path) -> None:
     override_file.write_text(
         json.dumps(
             {
                 "Example": {
                     "grouping": {
-                        "mode": "id_prefix",
                         "prefixes": {
                             "metrics": "example.metric.",
                             "alerts": "example.alert."
@@ -76,7 +59,6 @@ def test_grouping_prefix_configuration_without_transform(override_file: Path) ->
             {
                 "Example": {
                     "grouping": {
-                        "mode": "id_prefix",
                         "prefixes": {
                             "alerts": {
                                 "prefix": "example.alert."
@@ -104,31 +86,12 @@ def test_grouping_prefix_configuration_without_transform(override_file: Path) ->
     assert payload.get("__mo_transform__") is None
 
 
-def test_group_is_configured_plugin_mode(override_file: Path) -> None:
-    override_file.write_text(
-        json.dumps(
-            {
-                "LandingPad": {
-                    "grouping": {"mode": "plugin"}
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    manager = _make_manager(override_file)
-
-    assert manager.group_is_configured("LandingPad", None) is True
-    assert manager.group_is_configured("LandingPad", "item:foo") is False
-    assert manager.group_is_configured("Other", None) is False
-
-
 def test_group_is_configured_id_prefix(override_file: Path) -> None:
     override_file.write_text(
         json.dumps(
             {
                 "Example": {
                     "grouping": {
-                        "mode": "id_prefix",
                         "groups": {
                             "alerts": {
                                 "id_prefixes": ["example.alert."],
@@ -154,7 +117,6 @@ def test_grouping_groups_block_configures_prefixes(override_file: Path) -> None:
             {
                 "EDR": {
                     "grouping": {
-                        "mode": "id_prefix",
                         "groups": {
                             "docking": {
                                 "id_prefixes": [
@@ -202,7 +164,6 @@ def test_grouping_key_infers_plugin_when_missing_plugin_name(override_file: Path
                         "id_prefixes": ["edr-"]
                     },
                     "grouping": {
-                        "mode": "id_prefix",
                         "groups": {
                             "docking": {
                                 "id_prefixes": [
@@ -230,7 +191,6 @@ def test_group_anchor_selection(override_file: Path) -> None:
             {
                 "Example": {
                     "grouping": {
-                        "mode": "id_prefix",
                         "groups": {
                             "alerts": {
                                 "id_prefixes": ["example.alert."],
@@ -266,7 +226,6 @@ def test_legacy_preserve_anchor_mapping(override_file: Path) -> None:
             {
                 "Legacy": {
                     "grouping": {
-                        "mode": "id_prefix",
                         "groups": {
                             "payload": {
                                 "id_prefixes": ["legacy."],

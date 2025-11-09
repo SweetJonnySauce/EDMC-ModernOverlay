@@ -63,7 +63,19 @@
       ]
     },
     "grouping": {
-      "groups": {}
+      "groups": {
+        "All LandingPad Prefixes": {
+          "id_prefixes": [
+            "shell-",
+            "line-",
+            "toaster-left-",
+            "toaster-right-",
+            "pad-",
+            "station-"
+          ],
+          "anchor": "nw"
+        }
+      }
     }
   },
   "bgstally": {
