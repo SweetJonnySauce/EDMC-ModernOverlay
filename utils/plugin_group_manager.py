@@ -193,6 +193,10 @@ class OverrideMatcher:
                 return suffix is not None
             return False
 
+    def refresh(self) -> None:
+        with self._lock:
+            self._manager.force_reload()
+
 
 class LogLocator:
     """Resolves payload log directories/files, mirroring plugin runtime logic."""
@@ -399,7 +403,8 @@ class GroupConfigStore:
 
     def __init__(self, path: Path) -> None:
         self._path = path
-        self._lock = threading.Lock()
+        # RLock avoids deadlocks when save() is called from other locked methods.
+        self._lock = threading.RLock()
         self._data: Dict[str, MutableMapping[str, object]] = {}
         self._load()
 
@@ -650,6 +655,61 @@ class GroupConfigStore:
                 groups[cleaned_label]["notes"] = cleaned_notes
             self.save()
 
+    def update_grouping(
+        self,
+        group_name: str,
+        label: str,
+        *,
+        new_label: Optional[str] = None,
+        prefixes: Optional[Sequence[str]] = None,
+        anchor: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> None:
+        original_label = label.strip()
+        if not original_label:
+            raise ValueError("Existing grouping label is required.")
+        replacement_label = new_label.strip() if isinstance(new_label, str) and new_label.strip() else original_label
+        with self._lock:
+            entry = self._data.get(group_name)
+            if not entry:
+                raise ValueError(f"Group '{group_name}' not found.")
+            grouping = entry.get("grouping")
+            if not isinstance(grouping, Mapping):
+                raise ValueError(f"Group '{group_name}' has no grouping configuration.")
+            if grouping.get("mode") != "id_prefix":
+                raise ValueError(f"Group '{group_name}' must use id_prefix mode to edit groupings.")
+            groups = grouping.get("groups")
+            if not isinstance(groups, dict) or original_label not in groups:
+                raise ValueError(f"Grouping '{original_label}' not found in '{group_name}'.")
+            target_spec = groups[original_label]
+            if not isinstance(target_spec, MutableMapping):
+                target_spec = {}
+                groups[original_label] = target_spec
+            if prefixes is not None:
+                cleaned_prefixes = [token.strip() for token in prefixes if isinstance(token, str) and token.strip()]
+                if not cleaned_prefixes:
+                    raise ValueError("At least one ID prefix is required.")
+                target_spec["id_prefixes"] = cleaned_prefixes
+            if anchor is not None:
+                anchor_token = anchor.strip().lower()
+                if anchor_token:
+                    if anchor_token not in ANCHOR_CHOICES:
+                        raise ValueError(f"Anchor must be one of {', '.join(ANCHOR_CHOICES)}.")
+                    target_spec["anchor"] = anchor_token
+                else:
+                    target_spec.pop("anchor", None)
+            if notes is not None:
+                cleaned_notes = notes.strip()
+                if cleaned_notes:
+                    target_spec["notes"] = cleaned_notes
+                else:
+                    target_spec.pop("notes", None)
+            if replacement_label != original_label:
+                if replacement_label in groups and replacement_label != original_label:
+                    raise ValueError(f"Grouping '{replacement_label}' already exists for '{group_name}'.")
+                groups[replacement_label] = groups.pop(original_label)
+            self.save()
+
     def delete_grouping(self, group_name: str, label: str) -> None:
         with self._lock:
             entry = self._data.get(group_name)
@@ -791,6 +851,63 @@ class NewGroupingDialog(simpledialog.Dialog):
 
     def result_data(self) -> Dict[str, object]:
         return {
+            "label": self.label_var.get().strip(),
+            "prefixes": _clean_prefixes(self.prefix_var.get()),
+            "anchor": self.anchor_var.get().strip(),
+            "notes": self.notes_var.get().strip(),
+        }
+
+    def apply(self) -> None:  # type: ignore[override]
+        self.result = self.result_data()
+
+
+class EditGroupingDialog(simpledialog.Dialog):
+    """Dialog for editing an existing grouping entry."""
+
+    def __init__(self, parent: tk.Tk, group_name: str, entry: Mapping[str, object]) -> None:
+        self._group_name = group_name
+        self._entry = entry
+        label = entry.get("label", "")
+        super().__init__(parent, title=f"Edit grouping '{label}'")
+
+    def body(self, master: tk.Tk) -> tk.Widget:  # type: ignore[override]
+        ttk.Label(master, text=f"Group: {self._group_name}").grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Label(master, text="Label").grid(row=1, column=0, sticky="w")
+        self.label_var = tk.StringVar(value=str(self._entry.get("label") or ""))
+        ttk.Entry(master, textvariable=self.label_var, width=40).grid(row=1, column=1, sticky="ew")
+
+        ttk.Label(master, text="ID prefixes (comma separated)").grid(row=2, column=0, sticky="w")
+        prefixes = ", ".join(self._entry.get("prefixes", [])) if isinstance(self._entry.get("prefixes"), list) else ""
+        self.prefix_var = tk.StringVar(value=prefixes)
+        ttk.Entry(master, textvariable=self.prefix_var, width=40).grid(row=2, column=1, sticky="ew")
+
+        ttk.Label(master, text="Anchor").grid(row=3, column=0, sticky="w")
+        anchor_choices = ("",) + ANCHOR_CHOICES
+        current_anchor = str(self._entry.get("anchor") or "")
+        self.anchor_var = tk.StringVar(value=current_anchor)
+        ttk.Combobox(master, values=anchor_choices, textvariable=self.anchor_var, state="readonly").grid(
+            row=3, column=1, sticky="w"
+        )
+
+        ttk.Label(master, text="Notes").grid(row=4, column=0, sticky="w")
+        self.notes_var = tk.StringVar(value=str(self._entry.get("notes") or ""))
+        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=4, column=1, sticky="ew")
+        return master
+
+    def validate(self) -> bool:  # type: ignore[override]
+        label = self.label_var.get().strip()
+        if not label:
+            messagebox.showerror("Validation error", "Grouping label is required.")
+            return False
+        prefixes = _clean_prefixes(self.prefix_var.get())
+        if not prefixes:
+            messagebox.showerror("Validation error", "Enter at least one ID prefix.")
+            return False
+        return True
+
+    def result_data(self) -> Dict[str, object]:
+        return {
+            "original_label": self._entry.get("label"),
             "label": self.label_var.get().strip(),
             "prefixes": _clean_prefixes(self.prefix_var.get()),
             "anchor": self.anchor_var.get().strip(),
@@ -957,11 +1074,18 @@ class PluginGroupManagerApp:
                         sticky="w",
                         padx=(12, 0),
                     )
+                    button_frame = ttk.Frame(entry_frame)
+                    button_frame.grid(row=0, column=2, rowspan=2, padx=(12, 0), sticky="n")
                     ttk.Button(
-                        entry_frame,
+                        button_frame,
+                        text="Edit",
+                        command=lambda group=view["name"], entry_data=entry: self._open_edit_grouping_dialog(group, entry_data),
+                    ).pack(fill="x")
+                    ttk.Button(
+                        button_frame,
                         text="Delete",
                         command=lambda group=view["name"], label=entry["label"]: self._delete_grouping(group, label),
-                    ).grid(row=0, column=2, rowspan=2, padx=(12, 0))
+                    ).pack(fill="x", pady=(4, 0))
             else:
                 ttk.Label(frame, text="No groupings defined.", padding=(8, 2)).pack(anchor="w")
 
@@ -1024,6 +1148,7 @@ class PluginGroupManagerApp:
         self._gather_thread.start()
 
     def _purge_matched(self) -> None:
+        self._matcher.refresh()
         removed = self._payload_store.remove_matched(self._matcher)
         if removed:
             self._refresh_payload_list()
@@ -1098,7 +1223,7 @@ class PluginGroupManagerApp:
         dialog = NewGroupDialog(self.root, title="Create new group")
         if dialog.result is None:
             return
-        data = dialog.result_data()
+        data = dialog.result
         try:
             self._group_store.add_group(
                 name=data["name"],
@@ -1109,6 +1234,9 @@ class PluginGroupManagerApp:
         except ValueError as exc:
             messagebox.showerror("Failed to add group", str(exc))
             return
+        except OSError as exc:
+            messagebox.showerror("Failed to add group", f"Could not write overlay_groupings.json: {exc}")
+            return
         self._refresh_group_view()
         self.status_var.set(f"Added group '{data['name']}'.")
         self._purge_matched()
@@ -1117,7 +1245,7 @@ class PluginGroupManagerApp:
         dialog = NewGroupingDialog(self.root, group_name)
         if dialog.result is None:
             return
-        data = dialog.result_data()
+        data = dialog.result
         try:
             self._group_store.add_grouping(
                 group_name=group_name,
@@ -1129,14 +1257,49 @@ class PluginGroupManagerApp:
         except ValueError as exc:
             messagebox.showerror("Failed to add grouping", str(exc))
             return
+        except OSError as exc:
+            messagebox.showerror("Failed to add grouping", f"Could not write overlay_groupings.json: {exc}")
+            return
         self._refresh_group_view()
         self.status_var.set(f"Added grouping '{data['label']}' to {group_name}.")
+        self._purge_matched()
+
+    def _open_edit_grouping_dialog(self, group_name: str, entry: Mapping[str, object]) -> None:
+        dialog = EditGroupingDialog(self.root, group_name, entry)
+        if dialog.result is None:
+            return
+        data = dialog.result
+        original_label = data.get("original_label") or entry.get("label")
+        if not isinstance(original_label, str) or not original_label:
+            messagebox.showerror("Failed to edit grouping", "Could not determine the selected grouping label.")
+            return
+        try:
+            self._group_store.update_grouping(
+                group_name=group_name,
+                label=original_label,
+                new_label=data.get("label"),
+                prefixes=data.get("prefixes"),
+                anchor=data.get("anchor"),
+                notes=data.get("notes"),
+            )
+        except ValueError as exc:
+            messagebox.showerror("Failed to edit grouping", str(exc))
+            return
+        except OSError as exc:
+            messagebox.showerror("Failed to edit grouping", f"Could not write overlay_groupings.json: {exc}")
+            return
+        self._refresh_group_view()
+        self.status_var.set(f"Updated grouping '{data.get('label')}' in {group_name}.")
         self._purge_matched()
 
     def _delete_grouping(self, group_name: str, label: str) -> None:
         if not messagebox.askyesno("Delete grouping", f"Delete grouping '{label}' from {group_name}?"):
             return
-        self._group_store.delete_grouping(group_name, label)
+        try:
+            self._group_store.delete_grouping(group_name, label)
+        except OSError as exc:
+            messagebox.showerror("Failed to delete grouping", f"Could not update overlay_groupings.json: {exc}")
+            return
         self._refresh_group_view()
         self.status_var.set(f"Deleted grouping '{label}' from {group_name}.")
         self._purge_matched()
@@ -1144,7 +1307,11 @@ class PluginGroupManagerApp:
     def _delete_group(self, group_name: str) -> None:
         if not messagebox.askyesno("Delete group", f"Delete group '{group_name}' and all of its groupings?"):
             return
-        self._group_store.delete_group(group_name)
+        try:
+            self._group_store.delete_group(group_name)
+        except OSError as exc:
+            messagebox.showerror("Failed to delete group", f"Could not update overlay_groupings.json: {exc}")
+            return
         self._refresh_group_view()
         self.status_var.set(f"Deleted group '{group_name}'.")
         self._purge_matched()

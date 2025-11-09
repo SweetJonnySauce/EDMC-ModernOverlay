@@ -1,4 +1,60 @@
 {
+  "ED-Mining-Analytics": {
+    "grouping": {
+      "mode": "id_prefix",
+      "groups": {
+        "All-edmca-prefixes": {
+          "id_prefixes": [
+            "edmcma-"
+          ],
+          "anchor": "nw"
+        }
+      }
+    }
+  },
+  "EDR": {
+    "notes": [
+      "EDR omits the plugin field in its overlay payloads, so Modern Overlay cannot infer the source.",
+      "Treat any payload whose id starts with 'EDR-' as belonging to EDR so the payload finder shows the correct plugin name.",
+      "Group docking overlays by id prefix so Fill mode keeps related elements aligned."
+    ],
+    "__match__": {
+      "id_prefixes": [
+        "edr-"
+      ]
+    },
+    "grouping": {
+      "mode": "plugin",
+      "groups": {
+        "docking": {
+          "id_prefixes": [
+            "edr-docking-",
+            "edr-docking-station-"
+          ]
+        },
+        "bounty": {
+          "id_prefixes": [
+            "edr-bounty"
+          ]
+        },
+        "intel": {
+          "id_prefixes": [
+            "edr-intel"
+          ]
+        },
+        "target": {
+          "id_prefixes": [
+            "edr-target"
+          ]
+        },
+        "notice": {
+          "id_prefixes": [
+            "edr-notice-"
+          ]
+        }
+      }
+    }
+  },
   "LandingPad": {
     "notes": [
       "This groups the LandingPad overlay so Fill mode can handle the image as a single unit."
@@ -14,7 +70,8 @@
       ]
     },
     "grouping": {
-      "mode": "plugin"
+      "mode": "plugin",
+      "groups": {}
     }
   },
   "bgstally": {
@@ -49,45 +106,15 @@
       }
     }
   },
-  "EDR": {
-    "notes": [
-      "EDR omits the plugin field in its overlay payloads, so Modern Overlay cannot infer the source.",
-      "Treat any payload whose id starts with 'EDR-' as belonging to EDR so the payload finder shows the correct plugin name.",
-      "Group docking overlays by id prefix so Fill mode keeps related elements aligned."
-    ],
-    "__match__": {
-      "id_prefixes": [
-        "edr-"
-      ]
-    },
+  "bioscan": {
     "grouping": {
       "mode": "id_prefix",
       "groups": {
-        "docking": {
+        "All Bioscan Prefixes": {
           "id_prefixes": [
-            "edr-docking-",
-            "edr-docking-station-"
-          ]
-        },
-        "bounty": {
-          "id_prefixes": [
-            "edr-bounty"
-          ]
-        },
-        "intel": {
-          "id_prefixes": [
-            "edr-intel"
-          ]
-        },
-        "target": {
-          "id_prefixes": [
-            "edr-target"
-          ]
-        },
-        "notice": {
-          "id_prefixes": [
-            "edr-notice-"
-          ]
+            "bioscan"
+          ],
+          "anchor": "nw"
         }
       }
     }

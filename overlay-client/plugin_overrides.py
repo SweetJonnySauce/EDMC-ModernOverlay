@@ -197,16 +197,16 @@ class PluginOverrideManager:
             if canonical_name is None:
                 continue
 
-            match_prefixes: Tuple[str, ...] = ()
+            match_prefixes: List[str] = []
             match_section = plugin_payload.get("__match__")
             if isinstance(match_section, Mapping):
                 prefixes = match_section.get("id_prefixes")
                 if isinstance(prefixes, Iterable):
-                    cleaned: List[str] = []
                     for value in prefixes:
                         if isinstance(value, str) and value:
-                            cleaned.append(value.casefold())
-                    match_prefixes = tuple(cleaned)
+                            prefix = value.casefold()
+                            if prefix not in match_prefixes:
+                                match_prefixes.append(prefix)
 
             grouping_mode: Optional[str] = None
             grouping_specs: List[_GroupSpec] = []
@@ -217,6 +217,24 @@ class PluginOverrideManager:
                     mode_token = mode_raw.strip().lower()
                     if mode_token in {"plugin", "id_prefix"}:
                         grouping_mode = mode_token
+
+                plugin_mode_prefix_hints: List[str] = []
+
+                def _clean_group_prefixes(group_value: Mapping[str, Any]) -> List[str]:
+                    prefixes_field = group_value.get("id_prefixes")
+                    prefixes_list: List[str] = []
+                    if isinstance(prefixes_field, str) and prefixes_field:
+                        prefixes_list = [prefixes_field]
+                    elif isinstance(prefixes_field, Iterable):
+                        for entry in prefixes_field:
+                            if isinstance(entry, str) and entry:
+                                prefixes_list.append(entry)
+                    if not prefixes_list:
+                        single_prefix = group_value.get("prefix")
+                        if isinstance(single_prefix, str) and single_prefix:
+                            prefixes_list = [single_prefix]
+                    return [prefix.casefold() for prefix in prefixes_list if prefix]
+
                 def _parse_anchor(source: Mapping[str, Any]) -> Optional[str]:
                     anchor_field = source.get("anchor")
                     if isinstance(anchor_field, str) and anchor_field.strip():
@@ -227,27 +245,15 @@ class PluginOverrideManager:
                         if isinstance(legacy_anchor, str) and legacy_anchor.strip():
                             return legacy_anchor.strip()
                     return None
-                if grouping_mode == "id_prefix":
-                    groups_spec = grouping_section.get("groups")
-                    if isinstance(groups_spec, Mapping):
-                        for label, group_value in groups_spec.items():
-                            if not isinstance(group_value, Mapping):
-                                continue
-                            prefixes_field = group_value.get("id_prefixes")
-                            prefixes_list: List[str] = []
-                            if isinstance(prefixes_field, str) and prefixes_field:
-                                prefixes_list = [prefixes_field]
-                            elif isinstance(prefixes_field, Iterable):
-                                for entry in prefixes_field:
-                                    if isinstance(entry, str) and entry:
-                                        prefixes_list.append(entry)
-                            if not prefixes_list:
-                                single_prefix = group_value.get("prefix")
-                                if isinstance(single_prefix, str) and single_prefix:
-                                    prefixes_list = [single_prefix]
-                            cleaned_prefixes = tuple(prefix.casefold() for prefix in prefixes_list if prefix)
-                            if not cleaned_prefixes:
-                                continue
+                groups_spec = grouping_section.get("groups")
+                if isinstance(groups_spec, Mapping):
+                    for label, group_value in groups_spec.items():
+                        if not isinstance(group_value, Mapping):
+                            continue
+                        cleaned_prefixes = tuple(_clean_group_prefixes(group_value))
+                        if not cleaned_prefixes:
+                            continue
+                        if grouping_mode == "id_prefix":
                             group_label = str(label).strip() if isinstance(label, str) and label else None
                             defaults = None
                             anchor_token = _parse_anchor(group_value)
@@ -259,27 +265,32 @@ class PluginOverrideManager:
                                     anchor=anchor_token,
                                 )
                             )
+                        elif grouping_mode == "plugin":
+                            for prefix in cleaned_prefixes:
+                                if prefix not in plugin_mode_prefix_hints:
+                                    plugin_mode_prefix_hints.append(prefix)
 
-                    prefixes_spec = grouping_section.get("prefixes")
-                    if isinstance(prefixes_spec, Mapping):
-                        for label, prefix_value in prefixes_spec.items():
-                            prefixes: List[str] = []
-                            defaults: Optional[JsonDict] = None
-                            label_value: Optional[str] = None
-                            anchor_token: Optional[str] = None
-                            if isinstance(prefix_value, str):
-                                prefixes = [prefix_value]
-                                label_value = str(label) if isinstance(label, str) and label else prefix_value
-                            elif isinstance(prefix_value, Mapping):
-                                raw_prefix = prefix_value.get("prefix")
-                                if isinstance(raw_prefix, str) and raw_prefix:
-                                    prefixes = [raw_prefix]
-                                label_value = str(label) if isinstance(label, str) and label else (raw_prefix or None)
-                                defaults = None
-                                anchor_token = _parse_anchor(prefix_value)
-                            cleaned_prefixes = tuple(prefix.casefold() for prefix in prefixes if prefix)
-                            if not cleaned_prefixes:
-                                continue
+                prefixes_spec = grouping_section.get("prefixes")
+                if isinstance(prefixes_spec, Mapping):
+                    for label, prefix_value in prefixes_spec.items():
+                        prefixes: List[str] = []
+                        defaults: Optional[JsonDict] = None
+                        label_value: Optional[str] = None
+                        anchor_token: Optional[str] = None
+                        if isinstance(prefix_value, str):
+                            prefixes = [prefix_value]
+                            label_value = str(label) if isinstance(label, str) and label else prefix_value
+                        elif isinstance(prefix_value, Mapping):
+                            raw_prefix = prefix_value.get("prefix")
+                            if isinstance(raw_prefix, str) and raw_prefix:
+                                prefixes = [raw_prefix]
+                            label_value = str(label) if isinstance(label, str) and label else (raw_prefix or None)
+                            defaults = None
+                            anchor_token = _parse_anchor(prefix_value)
+                        cleaned_prefixes = tuple(prefix.casefold() for prefix in prefixes if prefix)
+                        if not cleaned_prefixes:
+                            continue
+                        if grouping_mode == "id_prefix":
                             grouping_specs.append(
                                 _GroupSpec(
                                     label=label_value,
@@ -288,16 +299,30 @@ class PluginOverrideManager:
                                     anchor=anchor_token,
                                 )
                             )
-                    elif isinstance(prefixes_spec, Iterable):
-                        for entry in prefixes_spec:
-                            if isinstance(entry, str) and entry:
+                        elif grouping_mode == "plugin":
+                            for prefix in cleaned_prefixes:
+                                if prefix not in plugin_mode_prefix_hints:
+                                    plugin_mode_prefix_hints.append(prefix)
+                elif isinstance(prefixes_spec, Iterable):
+                    for entry in prefixes_spec:
+                        if isinstance(entry, str) and entry:
+                            cleaned_entry = entry.casefold()
+                            if grouping_mode == "id_prefix":
                                 grouping_specs.append(
                                     _GroupSpec(
                                         label=entry,
-                                        prefixes=(entry.casefold(),),
+                                        prefixes=(cleaned_entry,),
                                         defaults=None,
                                     )
                                 )
+                            elif grouping_mode == "plugin":
+                                if cleaned_entry not in plugin_mode_prefix_hints:
+                                    plugin_mode_prefix_hints.append(cleaned_entry)
+
+                if grouping_mode == "plugin" and plugin_mode_prefix_hints:
+                    for prefix in plugin_mode_prefix_hints:
+                        if prefix not in match_prefixes:
+                            match_prefixes.append(prefix)
 
             overrides: List[Tuple[str, JsonDict]] = []
             plugin_defaults: JsonDict = {}
@@ -313,7 +338,7 @@ class PluginOverrideManager:
             plugins[canonical_name] = _PluginConfig(
                 name=plugin_name,
                 canonical_name=canonical_name,
-                match_id_prefixes=match_prefixes,
+                match_id_prefixes=tuple(match_prefixes),
                 overrides=overrides,
                 plugin_defaults=plugin_defaults or None,
                 group_mode=grouping_mode,
@@ -331,6 +356,11 @@ class PluginOverrideManager:
             len(self._plugins),
             self._path,
         )
+
+    def force_reload(self) -> None:
+        """Forcefully reload the override configuration from disk."""
+        self._mtime = None
+        self._load_config()
 
     def infer_plugin_name(self, payload: Mapping[str, Any]) -> Optional[str]:
         """Best-effort plugin lookup without mutating the payload."""
