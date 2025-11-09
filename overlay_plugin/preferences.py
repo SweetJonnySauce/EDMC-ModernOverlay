@@ -36,6 +36,8 @@ class Preferences:
     cycle_payload_ids: bool = False
     copy_payload_id_on_cycle: bool = False
     scale_mode: str = "fit"
+    nudge_overflow_payloads: bool = False
+    payload_nudge_gutter: int = 30
 
     def __post_init__(self) -> None:
         self.plugin_dir = Path(self.plugin_dir)
@@ -94,6 +96,12 @@ class Preferences:
         self.copy_payload_id_on_cycle = bool(data.get("copy_payload_id_on_cycle", False))
         mode = str(data.get("scale_mode", "fit") or "fit").strip().lower()
         self.scale_mode = mode if mode in {"fit", "fill"} else "fit"
+        self.nudge_overflow_payloads = bool(data.get("nudge_overflow_payloads", False))
+        try:
+            gutter = int(data.get("payload_nudge_gutter", 30))
+        except (TypeError, ValueError):
+            gutter = 30
+        self.payload_nudge_gutter = max(0, min(gutter, 500))
 
     def save(self) -> None:
         payload: Dict[str, Any] = {
@@ -117,6 +125,8 @@ class Preferences:
             "cycle_payload_ids": bool(self.cycle_payload_ids),
             "copy_payload_id_on_cycle": bool(self.copy_payload_id_on_cycle),
             "scale_mode": str(self.scale_mode or "fit"),
+            "nudge_overflow_payloads": bool(self.nudge_overflow_payloads),
+            "payload_nudge_gutter": int(self.payload_nudge_gutter),
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -140,6 +150,8 @@ class PreferencesPanel:
         set_status_fps_callback: Optional[Callable[[bool], None]] = None,
         set_gridlines_enabled_callback: Optional[Callable[[bool], None]] = None,
         set_gridline_spacing_callback: Optional[Callable[[int], None]] = None,
+        set_payload_nudge_callback: Optional[Callable[[bool], None]] = None,
+        set_payload_gutter_callback: Optional[Callable[[int], None]] = None,
         set_log_retention_callback: Optional[Callable[[int], None]] = None,
         set_force_render_callback: Optional[Callable[[bool], None]] = None,
         set_title_bar_config_callback: Optional[Callable[[bool, int], None]] = None,
@@ -168,6 +180,8 @@ class PreferencesPanel:
         self._var_debug_overlay_corner = tk.StringVar(value=(preferences.debug_overlay_corner or "NW"))
         self._var_gridlines_enabled = tk.BooleanVar(value=preferences.gridlines_enabled)
         self._var_gridline_spacing = tk.IntVar(value=max(10, int(preferences.gridline_spacing)))
+        self._var_payload_nudge = tk.BooleanVar(value=preferences.nudge_overflow_payloads)
+        self._var_payload_gutter = tk.IntVar(value=max(0, int(preferences.payload_nudge_gutter)))
         self._var_force_render = tk.BooleanVar(value=preferences.force_render)
         self._var_title_bar_enabled = tk.BooleanVar(value=preferences.title_bar_enabled)
         self._var_title_bar_height = tk.IntVar(value=int(preferences.title_bar_height))
@@ -190,6 +204,8 @@ class PreferencesPanel:
         self._set_status_fps = set_status_fps_callback
         self._set_gridlines_enabled = set_gridlines_enabled_callback
         self._set_gridline_spacing = set_gridline_spacing_callback
+        self._set_payload_nudge = set_payload_nudge_callback
+        self._set_payload_gutter = set_payload_gutter_callback
         self._set_log_retention = set_log_retention_callback
         self._set_force_render = set_force_render_callback
         self._set_title_bar_config = set_title_bar_config_callback
@@ -439,6 +455,33 @@ class PreferencesPanel:
         grid_spacing_spin.bind("<Return>", self._on_gridline_spacing_event)
         grid_spacing_row.grid(row=14, column=0, sticky="w", pady=(2, 0))
 
+        nudge_row = ttk.Frame(frame, style=self._frame_style)
+        nudge_checkbox = nb.Checkbutton(
+            nudge_row,
+            text="Nudge overflowing payloads back into view",
+            variable=self._var_payload_nudge,
+            onvalue=True,
+            offvalue=False,
+            command=self._on_payload_nudge_toggle,
+        )
+        nudge_checkbox.pack(side="left")
+        gutter_label = nb.Label(nudge_row, text="Gutter (px):")
+        gutter_label.pack(side="left", padx=(12, 4))
+        gutter_spin = ttk.Spinbox(
+            nudge_row,
+            from_=0,
+            to=500,
+            increment=5,
+            width=6,
+            textvariable=self._var_payload_gutter,
+            command=self._on_payload_gutter_command,
+            style=self._spinbox_style,
+        )
+        gutter_spin.pack(side="left")
+        gutter_spin.bind("<FocusOut>", self._on_payload_gutter_event)
+        gutter_spin.bind("<Return>", self._on_payload_gutter_event)
+        nudge_row.grid(row=15, column=0, sticky="w", pady=(6, 0))
+
         scale_mode_row = ttk.Frame(frame, style=self._frame_style)
         scale_mode_label = nb.Label(scale_mode_row, text="Overlay scaling mode:")
         scale_mode_label.pack(side="left")
@@ -451,7 +494,7 @@ class PreferencesPanel:
         )
         self._scale_mode_combo.pack(side="left", padx=(8, 0))
         self._scale_mode_combo.bind("<<ComboboxSelected>>", self._on_scale_mode_change)
-        scale_mode_row.grid(row=15, column=0, sticky="w", pady=(8, 0))
+        scale_mode_row.grid(row=16, column=0, sticky="w", pady=(8, 0))
 
         cycle_row = ttk.Frame(frame, style=self._frame_style)
         cycle_checkbox = nb.Checkbutton(
@@ -476,12 +519,12 @@ class PreferencesPanel:
         self._cycle_prev_btn.pack(side="left", padx=(8, 0))
         self._cycle_next_btn.pack(side="left", padx=(4, 0))
         self._cycle_copy_checkbox.pack(side="left", padx=(12, 0))
-        cycle_row.grid(row=16, column=0, sticky="w", pady=(10, 0))
+        cycle_row.grid(row=17, column=0, sticky="w", pady=(10, 0))
 
         self._update_cycle_button_state()
 
         test_label = nb.Label(frame, text="Send test message to overlay:")
-        test_label.grid(row=17, column=0, sticky="w", pady=(10, 0))
+        test_label.grid(row=18, column=0, sticky="w", pady=(10, 0))
 
         test_row = ttk.Frame(frame, style=self._frame_style)
         test_entry = nb.EntryMenu(test_row, textvariable=self._test_var, width=40)
@@ -496,22 +539,22 @@ class PreferencesPanel:
         y_label.pack(side="left", padx=(8, 2))
         y_entry.pack(side="left")
         send_button.pack(side="left", padx=(8, 0))
-        test_row.grid(row=18, column=0, sticky="we", pady=(2, 0))
+        test_row.grid(row=19, column=0, sticky="we", pady=(2, 0))
         frame.columnconfigure(0, weight=1)
         test_row.columnconfigure(0, weight=1)
 
         legacy_label = nb.Label(frame, text="Legacy edmcoverlay compatibility:")
-        legacy_label.grid(row=19, column=0, sticky="w", pady=(10, 0))
+        legacy_label.grid(row=20, column=0, sticky="w", pady=(10, 0))
 
         legacy_row = ttk.Frame(frame, style=self._frame_style)
         legacy_text_btn = nb.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
         legacy_rect_btn = nb.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
         legacy_text_btn.pack(side="left")
         legacy_rect_btn.pack(side="left", padx=(8, 0))
-        legacy_row.grid(row=20, column=0, sticky="w", pady=(2, 0))
+        legacy_row.grid(row=21, column=0, sticky="w", pady=(2, 0))
 
         status_label = nb.Label(frame, textvariable=self._status_var, wraplength=400, justify="left")
-        status_label.grid(row=21, column=0, sticky="w", pady=(4, 0))
+        status_label.grid(row=22, column=0, sticky="w", pady=(4, 0))
 
         self._frame = frame
 
@@ -805,6 +848,41 @@ class PreferencesPanel:
                 self._set_gridline_spacing(spacing)
             except Exception as exc:
                 self._status_var.set(f"Failed to update grid spacing: {exc}")
+                return
+        self._preferences.save()
+
+    def _on_payload_nudge_toggle(self) -> None:
+        enabled = bool(self._var_payload_nudge.get())
+        self._preferences.nudge_overflow_payloads = enabled
+        if self._set_payload_nudge:
+            try:
+                self._set_payload_nudge(enabled)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update payload nudging: {exc}")
+                self._var_payload_nudge.set(not enabled)
+                self._preferences.nudge_overflow_payloads = bool(self._var_payload_nudge.get())
+                return
+        self._preferences.save()
+
+    def _on_payload_gutter_command(self) -> None:
+        self._apply_payload_gutter()
+
+    def _on_payload_gutter_event(self, _event) -> None:  # pragma: no cover - Tk event
+        self._apply_payload_gutter()
+
+    def _apply_payload_gutter(self) -> None:
+        try:
+            gutter = int(self._var_payload_gutter.get())
+        except (TypeError, ValueError):
+            gutter = self._preferences.payload_nudge_gutter
+        gutter = max(0, min(gutter, 500))
+        self._var_payload_gutter.set(gutter)
+        self._preferences.payload_nudge_gutter = gutter
+        if self._set_payload_gutter:
+            try:
+                self._set_payload_gutter(gutter)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update payload gutter: {exc}")
                 return
         self._preferences.save()
 

@@ -724,6 +724,22 @@ class _PluginRuntime:
         LOGGER.debug("Overlay gridline spacing set to %d px", spacing)
         self._send_overlay_config()
 
+    def set_payload_nudge_preference(self, value: bool) -> None:
+        enabled = bool(value)
+        self._preferences.nudge_overflow_payloads = enabled
+        LOGGER.debug("Payload overflow nudging %s", "enabled" if enabled else "disabled")
+        self._send_overlay_config()
+
+    def set_payload_nudge_gutter_preference(self, value: int) -> None:
+        try:
+            gutter = int(value)
+        except (TypeError, ValueError):
+            gutter = self._preferences.payload_nudge_gutter
+        gutter = max(0, min(gutter, 500))
+        self._preferences.payload_nudge_gutter = gutter
+        LOGGER.debug("Payload overflow gutter set to %d px", gutter)
+        self._send_overlay_config()
+
     def set_force_render_preference(self, value: bool) -> None:
         self._preferences.force_render = bool(value)
         LOGGER.debug(
@@ -1021,13 +1037,16 @@ class _PluginRuntime:
             "cycle_payload_ids": bool(self._preferences.cycle_payload_ids),
             "copy_payload_id_on_cycle": bool(self._preferences.copy_payload_id_on_cycle),
             "scale_mode": str(self._preferences.scale_mode or "fit"),
+            "nudge_overflow_payloads": bool(self._preferences.nudge_overflow_payloads),
+            "payload_nudge_gutter": int(self._preferences.payload_nudge_gutter),
             "platform_context": self._platform_context_payload(),
         }
         self._last_config = dict(payload)
         self._publish_payload(payload)
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s debug_overlay_corner=%s status_bottom_margin=%s client_log_retention=%d gridlines_enabled=%s "
-            "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s scale_mode=%s font_min=%.1f font_max=%.1f platform_context=%s",
+            "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s scale_mode=%s "
+            "nudge_overflow=%s payload_gutter=%d font_min=%.1f font_max=%.1f platform_context=%s",
             payload["opacity"],
             payload["show_status"],
             payload["debug_overlay_corner"],
@@ -1042,6 +1061,8 @@ class _PluginRuntime:
             payload["cycle_payload_ids"],
             payload["copy_payload_id_on_cycle"],
             payload["scale_mode"],
+            payload["nudge_overflow_payloads"],
+            payload["payload_nudge_gutter"],
             payload["min_font_point"],
             payload["max_font_point"],
             payload["platform_context"],
@@ -1378,6 +1399,8 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         status_fps_callback = _plugin.set_status_fps_preference if _plugin else None
         gridlines_enabled_callback = _plugin.set_gridlines_enabled_preference if _plugin else None
         gridline_spacing_callback = _plugin.set_gridline_spacing_preference if _plugin else None
+        payload_nudge_callback = _plugin.set_payload_nudge_preference if _plugin else None
+        payload_gutter_callback = _plugin.set_payload_nudge_gutter_preference if _plugin else None
         log_retention_callback = _plugin.set_client_log_retention_preference if _plugin else None
         force_render_callback = _plugin.set_force_render_preference if _plugin else None
         title_bar_config_callback = _plugin.set_title_bar_compensation_preference if _plugin else None
@@ -1401,6 +1424,8 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             status_fps_callback,
             gridlines_enabled_callback,
             gridline_spacing_callback,
+            payload_nudge_callback,
+            payload_gutter_callback,
             log_retention_callback,
             force_render_callback,
             title_bar_config_callback,

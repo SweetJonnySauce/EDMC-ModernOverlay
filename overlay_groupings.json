@@ -10,13 +10,13 @@
     ],
     "grouping": {
       "groups": {
-        "colonisation": {
+        "BGS-Tally Colonisation": {
           "id_prefixes": [
             "bgstally-msg-colonisation-",
             "bgstally-frame-colonisation"
           ]
         },
-        "tick-notifications": {
+        "BGS-Tally Tick Notifications": {
           "id_prefixes": [
             "bgstally-frame-tick",
             "bgstally-msg-tick-",
@@ -25,8 +25,32 @@
             "bgstally-msg-tickwarn-",
             "bgstally-frame-tickwarn"
           ]
+        },
+        "BGS-Tally System Info": {
+          "id_prefixes": [
+            "bgstally-msg-",
+            "bgstally-frame-indicator",
+            "bgstally-frame-system_info"
+          ]
         }
       }
+    }
+  },
+  "Bioscan": {
+    "grouping": {
+      "groups": {
+        "Bioscan Payloads": {
+          "id_prefixes": [
+            "bioscan_"
+          ],
+          "anchor": "nw"
+        }
+      }
+    },
+    "__match__": {
+      "id_prefixes": [
+        "bioscan_"
+      ]
     }
   },
   "ED-Mining-Analytics": {
@@ -112,23 +136,6 @@
           "anchor": "nw"
         }
       }
-    }
-  },
-  "bioscan": {
-    "grouping": {
-      "groups": {
-        "Bioscan Payloads": {
-          "id_prefixes": [
-            "bioscan_"
-          ],
-          "anchor": "nw"
-        }
-      }
-    },
-    "__match__": {
-      "id_prefixes": [
-        "bioscan_"
-      ]
     }
   }
 }

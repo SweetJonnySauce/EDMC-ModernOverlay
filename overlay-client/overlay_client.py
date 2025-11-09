@@ -14,7 +14,7 @@ import time
 from datetime import UTC, datetime
 from fractions import Fraction
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, Set
 
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect, QSize
@@ -56,7 +56,7 @@ from legacy_processor import TraceCallback, process_legacy_payload  # type: igno
 from vector_renderer import render_vector, VectorPainterAdapter  # type: ignore  # noqa: E402
 from plugin_overrides import PluginOverrideManager  # type: ignore  # noqa: E402
 from debug_config import DEBUG_CONFIG_ENABLED, DebugConfig, load_debug_config  # type: ignore  # noqa: E402
-from group_transform import GroupTransform  # type: ignore  # noqa: E402
+from group_transform import GroupTransform, GroupKey  # type: ignore  # noqa: E402
 from viewport_helper import (
     BASE_HEIGHT,
     BASE_WIDTH,
@@ -104,6 +104,110 @@ _LINE_WIDTH_DEFAULTS: Dict[str, int] = {
     "vector_cross": 2,
     "cycle_connector": 2,
 }
+
+
+@dataclass
+class _ScreenBounds:
+    min_x: float = float("inf")
+    min_y: float = float("inf")
+    max_x: float = float("-inf")
+    max_y: float = float("-inf")
+
+    def include_rect(self, left: float, top: float, right: float, bottom: float) -> None:
+        self.min_x = min(self.min_x, left, right)
+        self.max_x = max(self.max_x, left, right)
+        self.min_y = min(self.min_y, top, bottom)
+        self.max_y = max(self.max_y, top, bottom)
+
+    def is_valid(self) -> bool:
+        return self.min_x <= self.max_x and self.min_y <= self.max_y
+
+
+@dataclass
+class _LegacyPaintCommand:
+    group_key: GroupKey
+    group_transform: Optional[GroupTransform]
+    legacy_item: LegacyItem
+    bounds: Optional[Tuple[int, int, int, int]]
+    debug_log: Optional[str] = None
+
+    def paint(self, window: "OverlayWindow", painter: QPainter, offset_x: int, offset_y: int) -> None:
+        raise NotImplementedError
+
+
+@dataclass
+class _MessagePaintCommand(_LegacyPaintCommand):
+    text: str = ""
+    color: QColor = field(default_factory=lambda: QColor("white"))
+    point_size: float = 12.0
+    x: int = 0
+    baseline: int = 0
+    text_width: int = 0
+    ascent: int = 0
+    descent: int = 0
+    cycle_anchor: Optional[Tuple[int, int]] = None
+
+    def paint(self, window: "OverlayWindow", painter: QPainter, offset_x: int, offset_y: int) -> None:
+        font = QFont(window._font_family)
+        font.setPointSizeF(self.point_size)
+        font.setWeight(QFont.Weight.Normal)
+        painter.setFont(font)
+        painter.setPen(self.color)
+        draw_x = int(round(self.x + offset_x))
+        draw_baseline = int(round(self.baseline + offset_y))
+        painter.drawText(draw_x, draw_baseline, self.text)
+        if self.cycle_anchor:
+            anchor_x = int(round(self.cycle_anchor[0] + offset_x))
+            anchor_y = int(round(self.cycle_anchor[1] + offset_y))
+            window._register_cycle_anchor(self.legacy_item.item_id, anchor_x, anchor_y)
+
+
+@dataclass
+class _RectPaintCommand(_LegacyPaintCommand):
+    pen: QPen = field(default_factory=lambda: QPen(Qt.PenStyle.NoPen))
+    brush: QBrush = field(default_factory=lambda: QBrush(Qt.BrushStyle.NoBrush))
+    x: int = 0
+    y: int = 0
+    width: int = 0
+    height: int = 0
+    cycle_anchor: Optional[Tuple[int, int]] = None
+
+    def paint(self, window: "OverlayWindow", painter: QPainter, offset_x: int, offset_y: int) -> None:
+        painter.setPen(self.pen)
+        painter.setBrush(self.brush)
+        draw_x = int(round(self.x + offset_x))
+        draw_y = int(round(self.y + offset_y))
+        painter.drawRect(draw_x, draw_y, self.width, self.height)
+        if self.cycle_anchor:
+            anchor_x = int(round(self.cycle_anchor[0] + offset_x))
+            anchor_y = int(round(self.cycle_anchor[1] + offset_y))
+            window._register_cycle_anchor(self.legacy_item.item_id, anchor_x, anchor_y)
+
+
+@dataclass
+class _VectorPaintCommand(_LegacyPaintCommand):
+    vector_payload: Mapping[str, Any] = field(default_factory=dict)
+    scale: float = 1.0
+    base_offset_x: float = 0.0
+    base_offset_y: float = 0.0
+    trace_fn: Optional[Callable[[str, Mapping[str, Any]], None]] = None
+    cycle_anchor: Optional[Tuple[int, int]] = None
+
+    def paint(self, window: "OverlayWindow", painter: QPainter, offset_x: int, offset_y: int) -> None:
+        adapter = _QtVectorPainterAdapter(window, painter)
+        render_vector(
+            adapter,
+            self.vector_payload,
+            self.scale,
+            self.scale,
+            offset_x=self.base_offset_x + offset_x,
+            offset_y=self.base_offset_y + offset_y,
+            trace=self.trace_fn,
+        )
+        if self.cycle_anchor:
+            anchor_x = int(round(self.cycle_anchor[0] + offset_x))
+            anchor_y = int(round(self.cycle_anchor[1] + offset_y))
+            window._register_cycle_anchor(self.legacy_item.item_id, anchor_x, anchor_y)
 
 
 def _load_line_width_config() -> Dict[str, int]:
@@ -394,6 +498,8 @@ class OverlayWindow(QWidget):
         self._last_font_notice: Optional[Tuple[float, float]] = None
         self._scale_mode: str = "fit"
         self._line_widths: Dict[str, int] = _load_line_width_config()
+        self._payload_nudge_enabled: bool = False
+        self._payload_nudge_gutter: int = 30
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -467,6 +573,10 @@ class OverlayWindow(QWidget):
 
         self.set_scale_mode(getattr(initial, "scale_mode", "fit"))
         self.set_cycle_payload_enabled(getattr(initial, "cycle_payload_ids", False))
+        self.set_payload_nudge(
+            getattr(initial, "nudge_overflow_payloads", False),
+            getattr(initial, "payload_nudge_gutter", 30),
+        )
 
         width_px, height_px = self._current_physical_size()
         _CLIENT_LOGGER.debug(
@@ -965,6 +1075,30 @@ class OverlayWindow(QWidget):
         _CLIENT_LOGGER.debug("Overlay scale mode set to %s", value)
         self._publish_metrics()
         self.update()
+
+    def set_payload_nudge(self, enabled: Optional[bool], gutter: Optional[int] = None) -> None:
+        changed = False
+        if enabled is not None:
+            flag = bool(enabled)
+            if flag != self._payload_nudge_enabled:
+                self._payload_nudge_enabled = flag
+                changed = True
+        if gutter is not None:
+            try:
+                numeric = int(gutter)
+            except (TypeError, ValueError):
+                numeric = self._payload_nudge_gutter
+            numeric = max(0, min(numeric, 500))
+            if numeric != self._payload_nudge_gutter:
+                self._payload_nudge_gutter = numeric
+                changed = True
+        if changed:
+            _CLIENT_LOGGER.debug(
+                "Payload nudge updated: enabled=%s gutter=%d",
+                self._payload_nudge_enabled,
+                self._payload_nudge_gutter,
+            )
+            self.update()
 
     def set_cycle_payload_enabled(self, enabled: Optional[bool]) -> None:
         flag = bool(enabled)
@@ -2506,54 +2640,42 @@ class OverlayWindow(QWidget):
             self._grouping_helper.reset()
         fill_debug_rows: List[str] = []
         draw_group_bounds = self._debug_config.group_bounds_outline
-        drawn_groups: Set[Tuple[str, Optional[str]]] = set()
-        for item_id, item in self._legacy_items.items():
-            group_key = self._grouping_helper.group_key_for(item_id, item.plugin)
+        commands: List[_LegacyPaintCommand] = []
+        bounds_by_group: Dict[Tuple[str, Optional[str]], _ScreenBounds] = {}
+        for item_id, legacy_item in self._legacy_items.items():
+            group_key = self._grouping_helper.group_key_for(item_id, legacy_item.plugin)
             group_transform = self._grouping_helper.get_transform(group_key)
-            if item.kind == "message":
-                row_log = self._paint_legacy_message(
-                    painter,
-                    item_id,
-                    item.data,
-                    mapper,
-                    item.plugin,
-                    group_transform,
-                )
-            elif item.kind == "rect":
-                row_log = self._paint_legacy_rect(
-                    painter,
-                    item_id,
-                    item.data,
-                    mapper,
-                    item.plugin,
-                    group_transform,
-                )
-            elif item.kind == "vector":
-                row_log = self._paint_legacy_vector(painter, item, mapper, group_transform)
+            if legacy_item.kind == "message":
+                command, row_log = self._build_message_command(legacy_item, mapper, group_key, group_transform)
+            elif legacy_item.kind == "rect":
+                command, row_log = self._build_rect_command(legacy_item, mapper, group_key, group_transform)
+            elif legacy_item.kind == "vector":
+                command, row_log = self._build_vector_command(legacy_item, mapper, group_key, group_transform)
             else:
+                command = None
                 row_log = None
-            if draw_group_bounds:
-                if group_transform is not None:
-                    key_tuple = group_key.as_tuple()
-                    if key_tuple not in drawn_groups:
-                        drawn_groups.add(key_tuple)
-                        self._draw_group_bounds_outline(painter, mapper, group_transform)
-                else:
-                    self._draw_item_bounds_outline(painter, mapper, item)
+            if command is None:
+                continue
+            commands.append(command)
+            if command.bounds:
+                bounds = bounds_by_group.setdefault(command.group_key.as_tuple(), _ScreenBounds())
+                bounds.include_rect(*command.bounds)
             if debug_fill and row_log:
-                if group_transform:
+                if command.group_transform:
                     band_str = (
                         "band=x[{:.3f},{:.3f}] y[{:.3f},{:.3f}] anchor=({:.3f},{:.3f})".format(
-                            group_transform.band_min_x,
-                            group_transform.band_max_x,
-                            group_transform.band_min_y,
-                            group_transform.band_max_y,
-                            group_transform.band_anchor_x,
-                            group_transform.band_anchor_y,
+                            command.group_transform.band_min_x,
+                            command.group_transform.band_max_x,
+                            command.group_transform.band_min_y,
+                            command.group_transform.band_max_y,
+                            command.group_transform.band_anchor_x,
+                            command.group_transform.band_anchor_y,
                         )
                     )
                     row_log = f"{row_log} {band_str}"
                 fill_debug_rows.append(row_log)
+
+        translations = self._compute_group_nudges(bounds_by_group)
         if debug_fill and fill_debug_rows:
             _CLIENT_LOGGER.debug(
                 "fill-debug scale=%.3f size=(%.1f×%.1f) base_offset=(%.1f, %.1f): %s",
@@ -2564,6 +2686,30 @@ class OverlayWindow(QWidget):
                 mapper.offset_y,
                 " | ".join(fill_debug_rows),
             )
+        drawn_groups: Set[Tuple[str, Optional[str]]] = set()
+        for command in commands:
+            offset_x, offset_y = translations.get(command.group_key.as_tuple(), (0, 0))
+            command.paint(self, painter, offset_x, offset_y)
+            if draw_group_bounds:
+                if command.group_transform is not None:
+                    key_tuple = command.group_key.as_tuple()
+                    if key_tuple not in drawn_groups:
+                        drawn_groups.add(key_tuple)
+                        self._draw_group_bounds_outline_with_offset(
+                            painter,
+                            mapper,
+                            command.group_transform,
+                            offset_x,
+                            offset_y,
+                        )
+                else:
+                    self._draw_item_bounds_outline_with_offset(
+                        painter,
+                        mapper,
+                        command.legacy_item,
+                        offset_x,
+                        offset_y,
+                    )
 
     def _legacy_preset_point_size(self, preset: str, state: ViewportState, mapper: LegacyMapper) -> float:
         """Return the scaled font size for a legacy preset relative to normal."""
@@ -2585,15 +2731,16 @@ class OverlayWindow(QWidget):
         target = normal_point + offsets.get(preset.lower(), 0.0)
         return max(1.0, target)
 
-    def _paint_legacy_message(
+    def _build_message_command(
         self,
-        painter: QPainter,
-        item_id: str,
-        item: Dict[str, Any],
+        legacy_item: LegacyItem,
         mapper: LegacyMapper,
-        plugin_name: Optional[str] = None,
-        group_transform: Optional[GroupTransform] = None,
-    ) -> Optional[str]:
+        group_key: GroupKey,
+        group_transform: Optional[GroupTransform],
+    ) -> Tuple[Optional[_MessagePaintCommand], Optional[str]]:
+        item = legacy_item.data
+        item_id = legacy_item.item_id
+        plugin_name = legacy_item.plugin
         color = QColor(str(item.get("color", "white")))
         size = str(item.get("size", "normal")).lower()
         state = self._viewport_state()
@@ -2608,12 +2755,7 @@ class OverlayWindow(QWidget):
             anchor_point = self._group_anchor_point(group_transform, transform_context)
             proportional_dx, proportional_dy = compute_proportional_translation(fill, group_transform, anchor_point)
         transform_meta = item.get("__mo_transform__")
-        font = QFont(self._font_family)
-        font.setPointSizeF(scaled_point_size)
-        font.setWeight(QFont.Weight.Normal)
-        painter.setPen(color)
         self._debug_legacy_point_size = scaled_point_size
-        painter.setFont(font)
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
         adjusted_left, adjusted_top = remap_point(fill, transform_meta, raw_left, raw_top, context=transform_context)
@@ -2622,39 +2764,58 @@ class OverlayWindow(QWidget):
             adjusted_left += proportional_dx
             adjusted_top += proportional_dy
         text = str(item.get("text", ""))
-        x = int(round(fill.screen_x(adjusted_left)))
-        metrics = painter.fontMetrics()
+        metrics_font = QFont(self._font_family)
+        metrics_font.setPointSizeF(scaled_point_size)
+        metrics_font.setWeight(QFont.Weight.Normal)
+        metrics = QFontMetrics(metrics_font)
         text_width = metrics.horizontalAdvance(text)
+        x = int(round(fill.screen_x(adjusted_left)))
         baseline = int(round(fill.screen_y(adjusted_top) + metrics.ascent()))
-
-        painter.drawText(x, baseline, text)
         center_x = x + text_width // 2
         top = baseline - metrics.ascent()
         bottom = baseline + metrics.descent()
         center_y = int(round((top + bottom) / 2.0))
-        self._register_cycle_anchor(item_id, center_x, center_y)
+        bounds = (x, top, x + text_width, bottom)
+        command = _MessagePaintCommand(
+            group_key=group_key,
+            group_transform=group_transform,
+            legacy_item=legacy_item,
+            bounds=bounds,
+            debug_log=None,
+            text=text,
+            color=color,
+            point_size=scaled_point_size,
+            x=x,
+            baseline=baseline,
+            text_width=text_width,
+            ascent=metrics.ascent(),
+            descent=metrics.descent(),
+            cycle_anchor=(center_x, center_y),
+        )
         if self._debug_config.fill_group_debug and mapper.transform.mode is ScaleMode.FILL:
             plugin_label = plugin_name if isinstance(plugin_name, str) and plugin_name else "unknown"
-            return (
+            row_log = (
                 f"{plugin_label}:{item_id} message raw=({raw_left:.1f},{raw_top:.1f}) "
                 f"adj=({adjusted_left:.1f},{adjusted_top:.1f}) "
                 f"px=({x},{baseline}) size={size}"
             )
-        return None
+        else:
+            row_log = None
+        return command, row_log
 
-    def _paint_legacy_rect(
+    def _build_rect_command(
         self,
-        painter: QPainter,
-        item_id: str,
-        item: Dict[str, Any],
+        legacy_item: LegacyItem,
         mapper: LegacyMapper,
-        plugin_name: Optional[str] = None,
-        group_transform: Optional[GroupTransform] = None,
-    ) -> Optional[str]:
+        group_key: GroupKey,
+        group_transform: Optional[GroupTransform],
+    ) -> Tuple[Optional[_RectPaintCommand], Optional[str]]:
+        item = legacy_item.data
+        item_id = legacy_item.item_id
+        plugin_name = legacy_item.plugin
         border_spec = str(item.get("color", "white"))
         fill_spec = str(item.get("fill", "#00000000"))
 
-        pen: QPen
         if not border_spec or border_spec.lower() == "none":
             pen = QPen(Qt.PenStyle.NoPen)
         else:
@@ -2672,8 +2833,6 @@ class OverlayWindow(QWidget):
                 fill_color = QColor("#00000000")
             brush = QBrush(fill_color)
 
-        painter.setPen(pen)
-        painter.setBrush(brush)
         state = self._viewport_state()
         fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
         transform_context = build_payload_transform_context(fill)
@@ -2728,6 +2887,23 @@ class OverlayWindow(QWidget):
         y = int(round(fill.screen_y(min_y_overlay)))
         w = max(1, int(round(max(0.0, max_x_overlay - min_x_overlay) * scale)))
         h = max(1, int(round(max(0.0, max_y_overlay - min_y_overlay) * scale)))
+        center_x = x + w // 2
+        center_y = y + h // 2
+        bounds = (x, y, x + w, y + h)
+        command = _RectPaintCommand(
+            group_key=group_key,
+            group_transform=group_transform,
+            legacy_item=legacy_item,
+            bounds=bounds,
+            debug_log=None,
+            pen=pen,
+            brush=brush,
+            x=x,
+            y=y,
+            width=w,
+            height=h,
+            cycle_anchor=(center_x, center_y),
+        )
         if trace_enabled:
             self._log_legacy_trace(
                 plugin_name,
@@ -2745,33 +2921,27 @@ class OverlayWindow(QWidget):
                     "mode": mapper.transform.mode.value,
                 },
             )
-        painter.drawRect(
-            x,
-            y,
-            w,
-            h,
-        )
-        self._register_cycle_anchor(item_id, x + w // 2, y + h // 2)
         if self._debug_config.fill_group_debug and mapper.transform.mode is ScaleMode.FILL:
             plugin_label = plugin_name if isinstance(plugin_name, str) and plugin_name else "unknown"
-            return (
+            row_log = (
                 f"{plugin_label}:{item_id} rect raw=({raw_x:.1f},{raw_y:.1f},{raw_w:.1f},{raw_h:.1f}) "
                 f"px=({x},{y},{w},{h})"
             )
-        return None
+        else:
+            row_log = None
+        return command, row_log
 
-    def _paint_legacy_vector(
+    def _build_vector_command(
         self,
-        painter: QPainter,
         legacy_item: LegacyItem,
         mapper: LegacyMapper,
+        group_key: GroupKey,
         group_transform: Optional[GroupTransform],
-    ) -> Optional[str]:
+    ) -> Tuple[Optional[_VectorPaintCommand], Optional[str]]:
         item_id = legacy_item.item_id
         item = legacy_item.data
         plugin_name = legacy_item.plugin
         trace_enabled = self._should_trace_payload(plugin_name, item_id)
-        adapter = _QtVectorPainterAdapter(self, painter)
         state = self._viewport_state()
         fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
         transform_context = build_payload_transform_context(fill)
@@ -2816,7 +2986,7 @@ class OverlayWindow(QWidget):
             new_point["y"] = oy
             transformed_points.append(new_point)
         if len(transformed_points) < 2:
-            return None
+            return None, None
         vector_payload = {
             "base_color": item.get("base_color"),
             "points": transformed_points,
@@ -2838,19 +3008,29 @@ class OverlayWindow(QWidget):
             py = int(round(mapped_y))
             px_list.append(px)
             py_list.append(py)
+        bounds: Optional[Tuple[int, int, int, int]]
+        cycle_anchor: Optional[Tuple[int, int]]
         if px_list and py_list:
-            center_x = int(round((min(px_list) + max(px_list)) / 2.0))
-            center_y = int(round((min(py_list) + max(py_list)) / 2.0))
-            self._register_cycle_anchor(item_id, center_x, center_y)
-
-        render_vector(
-            adapter,
-            vector_payload,
-            scale,
-            scale,
-            offset_x=base_offset_x,
-            offset_y=base_offset_y,
-            trace=trace_fn,
+            bounds = (min(px_list), min(py_list), max(px_list), max(py_list))
+            cycle_anchor = (
+                int(round((min(px_list) + max(px_list)) / 2.0)),
+                int(round((min(py_list) + max(py_list)) / 2.0)),
+            )
+        else:
+            bounds = None
+            cycle_anchor = None
+        command = _VectorPaintCommand(
+            group_key=group_key,
+            group_transform=group_transform,
+            legacy_item=legacy_item,
+            bounds=bounds,
+            debug_log=None,
+            vector_payload=vector_payload,
+            scale=scale,
+            base_offset_x=base_offset_x,
+            base_offset_y=base_offset_y,
+            trace_fn=trace_fn,
+            cycle_anchor=cycle_anchor,
         )
         if self._debug_config.fill_group_debug and mapper.transform.mode is ScaleMode.FILL:
             plugin_label = plugin_name if isinstance(plugin_name, str) and plugin_name else "unknown"
@@ -2862,11 +3042,104 @@ class OverlayWindow(QWidget):
                 min_raw_y = min(float(point.get("y", 0.0)) for point in raw_points)
             else:
                 min_raw_x = min_raw_y = 0.0
-            return (
+            row_log = (
                 f"{plugin_label}:{item_id} vector min_raw=({min_raw_x},{min_raw_y}) "
                 f"offset=({base_offset_x:.1f},{base_offset_y:.1f}) points={len(vector_payload.get('points', []))}"
             )
-        return None
+        else:
+            row_log = None
+        return command, row_log
+
+    def _compute_group_nudges(
+        self,
+        bounds_by_group: Mapping[Tuple[str, Optional[str]], _ScreenBounds],
+    ) -> Dict[Tuple[str, Optional[str]], Tuple[int, int]]:
+        if not self._payload_nudge_enabled or not bounds_by_group:
+            return {}
+        width = max(self.width(), 1)
+        height = max(self.height(), 1)
+        gutter = max(0, int(self._payload_nudge_gutter))
+        translations: Dict[Tuple[str, Optional[str]], Tuple[int, int]] = {}
+        for key, bounds in bounds_by_group.items():
+            if not bounds.is_valid():
+                continue
+            dx = self._compute_axis_nudge(bounds.min_x, bounds.max_x, width, gutter)
+            dy = self._compute_axis_nudge(bounds.min_y, bounds.max_y, height, gutter)
+            if dx or dy:
+                translations[key] = (dx, dy)
+        return translations
+
+    @staticmethod
+    def _compute_axis_nudge(min_coord: float, max_coord: float, window_span: int, gutter: int) -> int:
+        if window_span <= 0:
+            return 0
+        if not (math.isfinite(min_coord) and math.isfinite(max_coord)):
+            return 0
+        span = max(0.0, max_coord - min_coord)
+        if span <= 0.0:
+            return 0
+        left_overflow = min_coord < 0.0
+        right_overflow = max_coord > window_span
+        if not (left_overflow or right_overflow):
+            return 0
+        dx = 0.0
+        current_min = min_coord
+        current_max = max_coord
+        if left_overflow:
+            shift = -current_min
+            dx += shift
+            current_min += shift
+            current_max += shift
+        if current_max > window_span:
+            shift = current_max - window_span
+            dx -= shift
+            current_min -= shift
+            current_max -= shift
+        effective_gutter = min(max(0.0, float(gutter)), max(window_span - span, 0.0))
+        if effective_gutter > 0.0:
+            if left_overflow:
+                extra = min(effective_gutter, max(0.0, window_span - current_max))
+                dx += extra
+                current_min += extra
+                current_max += extra
+            if right_overflow:
+                extra = min(effective_gutter, max(0.0, current_min))
+                dx -= extra
+                current_min -= extra
+                current_max -= extra
+        return int(round(dx))
+
+    def _draw_group_bounds_outline_with_offset(
+        self,
+        painter: QPainter,
+        mapper: LegacyMapper,
+        transform: GroupTransform,
+        offset_x: int,
+        offset_y: int,
+    ) -> None:
+        if offset_x or offset_y:
+            painter.save()
+            painter.translate(offset_x, offset_y)
+            self._draw_group_bounds_outline(painter, mapper, transform)
+            painter.restore()
+            return
+        self._draw_group_bounds_outline(painter, mapper, transform)
+
+    def _draw_item_bounds_outline_with_offset(
+        self,
+        painter: QPainter,
+        mapper: LegacyMapper,
+        legacy_item: LegacyItem,
+        offset_x: int,
+        offset_y: int,
+    ) -> None:
+        if offset_x or offset_y:
+            painter.save()
+            painter.translate(offset_x, offset_y)
+            self._draw_item_bounds_outline(painter, mapper, legacy_item)
+            painter.restore()
+            return
+        self._draw_item_bounds_outline(painter, mapper, legacy_item)
 
     def _draw_group_bounds_outline(
         self,

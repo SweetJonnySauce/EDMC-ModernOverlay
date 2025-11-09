@@ -47,6 +47,7 @@ class DeveloperHelperController:
         window.set_cycle_payload_copy_enabled(getattr(initial, "copy_payload_id_on_cycle", False))
         if getattr(initial, "scale_mode", None):
             window.set_scale_mode(initial.scale_mode)
+        window.set_payload_nudge(initial.nudge_overflow_payloads, initial.payload_nudge_gutter)
 
     def apply_config(self, window: "OverlayWindow", payload: Dict[str, Any]) -> None:
         config = DeveloperHelperConfig.from_payload(payload)
@@ -79,6 +80,8 @@ class DeveloperHelperController:
             window.set_cycle_payload_copy_enabled(config.copy_payload_id_on_cycle)
         if config.scale_mode is not None:
             window.set_scale_mode(config.scale_mode)
+        if config.nudge_overflow_payloads is not None or config.payload_nudge_gutter is not None:
+            window.set_payload_nudge(config.nudge_overflow_payloads, config.payload_nudge_gutter)
         if 'platform_context' in payload:
             window.update_platform_context(payload.get('platform_context'))
         elif config.force_xwayland is not None:

@@ -25,6 +25,8 @@ class InitialClientSettings:
     cycle_payload_ids: bool = False
     copy_payload_id_on_cycle: bool = False
     scale_mode: str = "fit"
+    nudge_overflow_payloads: bool = False
+    payload_nudge_gutter: int = 30
 
 
 @dataclass
@@ -50,6 +52,8 @@ class DeveloperHelperConfig:
     cycle_payload_ids: Optional[bool] = None
     copy_payload_id_on_cycle: Optional[bool] = None
     scale_mode: Optional[str] = None
+    nudge_overflow_payloads: Optional[bool] = None
+    payload_nudge_gutter: Optional[int] = None
 
     @classmethod
     def from_payload(cls, payload: Dict[str, Any]) -> "DeveloperHelperConfig":
@@ -117,6 +121,8 @@ class DeveloperHelperConfig:
             cycle_payload_ids=_bool(payload.get("cycle_payload_ids"), None),
             copy_payload_id_on_cycle=_bool(payload.get("copy_payload_id_on_cycle"), None),
             scale_mode=mode_token,
+            nudge_overflow_payloads=_bool(payload.get("nudge_overflow_payloads"), None),
+            payload_nudge_gutter=_int(payload.get("payload_nudge_gutter"), None),
         )
 
 
@@ -170,6 +176,12 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
     mode = str(data.get("scale_mode", defaults.scale_mode) or defaults.scale_mode).strip().lower()
     if mode not in {"fit", "fill"}:
         mode = defaults.scale_mode
+    nudge_overflow = bool(data.get("nudge_overflow_payloads", defaults.nudge_overflow_payloads))
+    try:
+        gutter = int(data.get("payload_nudge_gutter", defaults.payload_nudge_gutter))
+    except (TypeError, ValueError):
+        gutter = defaults.payload_nudge_gutter
+    gutter = max(0, min(gutter, 500))
 
     return InitialClientSettings(
         client_log_retention=max(1, retention),
@@ -185,4 +197,6 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         cycle_payload_ids=cycle_payload_ids,
         copy_payload_id_on_cycle=copy_payload_id_on_cycle,
         scale_mode=mode,
+        nudge_overflow_payloads=nudge_overflow,
+        payload_nudge_gutter=gutter,
     )
