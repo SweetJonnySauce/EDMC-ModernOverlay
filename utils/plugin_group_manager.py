@@ -1054,11 +1054,16 @@ class PluginGroupManagerApp:
         self.status_var = tk.StringVar(value="Idle.")
         self.payload_count_var = tk.StringVar()
         self._payload_index: List[str] = []
-        self._group_scroll_bound = False
+        self._group_views: Dict[str, Dict[str, object]] = {}
+        self._unmatched_by_group: Dict[str, List[str]] = {}
+        self.selected_group_var = tk.StringVar()
+        self.group_name_var = tk.StringVar(value="Select a group")
+        self.group_match_var = tk.StringVar(value="-")
+        self.group_notes_var = tk.StringVar(value="-")
 
         self._build_ui()
         self._refresh_payload_list()
-        self._refresh_group_view()
+        self._refresh_group_data()
         self._update_payload_count()
         self.root.after(200, self._process_queue)
 
@@ -1105,19 +1110,55 @@ class PluginGroupManagerApp:
         action_row.pack(fill="x", padx=8, pady=8)
         ttk.Button(action_row, text="New group", command=self._open_new_group_dialog).pack(side="left")
 
-        group_scroll_frame = ttk.Frame(bottom_section)
-        group_scroll_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
-        self.group_canvas = tk.Canvas(group_scroll_frame, highlightthickness=0)
-        self.group_canvas.pack(side="left", fill="both", expand=True)
-        scrollbar_y = ttk.Scrollbar(group_scroll_frame, orient="vertical", command=self.group_canvas.yview)
-        scrollbar_y.pack(side="right", fill="y")
-        self.group_canvas.configure(yscrollcommand=scrollbar_y.set)
-        self.group_frame = ttk.Frame(self.group_canvas)
-        self.group_frame_window = self.group_canvas.create_window((0, 0), window=self.group_frame, anchor="nw")
-        self.group_frame.bind("<Configure>", lambda _: self.group_canvas.configure(scrollregion=self.group_canvas.bbox("all")))
-        self.group_canvas.bind("<Configure>", self._resize_group_canvas)
-        group_scroll_frame.bind("<Enter>", self._enable_group_scroll)
-        group_scroll_frame.bind("<Leave>", self._disable_group_scroll)
+        selector_row = ttk.Frame(bottom_section)
+        selector_row.pack(fill="x", padx=8, pady=(0, 8))
+        ttk.Label(selector_row, text="Select plugin group:").grid(row=0, column=0, sticky="w")
+        self.group_selector = ttk.Combobox(
+            selector_row,
+            textvariable=self.selected_group_var,
+            state="readonly",
+            width=40,
+        )
+        self.group_selector.grid(row=0, column=1, sticky="ew", padx=(8, 0))
+        self.group_selector.bind("<<ComboboxSelected>>", lambda _: self._on_group_selected())
+        selector_row.columnconfigure(1, weight=1)
+
+        info_section = ttk.LabelFrame(bottom_section, text="Plugin Group")
+        info_section.pack(fill="x", padx=8, pady=(0, 8))
+        info_grid = ttk.Frame(info_section)
+        info_grid.pack(fill="x", padx=8, pady=8)
+        info_grid.columnconfigure(1, weight=1)
+
+        ttk.Label(info_grid, text="Group:").grid(row=0, column=0, sticky="w")
+        ttk.Label(info_grid, textvariable=self.group_name_var).grid(row=0, column=1, sticky="w")
+        ttk.Button(info_grid, text="Edit group", command=lambda: self._open_edit_group_dialog(self.selected_group_var.get())).grid(
+            row=0, column=2, sticky="e"
+        )
+        ttk.Button(info_grid, text="Delete group", command=self._delete_selected_group).grid(row=0, column=3, sticky="e", padx=(8, 0))
+        ttk.Label(info_grid, text="Match prefixes:").grid(row=1, column=0, sticky="nw", pady=(4, 0))
+        ttk.Label(info_grid, textvariable=self.group_match_var, wraplength=500, justify="left").grid(
+            row=1, column=1, columnspan=2, sticky="w", pady=(4, 0)
+        )
+        ttk.Label(info_grid, text="Notes:").grid(row=2, column=0, sticky="nw", pady=(4, 0))
+        ttk.Label(info_grid, textvariable=self.group_notes_var, wraplength=500, justify="left").grid(
+            row=2,
+            column=1,
+            columnspan=2,
+            sticky="w",
+            pady=(4, 0),
+        )
+
+        grouping_section = ttk.LabelFrame(bottom_section, text="ID Prefix Groups")
+        grouping_section.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        grouping_action_row = ttk.Frame(grouping_section)
+        grouping_action_row.pack(fill="x", padx=8, pady=(8, 0))
+        ttk.Button(
+            grouping_action_row,
+            text="Add grouping",
+            command=lambda: self._open_new_grouping_dialog(self.selected_group_var.get()),
+        ).pack(side="right")
+        self.grouping_entries_frame = ttk.Frame(grouping_section)
+        self.grouping_entries_frame.pack(fill="both", expand=True, padx=8, pady=8)
 
 
     def _refresh_payload_list(self) -> None:
@@ -1127,113 +1168,91 @@ class PluginGroupManagerApp:
             self.payload_list.insert(tk.END, record.label())
             self._payload_index.append(record.payload_id)
 
-    def _refresh_group_view(self) -> None:
-        for child in self.group_frame.winfo_children():
-            child.destroy()
+    def _refresh_group_data(self) -> None:
         views = self._group_store.iter_group_views()
-        unmatched_map = self._collect_unmatched_payloads(views)
-        if not views:
-            ttk.Label(self.group_frame, text="No groups configured yet.").pack(anchor="w")
+        self._unmatched_by_group = self._collect_unmatched_payloads(views)
+        self._group_views = {view["name"]: view for view in views}
+        names = sorted(self._group_views.keys(), key=str.casefold)
+        self.group_selector.configure(values=names)
+        if not names:
+            self.selected_group_var.set("")
+            self._render_selected_group(None)
             return
-        for idx, view in enumerate(views):
-            frame = ttk.LabelFrame(self.group_frame)
-            frame.pack(fill="x", expand=True, padx=4, pady=4)
-            label = ttk.Label(frame, text=view["name"], font=getattr(self, "_group_title_font", None))
-            frame.configure(labelwidget=label)
+        current = self.selected_group_var.get()
+        if current not in names:
+            current = names[0]
+        self.selected_group_var.set(current)
+        self._render_selected_group(current)
 
-            info_row = ttk.Frame(frame)
-            info_row.pack(fill="x", padx=6, pady=(6, 2))
-            prefix_text = ", ".join(view["match_prefixes"]) if view["match_prefixes"] else "- none -"
-            ttk.Label(info_row, text="Matching prefixes:").grid(row=0, column=0, sticky="nw")
-            ttk.Label(info_row, text=prefix_text, wraplength=600, justify="left").grid(
-                row=0,
-                column=1,
+    def _render_selected_group(self, group_name: Optional[str]) -> None:
+        self._clear_grouping_entries()
+        if not group_name or group_name not in self._group_views:
+            self.group_name_var.set("Select a group")
+            self.group_match_var.set("-")
+            self.group_notes_var.set("-")
+            return
+        view = self._group_views[group_name]
+        match_text = ", ".join(view.get("match_prefixes", [])) or "- none -"
+        notes_text = view.get("notes") or "- none -"
+        self.group_name_var.set(group_name)
+        self.group_match_var.set(match_text)
+        self.group_notes_var.set(notes_text)
+
+        entries: List[Dict[str, object]] = list(view.get("groupings", []))
+        unmatched = self._unmatched_by_group.get(group_name, [])
+        if unmatched:
+            entries = [{"label": "ungrouped", "prefixes": unmatched, "anchor": None, "notes": ""}] + entries
+        self._render_grouping_entries(group_name, entries)
+
+    def _clear_grouping_entries(self) -> None:
+        for child in self.grouping_entries_frame.winfo_children():
+            child.destroy()
+
+    def _render_grouping_entries(self, group_name: str, entries: List[Dict[str, object]]) -> None:
+        if not entries:
+            ttk.Label(self.grouping_entries_frame, text="No groupings defined.", padding=(8, 2)).pack(anchor="w")
+            return
+        for entry in entries:
+            entry_frame = ttk.Frame(self.grouping_entries_frame)
+            entry_frame.pack(fill="x", padx=4, pady=2)
+            entry_frame.grid_columnconfigure(1, weight=1)
+            label = entry.get("label", "")
+            ttk.Label(entry_frame, text=f"Label: {label}").grid(row=0, column=0, sticky="w")
+            prefixes = ", ".join(entry.get("prefixes", [])) if entry.get("prefixes") else "- none -"
+            ttk.Label(entry_frame, text=f"Prefixes: {prefixes}", wraplength=350, justify="left").grid(
+                row=1,
+                column=0,
                 sticky="w",
-                pady=(0, 0),
+                pady=(2, 0),
             )
-            edit_btn = ttk.Button(
-                info_row,
-                text="Edit group",
-                command=lambda group=view["name"]: self._open_edit_group_dialog(group),
-            )
-            edit_btn.grid(row=0, column=3, rowspan=2, sticky="e", padx=(12, 0))
-            info_row.grid_columnconfigure(2, weight=1)
-            ttk.Label(info_row, text="Notes:").grid(row=1, column=0, sticky="nw", pady=(4, 0))
-            notes_value = view["notes"] or "- none -"
-            ttk.Label(info_row, text=notes_value, wraplength=600, justify="left").grid(
+            anchor_value = entry.get("anchor") or "- default -"
+            ttk.Label(entry_frame, text=f"Anchor: {anchor_value}").grid(row=0, column=1, sticky="w", padx=(12, 0))
+            notes_text = entry.get("notes") or "- none -"
+            ttk.Label(entry_frame, text=f"Notes: {notes_text}", wraplength=350, justify="left").grid(
                 row=1,
                 column=1,
                 sticky="w",
-                pady=(4, 0),
+                padx=(12, 0),
+                pady=(2, 0),
             )
-            unmatched_payloads = unmatched_map.get(view["name"], [])
-            unmatched_text = ", ".join(unmatched_payloads) if unmatched_payloads else "- none -"
-            ttk.Label(info_row, text="Unmatched payloads:").grid(row=2, column=0, sticky="nw", pady=(4, 0))
-            ttk.Label(info_row, text=unmatched_text, wraplength=600, justify="left").grid(
-                row=2,
-                column=1,
-                columnspan=2,
-                sticky="w",
-                pady=(4, 0),
-            )
-
-            button_row = ttk.Frame(frame)
-            button_row.pack(fill="x", padx=6, pady=4)
+            if label == "ungrouped":
+                continue
+            button_frame = ttk.Frame(entry_frame)
+            button_frame.grid(row=0, column=2, rowspan=2, padx=(12, 0), sticky="n")
             ttk.Button(
-                button_row,
-                text="Delete group",
-                command=lambda group=view["name"]: self._delete_group(group),
-            ).pack(side="right", padx=(8, 0))
+                button_frame,
+                text="Edit",
+                command=lambda group=group_name, entry_data=entry: self._open_edit_grouping_dialog(group, entry_data),
+            ).pack(fill="x")
             ttk.Button(
-                button_row,
-                text="Add grouping",
-                command=lambda group=view["name"]: self._open_new_grouping_dialog(group),
-            ).pack(side="right")
+                button_frame,
+                text="Delete",
+                command=lambda group=group_name, entry_label=entry.get("label"): self._delete_grouping(group, entry_label),
+            ).pack(fill="x", pady=(4, 0))
 
-            grouping_entries = view["groupings"]
-            if grouping_entries:
-                for entry in grouping_entries:
-                    entry_frame = ttk.Frame(frame)
-                    entry_frame.pack(fill="x", padx=12, pady=2)
-                    entry_frame.grid_columnconfigure(1, weight=1)
-                    ttk.Label(entry_frame, text=f"Label: {entry['label']}").grid(row=0, column=0, sticky="w")
-                    prefixes = ", ".join(entry["prefixes"]) if entry["prefixes"] else "- none -"
-                    ttk.Label(entry_frame, text=f"Prefixes: {prefixes}", wraplength=350, justify="left").grid(
-                        row=1,
-                        column=0,
-                        sticky="w",
-                        pady=(2, 0),
-                    )
-                    anchor = entry["anchor"] or "- default -"
-                    ttk.Label(entry_frame, text=f"Anchor: {anchor}").grid(row=0, column=1, sticky="w", padx=(12, 0))
-                    notes = entry["notes"] or "- none -"
-                    ttk.Label(entry_frame, text=f"Notes: {notes}", wraplength=350, justify="left").grid(
-                        row=1,
-                        column=1,
-                        sticky="w",
-                        padx=(12, 0),
-                        pady=(2, 0),
-                    )
-                    button_frame = ttk.Frame(entry_frame)
-                    button_frame.grid(row=0, column=2, rowspan=2, padx=(12, 0), sticky="n")
-                    ttk.Button(
-                        button_frame,
-                        text="Edit",
-                        command=lambda group=view["name"], entry_data=entry: self._open_edit_grouping_dialog(group, entry_data),
-                    ).pack(fill="x")
-                    ttk.Button(
-                        button_frame,
-                        text="Delete",
-                        command=lambda group=view["name"], label=entry["label"]: self._delete_grouping(group, label),
-                    ).pack(fill="x", pady=(4, 0))
-            else:
-                ttk.Label(frame, text="No groupings defined.", padding=(8, 2)).pack(anchor="w")
-
-    def _resize_group_canvas(self, event) -> None:
-        if not hasattr(self, "group_frame_window"):
-            return
-        width = max(event.width - 4, 120)
-        self.group_canvas.itemconfigure(self.group_frame_window, width=width)
+    def _on_group_selected(self) -> None:
+        name = self.selected_group_var.get()
+        self._render_selected_group(name if name else None)
 
     def _collect_unmatched_payloads(self, views: Sequence[Mapping[str, object]]) -> Dict[str, List[str]]:
         unmatched: Dict[str, List[str]] = {view["name"]: [] for view in views}
@@ -1349,19 +1368,6 @@ class PluginGroupManagerApp:
         if not self._group_scroll_bound:
             return
         self.root.unbind_all("<MouseWheel>")
-        self.root.unbind_all("<Button-4>")
-        self.root.unbind_all("<Button-5>")
-        self._group_scroll_bound = False
-
-    def _on_mouse_wheel(self, event) -> None:
-        if event.delta:
-            self.group_canvas.yview_scroll(int(-event.delta / 120), "units")
-        else:
-            if event.num == 4:
-                self.group_canvas.yview_scroll(-3, "units")
-            elif event.num == 5:
-                self.group_canvas.yview_scroll(3, "units")
-
     def _inspect_selected_payload(self, event) -> None:
         selection = self.payload_list.curselection()
         if not selection:
@@ -1417,11 +1423,15 @@ class PluginGroupManagerApp:
         except OSError as exc:
             messagebox.showerror("Failed to add group", f"Could not write overlay_groupings.json: {exc}")
             return
-        self._refresh_group_view()
+        self.selected_group_var.set(data["name"])
+        self._refresh_group_data()
         self.status_var.set(f"Added group '{data['name']}'.")
         self._purge_matched()
 
     def _open_edit_group_dialog(self, group_name: str) -> None:
+        if not group_name:
+            messagebox.showerror("Edit group", "Select a plugin group first.")
+            return
         entry = self._group_store.get_group(group_name)
         if entry is None:
             messagebox.showerror("Edit group", f"Group '{group_name}' no longer exists.")
@@ -1443,11 +1453,14 @@ class PluginGroupManagerApp:
         except OSError as exc:
             messagebox.showerror("Failed to edit group", f"Could not write overlay_groupings.json: {exc}")
             return
-        self._refresh_group_view()
+        self._refresh_group_data()
         self.status_var.set(f"Updated group '{data['name']}'.")
         self._purge_matched()
 
     def _open_new_grouping_dialog(self, group_name: str) -> None:
+        if not group_name:
+            messagebox.showerror("Add grouping", "Select a plugin group first.")
+            return
         dialog = NewGroupingDialog(self.root, group_name)
         if dialog.result is None:
             return
@@ -1466,7 +1479,7 @@ class PluginGroupManagerApp:
         except OSError as exc:
             messagebox.showerror("Failed to add grouping", f"Could not write overlay_groupings.json: {exc}")
             return
-        self._refresh_group_view()
+        self._refresh_group_data()
         self.status_var.set(f"Added grouping '{data['label']}' to {group_name}.")
         self._purge_matched()
 
@@ -1494,7 +1507,7 @@ class PluginGroupManagerApp:
         except OSError as exc:
             messagebox.showerror("Failed to edit grouping", f"Could not write overlay_groupings.json: {exc}")
             return
-        self._refresh_group_view()
+        self._refresh_group_data()
         self.status_var.set(f"Updated grouping '{data.get('label')}' in {group_name}.")
         self._purge_matched()
 
@@ -1506,7 +1519,7 @@ class PluginGroupManagerApp:
         except OSError as exc:
             messagebox.showerror("Failed to delete grouping", f"Could not update overlay_groupings.json: {exc}")
             return
-        self._refresh_group_view()
+        self._refresh_group_data()
         self.status_var.set(f"Deleted grouping '{label}' from {group_name}.")
         self._purge_matched()
 
@@ -1518,9 +1531,15 @@ class PluginGroupManagerApp:
         except OSError as exc:
             messagebox.showerror("Failed to delete group", f"Could not update overlay_groupings.json: {exc}")
             return
-        self._refresh_group_view()
+        self._refresh_group_data()
         self.status_var.set(f"Deleted group '{group_name}'.")
         self._purge_matched()
+
+    def _delete_selected_group(self) -> None:
+        group_name = self.selected_group_var.get()
+        if not group_name:
+            return
+        self._delete_group(group_name)
 
     def _update_payload_count(self) -> None:
         count = len(self._payload_store)
