@@ -1060,6 +1060,10 @@ class PluginGroupManagerApp:
         self.group_name_var = tk.StringVar(value="Select a group")
         self.group_match_var = tk.StringVar(value="-")
         self.group_notes_var = tk.StringVar(value="-")
+        self.grouping_canvas: Optional[tk.Canvas] = None
+        self.grouping_scrollbar: Optional[ttk.Scrollbar] = None
+        self.grouping_entries_frame: Optional[ttk.Frame] = None
+        self.grouping_entries_window: Optional[int] = None
 
         self._build_ui()
         self._refresh_payload_list()
@@ -1071,8 +1075,18 @@ class PluginGroupManagerApp:
     def _build_ui(self) -> None:
         main = ttk.Frame(self.root, padding=12)
         main.pack(fill="both", expand=True)
+        main.columnconfigure(0, weight=1)
+        main.columnconfigure(1, weight=1)
+        main.rowconfigure(0, weight=1)
 
-        top_section = ttk.LabelFrame(main, text="Watcher / Gather")
+        left_panel = ttk.Frame(main)
+        left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        left_panel.rowconfigure(1, weight=1)
+        right_panel = ttk.Frame(main)
+        right_panel.grid(row=0, column=1, sticky="nsew")
+        right_panel.rowconfigure(2, weight=1)
+
+        top_section = ttk.LabelFrame(left_panel, text="Watcher / Gather")
         top_section.pack(fill="x", expand=False, pady=(0, 12))
 
         control_row = ttk.Frame(top_section)
@@ -1089,41 +1103,35 @@ class PluginGroupManagerApp:
 
         ttk.Label(top_section, textvariable=self.status_var).pack(fill="x", padx=8)
 
-        list_frame = ttk.Frame(top_section)
-        list_frame.pack(fill="both", expand=True, padx=8, pady=8)
+        list_frame = ttk.Frame(left_panel)
+        list_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
         self.payload_list = tk.Listbox(list_frame, height=8)
         self.payload_list.pack(side="left", fill="both", expand=True)
         self.payload_list.bind("<Double-1>", self._inspect_selected_payload)
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.payload_list.yview)
         scrollbar.pack(side="right", fill="y")
         self.payload_list.config(yscrollcommand=scrollbar.set)
-        ttk.Label(top_section, text="Tip: double-click a payload to inspect its JSON details.", foreground="#5a5a5a").pack(
+        ttk.Label(left_panel, text="Tip: double-click a payload to inspect its JSON details.", foreground="#5a5a5a").pack(
             fill="x",
             padx=8,
             pady=(0, 8),
         )
 
-        bottom_section = ttk.LabelFrame(main, text="Grouping Management")
-        bottom_section.pack(fill="both", expand=True)
-
-        action_row = ttk.Frame(bottom_section)
-        action_row.pack(fill="x", padx=8, pady=8)
-        ttk.Button(action_row, text="New group", command=self._open_new_group_dialog).pack(side="left")
-
-        selector_row = ttk.Frame(bottom_section)
+        selector_row = ttk.Frame(right_panel)
         selector_row.pack(fill="x", padx=8, pady=(0, 8))
         ttk.Label(selector_row, text="Select plugin group:").grid(row=0, column=0, sticky="w")
         self.group_selector = ttk.Combobox(
             selector_row,
             textvariable=self.selected_group_var,
             state="readonly",
-            width=40,
+            width=30,
         )
-        self.group_selector.grid(row=0, column=1, sticky="ew", padx=(8, 0))
+        self.group_selector.grid(row=0, column=1, sticky="w", padx=(8, 0))
         self.group_selector.bind("<<ComboboxSelected>>", lambda _: self._on_group_selected())
+        ttk.Button(selector_row, text="New group", command=self._open_new_group_dialog).grid(row=0, column=2, sticky="e", padx=(8, 0))
         selector_row.columnconfigure(1, weight=1)
 
-        info_section = ttk.LabelFrame(bottom_section, text="Plugin Group")
+        info_section = ttk.LabelFrame(right_panel, text="Plugin Group")
         info_section.pack(fill="x", padx=8, pady=(0, 8))
         info_grid = ttk.Frame(info_section)
         info_grid.pack(fill="x", padx=8, pady=8)
@@ -1137,18 +1145,18 @@ class PluginGroupManagerApp:
         ttk.Button(info_grid, text="Delete group", command=self._delete_selected_group).grid(row=0, column=3, sticky="e", padx=(8, 0))
         ttk.Label(info_grid, text="Match prefixes:").grid(row=1, column=0, sticky="nw", pady=(4, 0))
         ttk.Label(info_grid, textvariable=self.group_match_var, wraplength=500, justify="left").grid(
-            row=1, column=1, columnspan=2, sticky="w", pady=(4, 0)
+            row=1, column=1, columnspan=3, sticky="w", pady=(4, 0)
         )
         ttk.Label(info_grid, text="Notes:").grid(row=2, column=0, sticky="nw", pady=(4, 0))
         ttk.Label(info_grid, textvariable=self.group_notes_var, wraplength=500, justify="left").grid(
             row=2,
             column=1,
-            columnspan=2,
+            columnspan=3,
             sticky="w",
             pady=(4, 0),
         )
 
-        grouping_section = ttk.LabelFrame(bottom_section, text="ID Prefix Groups")
+        grouping_section = ttk.LabelFrame(right_panel, text="ID Prefix Groups")
         grouping_section.pack(fill="both", expand=True, padx=8, pady=(0, 8))
         grouping_action_row = ttk.Frame(grouping_section)
         grouping_action_row.pack(fill="x", padx=8, pady=(8, 0))
@@ -1157,8 +1165,36 @@ class PluginGroupManagerApp:
             text="Add grouping",
             command=lambda: self._open_new_grouping_dialog(self.selected_group_var.get()),
         ).pack(side="right")
-        self.grouping_entries_frame = ttk.Frame(grouping_section)
-        self.grouping_entries_frame.pack(fill="both", expand=True, padx=8, pady=8)
+        (
+            entries_container,
+            self.grouping_canvas,
+            self.grouping_scrollbar,
+            self.grouping_entries_frame,
+            self.grouping_entries_window,
+        ) = self._create_vertical_scroll_frame(grouping_section)
+        entries_container.pack(fill="both", expand=True, padx=8, pady=8)
+
+
+    def _create_vertical_scroll_frame(
+        self, parent: tk.Widget
+    ) -> Tuple[ttk.Frame, tk.Canvas, ttk.Scrollbar, ttk.Frame, int]:
+        """Return a scrollable frame hosted inside a canvas with a vertical scrollbar."""
+        container = ttk.Frame(parent)
+        container.grid_columnconfigure(0, weight=1)
+        container.grid_rowconfigure(0, weight=1)
+        canvas = tk.Canvas(container, highlightthickness=0)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        frame = ttk.Frame(canvas)
+        window_id = canvas.create_window((0, 0), window=frame, anchor="nw")
+        frame.bind("<Configure>", lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind(
+            "<Configure>",
+            lambda event, target=canvas, window=window_id: target.itemconfigure(window, width=event.width),
+        )
+        return container, canvas, scrollbar, frame, window_id
 
 
     def _refresh_payload_list(self) -> None:
@@ -1203,12 +1239,17 @@ class PluginGroupManagerApp:
         if unmatched:
             entries = [{"label": "ungrouped", "prefixes": unmatched, "anchor": None, "notes": ""}] + entries
         self._render_grouping_entries(group_name, entries)
+        self._reset_grouping_scroll()
 
     def _clear_grouping_entries(self) -> None:
+        if not self.grouping_entries_frame:
+            return
         for child in self.grouping_entries_frame.winfo_children():
             child.destroy()
 
     def _render_grouping_entries(self, group_name: str, entries: List[Dict[str, object]]) -> None:
+        if not self.grouping_entries_frame:
+            return
         if not entries:
             ttk.Label(self.grouping_entries_frame, text="No groupings defined.", padding=(8, 2)).pack(anchor="w")
             return
@@ -1249,6 +1290,11 @@ class PluginGroupManagerApp:
                 text="Delete",
                 command=lambda group=group_name, entry_label=entry.get("label"): self._delete_grouping(group, entry_label),
             ).pack(fill="x", pady=(4, 0))
+
+    def _reset_grouping_scroll(self) -> None:
+        if self.grouping_canvas is None:
+            return
+        self.grouping_canvas.yview_moveto(0.0)
 
     def _on_group_selected(self) -> None:
         name = self.selected_group_var.get()
