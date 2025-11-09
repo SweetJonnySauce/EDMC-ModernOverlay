@@ -39,14 +39,7 @@
   },
   "Bioscan": {
     "grouping": {
-      "groups": {
-        "Bioscan Title": {
-          "id_prefixes": [
-            "bioscan_title_"
-          ],
-          "anchor": "nw"
-        }
-      }
+      "groups": {}
     },
     "__match__": {
       "id_prefixes": [

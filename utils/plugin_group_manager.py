@@ -1956,7 +1956,10 @@ class PluginGroupManagerApp:
     def _is_pointer_over_grouping(self) -> bool:
         if not self._group_scroll_targets:
             return False
-        pointer_widget = self.root.winfo_containing(self.root.winfo_pointerx(), self.root.winfo_pointery())
+        try:
+            pointer_widget = self.root.winfo_containing(self.root.winfo_pointerx(), self.root.winfo_pointery())
+        except (tk.TclError, KeyError):
+            return False
         if pointer_widget is None:
             return False
         for target in self._group_scroll_targets:
