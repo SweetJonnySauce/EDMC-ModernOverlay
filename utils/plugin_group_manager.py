@@ -533,6 +533,23 @@ class GroupConfigStore:
                 grouping = entry.get("grouping", {})
                 groups_block = grouping.get("groups", {})
                 view_entries: List[Dict[str, object]] = []
+                match_prefixes: List[str] = []
+
+                def _append_prefix(token: object) -> None:
+                    if isinstance(token, (str, int, float)):
+                        cleaned = str(token).strip()
+                        if cleaned and cleaned not in match_prefixes:
+                            match_prefixes.append(cleaned)
+
+                match_section = entry.get("__match__")
+                if isinstance(match_section, Mapping):
+                    match_values = match_section.get("id_prefixes")
+                    if isinstance(match_values, str):
+                        _append_prefix(match_values)
+                    elif isinstance(match_values, Iterable):
+                        for token in match_values:
+                            _append_prefix(token)
+
                 if isinstance(groups_block, Mapping):
                     for label in sorted(groups_block.keys(), key=str.casefold):
                         spec = groups_block[label]
@@ -566,6 +583,7 @@ class GroupConfigStore:
                         "notes": note_text,
                         "mode": grouping.get("mode", "plugin"),
                         "groupings": view_entries,
+                        "match_prefixes": match_prefixes,
                     }
                 )
         return views
@@ -1034,10 +1052,19 @@ class PluginGroupManagerApp:
                 "<<ComboboxSelected>>",
                 lambda event, group=view["name"], var=mode_var: self._change_mode(group, var.get()),
             )
-            ttk.Label(info_row, text="Notes:").grid(row=1, column=0, sticky="nw", pady=(4, 0))
+            prefix_text = ", ".join(view["match_prefixes"]) if view["match_prefixes"] else "- none -"
+            ttk.Label(info_row, text="Matching prefixes:").grid(row=1, column=0, sticky="nw", pady=(4, 0))
+            ttk.Label(info_row, text=prefix_text, wraplength=600, justify="left").grid(
+                row=1,
+                column=1,
+                columnspan=2,
+                sticky="w",
+                pady=(4, 0),
+            )
+            ttk.Label(info_row, text="Notes:").grid(row=2, column=0, sticky="nw", pady=(4, 0))
             notes_value = view["notes"] or "- none -"
             ttk.Label(info_row, text=notes_value, wraplength=600, justify="left").grid(
-                row=1,
+                row=2,
                 column=1,
                 columnspan=2,
                 sticky="w",
