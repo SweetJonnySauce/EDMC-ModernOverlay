@@ -44,6 +44,7 @@ class PayloadRecord:
     payload_id: str
     plugin: Optional[str] = None
     payload: Optional[Mapping[str, Any]] = None
+    group: Optional[str] = None
 
     def label(self) -> str:
         if self.plugin:
@@ -54,9 +55,14 @@ class PayloadRecord:
         data: Dict[str, Any] = {"payload_id": self.payload_id}
         if self.plugin:
             data["plugin"] = self.plugin
+        if self.group:
+            data["group"] = self.group
         if self.payload is not None:
             data["payload"] = self.payload
         return data
+
+    def with_group(self, group: Optional[str]) -> "PayloadRecord":
+        return PayloadRecord(self.payload_id, self.plugin, self.payload, group)
 
 
 class NewPayloadStore:
@@ -87,13 +93,15 @@ class NewPayloadStore:
                     continue
                 plugin_value = entry.get("plugin")
                 plugin = plugin_value if isinstance(plugin_value, str) and plugin_value else None
+                group_value = entry.get("group")
+                group = group_value if isinstance(group_value, str) and group_value else None
                 payload_data = entry.get("payload")
                 payload_snapshot: Optional[Mapping[str, Any]]
                 if isinstance(payload_data, Mapping):
                     payload_snapshot = dict(payload_data)
                 else:
                     payload_snapshot = None
-                tmp[payload_id] = {"plugin": plugin, "payload": payload_snapshot}
+                tmp[payload_id] = {"plugin": plugin, "group": group, "payload": payload_snapshot}
             self._records = tmp
 
     def _save(self) -> None:
@@ -103,6 +111,9 @@ class NewPayloadStore:
             plugin = data.get("plugin")
             if plugin:
                 entry["plugin"] = plugin
+            group = data.get("group")
+            if group:
+                entry["group"] = group
             payload_value = data.get("payload")
             if payload_value is not None:
                 entry["payload"] = payload_value
@@ -115,24 +126,32 @@ class NewPayloadStore:
         if not payload_id:
             return False
         plugin = record.plugin.strip() if isinstance(record.plugin, str) and record.plugin.strip() else None
+        group = record.group.strip() if isinstance(record.group, str) and record.group.strip() else None
         payload_snapshot = dict(record.payload) if isinstance(record.payload, Mapping) else None
         with self._lock:
             if payload_id in self._records:
                 entry = self._records[payload_id]
                 if plugin and not entry.get("plugin"):
                     entry["plugin"] = plugin
+                if group and not entry.get("group"):
+                    entry["group"] = group
                 if payload_snapshot and not entry.get("payload"):
                     entry["payload"] = payload_snapshot
                 self._save()
                 return False
-            self._records[payload_id] = {"plugin": plugin, "payload": payload_snapshot}
+            self._records[payload_id] = {"plugin": plugin, "group": group, "payload": payload_snapshot}
             self._save()
             return True
 
     def records(self) -> List[PayloadRecord]:
         with self._lock:
             snapshot = [
-                PayloadRecord(payload_id=pid, plugin=data.get("plugin"), payload=data.get("payload"))
+                PayloadRecord(
+                    payload_id=pid,
+                    plugin=data.get("plugin"),
+                    payload=data.get("payload"),
+                    group=data.get("group"),
+                )
                 for pid, data in sorted(self._records.items(), key=lambda item: item[0].casefold())
             ]
         return snapshot
@@ -142,7 +161,12 @@ class NewPayloadStore:
             data = self._records.get(payload_id)
             if data is None:
                 return None
-            return PayloadRecord(payload_id=payload_id, plugin=data.get("plugin"), payload=data.get("payload"))
+            return PayloadRecord(
+                payload_id=payload_id,
+                plugin=data.get("plugin"),
+                payload=data.get("payload"),
+                group=data.get("group"),
+            )
 
     def remove(self, payload_id: str) -> bool:
         with self._lock:
@@ -196,6 +220,19 @@ class OverrideMatcher:
     def refresh(self) -> None:
         with self._lock:
             self._manager.force_reload()
+
+    def unmatched_group_for(self, plugin: Optional[str], payload_id: Optional[str]) -> Optional[str]:
+        if not payload_id:
+            return None
+        with self._lock:
+            key = self._manager.grouping_key_for(plugin, payload_id)
+            if key is None:
+                return None
+            plugin_label, suffix = key
+            mode = self._manager.group_mode_for(plugin_label or plugin)
+            if mode == "id_prefix" and suffix is None:
+                return plugin_label
+        return None
 
 
 class LogLocator:
@@ -331,9 +368,13 @@ class PayloadWatcher(threading.Thread):
                     line = stream.readline()
                     if line:
                         record = PayloadParser.parse_line(line)
-                        if record and not self._matcher.is_payload_grouped(record.plugin, record.payload_id):
-                            if self._store.add(record):
-                                self._queue.put(("payload_added", record))
+                        if not record:
+                            continue
+                        unmatched_group = self._matcher.unmatched_group_for(record.plugin, record.payload_id)
+                        if not self._matcher.is_payload_grouped(record.plugin, record.payload_id):
+                            enriched = record if unmatched_group is None else record.with_group(unmatched_group)
+                            if self._store.add(enriched):
+                                self._queue.put(("payload_added", enriched))
                         continue
                     time.sleep(0.5)
                     try:
@@ -376,8 +417,12 @@ class LogGatherer(threading.Thread):
                 with path.open("r", encoding="utf-8") as stream:
                     for line in stream:
                         record = PayloadParser.parse_line(line)
-                        if record and not self._matcher.is_payload_grouped(record.plugin, record.payload_id):
-                            if self._store.add(record):
+                        if not record:
+                            continue
+                        unmatched_group = self._matcher.unmatched_group_for(record.plugin, record.payload_id)
+                        if not self._matcher.is_payload_grouped(record.plugin, record.payload_id):
+                            enriched = record if unmatched_group is None else record.with_group(unmatched_group)
+                            if self._store.add(enriched):
                                 added += 1
             except OSError as exc:
                 self._queue.put(("error", f"Failed to read {path}: {exc}"))
@@ -1035,6 +1080,7 @@ class PluginGroupManagerApp:
         for child in self.group_frame.winfo_children():
             child.destroy()
         views = self._group_store.iter_group_views()
+        unmatched_map = self._collect_unmatched_payloads(views)
         if not views:
             ttk.Label(self.group_frame, text="No groups configured yet.").pack(anchor="w")
             return
@@ -1065,6 +1111,16 @@ class PluginGroupManagerApp:
             notes_value = view["notes"] or "- none -"
             ttk.Label(info_row, text=notes_value, wraplength=600, justify="left").grid(
                 row=2,
+                column=1,
+                columnspan=2,
+                sticky="w",
+                pady=(4, 0),
+            )
+            unmatched_payloads = unmatched_map.get(view["name"], [])
+            unmatched_text = ", ".join(unmatched_payloads) if unmatched_payloads else "- none -"
+            ttk.Label(info_row, text="Unmatched payloads:").grid(row=3, column=0, sticky="nw", pady=(4, 0))
+            ttk.Label(info_row, text=unmatched_text, wraplength=600, justify="left").grid(
+                row=3,
                 column=1,
                 columnspan=2,
                 sticky="w",
@@ -1121,6 +1177,47 @@ class PluginGroupManagerApp:
             return
         width = max(event.width - 4, 120)
         self.group_canvas.itemconfigure(self.group_frame_window, width=width)
+
+    def _collect_unmatched_payloads(self, views: Sequence[Mapping[str, object]]) -> Dict[str, List[str]]:
+        unmatched: Dict[str, List[str]] = {view["name"]: [] for view in views}
+        if not views:
+            return unmatched
+        records = self._payload_store.records()
+        if not records:
+            return unmatched
+
+        view_match_data: List[Tuple[str, List[str], List[str]]] = []
+        for view in views:
+            match_prefixes = [
+                prefix.casefold()
+                for prefix in view.get("match_prefixes", [])
+                if isinstance(prefix, str) and prefix.strip()
+            ]
+            grouping_prefixes: List[str] = []
+            for entry in view.get("groupings", []):
+                prefixes = entry.get("prefixes") or []
+                for prefix in prefixes:
+                    if isinstance(prefix, str) and prefix.strip():
+                        grouping_prefixes.append(prefix.casefold())
+            view_match_data.append((view["name"], match_prefixes, grouping_prefixes))
+
+        for record in records:
+            payload_id = record.payload_id
+            if not payload_id:
+                continue
+            if record.group and record.group in unmatched:
+                unmatched[record.group].append(payload_id)
+                continue
+            payload_cf = payload_id.casefold()
+            for name, match_prefixes, grouping_prefixes in view_match_data:
+                if not match_prefixes:
+                    continue
+                if not any(payload_cf.startswith(prefix) for prefix in match_prefixes):
+                    continue
+                if grouping_prefixes and any(payload_cf.startswith(prefix) for prefix in grouping_prefixes):
+                    continue
+                unmatched[name].append(payload_id)
+        return unmatched
 
     # Actions -------------------------------------------------------------
     def _toggle_watcher(self) -> None:

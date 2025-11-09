@@ -24,7 +24,7 @@
       ]
     },
     "grouping": {
-      "mode": "plugin",
+      "mode": "id_prefix",
       "groups": {
         "docking": {
           "id_prefixes": [
@@ -108,7 +108,7 @@
   },
   "bioscan": {
     "grouping": {
-      "mode": "id_prefix",
+      "mode": "plugin",
       "groups": {
         "All Bioscan Prefixes": {
           "id_prefixes": [
