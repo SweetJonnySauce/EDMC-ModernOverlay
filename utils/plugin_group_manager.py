@@ -746,6 +746,9 @@ class NewGroupDialog(simpledialog.Dialog):
             "initial_grouping": initial_grouping,
         }
 
+    def apply(self) -> None:  # type: ignore[override]
+        self.result = self.result_data()
+
 
 class NewGroupingDialog(simpledialog.Dialog):
     """Dialog for adding a grouping to an existing plugin."""
@@ -793,6 +796,9 @@ class NewGroupingDialog(simpledialog.Dialog):
             "anchor": self.anchor_var.get().strip(),
             "notes": self.notes_var.get().strip(),
         }
+
+    def apply(self) -> None:  # type: ignore[override]
+        self.result = self.result_data()
 
 
 class PluginGroupManagerApp:
