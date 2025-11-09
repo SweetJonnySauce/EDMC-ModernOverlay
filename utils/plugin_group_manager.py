@@ -186,7 +186,7 @@ class OverrideMatcher:
             if key is None:
                 return False
             plugin_label, suffix = key
-            mode = self._manager.group_mode_for(plugin or plugin_label)
+            mode = self._manager.group_mode_for(plugin_label or plugin)
             if mode == "plugin":
                 return True
             if mode == "id_prefix":

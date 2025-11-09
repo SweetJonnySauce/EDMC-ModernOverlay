@@ -1,11 +1,11 @@
 {
   "ED-Mining-Analytics": {
     "grouping": {
-      "mode": "id_prefix",
+      "mode": "plugin",
       "groups": {
         "All-edmca-prefixes": {
           "id_prefixes": [
-            "edmcma-"
+            "edmcma"
           ],
           "anchor": "nw"
         }
@@ -113,8 +113,7 @@
         "All Bioscan Prefixes": {
           "id_prefixes": [
             "bioscan"
-          ],
-          "anchor": "nw"
+          ]
         }
       }
     }

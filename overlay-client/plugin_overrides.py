@@ -218,7 +218,7 @@ class PluginOverrideManager:
                     if mode_token in {"plugin", "id_prefix"}:
                         grouping_mode = mode_token
 
-                plugin_mode_prefix_hints: List[str] = []
+                group_prefix_hints: List[str] = []
 
                 def _clean_group_prefixes(group_value: Mapping[str, Any]) -> List[str]:
                     prefixes_field = group_value.get("id_prefixes")
@@ -253,6 +253,9 @@ class PluginOverrideManager:
                         cleaned_prefixes = tuple(_clean_group_prefixes(group_value))
                         if not cleaned_prefixes:
                             continue
+                        for prefix in cleaned_prefixes:
+                            if prefix not in group_prefix_hints:
+                                group_prefix_hints.append(prefix)
                         if grouping_mode == "id_prefix":
                             group_label = str(label).strip() if isinstance(label, str) and label else None
                             defaults = None
@@ -266,9 +269,7 @@ class PluginOverrideManager:
                                 )
                             )
                         elif grouping_mode == "plugin":
-                            for prefix in cleaned_prefixes:
-                                if prefix not in plugin_mode_prefix_hints:
-                                    plugin_mode_prefix_hints.append(prefix)
+                            continue
 
                 prefixes_spec = grouping_section.get("prefixes")
                 if isinstance(prefixes_spec, Mapping):
@@ -290,6 +291,9 @@ class PluginOverrideManager:
                         cleaned_prefixes = tuple(prefix.casefold() for prefix in prefixes if prefix)
                         if not cleaned_prefixes:
                             continue
+                        for prefix in cleaned_prefixes:
+                            if prefix not in group_prefix_hints:
+                                group_prefix_hints.append(prefix)
                         if grouping_mode == "id_prefix":
                             grouping_specs.append(
                                 _GroupSpec(
@@ -300,13 +304,13 @@ class PluginOverrideManager:
                                 )
                             )
                         elif grouping_mode == "plugin":
-                            for prefix in cleaned_prefixes:
-                                if prefix not in plugin_mode_prefix_hints:
-                                    plugin_mode_prefix_hints.append(prefix)
+                            continue
                 elif isinstance(prefixes_spec, Iterable):
                     for entry in prefixes_spec:
                         if isinstance(entry, str) and entry:
                             cleaned_entry = entry.casefold()
+                            if cleaned_entry not in group_prefix_hints:
+                                group_prefix_hints.append(cleaned_entry)
                             if grouping_mode == "id_prefix":
                                 grouping_specs.append(
                                     _GroupSpec(
@@ -316,11 +320,10 @@ class PluginOverrideManager:
                                     )
                                 )
                             elif grouping_mode == "plugin":
-                                if cleaned_entry not in plugin_mode_prefix_hints:
-                                    plugin_mode_prefix_hints.append(cleaned_entry)
+                                continue
 
-                if grouping_mode == "plugin" and plugin_mode_prefix_hints:
-                    for prefix in plugin_mode_prefix_hints:
+                if group_prefix_hints:
+                    for prefix in group_prefix_hints:
                         if prefix not in match_prefixes:
                             match_prefixes.append(prefix)
 
