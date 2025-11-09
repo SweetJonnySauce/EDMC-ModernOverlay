@@ -83,8 +83,7 @@
         "Edr Navroute": {
           "id_prefixes": [
             "edr-navroute-"
-          ],
-          "anchor": "nw"
+          ]
         }
       }
     }

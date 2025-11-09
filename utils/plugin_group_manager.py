@@ -1753,9 +1753,10 @@ class PluginGroupManagerApp:
             # extra padding makes each grouping easier to scan
             entry_frame = ttk.Frame(self.grouping_entries_frame, padding=(6, 4, 6, 6))
             entry_frame.pack(fill="x", padx=6, pady=4)
+            entry_frame.grid_columnconfigure(0, weight=0, minsize=180)
             entry_frame.grid_columnconfigure(1, weight=1)
             label_text = entry.get("label") or "- unnamed -"
-            ttk.Label(entry_frame, text=label_text, font=self._grouping_label_font).grid(row=0, column=0, sticky="w")
+            ttk.Label(entry_frame, text=label_text, font=self._grouping_label_font).grid(row=0, column=0, columnspan=3, sticky="w")
             anchor_value = entry.get("anchor") or "- default -"
             notes_text = entry.get("notes") or "- none -"
             left_cell = ttk.Frame(entry_frame)
