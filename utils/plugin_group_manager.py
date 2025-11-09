@@ -1755,32 +1755,20 @@ class PluginGroupManagerApp:
             entry_frame.pack(fill="x", padx=6, pady=4)
             entry_frame.grid_columnconfigure(1, weight=1)
             label_text = entry.get("label") or "- unnamed -"
-            ttk.Label(entry_frame, text=label_text, font=self._grouping_label_font).grid(row=0, column=0, sticky="w", pady=(0, 2))
+            ttk.Label(entry_frame, text=label_text, font=self._grouping_label_font).grid(row=0, column=0, sticky="w")
             anchor_value = entry.get("anchor") or "- default -"
-            ttk.Label(entry_frame, text=f"Anchor: {anchor_value}").grid(row=1, column=0, sticky="w", pady=(0, 2))
             notes_text = entry.get("notes") or "- none -"
-            ttk.Label(entry_frame, text=f"Notes: {notes_text}", wraplength=260, justify="left").grid(
-                row=2,
-                column=0,
-                sticky="w",
-                pady=(0, 2),
-            )
+            left_cell = ttk.Frame(entry_frame)
+            left_cell.grid(row=1, column=0, sticky="nw", pady=(2, 0))
+            ttk.Label(left_cell, text=f"Anchor: {anchor_value}").pack(anchor="w")
+            ttk.Label(left_cell, text=f"Notes: {notes_text}", wraplength=260, justify="left").pack(anchor="w", pady=(2, 0))
 
             prefixes = [p for p in entry.get("prefixes", []) if isinstance(p, str) and p.strip()]
             prefix_block = "\n".join(prefixes) if prefixes else "- none -"
-            ttk.Label(entry_frame, text="Prefixes", font=("TkDefaultFont", 9, "underline")).grid(
-                row=1,
-                column=1,
-                sticky="w",
-                padx=(20, 0),
-                pady=(0, 2),
-            )
-            ttk.Label(entry_frame, text=prefix_block, justify="left", anchor="w", wraplength=380).grid(
-                row=2,
-                column=1,
-                sticky="nw",
-                padx=(20, 0),
-            )
+            prefix_frame = ttk.Frame(entry_frame)
+            prefix_frame.grid(row=1, column=1, sticky="nw", padx=(20, 0))
+            ttk.Label(prefix_frame, text="Prefixes", font=("TkDefaultFont", 9, "underline")).pack(anchor="w")
+            tk.Label(prefix_frame, text=prefix_block, justify="left", anchor="w", wraplength=380).pack(anchor="w", pady=(2, 0))
 
             button_frame = ttk.Frame(entry_frame)
             button_frame.grid(row=1, column=2, rowspan=2, padx=(18, 0), pady=(0, 4), sticky="n")
