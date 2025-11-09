@@ -28,29 +28,11 @@
         },
         "BGS-Tally System Info": {
           "id_prefixes": [
-            "bgstally-msg-",
             "bgstally-frame-indicator",
             "bgstally-frame-system_info"
           ]
         }
       }
-    }
-  },
-  "Bioscan": {
-    "grouping": {
-      "groups": {
-        "Bioscan Payloads": {
-          "id_prefixes": [
-            "bioscan_"
-          ],
-          "anchor": "nw"
-        }
-      }
-    },
-    "__match__": {
-      "id_prefixes": [
-        "bioscan_"
-      ]
     }
   },
   "ED-Mining-Analytics": {
@@ -59,8 +41,7 @@
         "All-edmca-prefixes": {
           "id_prefixes": [
             "edmcma"
-          ],
-          "anchor": "nw"
+          ]
         }
       }
     }

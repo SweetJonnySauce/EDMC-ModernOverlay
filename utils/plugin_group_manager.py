@@ -36,6 +36,7 @@ LOG.addHandler(logging.NullHandler())
 
 GROUPINGS_PATH = ROOT_DIR / "overlay_groupings.json"
 DEBUG_CONFIG_PATH = ROOT_DIR / "debug.json"
+TRACE_LOG_PATH = Path(__file__).resolve().with_name("plugin_group_manager_context.log")
 PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
 PAYLOAD_LOG_BASENAMES = ("overlay-payloads.log", "overlay_payloads.log")
 ANCHOR_CHOICES = ("nw", "ne", "sw", "se", "center")
@@ -1047,6 +1048,48 @@ class EditGroupingDialog(simpledialog.Dialog):
         self.result = self.result_data()
 
 
+class AddPrefixDialog(simpledialog.Dialog):
+    """Dialog that lets the user confirm or edit the prefix being added."""
+
+    def __init__(
+        self,
+        parent: tk.Tk,
+        *,
+        group_name: str,
+        grouping_label: str,
+        default_prefix: str,
+    ) -> None:
+        self._group_name = group_name
+        self._grouping_label = grouping_label
+        self._default_prefix = default_prefix.strip()
+        super().__init__(parent, title=f"Add prefix to '{grouping_label}'")
+
+    def body(self, master: tk.Tk) -> tk.Widget:  # type: ignore[override]
+        ttk.Label(master, text=f"Group: {self._group_name}").grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Label(master, text=f"ID Prefix group: {self._grouping_label}").grid(row=1, column=0, columnspan=2, sticky="w")
+        ttk.Label(master, text="ID prefix to add").grid(row=2, column=0, sticky="w", pady=(8, 0))
+
+        self.prefix_var = tk.StringVar(value=self._default_prefix)
+        entry = ttk.Entry(master, textvariable=self.prefix_var, width=40)
+        entry.grid(row=2, column=1, sticky="ew", pady=(8, 0))
+
+        master.grid_columnconfigure(1, weight=1)
+        return entry
+
+    def validate(self) -> bool:  # type: ignore[override]
+        value = self.prefix_var.get().strip()
+        if not value:
+            messagebox.showerror("Validation error", "Enter a prefix to add.")
+            return False
+        return True
+
+    def result_data(self) -> str:
+        return self.prefix_var.get().strip()
+
+    def apply(self) -> None:  # type: ignore[override]
+        self.result = self.result_data()
+
+
 class PluginGroupManagerApp:
     """Tkinter UI that ties the watcher/gather logic together."""
 
@@ -1089,6 +1132,8 @@ class PluginGroupManagerApp:
         self.grouping_entries_window: Optional[int] = None
         self._group_scroll_bound = False
         self._group_scroll_targets: List[tk.Widget] = []
+        self._payload_context_menu: Optional[tk.Menu] = None
+        self._payload_menu_dismiss_bind: Optional[str] = None
 
         self._build_ui()
         self._refresh_group_data()
@@ -1418,23 +1463,107 @@ class PluginGroupManagerApp:
                 self.selected_group_var.set(target_group)
                 self._on_group_selected()
 
+    def _dismiss_payload_context_menu(self, _event=None) -> None:
+        menu = getattr(self, "_payload_context_menu", None)
+        if menu is not None:
+            try:
+                menu.unpost()
+            except tk.TclError:
+                pass
+            try:
+                menu.destroy()
+            except tk.TclError:
+                pass
+            self._payload_context_menu = None
+        self._payload_menu_dismiss_bind = None
+
+    def _queue_add_payload_to_existing_grouping(self, group_name: str, grouping_label: str) -> None:
+        """Defer add-prefix flow until after the context menu closes."""
+        LOG.debug(
+            "Queueing add-to-prefix request: group=%s grouping=%s selection=%s",
+            group_name,
+            grouping_label,
+            self.payload_list.selection(),
+        )
+        self._dismiss_payload_context_menu()
+        self.root.after_idle(
+            lambda g=group_name, label=grouping_label: self._add_payload_to_existing_grouping(g, label)
+        )
+
+    def _add_payload_to_existing_grouping(self, group_name: str, grouping_label: str) -> None:
+        record = self._current_payload_record()
+        if not record or not record.payload_id:
+            LOG.debug("Add-to-prefix aborted: no selected payload.")
+            messagebox.showinfo("Add to ID Prefix group", "Select a payload first.")
+            return
+        view = self._group_views.get(group_name)
+        if not view:
+            LOG.debug("Add-to-prefix aborted: group %s not in views.", group_name)
+            messagebox.showerror("Add to ID Prefix group", f"Group '{group_name}' not found.")
+            return
+        group_entry = self._group_store.get_group(group_name)
+        if not isinstance(group_entry, Mapping):
+            LOG.debug("Add-to-prefix aborted: group entry missing for %s.", group_name)
+            messagebox.showerror("Add to ID Prefix group", f"Group '{group_name}' data is unavailable.")
+            return
+        grouping_block = group_entry.get("grouping")
+        if not isinstance(grouping_block, Mapping):
+            LOG.debug("Add-to-prefix aborted: grouping block missing for %s.", group_name)
+            messagebox.showerror("Add to ID Prefix group", f"Group '{group_name}' has no ID Prefix groups yet.")
+            return
+        groups = grouping_block.get("groups")
+        if not isinstance(groups, Mapping) or grouping_label not in groups:
+            LOG.debug("Add-to-prefix aborted: grouping %s missing in %s.", grouping_label, group_name)
+            messagebox.showerror("Add to ID Prefix group", f"ID Prefix group '{grouping_label}' not found in {group_name}.")
+            return
+        target_spec = groups.get(grouping_label) or {}
+        raw_prefixes = target_spec.get("id_prefixes") or target_spec.get("prefixes") or []
+        existing_prefixes: List[str] = []
+        for token in raw_prefixes:
+            text = str(token).strip()
+            if text:
+                existing_prefixes.append(text)
+        LOG.debug(
+            "Preparing prefix dialog: payload=%s group=%s grouping=%s existing=%s",
+            record.payload_id,
+            group_name,
+            grouping_label,
+            existing_prefixes,
+        )
+        prefix_raw = self._extract_prefix(record.payload_id, segments=2)
+        default_prefix = prefix_raw.strip()
+        if not default_prefix:
+            LOG.debug("Add-to-prefix aborted: could not derive prefix for %s.", record.payload_id)
+            messagebox.showerror("Add to ID Prefix group", "Could not determine a prefix from the selected payload ID.")
+            return
+        self._prompt_add_prefix_to_grouping(
+            group_name=group_name,
+            grouping_label=grouping_label,
+            default_prefix=default_prefix,
+            existing_prefixes=tuple(existing_prefixes),
+        )
+
     def _show_payload_context_menu(self, event) -> None:
         if not hasattr(self, "payload_list"):
             return
+        self._dismiss_payload_context_menu()
         row_id = self.payload_list.identify_row(event.y)
         if not row_id:
+            LOG.debug("Context menu suppressed: no row at y=%s", event.y)
             return
         self.payload_list.selection_set(row_id)
         self.payload_list.focus(row_id)
         meta = self._payload_meta.get(row_id)
         if not meta:
+            LOG.debug("Context menu suppressed: no metadata for row %s", row_id)
             return
         status, target_group = meta
+        LOG.debug("Context menu request: payload=%s status=%s target_group=%s", row_id, status, target_group)
         menu = tk.Menu(self.root, tearoff=False)
         if status == "Unmatched":
             menu.add_command(
                 label="Create new group",
-                command=lambda: self._open_new_group_dialog(self._build_group_dialog_suggestion()),
+                command=lambda: self._open_new_group_dialog_from_payload(),
             )
         elif status == "Ungrouped" and target_group:
             label = f"Create new ID Prefix Group in {target_group}"
@@ -1442,20 +1571,132 @@ class PluginGroupManagerApp:
                 label=label,
                 command=lambda group=target_group: self._open_new_grouping_dialog_from_payload(group),
             )
+            grouping_entries = [
+                entry
+                for entry in self._group_views.get(target_group, {}).get("groupings", [])
+                if isinstance(entry, Mapping) and entry.get("label")
+            ]
+            if grouping_entries:
+                menu.add_separator()
+                for entry in grouping_entries:
+                    entry_label = str(entry.get("label"))
+                    LOG.debug("Adding context entry for grouping '%s' in %s", entry_label, target_group)
+                    menu.add_command(
+                        label=f"Add to ID Prefix group {entry_label}",
+                        command=lambda group=target_group, glabel=entry_label: self._queue_add_payload_to_existing_grouping(group, glabel),
+                    )
         if menu.index("end") is None:
+            LOG.debug("Context menu aborted: no menu entries for payload=%s", row_id)
             return
+        LOG.debug("Posting context menu for payload=%s with %s entries", row_id, menu.index("end") + 1)
+        self._payload_context_menu = menu
+        menu.bind("<Unmap>", lambda _evt: self._dismiss_payload_context_menu())
+
+        def _menu_click_handler(evt, menu_ref=menu):
+            self._on_payload_context_menu_click(evt, menu_ref)
+            return "break"
+
+        menu.bind("<ButtonRelease-1>", _menu_click_handler)
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
             menu.grab_release()
 
+    def _prompt_add_prefix_to_grouping(
+        self,
+        *,
+        group_name: str,
+        grouping_label: str,
+        default_prefix: str,
+        existing_prefixes: Tuple[str, ...],
+    ) -> None:
+        try:
+            dialog = AddPrefixDialog(
+                self.root,
+                group_name=group_name,
+                grouping_label=grouping_label,
+                default_prefix=default_prefix,
+            )
+            LOG.debug(
+                "Displayed AddPrefixDialog for payload prefix: group=%s grouping=%s default=%s",
+                group_name,
+                grouping_label,
+                default_prefix,
+            )
+        except tk.TclError as exc:
+            messagebox.showerror("Add to ID Prefix group", f"Unable to show prefix dialog: {exc}")
+            LOG.exception("Failed to open AddPrefixDialog for %s/%s", group_name, grouping_label)
+            return
+        prefix_value = getattr(dialog, "result", None)
+        if prefix_value is None:
+            LOG.debug("Add-to-prefix cancelled via dialog for %s/%s", group_name, grouping_label)
+            self.status_var.set(f"Add to ID Prefix group '{grouping_label}' cancelled.")
+            return
+        prefix_value = str(prefix_value).strip()
+        if not prefix_value:
+            LOG.debug("Add-to-prefix aborted: dialog returned empty prefix for %s/%s", group_name, grouping_label)
+            messagebox.showerror("Add to ID Prefix group", "Enter a prefix to add.")
+            return
+        prefix_cf = prefix_value.casefold()
+        if any(p.casefold() == prefix_cf for p in existing_prefixes):
+            LOG.debug(
+                "Add-to-prefix skipped: '%s' already exists in %s/%s -> %s",
+                prefix_value,
+                group_name,
+                grouping_label,
+                existing_prefixes,
+            )
+            self.status_var.set(f"ID Prefix group '{grouping_label}' already includes '{prefix_value}'.")
+            return
+        updated_prefixes = list(existing_prefixes) + [prefix_value]
+        try:
+            self._group_store.update_grouping(group_name, grouping_label, prefixes=updated_prefixes)
+        except Exception as exc:
+            LOG.exception("Failed to update grouping %s/%s with prefix '%s'", group_name, grouping_label, prefix_value)
+            messagebox.showerror("Add to ID Prefix group", f"Failed to update '{grouping_label}': {exc}")
+            return
+        LOG.debug(
+            "Add-to-prefix succeeded: group=%s grouping=%s prefix=%s updated_prefixes=%s",
+            group_name,
+            grouping_label,
+            prefix_value,
+            updated_prefixes,
+        )
+        self.status_var.set(f"Added '{prefix_value}' to ID Prefix group '{grouping_label}'.")
+        self._refresh_group_data(target_group=group_name)
+        self._purge_matched()
+
+    def _on_payload_context_menu_click(self, event, menu: tk.Menu) -> None:
+        """Handle left-click release within the payload context menu."""
+        if menu != getattr(self, "_payload_context_menu", None):
+            LOG.debug("Menu click ignored: context menu no longer active.")
+            return
+        try:
+            index = menu.index(f"@{event.x},{event.y}")
+        except tk.TclError:
+            LOG.debug("Menu click ignored: invalid coordinates (%s,%s).", event.x, event.y)
+            return
+        if index is None:
+            LOG.debug("Menu click ignored: no entry at (%s,%s).", event.x, event.y)
+            return
+        menu.activate(index)
+        label = menu.entrycget(index, "label")
+        LOG.debug("Menu click invoking entry %s (%s)", index, label)
+        try:
+            menu.invoke(index)
+        except tk.TclError as exc:
+            LOG.debug("Menu invoke failed for index %s: %s", index, exc)
+
     def _open_new_grouping_dialog_from_payload(self, group_name: str) -> None:
+        self._dismiss_payload_context_menu()
         if group_name not in self._group_views:
+            LOG.debug("New grouping dialog aborted: %s not in current views.", group_name)
             return
         if self.selected_group_var.get() != group_name:
             self.selected_group_var.set(group_name)
             self._on_group_selected()
         suggestion = self._build_grouping_dialog_suggestion(group_name)
+        LOG.debug("Opening NewGroupingDialog from payload for group %s with suggestion %s", group_name, suggestion)
         self._open_new_grouping_dialog(group_name, suggestion=suggestion)
 
     def _refresh_group_data(self, target_group: Optional[str] = None) -> None:
@@ -1765,6 +2006,12 @@ class PluginGroupManagerApp:
         self.status_var.set(f"Added group '{data['name']}'.")
         self._purge_matched()
 
+    def _open_new_group_dialog_from_payload(self) -> None:
+        """Close the context menu and open the new-group dialog."""
+        self._dismiss_payload_context_menu()
+        suggestion = self._build_group_dialog_suggestion()
+        self._open_new_group_dialog(suggestion)
+
     def _open_edit_group_dialog(self, group_name: str) -> None:
         if not group_name:
             messagebox.showerror("Edit group", "Select a plugin group first.")
@@ -1924,9 +2171,25 @@ def main() -> None:
             "Defaults to the standard EDMC logs search path."
         ),
     )
+    parser.add_argument(
+        "--trace-context-menu",
+        action="store_true",
+        help=(
+            "Write verbose context-menu debugging output to "
+            f"{TRACE_LOG_PATH.name} beside plugin_group_manager.py."
+        ),
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
+    if args.trace_context_menu:
+        TRACE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(TRACE_LOG_PATH, encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        LOG.addHandler(handler)
+        LOG.setLevel(logging.DEBUG)
+        LOG.propagate = False
+        LOG.debug("Context menu tracing enabled. Log file: %s", TRACE_LOG_PATH)
     log_dir_override = Path(args.log_dir).expanduser() if args.log_dir else None
     app = PluginGroupManagerApp(log_dir_override=log_dir_override)
     app.run()
