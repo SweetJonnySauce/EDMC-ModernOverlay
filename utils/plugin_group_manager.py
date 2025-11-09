@@ -39,6 +39,7 @@ DEBUG_CONFIG_PATH = ROOT_DIR / "debug.json"
 PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
 PAYLOAD_LOG_BASENAMES = ("overlay-payloads.log", "overlay_payloads.log")
 ANCHOR_CHOICES = ("nw", "ne", "sw", "se", "center")
+GROUP_SELECTOR_STYLE = "ModernOverlayGroupSelect.TCombobox"
 
 
 @dataclass(frozen=True)
@@ -1049,6 +1050,9 @@ class PluginGroupManagerApp:
         self.root.title("Plugin Group Manager")
         self.root.geometry("1100x800")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._style = ttk.Style(self.root)
+        self._payload_window_bg = self._resolve_payload_window_background()
+        self._configure_styles()
 
         self.watch_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Idle.")
@@ -1064,12 +1068,43 @@ class PluginGroupManagerApp:
         self.grouping_scrollbar: Optional[ttk.Scrollbar] = None
         self.grouping_entries_frame: Optional[ttk.Frame] = None
         self.grouping_entries_window: Optional[int] = None
+        self._group_scroll_bound = False
+        self._group_scroll_targets: List[tk.Widget] = []
 
         self._build_ui()
         self._refresh_payload_list()
         self._refresh_group_data()
         self._update_payload_count()
         self.root.after(200, self._process_queue)
+
+    def _resolve_payload_window_background(self) -> str:
+        """Mirror the payload inspector background so dropdown matches."""
+        fallback = self.root.cget("background")
+        try:
+            probe = tk.Text(self.root)
+        except tk.TclError:
+            return fallback
+        try:
+            color = probe.cget("background") or fallback
+        finally:
+            probe.destroy()
+        return color
+
+    def _configure_styles(self) -> None:
+        color = getattr(self, "_payload_window_bg", self.root.cget("background"))
+        try:
+            self._style.configure(
+                GROUP_SELECTOR_STYLE,
+                fieldbackground=color,
+                background=color,
+            )
+            self._style.map(
+                GROUP_SELECTOR_STYLE,
+                fieldbackground=[("readonly", color)],
+                background=[("readonly", color)],
+            )
+        except tk.TclError as exc:
+            LOG.debug("Unable to configure group selector style: %s", exc)
 
     # UI -----------------------------------------------------------------
     def _build_ui(self) -> None:
@@ -1099,7 +1134,7 @@ class PluginGroupManagerApp:
         ).pack(side="left")
         ttk.Button(control_row, text="Gather from logs", command=self._start_gather).pack(side="left", padx=(12, 0))
         ttk.Button(control_row, text="Re-check matches", command=self._purge_matched).pack(side="left", padx=(12, 0))
-        ttk.Label(control_row, textvariable=self.payload_count_var).pack(side="right")
+        ttk.Label(top_section, textvariable=self.payload_count_var, anchor="w").pack(fill="x", padx=8, pady=(0, 4))
 
         ttk.Label(top_section, textvariable=self.status_var).pack(fill="x", padx=8)
 
@@ -1125,6 +1160,7 @@ class PluginGroupManagerApp:
             textvariable=self.selected_group_var,
             state="readonly",
             width=30,
+            style=GROUP_SELECTOR_STYLE,
         )
         self.group_selector.grid(row=0, column=1, sticky="w", padx=(8, 0))
         self.group_selector.bind("<<ComboboxSelected>>", lambda _: self._on_group_selected())
@@ -1173,6 +1209,12 @@ class PluginGroupManagerApp:
             self.grouping_entries_window,
         ) = self._create_vertical_scroll_frame(grouping_section)
         entries_container.pack(fill="both", expand=True, padx=8, pady=8)
+        self._group_scroll_targets = [entries_container]
+        if self.grouping_canvas is not None:
+            self._group_scroll_targets.append(self.grouping_canvas)
+        if self.grouping_entries_frame is not None:
+            self._group_scroll_targets.append(self.grouping_entries_frame)
+        self._enable_group_scroll(None)
 
 
     def _create_vertical_scroll_frame(
@@ -1405,15 +1447,56 @@ class PluginGroupManagerApp:
     def _enable_group_scroll(self, _event) -> None:
         if self._group_scroll_bound:
             return
-        self.root.bind_all("<MouseWheel>", self._on_mouse_wheel)
-        self.root.bind_all("<Button-4>", self._on_mouse_wheel)
-        self.root.bind_all("<Button-5>", self._on_mouse_wheel)
+        self.root.bind_all("<MouseWheel>", self._on_mouse_wheel, add="+")
+        self.root.bind_all("<Button-4>", self._on_mouse_wheel, add="+")
+        self.root.bind_all("<Button-5>", self._on_mouse_wheel, add="+")
         self._group_scroll_bound = True
 
     def _disable_group_scroll(self, _event) -> None:
         if not self._group_scroll_bound:
             return
         self.root.unbind_all("<MouseWheel>")
+        self.root.unbind_all("<Button-4>")
+        self.root.unbind_all("<Button-5>")
+        self._group_scroll_bound = False
+
+    def _on_mouse_wheel(self, event) -> None:
+        if not self.grouping_canvas or not self._is_pointer_over_grouping():
+            return
+        event_num = getattr(event, "num", None)
+        if event_num == 4:
+            delta = -1
+        elif event_num == 5:
+            delta = 1
+        else:
+            wheel_delta = getattr(event, "delta", 0)
+            if wheel_delta == 0:
+                return
+            delta = -1 if wheel_delta > 0 else 1
+        self.grouping_canvas.yview_scroll(delta, "units")
+
+    def _is_pointer_over_grouping(self) -> bool:
+        if not self._group_scroll_targets:
+            return False
+        pointer_widget = self.root.winfo_containing(self.root.winfo_pointerx(), self.root.winfo_pointery())
+        if pointer_widget is None:
+            return False
+        for target in self._group_scroll_targets:
+            if target is None:
+                continue
+            if self._widget_is_descendant(pointer_widget, target):
+                return True
+        return False
+
+    @staticmethod
+    def _widget_is_descendant(widget: tk.Widget, ancestor: tk.Widget) -> bool:
+        current: Optional[tk.Widget] = widget
+        while current is not None:
+            if current == ancestor:
+                return True
+            current = getattr(current, "master", None)
+        return False
+
     def _inspect_selected_payload(self, event) -> None:
         selection = self.payload_list.curselection()
         if not selection:
@@ -1617,6 +1700,7 @@ class PluginGroupManagerApp:
 
     def _on_close(self) -> None:
         self._stop_watcher()
+        self._disable_group_scroll(None)
         self.root.destroy()
 
     def run(self) -> None:
