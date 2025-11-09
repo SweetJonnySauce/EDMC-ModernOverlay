@@ -631,6 +631,7 @@ class GroupConfigStore:
         name: str,
         notes: Optional[str],
         initial_grouping: Optional[Dict[str, object]] = None,
+        match_prefixes: Optional[Sequence[str]] = None,
     ) -> None:
         cleaned_name = name.strip()
         if not cleaned_name:
@@ -656,6 +657,11 @@ class GroupConfigStore:
                         entry_spec["notes"] = notes_value.strip()
                     grouping_block["groups"][label] = entry_spec
             entry: Dict[str, object] = {"grouping": grouping_block}
+            cleaned_match = [token.strip() for token in (match_prefixes or []) if isinstance(token, str) and token.strip()]
+            if not cleaned_match and initial_grouping:
+                cleaned_match = [token.strip() for token in initial_grouping.get("id_prefixes", []) if isinstance(token, str) and token.strip()]
+            if cleaned_match:
+                entry["__match__"] = {"id_prefixes": cleaned_match}
             cleaned_notes = _normalise_notes(notes)
             if cleaned_notes:
                 entry["notes"] = cleaned_notes
@@ -667,6 +673,44 @@ class GroupConfigStore:
             if name in self._data:
                 del self._data[name]
                 self.save()
+
+    def update_group(
+        self,
+        original_name: str,
+        *,
+        new_name: Optional[str] = None,
+        match_prefixes: Optional[Sequence[str]] = None,
+        notes: Optional[str] = None,
+    ) -> None:
+        cleaned_original = original_name.strip()
+        if not cleaned_original:
+            raise ValueError("Group name is required.")
+        with self._lock:
+            entry = self._data.get(cleaned_original)
+            if not entry:
+                raise ValueError(f"Group '{original_name}' not found.")
+            target_name = new_name.strip() if isinstance(new_name, str) and new_name.strip() else cleaned_original
+            if target_name != cleaned_original and target_name in self._data:
+                raise ValueError(f"Group '{target_name}' already exists.")
+
+            if match_prefixes is not None:
+                cleaned_matches = [token.strip() for token in match_prefixes if isinstance(token, str) and token.strip()]
+                if cleaned_matches:
+                    entry["__match__"] = {"id_prefixes": cleaned_matches}
+                else:
+                    entry.pop("__match__", None)
+
+            if notes is not None:
+                cleaned_notes = _normalise_notes(notes)
+                if cleaned_notes:
+                    entry["notes"] = cleaned_notes
+                else:
+                    entry.pop("notes", None)
+
+            if target_name != cleaned_original:
+                self._data[target_name] = entry
+                del self._data[cleaned_original]
+            self.save()
 
     def add_grouping(
         self,
@@ -781,53 +825,94 @@ class NewGroupDialog(simpledialog.Dialog):
         self.name_var = tk.StringVar()
         ttk.Entry(master, textvariable=self.name_var, width=40).grid(row=0, column=1, sticky="ew")
 
-        ttk.Label(master, text="Notes").grid(row=1, column=0, sticky="nw")
-        self.notes_text = tk.Text(master, width=40, height=4)
-        self.notes_text.grid(row=1, column=1, sticky="ew")
+        master.grid_columnconfigure(1, weight=1)
+        ttk.Label(master, text="Match prefixes (comma separated)").grid(row=1, column=0, sticky="w")
+        self.match_prefix_var = tk.StringVar()
+        ttk.Entry(master, textvariable=self.match_prefix_var, width=40).grid(row=1, column=1, sticky="ew")
 
-        ttk.Label(master, text="Initial grouping label (optional)").grid(row=2, column=0, sticky="w")
-        self.group_label_var = tk.StringVar()
-        ttk.Entry(master, textvariable=self.group_label_var, width=40).grid(row=2, column=1, sticky="ew")
-
-        ttk.Label(master, text="ID prefixes (comma separated)").grid(row=3, column=0, sticky="w")
-        self.prefix_var = tk.StringVar()
-        ttk.Entry(master, textvariable=self.prefix_var, width=40).grid(row=3, column=1, sticky="ew")
-
-        ttk.Label(master, text="Anchor").grid(row=4, column=0, sticky="w")
-        self.anchor_var = tk.StringVar(value="nw")
-        ttk.Combobox(master, values=ANCHOR_CHOICES, textvariable=self.anchor_var, state="readonly").grid(
-            row=4, column=1, sticky="w"
-        )
-
-        self.initial_notes_var = tk.StringVar()
-        ttk.Label(master, text="Grouping notes").grid(row=5, column=0, sticky="w")
-        ttk.Entry(master, textvariable=self.initial_notes_var, width=40).grid(row=5, column=1, sticky="ew")
+        ttk.Label(master, text="Notes (optional)").grid(row=2, column=0, sticky="nw")
+        self.notes_text = tk.Text(master, width=40, height=4, font=tkfont.nametofont("TkDefaultFont"))
+        self.notes_text.grid(row=2, column=1, sticky="nsew")
+        master.rowconfigure(2, weight=1)
         return master
 
     def validate(self) -> bool:  # type: ignore[override]
         if not self.name_var.get().strip():
             messagebox.showerror("Validation error", "Group name is required.")
             return False
-        if self.group_label_var.get().strip() and not _clean_prefixes(self.prefix_var.get()):
-            messagebox.showerror("Validation error", "Enter at least one ID prefix for the initial grouping.")
+        if not _clean_prefixes(self.match_prefix_var.get()):
+            messagebox.showerror("Validation error", "Enter at least one match prefix.")
             return False
         return True
 
     def result_data(self) -> Dict[str, object]:
-        initial_grouping = None
-        label_value = self.group_label_var.get().strip()
-        prefixes = _clean_prefixes(self.prefix_var.get())
-        if label_value and prefixes:
-            initial_grouping = {
-                "label": label_value,
-                "id_prefixes": prefixes,
-                "anchor": self.anchor_var.get().strip(),
-                "notes": self.initial_notes_var.get().strip(),
-            }
+        notes_text = self.notes_text.get("1.0", tk.END).strip()
         return {
             "name": self.name_var.get().strip(),
+            "match_prefixes": _clean_prefixes(self.match_prefix_var.get()),
+            "notes": notes_text,
+        }
+
+    def apply(self) -> None:  # type: ignore[override]
+        self.result = self.result_data()
+
+
+class EditGroupDialog(simpledialog.Dialog):
+    """Dialog for editing plugin group metadata."""
+
+    def __init__(self, parent: tk.Tk, group_name: str, entry: Mapping[str, object]) -> None:
+        self._original_name = group_name
+        self._entry = entry
+        super().__init__(parent, title=f"Edit group '{group_name}'")
+
+    def body(self, master: tk.Tk) -> tk.Widget:  # type: ignore[override]
+        ttk.Label(master, text="Group name").grid(row=0, column=0, sticky="w")
+        self.name_var = tk.StringVar(value=self._original_name)
+        ttk.Entry(master, textvariable=self.name_var, width=40).grid(row=0, column=1, sticky="ew")
+
+        current_matches: List[str] = []
+        match_section = self._entry.get("__match__")
+        if isinstance(match_section, Mapping):
+            values = match_section.get("id_prefixes")
+            if isinstance(values, Iterable):
+                for token in values:
+                    if isinstance(token, (str, int, float)):
+                        text = str(token).strip()
+                        if text:
+                            current_matches.append(text)
+        master.grid_columnconfigure(1, weight=1)
+        ttk.Label(master, text="Match prefixes (comma separated)").grid(row=1, column=0, sticky="w")
+        self.match_prefix_var = tk.StringVar(value=", ".join(current_matches))
+        ttk.Entry(master, textvariable=self.match_prefix_var, width=40).grid(row=1, column=1, sticky="ew")
+
+        existing_notes = ""
+        notes_entry = self._entry.get("notes")
+        if isinstance(notes_entry, Sequence) and not isinstance(notes_entry, str):
+            existing_notes = "\n".join(str(item) for item in notes_entry if item)
+        elif isinstance(notes_entry, str):
+            existing_notes = notes_entry
+        ttk.Label(master, text="Notes (optional)").grid(row=2, column=0, sticky="nw")
+        self.notes_text = tk.Text(master, width=40, height=4, font=tkfont.nametofont("TkDefaultFont"))
+        if existing_notes:
+            self.notes_text.insert("1.0", existing_notes)
+        self.notes_text.grid(row=2, column=1, sticky="nsew")
+        master.rowconfigure(2, weight=1)
+        return master
+
+    def validate(self) -> bool:  # type: ignore[override]
+        if not self.name_var.get().strip():
+            messagebox.showerror("Validation error", "Group name is required.")
+            return False
+        if not _clean_prefixes(self.match_prefix_var.get()):
+            messagebox.showerror("Validation error", "Enter at least one match prefix.")
+            return False
+        return True
+
+    def result_data(self) -> Dict[str, object]:
+        return {
+            "name": self.name_var.get().strip(),
+            "match_prefixes": _clean_prefixes(self.match_prefix_var.get()),
             "notes": self.notes_text.get("1.0", tk.END).strip(),
-            "initial_grouping": initial_grouping,
         }
 
     def apply(self) -> None:  # type: ignore[override]
@@ -1063,16 +1148,21 @@ class PluginGroupManagerApp:
             ttk.Label(info_row, text=prefix_text, wraplength=600, justify="left").grid(
                 row=0,
                 column=1,
-                columnspan=2,
                 sticky="w",
                 pady=(0, 0),
             )
+            edit_btn = ttk.Button(
+                info_row,
+                text="Edit group",
+                command=lambda group=view["name"]: self._open_edit_group_dialog(group),
+            )
+            edit_btn.grid(row=0, column=3, rowspan=2, sticky="e", padx=(12, 0))
+            info_row.grid_columnconfigure(2, weight=1)
             ttk.Label(info_row, text="Notes:").grid(row=1, column=0, sticky="nw", pady=(4, 0))
             notes_value = view["notes"] or "- none -"
             ttk.Label(info_row, text=notes_value, wraplength=600, justify="left").grid(
                 row=1,
                 column=1,
-                columnspan=2,
                 sticky="w",
                 pady=(4, 0),
             )
@@ -1312,7 +1402,7 @@ class PluginGroupManagerApp:
             self._group_store.add_group(
                 name=data["name"],
                 notes=data["notes"],
-                initial_grouping=data["initial_grouping"],
+                match_prefixes=data["match_prefixes"],
             )
         except ValueError as exc:
             messagebox.showerror("Failed to add group", str(exc))
@@ -1322,6 +1412,32 @@ class PluginGroupManagerApp:
             return
         self._refresh_group_view()
         self.status_var.set(f"Added group '{data['name']}'.")
+        self._purge_matched()
+
+    def _open_edit_group_dialog(self, group_name: str) -> None:
+        entry = self._group_store.get_group(group_name)
+        if entry is None:
+            messagebox.showerror("Edit group", f"Group '{group_name}' no longer exists.")
+            return
+        dialog = EditGroupDialog(self.root, group_name, entry)
+        if dialog.result is None:
+            return
+        data = dialog.result
+        try:
+            self._group_store.update_group(
+                original_name=group_name,
+                new_name=data["name"],
+                match_prefixes=data["match_prefixes"],
+                notes=data["notes"],
+            )
+        except ValueError as exc:
+            messagebox.showerror("Failed to edit group", str(exc))
+            return
+        except OSError as exc:
+            messagebox.showerror("Failed to edit group", f"Could not write overlay_groupings.json: {exc}")
+            return
+        self._refresh_group_view()
+        self.status_var.set(f"Updated group '{data['name']}'.")
         self._purge_matched()
 
     def _open_new_grouping_dialog(self, group_name: str) -> None:

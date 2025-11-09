@@ -1,7 +1,6 @@
 {
   "ED-Mining-Analytics": {
     "grouping": {
-      "mode": "id_prefix",
       "groups": {
         "All-edmca-prefixes": {
           "id_prefixes": [
@@ -24,7 +23,6 @@
       ]
     },
     "grouping": {
-      "mode": "id_prefix",
       "groups": {
         "docking": {
           "id_prefixes": [
@@ -70,7 +68,6 @@
       ]
     },
     "grouping": {
-      "mode": "id_prefix",
       "groups": {}
     }
   },
@@ -81,11 +78,9 @@
       ]
     },
     "notes": [
-      "I wanted a smaller text for BGS tally, but it left a large gap between lines.",
-      "So I scale down vertically to close the gap."
+      "Everything for bgstally"
     ],
     "grouping": {
-      "mode": "id_prefix",
       "groups": {
         "colonisation": {
           "id_prefixes": [
@@ -108,14 +103,19 @@
   },
   "bioscan": {
     "grouping": {
-      "mode": "id_prefix",
       "groups": {
-        "All Bioscan Prefixes": {
+        "All Bioscan Payloads": {
           "id_prefixes": [
             "bioscan"
-          ]
+          ],
+          "anchor": "nw"
         }
       }
+    },
+    "__match__": {
+      "id_prefixes": [
+        "bioscan"
+      ]
     }
   }
 }
