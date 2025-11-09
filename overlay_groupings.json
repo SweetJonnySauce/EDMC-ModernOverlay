@@ -1,7 +1,7 @@
 {
   "ED-Mining-Analytics": {
     "grouping": {
-      "mode": "plugin",
+      "mode": "id_prefix",
       "groups": {
         "All-edmca-prefixes": {
           "id_prefixes": [
@@ -70,7 +70,7 @@
       ]
     },
     "grouping": {
-      "mode": "plugin",
+      "mode": "id_prefix",
       "groups": {}
     }
   },
@@ -108,7 +108,7 @@
   },
   "bioscan": {
     "grouping": {
-      "mode": "plugin",
+      "mode": "id_prefix",
       "groups": {
         "All Bioscan Prefixes": {
           "id_prefixes": [

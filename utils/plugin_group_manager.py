@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import os
@@ -12,6 +13,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 from dataclasses import dataclass
 from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
@@ -209,13 +211,8 @@ class OverrideMatcher:
             key = self._manager.grouping_key_for(plugin, payload_id)
             if key is None:
                 return False
-            plugin_label, suffix = key
-            mode = self._manager.group_mode_for(plugin_label or plugin)
-            if mode == "plugin":
-                return True
-            if mode == "id_prefix":
-                return suffix is not None
-            return False
+            _plugin_label, suffix = key
+            return suffix is not None
 
     def refresh(self) -> None:
         with self._lock:
@@ -229,8 +226,7 @@ class OverrideMatcher:
             if key is None:
                 return None
             plugin_label, suffix = key
-            mode = self._manager.group_mode_for(plugin_label or plugin)
-            if mode == "id_prefix" and suffix is None:
+            if suffix is None:
                 return plugin_label
         return None
 
@@ -238,8 +234,9 @@ class OverrideMatcher:
 class LogLocator:
     """Resolves payload log directories/files, mirroring plugin runtime logic."""
 
-    def __init__(self, plugin_root: Path) -> None:
+    def __init__(self, plugin_root: Path, override_dir: Optional[Path] = None) -> None:
         self._plugin_root = plugin_root.resolve()
+        self._override_dir = override_dir
         self._log_dir = self._resolve_log_dir()
 
     @property
@@ -247,6 +244,14 @@ class LogLocator:
         return self._log_dir
 
     def _resolve_log_dir(self) -> Path:
+        if self._override_dir is not None:
+            target = self._override_dir.expanduser()
+            # If the override looks like a file, fall back to its parent directory.
+            if target.suffix:
+                target = target.parent
+            target.mkdir(parents=True, exist_ok=True)
+            return target
+
         plugin_root = self._plugin_root
         parents = plugin_root.parents
         candidates: List[Path] = []
@@ -479,13 +484,8 @@ class GroupConfigStore:
 
     def _normalise_plugin_entry(self, entry: MutableMapping[str, object]) -> MutableMapping[str, object]:
         grouping = entry.get("grouping")
+        groups: Dict[str, Dict[str, object]] = {}
         if isinstance(grouping, Mapping):
-            mode = grouping.get("mode")
-            mode_token = mode if isinstance(mode, str) else "plugin"
-            mode_token = mode_token.strip().lower()
-            if mode_token not in {"plugin", "id_prefix"}:
-                mode_token = "plugin"
-            groups: Dict[str, Dict[str, object]] = {}
             raw_groups = grouping.get("groups")
             if isinstance(raw_groups, Mapping):
                 for label, spec in raw_groups.items():
@@ -515,16 +515,10 @@ class GroupConfigStore:
                     if key:
                         groups[key] = normalised
             elif isinstance(prefixes, Iterable):
-                for entry in prefixes:
-                    if isinstance(entry, str) and entry:
-                        groups[entry] = {"id_prefixes": [entry]}
-            grouping_dict = {
-                "mode": mode_token,
-                "groups": groups,
-            }
-            entry["grouping"] = grouping_dict
-        else:
-            entry["grouping"] = {"mode": "plugin", "groups": {}}
+                for item in prefixes:
+                    if isinstance(item, str) and item:
+                        groups[item] = {"id_prefixes": [item]}
+        entry["grouping"] = {"groups": groups}
         return entry
 
     @staticmethod
@@ -626,7 +620,6 @@ class GroupConfigStore:
                     {
                         "name": name,
                         "notes": note_text,
-                        "mode": grouping.get("mode", "plugin"),
                         "groupings": view_entries,
                         "match_prefixes": match_prefixes,
                     }
@@ -637,17 +630,15 @@ class GroupConfigStore:
         self,
         name: str,
         notes: Optional[str],
-        mode: str,
         initial_grouping: Optional[Dict[str, object]] = None,
     ) -> None:
         cleaned_name = name.strip()
         if not cleaned_name:
             raise ValueError("Group name is required.")
-        mode_token = mode if mode in {"plugin", "id_prefix"} else "plugin"
         with self._lock:
             if cleaned_name in self._data:
                 raise ValueError(f"Group '{cleaned_name}' already exists.")
-            grouping_block: Dict[str, object] = {"mode": mode_token, "groups": {}}
+            grouping_block: Dict[str, object] = {"groups": {}}
             if initial_grouping:
                 label = initial_grouping.get("label")
                 if isinstance(label, str) and label:
@@ -700,8 +691,6 @@ class GroupConfigStore:
             grouping = entry.get("grouping")
             if not isinstance(grouping, Mapping):
                 raise ValueError(f"Group '{group_name}' has no grouping configuration.")
-            if grouping.get("mode") != "id_prefix":
-                raise ValueError(f"Group '{group_name}' must use id_prefix mode to add groupings.")
             groups = grouping.setdefault("groups", {})
             if not isinstance(groups, dict):
                 grouping["groups"] = {}
@@ -739,8 +728,6 @@ class GroupConfigStore:
             grouping = entry.get("grouping")
             if not isinstance(grouping, Mapping):
                 raise ValueError(f"Group '{group_name}' has no grouping configuration.")
-            if grouping.get("mode") != "id_prefix":
-                raise ValueError(f"Group '{group_name}' must use id_prefix mode to edit groupings.")
             groups = grouping.get("groups")
             if not isinstance(groups, dict) or original_label not in groups:
                 raise ValueError(f"Grouping '{original_label}' not found in '{group_name}'.")
@@ -786,19 +773,6 @@ class GroupConfigStore:
                 del groups[label]
                 self.save()
 
-    def update_mode(self, group_name: str, mode: str) -> None:
-        if mode not in {"plugin", "id_prefix"}:
-            raise ValueError("Mode must be 'plugin' or 'id_prefix'.")
-        with self._lock:
-            entry = self._data.get(group_name)
-            if not entry:
-                raise ValueError(f"Group '{group_name}' not found.")
-            grouping = entry.setdefault("grouping", {"mode": "plugin", "groups": {}})
-            grouping["mode"] = mode
-            grouping.setdefault("groups", {})
-            self.save()
-
-
 class NewGroupDialog(simpledialog.Dialog):
     """Dialog for creating a brand new plugin group."""
 
@@ -807,65 +781,52 @@ class NewGroupDialog(simpledialog.Dialog):
         self.name_var = tk.StringVar()
         ttk.Entry(master, textvariable=self.name_var, width=40).grid(row=0, column=1, sticky="ew")
 
-        ttk.Label(master, text="Mode").grid(row=1, column=0, sticky="w")
-        self.mode_var = tk.StringVar(value="id_prefix")
-        ttk.Combobox(master, values=("plugin", "id_prefix"), textvariable=self.mode_var, state="readonly").grid(
-            row=1, column=1, sticky="w"
-        )
-
-        ttk.Label(master, text="Notes").grid(row=2, column=0, sticky="nw")
+        ttk.Label(master, text="Notes").grid(row=1, column=0, sticky="nw")
         self.notes_text = tk.Text(master, width=40, height=4)
-        self.notes_text.grid(row=2, column=1, sticky="ew")
+        self.notes_text.grid(row=1, column=1, sticky="ew")
 
-        ttk.Label(master, text="Initial grouping label (optional)").grid(row=3, column=0, sticky="w")
+        ttk.Label(master, text="Initial grouping label (optional)").grid(row=2, column=0, sticky="w")
         self.group_label_var = tk.StringVar()
-        ttk.Entry(master, textvariable=self.group_label_var, width=40).grid(row=3, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.group_label_var, width=40).grid(row=2, column=1, sticky="ew")
 
-        ttk.Label(master, text="ID prefixes (comma separated)").grid(row=4, column=0, sticky="w")
+        ttk.Label(master, text="ID prefixes (comma separated)").grid(row=3, column=0, sticky="w")
         self.prefix_var = tk.StringVar()
-        ttk.Entry(master, textvariable=self.prefix_var, width=40).grid(row=4, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.prefix_var, width=40).grid(row=3, column=1, sticky="ew")
 
-        ttk.Label(master, text="Anchor").grid(row=5, column=0, sticky="w")
+        ttk.Label(master, text="Anchor").grid(row=4, column=0, sticky="w")
         self.anchor_var = tk.StringVar(value="nw")
         ttk.Combobox(master, values=ANCHOR_CHOICES, textvariable=self.anchor_var, state="readonly").grid(
-            row=5, column=1, sticky="w"
+            row=4, column=1, sticky="w"
         )
 
         self.initial_notes_var = tk.StringVar()
-        ttk.Label(master, text="Grouping notes").grid(row=6, column=0, sticky="w")
-        ttk.Entry(master, textvariable=self.initial_notes_var, width=40).grid(row=6, column=1, sticky="ew")
+        ttk.Label(master, text="Grouping notes").grid(row=5, column=0, sticky="w")
+        ttk.Entry(master, textvariable=self.initial_notes_var, width=40).grid(row=5, column=1, sticky="ew")
         return master
 
     def validate(self) -> bool:  # type: ignore[override]
         if not self.name_var.get().strip():
             messagebox.showerror("Validation error", "Group name is required.")
             return False
-        mode = self.mode_var.get().strip().lower()
-        if mode not in {"plugin", "id_prefix"}:
-            messagebox.showerror("Validation error", "Mode must be plugin or id_prefix.")
-            return False
-        if mode == "id_prefix" and self.group_label_var.get().strip() and not _clean_prefixes(self.prefix_var.get()):
+        if self.group_label_var.get().strip() and not _clean_prefixes(self.prefix_var.get()):
             messagebox.showerror("Validation error", "Enter at least one ID prefix for the initial grouping.")
             return False
         return True
 
     def result_data(self) -> Dict[str, object]:
-        mode = self.mode_var.get().strip().lower()
         initial_grouping = None
-        if mode == "id_prefix":
-            label_value = self.group_label_var.get().strip()
-            prefixes = _clean_prefixes(self.prefix_var.get())
-            if label_value and prefixes:
-                initial_grouping = {
-                    "label": label_value,
-                    "id_prefixes": prefixes,
-                    "anchor": self.anchor_var.get().strip(),
-                    "notes": self.initial_notes_var.get().strip(),
-                }
+        label_value = self.group_label_var.get().strip()
+        prefixes = _clean_prefixes(self.prefix_var.get())
+        if label_value and prefixes:
+            initial_grouping = {
+                "label": label_value,
+                "id_prefixes": prefixes,
+                "anchor": self.anchor_var.get().strip(),
+                "notes": self.initial_notes_var.get().strip(),
+            }
         return {
             "name": self.name_var.get().strip(),
             "notes": self.notes_text.get("1.0", tk.END).strip(),
-            "mode": mode,
             "initial_grouping": initial_grouping,
         }
 
@@ -984,9 +945,9 @@ class EditGroupingDialog(simpledialog.Dialog):
 class PluginGroupManagerApp:
     """Tkinter UI that ties the watcher/gather logic together."""
 
-    def __init__(self) -> None:
+    def __init__(self, log_dir_override: Optional[Path] = None) -> None:
         self._matcher = OverrideMatcher(GROUPINGS_PATH)
-        self._locator = LogLocator(ROOT_DIR)
+        self._locator = LogLocator(ROOT_DIR, override_dir=log_dir_override)
         cache_path = self._locator.log_dir / "new-payloads.json"
         self._payload_store = NewPayloadStore(cache_path)
         self._group_store = GroupConfigStore(GROUPINGS_PATH)
@@ -995,6 +956,11 @@ class PluginGroupManagerApp:
         self._gather_thread: Optional[LogGatherer] = None
 
         self.root = tk.Tk()
+        default_font = tkfont.nametofont("TkDefaultFont")
+        self._group_title_font = default_font.copy()
+        base_size = int(self._group_title_font.cget("size") or 10)
+        increment = 2 if base_size >= 0 else -2
+        self._group_title_font.configure(size=base_size + increment, weight="bold")
         self.root.title("Plugin Group Manager")
         self.root.geometry("1100x800")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -1085,32 +1051,26 @@ class PluginGroupManagerApp:
             ttk.Label(self.group_frame, text="No groups configured yet.").pack(anchor="w")
             return
         for idx, view in enumerate(views):
-            frame = ttk.LabelFrame(self.group_frame, text=view["name"])
+            frame = ttk.LabelFrame(self.group_frame)
             frame.pack(fill="x", expand=True, padx=4, pady=4)
+            label = ttk.Label(frame, text=view["name"], font=getattr(self, "_group_title_font", None))
+            frame.configure(labelwidget=label)
 
             info_row = ttk.Frame(frame)
             info_row.pack(fill="x", padx=6, pady=(6, 2))
-            ttk.Label(info_row, text=f"Mode:").grid(row=0, column=0, sticky="w")
-            mode_var = tk.StringVar(value=view["mode"])
-            mode_box = ttk.Combobox(info_row, values=("plugin", "id_prefix"), textvariable=mode_var, state="readonly", width=10)
-            mode_box.grid(row=0, column=1, sticky="w", padx=(4, 12))
-            mode_box.bind(
-                "<<ComboboxSelected>>",
-                lambda event, group=view["name"], var=mode_var: self._change_mode(group, var.get()),
-            )
             prefix_text = ", ".join(view["match_prefixes"]) if view["match_prefixes"] else "- none -"
-            ttk.Label(info_row, text="Matching prefixes:").grid(row=1, column=0, sticky="nw", pady=(4, 0))
+            ttk.Label(info_row, text="Matching prefixes:").grid(row=0, column=0, sticky="nw")
             ttk.Label(info_row, text=prefix_text, wraplength=600, justify="left").grid(
-                row=1,
+                row=0,
                 column=1,
                 columnspan=2,
                 sticky="w",
-                pady=(4, 0),
+                pady=(0, 0),
             )
-            ttk.Label(info_row, text="Notes:").grid(row=2, column=0, sticky="nw", pady=(4, 0))
+            ttk.Label(info_row, text="Notes:").grid(row=1, column=0, sticky="nw", pady=(4, 0))
             notes_value = view["notes"] or "- none -"
             ttk.Label(info_row, text=notes_value, wraplength=600, justify="left").grid(
-                row=2,
+                row=1,
                 column=1,
                 columnspan=2,
                 sticky="w",
@@ -1118,9 +1078,9 @@ class PluginGroupManagerApp:
             )
             unmatched_payloads = unmatched_map.get(view["name"], [])
             unmatched_text = ", ".join(unmatched_payloads) if unmatched_payloads else "- none -"
-            ttk.Label(info_row, text="Unmatched payloads:").grid(row=3, column=0, sticky="nw", pady=(4, 0))
+            ttk.Label(info_row, text="Unmatched payloads:").grid(row=2, column=0, sticky="nw", pady=(4, 0))
             ttk.Label(info_row, text=unmatched_text, wraplength=600, justify="left").grid(
-                row=3,
+                row=2,
                 column=1,
                 columnspan=2,
                 sticky="w",
@@ -1352,7 +1312,6 @@ class PluginGroupManagerApp:
             self._group_store.add_group(
                 name=data["name"],
                 notes=data["notes"],
-                mode=data["mode"],
                 initial_grouping=data["initial_grouping"],
             )
         except ValueError as exc:
@@ -1440,15 +1399,6 @@ class PluginGroupManagerApp:
         self.status_var.set(f"Deleted group '{group_name}'.")
         self._purge_matched()
 
-    def _change_mode(self, group_name: str, mode: str) -> None:
-        try:
-            self._group_store.update_mode(group_name, mode)
-        except ValueError as exc:
-            messagebox.showerror("Failed to update mode", str(exc))
-            return
-        self.status_var.set(f"Updated {group_name} mode to {mode}.")
-        self._purge_matched()
-
     def _update_payload_count(self) -> None:
         count = len(self._payload_store)
         self.payload_count_var.set(f"New payloads: {count}")
@@ -1486,8 +1436,19 @@ class PluginGroupManagerApp:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Interactive Plugin Group Manager for Modern Overlay.")
+    parser.add_argument(
+        "--log-dir",
+        help=(
+            "Directory that contains overlay payload logs (or a specific overlay-payloads.log path). "
+            "Defaults to the standard EDMC logs search path."
+        ),
+    )
+    args = parser.parse_args()
+
     logging.basicConfig(level=logging.INFO)
-    app = PluginGroupManagerApp()
+    log_dir_override = Path(args.log_dir).expanduser() if args.log_dir else None
+    app = PluginGroupManagerApp(log_dir_override=log_dir_override)
     app.run()
 
 
