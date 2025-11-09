@@ -25,8 +25,33 @@
             "bgstally-msg-tickwarn-",
             "bgstally-frame-tickwarn"
           ]
+        },
+        "BGS-Tally System Info": {
+          "id_prefixes": [
+            "bgstally-msg-system_info",
+            "bgstally-frame-indicator",
+            "bgstally-frame-system_info"
+          ],
+          "anchor": "nw"
         }
       }
+    }
+  },
+  "Bioscan": {
+    "grouping": {
+      "groups": {
+        "Bioscan Title": {
+          "id_prefixes": [
+            "bioscan_title_"
+          ],
+          "anchor": "nw"
+        }
+      }
+    },
+    "__match__": {
+      "id_prefixes": [
+        "bioscan_"
+      ]
     }
   },
   "ED-Mining-Analytics": {
