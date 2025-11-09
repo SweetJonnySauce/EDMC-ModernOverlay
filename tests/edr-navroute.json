@@ -1,22 +1,22 @@
 {
     "settings": {
         "window_wait_seconds": 2,
-        "wait_between_payload_tests": 5,
-        "wait_to_finish_seconds": 1,
+        "wait_between_payload_tests": 1,
+        "wait_to_finish_seconds": 15,
         "crosshair_x_percent": 71.875,
         "crosshair_y_percent": 34.375
     },
     "resolutions": [
         {
-            "width": 1920,
-            "height": 800
+            "width": 1280,
+            "height": 960
         }
     ],
     "payloads": [
         {
             "name": "edr-navroute",
             "source": "tests/edr-navroute.log",
-            "ttl": 5
+            "ttl": 15
         }
     ]
 }

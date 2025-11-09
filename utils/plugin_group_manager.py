@@ -1057,7 +1057,7 @@ class PluginGroupManagerApp:
         self.watch_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Idle.")
         self.payload_count_var = tk.StringVar()
-        self._payload_index: List[str] = []
+        self._payload_meta: Dict[str, Tuple[str, Optional[str]]] = {}
         self._group_views: Dict[str, Dict[str, object]] = {}
         self._unmatched_by_group: Dict[str, List[str]] = {}
         self.selected_group_var = tk.StringVar()
@@ -1072,7 +1072,6 @@ class PluginGroupManagerApp:
         self._group_scroll_targets: List[tk.Widget] = []
 
         self._build_ui()
-        self._refresh_payload_list()
         self._refresh_group_data()
         self._update_payload_count()
         self.root.after(200, self._process_queue)
@@ -1140,13 +1139,29 @@ class PluginGroupManagerApp:
 
         list_frame = ttk.Frame(left_panel)
         list_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
-        self.payload_list = tk.Listbox(list_frame, height=8)
+        columns = ("status", "payload")
+        self.payload_list = ttk.Treeview(
+            list_frame,
+            columns=columns,
+            show="headings",
+            selectmode="browse",
+            height=8,
+        )
+        self.payload_list.heading("status", text="Status")
+        self.payload_list.heading("payload", text="Payload")
+        self.payload_list.column("status", width=110, anchor="w", stretch=False)
+        self.payload_list.column("payload", anchor="w")
         self.payload_list.pack(side="left", fill="both", expand=True)
+        self.payload_list.bind("<<TreeviewSelect>>", self._on_payload_selection_changed)
         self.payload_list.bind("<Double-1>", self._inspect_selected_payload)
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.payload_list.yview)
         scrollbar.pack(side="right", fill="y")
-        self.payload_list.config(yscrollcommand=scrollbar.set)
-        ttk.Label(left_panel, text="Tip: double-click a payload to inspect its JSON details.", foreground="#5a5a5a").pack(
+        self.payload_list.configure(yscrollcommand=scrollbar.set)
+        ttk.Label(
+            left_panel,
+            text="Tip: double-click a payload to inspect its JSON details.",
+            foreground="#5a5a5a",
+        ).pack(
             fill="x",
             padx=8,
             pady=(0, 8),
@@ -1240,13 +1255,63 @@ class PluginGroupManagerApp:
 
 
     def _refresh_payload_list(self) -> None:
-        self.payload_list.delete(0, tk.END)
-        self._payload_index = []
+        if not hasattr(self, "payload_list"):
+            return
+        selected = self.payload_list.selection()
+        selected_id = selected[0] if selected else None
+        for item in self.payload_list.get_children():
+            self.payload_list.delete(item)
+        self._payload_meta = {}
         for record in self._payload_store.records():
-            self.payload_list.insert(tk.END, record.label())
-            self._payload_index.append(record.payload_id)
+            payload_id = record.payload_id
+            status, target_group = self._determine_payload_status(record)
+            self._payload_meta[payload_id] = (status, target_group)
+            self.payload_list.insert("", "end", iid=payload_id, values=(status, record.label()))
+        if selected_id and self.payload_list.exists(selected_id):
+            self.payload_list.selection_set(selected_id)
+            self.payload_list.focus(selected_id)
+            self._on_payload_selection_changed()
 
-    def _refresh_group_data(self) -> None:
+    def _determine_payload_status(self, record: PayloadRecord) -> Tuple[str, Optional[str]]:
+        group_name = (record.group or "").strip()
+        if group_name:
+            return "Ungrouped", group_name
+        resolved = self._match_group_for_payload(record.payload_id)
+        if resolved:
+            return "Ungrouped", resolved
+        return "Unmatched", None
+
+    def _match_group_for_payload(self, payload_id: Optional[str]) -> Optional[str]:
+        if not payload_id or not self._group_views:
+            return None
+        payload_cf = payload_id.casefold()
+        for name, view in self._group_views.items():
+            prefixes = [
+                str(prefix).strip().casefold()
+                for prefix in view.get("match_prefixes", [])
+                if isinstance(prefix, str) and prefix.strip()
+            ]
+            if prefixes and any(payload_cf.startswith(prefix) for prefix in prefixes):
+                return name
+        return None
+
+    def _on_payload_selection_changed(self, _event=None) -> None:
+        if not hasattr(self, "payload_list"):
+            return
+        selection = self.payload_list.selection()
+        if not selection:
+            return
+        payload_id = selection[0]
+        status_info = self._payload_meta.get(payload_id)
+        if not status_info:
+            return
+        status, target_group = status_info
+        if status == "Ungrouped" and target_group and target_group in self._group_views:
+            if self.selected_group_var.get() != target_group:
+                self.selected_group_var.set(target_group)
+                self._on_group_selected()
+
+    def _refresh_group_data(self, target_group: Optional[str] = None) -> None:
         views = self._group_store.iter_group_views()
         self._unmatched_by_group = self._collect_unmatched_payloads(views)
         self._group_views = {view["name"]: view for view in views}
@@ -1255,12 +1320,14 @@ class PluginGroupManagerApp:
         if not names:
             self.selected_group_var.set("")
             self._render_selected_group(None)
+            self._refresh_payload_list()
             return
-        current = self.selected_group_var.get()
+        current = target_group or self.selected_group_var.get()
         if current not in names:
             current = names[0]
         self.selected_group_var.set(current)
         self._render_selected_group(current)
+        self._refresh_payload_list()
 
     def _render_selected_group(self, group_name: Optional[str]) -> None:
         self._clear_grouping_entries()
@@ -1503,13 +1570,10 @@ class PluginGroupManagerApp:
         return False
 
     def _inspect_selected_payload(self, event) -> None:
-        selection = self.payload_list.curselection()
+        selection = self.payload_list.selection()
         if not selection:
             return
-        index = selection[0]
-        if index >= len(self._payload_index):
-            return
-        payload_id = self._payload_index[index]
+        payload_id = selection[0]
         record = self._payload_store.get(payload_id)
         if record is None or record.payload is None:
             messagebox.showinfo("Inspect payload", "Payload contents are no longer available.")
@@ -1557,8 +1621,7 @@ class PluginGroupManagerApp:
         except OSError as exc:
             messagebox.showerror("Failed to add group", f"Could not write overlay_groupings.json: {exc}")
             return
-        self.selected_group_var.set(data["name"])
-        self._refresh_group_data()
+        self._refresh_group_data(target_group=data["name"])
         self.status_var.set(f"Added group '{data['name']}'.")
         self._purge_matched()
 
@@ -1587,7 +1650,7 @@ class PluginGroupManagerApp:
         except OSError as exc:
             messagebox.showerror("Failed to edit group", f"Could not write overlay_groupings.json: {exc}")
             return
-        self._refresh_group_data()
+        self._refresh_group_data(target_group=data["name"])
         self.status_var.set(f"Updated group '{data['name']}'.")
         self._purge_matched()
 

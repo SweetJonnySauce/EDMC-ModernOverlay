@@ -1,4 +1,34 @@
 {
+  "BGS-Tally": {
+    "__match__": {
+      "id_prefixes": [
+        "bgstally-"
+      ]
+    },
+    "notes": [
+      "Everything for bgstally"
+    ],
+    "grouping": {
+      "groups": {
+        "colonisation": {
+          "id_prefixes": [
+            "bgstally-msg-colonisation-",
+            "bgstally-frame-colonisation"
+          ]
+        },
+        "tick-notifications": {
+          "id_prefixes": [
+            "bgstally-frame-tick",
+            "bgstally-msg-tick-0",
+            "bgstally-frame-system_tick",
+            "bgstally-msg-system_tick-0",
+            "bgstally-msg-tickwarn-",
+            "bgstally-frame-tickwarn"
+          ]
+        }
+      }
+    }
+  },
   "ED-Mining-Analytics": {
     "grouping": {
       "groups": {
@@ -44,12 +74,6 @@
           "id_prefixes": [
             "edr-notice-"
           ]
-        },
-        "Navroute": {
-          "id_prefixes": [
-            "edr-navroute"
-          ],
-          "anchor": "nw"
         }
       }
     }
@@ -82,53 +106,6 @@
           "anchor": "nw"
         }
       }
-    }
-  },
-  "bgstally": {
-    "__match__": {
-      "id_prefixes": [
-        "bgstally-"
-      ]
-    },
-    "notes": [
-      "Everything for bgstally"
-    ],
-    "grouping": {
-      "groups": {
-        "colonisation": {
-          "id_prefixes": [
-            "bgstally-msg-colonisation-",
-            "bgstally-frame-colonisation"
-          ]
-        },
-        "tick-notifications": {
-          "id_prefixes": [
-            "bgstally-frame-tick",
-            "bgstally-msg-tick-0",
-            "bgstally-frame-system_tick",
-            "bgstally-msg-system_tick-0",
-            "bgstally-msg-tickwarn-",
-            "bgstally-frame-tickwarn"
-          ]
-        }
-      }
-    }
-  },
-  "bioscan": {
-    "grouping": {
-      "groups": {
-        "All Bioscan Payloads": {
-          "id_prefixes": [
-            "bioscan"
-          ],
-          "anchor": "nw"
-        }
-      }
-    },
-    "__match__": {
-      "id_prefixes": [
-        "bioscan"
-      ]
     }
   }
 }
