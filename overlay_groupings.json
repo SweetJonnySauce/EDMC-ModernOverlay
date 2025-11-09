@@ -44,6 +44,12 @@
           "id_prefixes": [
             "edr-notice-"
           ]
+        },
+        "Navroute": {
+          "id_prefixes": [
+            "edr-navroute"
+          ],
+          "anchor": "nw"
         }
       }
     }

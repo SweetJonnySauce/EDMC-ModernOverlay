@@ -1295,33 +1295,36 @@ class PluginGroupManagerApp:
         if not entries:
             ttk.Label(self.grouping_entries_frame, text="No groupings defined.", padding=(8, 2)).pack(anchor="w")
             return
-        for entry in entries:
-            entry_frame = ttk.Frame(self.grouping_entries_frame)
-            entry_frame.pack(fill="x", padx=4, pady=2)
+        for index, entry in enumerate(entries):
+            # extra padding makes each grouping easier to scan
+            entry_frame = ttk.Frame(self.grouping_entries_frame, padding=(6, 4, 6, 6))
+            entry_frame.pack(fill="x", padx=6, pady=4)
             entry_frame.grid_columnconfigure(1, weight=1)
             label = entry.get("label", "")
-            ttk.Label(entry_frame, text=f"Label: {label}").grid(row=0, column=0, sticky="w")
+            ttk.Label(entry_frame, text=f"Label: {label}").grid(row=0, column=0, sticky="w", pady=(0, 4))
             prefixes = ", ".join(entry.get("prefixes", [])) if entry.get("prefixes") else "- none -"
             ttk.Label(entry_frame, text=f"Prefixes: {prefixes}", wraplength=350, justify="left").grid(
                 row=1,
                 column=0,
                 sticky="w",
-                pady=(2, 0),
+                pady=(0, 4),
             )
             anchor_value = entry.get("anchor") or "- default -"
-            ttk.Label(entry_frame, text=f"Anchor: {anchor_value}").grid(row=0, column=1, sticky="w", padx=(12, 0))
+            ttk.Label(entry_frame, text=f"Anchor: {anchor_value}").grid(row=0, column=1, sticky="w", padx=(12, 0), pady=(0, 4))
             notes_text = entry.get("notes") or "- none -"
             ttk.Label(entry_frame, text=f"Notes: {notes_text}", wraplength=350, justify="left").grid(
                 row=1,
                 column=1,
                 sticky="w",
                 padx=(12, 0),
-                pady=(2, 0),
+                pady=(0, 4),
             )
             if label == "ungrouped":
+                if index < len(entries) - 1:
+                    ttk.Separator(self.grouping_entries_frame, orient="horizontal").pack(fill="x", padx=4, pady=(0, 4))
                 continue
             button_frame = ttk.Frame(entry_frame)
-            button_frame.grid(row=0, column=2, rowspan=2, padx=(12, 0), sticky="n")
+            button_frame.grid(row=0, column=2, rowspan=2, padx=(18, 0), pady=(0, 4), sticky="n")
             ttk.Button(
                 button_frame,
                 text="Edit",
@@ -1332,6 +1335,8 @@ class PluginGroupManagerApp:
                 text="Delete",
                 command=lambda group=group_name, entry_label=entry.get("label"): self._delete_grouping(group, entry_label),
             ).pack(fill="x", pady=(4, 0))
+            if index < len(entries) - 1:
+                ttk.Separator(self.grouping_entries_frame, orient="horizontal").pack(fill="x", padx=4, pady=(0, 4))
 
     def _reset_grouping_scroll(self) -> None:
         if self.grouping_canvas is None:
