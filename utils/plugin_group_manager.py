@@ -1195,17 +1195,24 @@ class PluginGroupManagerApp:
                 for entry in grouping_entries:
                     entry_frame = ttk.Frame(frame)
                     entry_frame.pack(fill="x", padx=12, pady=2)
+                    entry_frame.grid_columnconfigure(1, weight=1)
                     ttk.Label(entry_frame, text=f"Label: {entry['label']}").grid(row=0, column=0, sticky="w")
                     prefixes = ", ".join(entry["prefixes"]) if entry["prefixes"] else "- none -"
-                    ttk.Label(entry_frame, text=f"Prefixes: {prefixes}").grid(row=1, column=0, sticky="w")
+                    ttk.Label(entry_frame, text=f"Prefixes: {prefixes}", wraplength=350, justify="left").grid(
+                        row=1,
+                        column=0,
+                        sticky="w",
+                        pady=(2, 0),
+                    )
                     anchor = entry["anchor"] or "- default -"
                     ttk.Label(entry_frame, text=f"Anchor: {anchor}").grid(row=0, column=1, sticky="w", padx=(12, 0))
                     notes = entry["notes"] or "- none -"
-                    ttk.Label(entry_frame, text=f"Notes: {notes}", wraplength=400, justify="left").grid(
+                    ttk.Label(entry_frame, text=f"Notes: {notes}", wraplength=350, justify="left").grid(
                         row=1,
                         column=1,
                         sticky="w",
                         padx=(12, 0),
+                        pady=(2, 0),
                     )
                     button_frame = ttk.Frame(entry_frame)
                     button_frame.grid(row=0, column=2, rowspan=2, padx=(12, 0), sticky="n")
