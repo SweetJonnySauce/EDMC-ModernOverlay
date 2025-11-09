@@ -19,9 +19,9 @@
         "tick-notifications": {
           "id_prefixes": [
             "bgstally-frame-tick",
-            "bgstally-msg-tick-0",
+            "bgstally-msg-tick-",
             "bgstally-frame-system_tick",
-            "bgstally-msg-system_tick-0",
+            "bgstally-msg-system_tick-",
             "bgstally-msg-tickwarn-",
             "bgstally-frame-tickwarn"
           ]
