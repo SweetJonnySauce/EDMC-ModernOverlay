@@ -25,13 +25,6 @@
             "bgstally-msg-tickwarn-",
             "bgstally-frame-tickwarn"
           ]
-        },
-        "BGS-Tally System Info": {
-          "id_prefixes": [
-            "bgstally-frame-indicator",
-            "bgstally-frame-system_info"
-          ],
-          "notes": "lorum bacon ipsum lorum bacon ipsum lorum bacon ipsum lorum bacon ipsum"
         }
       }
     }

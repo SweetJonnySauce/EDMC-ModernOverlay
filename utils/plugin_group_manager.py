@@ -43,6 +43,8 @@ ANCHOR_CHOICES = ("nw", "ne", "sw", "se", "center")
 GENERIC_PAYLOAD_TOKENS = {"vect", "shape", "text"}
 GROUP_SELECTOR_STYLE = "ModernOverlayGroupSelect.TCombobox"
 LEFT_COLUMN_WIDTH = 180
+GROUP_INFO_WRAP = 360
+LEFT_PANEL_WRAP = 520
 
 
 @dataclass(frozen=True)
@@ -1187,6 +1189,26 @@ class PluginGroupManagerApp:
         right_panel.grid(row=0, column=1, sticky="nsew")
         right_panel.rowconfigure(2, weight=1)
 
+        overview_section = self._create_label_frame(left_panel, "Overview & Instructions")
+        overview_section.pack(fill="x", expand=False, pady=(0, 12))
+        overview_container = ttk.Frame(overview_section)
+        overview_container.pack(fill="x", padx=8, pady=8)
+        overview_text = (
+            "Plugin Group Manager helps you define patterns to group payloads together for placement on the overlay "
+            "while maintaining correct aspect ratios and font spacings."
+        )
+        ttk.Label(overview_container, text=overview_text, wraplength=LEFT_PANEL_WRAP, justify="left").pack(anchor="w")
+        ttk.Label(overview_container, text="Instructions", font=self._grouping_label_font).pack(anchor="w", pady=(8, 2))
+        steps = [
+            "Step 1: Have the plugin in Dev mode (so payloads will be logged).",
+            "Step 2: Watch for new payloads.",
+            "Step 3: Trigger a payload in-game, or gather from logs after triggering.",
+            "Step 4: If a payload is unmatched, create a new plugin group via the New Group button or by right-clicking the payload.",
+            "Step 5: If a payload is ungrouped it already matches a plugin group; select it to highlight the group and add it to an ID Prefix group or right-click for quick actions.",
+        ]
+        for step in steps:
+            ttk.Label(overview_container, text=step, wraplength=LEFT_PANEL_WRAP, justify="left").pack(anchor="w", pady=(2, 0))
+
         top_section = self._create_label_frame(left_panel, "Watcher / Gather")
         top_section.pack(fill="x", expand=False, pady=(0, 12))
 
@@ -1212,7 +1234,7 @@ class PluginGroupManagerApp:
             columns=columns,
             show="headings",
             selectmode="browse",
-            height=8,
+            height=6,
         )
         self.payload_list.heading("status", text="Status")
         self.payload_list.heading("payload", text="Payload")
