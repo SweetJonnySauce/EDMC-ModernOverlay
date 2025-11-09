@@ -1109,6 +1109,8 @@ class PluginGroupManagerApp:
         base_size = int(self._group_title_font.cget("size") or 10)
         increment = 2 if base_size >= 0 else -2
         self._group_title_font.configure(size=base_size + increment, weight="bold")
+        self._grouping_label_font = default_font.copy()
+        self._grouping_label_font.configure(weight="bold")
         self.root.title("Plugin Group Manager")
         self.root.geometry("1100x800")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -1752,27 +1754,36 @@ class PluginGroupManagerApp:
             entry_frame = ttk.Frame(self.grouping_entries_frame, padding=(6, 4, 6, 6))
             entry_frame.pack(fill="x", padx=6, pady=4)
             entry_frame.grid_columnconfigure(1, weight=1)
-            label = entry.get("label", "")
-            ttk.Label(entry_frame, text=f"Label: {label}").grid(row=0, column=0, sticky="w", pady=(0, 4))
-            prefixes = ", ".join(entry.get("prefixes", [])) if entry.get("prefixes") else "- none -"
-            ttk.Label(entry_frame, text=f"Prefixes: {prefixes}", wraplength=350, justify="left").grid(
-                row=1,
+            label_text = entry.get("label") or "- unnamed -"
+            ttk.Label(entry_frame, text=label_text, font=self._grouping_label_font).grid(row=0, column=0, sticky="w", pady=(0, 2))
+            anchor_value = entry.get("anchor") or "- default -"
+            ttk.Label(entry_frame, text=f"Anchor: {anchor_value}").grid(row=1, column=0, sticky="w", pady=(0, 2))
+            notes_text = entry.get("notes") or "- none -"
+            ttk.Label(entry_frame, text=f"Notes: {notes_text}", wraplength=260, justify="left").grid(
+                row=2,
                 column=0,
                 sticky="w",
-                pady=(0, 4),
+                pady=(0, 2),
             )
-            anchor_value = entry.get("anchor") or "- default -"
-            ttk.Label(entry_frame, text=f"Anchor: {anchor_value}").grid(row=0, column=1, sticky="w", padx=(12, 0), pady=(0, 4))
-            notes_text = entry.get("notes") or "- none -"
-            ttk.Label(entry_frame, text=f"Notes: {notes_text}", wraplength=350, justify="left").grid(
+
+            prefixes = [p for p in entry.get("prefixes", []) if isinstance(p, str) and p.strip()]
+            prefix_block = "\n".join(prefixes) if prefixes else "- none -"
+            ttk.Label(entry_frame, text="Prefixes", font=("TkDefaultFont", 9, "underline")).grid(
                 row=1,
                 column=1,
                 sticky="w",
-                padx=(12, 0),
-                pady=(0, 4),
+                padx=(20, 0),
+                pady=(0, 2),
             )
+            ttk.Label(entry_frame, text=prefix_block, justify="left", anchor="w", wraplength=380).grid(
+                row=2,
+                column=1,
+                sticky="nw",
+                padx=(20, 0),
+            )
+
             button_frame = ttk.Frame(entry_frame)
-            button_frame.grid(row=0, column=2, rowspan=2, padx=(18, 0), pady=(0, 4), sticky="n")
+            button_frame.grid(row=1, column=2, rowspan=2, padx=(18, 0), pady=(0, 4), sticky="n")
             ttk.Button(
                 button_frame,
                 text="Edit",
