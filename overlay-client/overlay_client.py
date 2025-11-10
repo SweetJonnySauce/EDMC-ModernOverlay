@@ -33,6 +33,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QApplication, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
+
 CLIENT_DIR = Path(__file__).resolve().parent
 if str(CLIENT_DIR) not in sys.path:
     sys.path.insert(0, str(CLIENT_DIR))
@@ -2658,12 +2659,10 @@ class OverlayWindow(QWidget):
     def _paint_legacy(self, painter: QPainter) -> None:
         self._cycle_anchor_points = {}
         mapper = self._compute_legacy_mapper()
-        debug_fill = self._debug_config.fill_group_debug and mapper.transform.mode is ScaleMode.FILL
         if mapper.transform.mode is ScaleMode.FILL:
             self._grouping_helper.prepare(mapper)
         else:
             self._grouping_helper.reset()
-        fill_debug_rows: List[str] = []
         draw_group_bounds = self._debug_config.group_bounds_outline
         commands: List[_LegacyPaintCommand] = []
         bounds_by_group: Dict[Tuple[str, Optional[str]], _ScreenBounds] = {}
@@ -2671,46 +2670,21 @@ class OverlayWindow(QWidget):
             group_key = self._grouping_helper.group_key_for(item_id, legacy_item.plugin)
             group_transform = self._grouping_helper.get_transform(group_key)
             if legacy_item.kind == "message":
-                command, row_log = self._build_message_command(legacy_item, mapper, group_key, group_transform)
+                command = self._build_message_command(legacy_item, mapper, group_key, group_transform)
             elif legacy_item.kind == "rect":
-                command, row_log = self._build_rect_command(legacy_item, mapper, group_key, group_transform)
+                command = self._build_rect_command(legacy_item, mapper, group_key, group_transform)
             elif legacy_item.kind == "vector":
-                command, row_log = self._build_vector_command(legacy_item, mapper, group_key, group_transform)
+                command = self._build_vector_command(legacy_item, mapper, group_key, group_transform)
             else:
                 command = None
-                row_log = None
             if command is None:
                 continue
             commands.append(command)
             if command.bounds:
                 bounds = bounds_by_group.setdefault(command.group_key.as_tuple(), _ScreenBounds())
                 bounds.include_rect(*command.bounds)
-            if debug_fill and row_log:
-                if command.group_transform:
-                    band_str = (
-                        "band=x[{:.3f},{:.3f}] y[{:.3f},{:.3f}] anchor=({:.3f},{:.3f})".format(
-                            command.group_transform.band_min_x,
-                            command.group_transform.band_max_x,
-                            command.group_transform.band_min_y,
-                            command.group_transform.band_max_y,
-                            command.group_transform.band_anchor_x,
-                            command.group_transform.band_anchor_y,
-                        )
-                    )
-                    row_log = f"{row_log} {band_str}"
-                fill_debug_rows.append(row_log)
 
         translations = self._compute_group_nudges(bounds_by_group)
-        if debug_fill and fill_debug_rows:
-            _CLIENT_LOGGER.debug(
-                "fill-debug scale=%.3f size=(%.1f×%.1f) base_offset=(%.1f, %.1f): %s",
-                mapper.transform.scale,
-                mapper.transform.scaled_size[0],
-                mapper.transform.scaled_size[1],
-                mapper.offset_x,
-                mapper.offset_y,
-                " | ".join(fill_debug_rows),
-            )
         drawn_groups: Set[Tuple[str, Optional[str]]] = set()
         for command in commands:
             offset_x, offset_y = translations.get(command.group_key.as_tuple(), (0, 0))
@@ -2762,7 +2736,7 @@ class OverlayWindow(QWidget):
         mapper: LegacyMapper,
         group_key: GroupKey,
         group_transform: Optional[GroupTransform],
-    ) -> Tuple[Optional[_MessagePaintCommand], Optional[str]]:
+    ) -> Optional[_MessagePaintCommand]:
         item = legacy_item.data
         item_id = legacy_item.item_id
         plugin_name = legacy_item.plugin
@@ -2817,16 +2791,7 @@ class OverlayWindow(QWidget):
             descent=metrics.descent(),
             cycle_anchor=(center_x, center_y),
         )
-        if self._debug_config.fill_group_debug and mapper.transform.mode is ScaleMode.FILL:
-            plugin_label = plugin_name if isinstance(plugin_name, str) and plugin_name else "unknown"
-            row_log = (
-                f"{plugin_label}:{item_id} message raw=({raw_left:.1f},{raw_top:.1f}) "
-                f"adj=({adjusted_left:.1f},{adjusted_top:.1f}) "
-                f"px=({x},{baseline}) size={size}"
-            )
-        else:
-            row_log = None
-        return command, row_log
+        return command
 
     def _build_rect_command(
         self,
@@ -2834,7 +2799,7 @@ class OverlayWindow(QWidget):
         mapper: LegacyMapper,
         group_key: GroupKey,
         group_transform: Optional[GroupTransform],
-    ) -> Tuple[Optional[_RectPaintCommand], Optional[str]]:
+    ) -> Optional[_RectPaintCommand]:
         item = legacy_item.data
         item_id = legacy_item.item_id
         plugin_name = legacy_item.plugin
@@ -2946,15 +2911,7 @@ class OverlayWindow(QWidget):
                     "mode": mapper.transform.mode.value,
                 },
             )
-        if self._debug_config.fill_group_debug and mapper.transform.mode is ScaleMode.FILL:
-            plugin_label = plugin_name if isinstance(plugin_name, str) and plugin_name else "unknown"
-            row_log = (
-                f"{plugin_label}:{item_id} rect raw=({raw_x:.1f},{raw_y:.1f},{raw_w:.1f},{raw_h:.1f}) "
-                f"px=({x},{y},{w},{h})"
-            )
-        else:
-            row_log = None
-        return command, row_log
+        return command
 
     def _build_vector_command(
         self,
@@ -2962,7 +2919,7 @@ class OverlayWindow(QWidget):
         mapper: LegacyMapper,
         group_key: GroupKey,
         group_transform: Optional[GroupTransform],
-    ) -> Tuple[Optional[_VectorPaintCommand], Optional[str]]:
+    ) -> Optional[_VectorPaintCommand]:
         item_id = legacy_item.item_id
         item = legacy_item.data
         plugin_name = legacy_item.plugin
@@ -3057,23 +3014,7 @@ class OverlayWindow(QWidget):
             trace_fn=trace_fn,
             cycle_anchor=cycle_anchor,
         )
-        if self._debug_config.fill_group_debug and mapper.transform.mode is ScaleMode.FILL:
-            plugin_label = plugin_name if isinstance(plugin_name, str) and plugin_name else "unknown"
-            raw_points = [
-                point for point in vector_payload.get("points", []) if isinstance(point, Mapping)
-            ]
-            if raw_points:
-                min_raw_x = min(float(point.get("x", 0.0)) for point in raw_points)
-                min_raw_y = min(float(point.get("y", 0.0)) for point in raw_points)
-            else:
-                min_raw_x = min_raw_y = 0.0
-            row_log = (
-                f"{plugin_label}:{item_id} vector min_raw=({min_raw_x},{min_raw_y}) "
-                f"offset=({base_offset_x:.1f},{base_offset_y:.1f}) points={len(vector_payload.get('points', []))}"
-            )
-        else:
-            row_log = None
-        return command, row_log
+        return command
 
     def _compute_group_nudges(
         self,

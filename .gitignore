@@ -6,3 +6,6 @@ port.json
 #*.code-workspace
 [Ee][Uu][Rr][Oo][Cc][Aa][Pp][Ss].[Tt][Tt][Ff]
 _external/
+_external/**    
+.hostvenv/
+.hostvenv/**

@@ -201,6 +201,17 @@ PAYLOAD_LOG_FILE_NAME = "overlay-payloads.log"
 PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
 PAYLOAD_LOG_MAX_BYTES = 512 * 1024
 
+FLATPAK_ENV_FORWARD_KEYS: Tuple[str, ...] = (
+    "EDMC_OVERLAY_SESSION_TYPE",
+    "EDMC_OVERLAY_COMPOSITOR",
+    "EDMC_OVERLAY_FORCE_XWAYLAND",
+    "EDMC_OVERLAY_IS_FLATPAK",
+    "EDMC_OVERLAY_FLATPAK_ID",
+    "QT_QPA_PLATFORM",
+    "QT_WAYLAND_DISABLE_WINDOWDECORATION",
+    "QT_WAYLAND_LAYER_SHELL",
+)
+
 
 def _log(message: str) -> None:
     """Log to EDMC via the Python logging facade."""
@@ -505,7 +516,8 @@ class _PluginRuntime:
         if not overlay_script:
             _log("Overlay client not found; watchdog disabled")
             return False
-        python_command = self._locate_overlay_python()
+        launch_env = self._build_overlay_environment()
+        python_command = self._locate_overlay_python(launch_env)
         if python_command is None:
             _log(
                 "Overlay client environment not found. Create overlay-client/.venv (or set EDMC_OVERLAY_PYTHON) and restart EDMC-ModernOverlay."
@@ -520,7 +532,6 @@ class _PluginRuntime:
             command,
             overlay_script.parent,
         )
-        launch_env = self._build_overlay_environment()
         platform_context = self._platform_context_payload()
         LOGGER.debug(
             "Overlay launch context: session=%s compositor=%s force_xwayland=%s qt_platform=%s",
@@ -1203,7 +1214,7 @@ class _PluginRuntime:
             else:
                 logger.info("Overlay legacy_raw: %s", legacy_serialised)
 
-    def _locate_overlay_python(self) -> Optional[List[str]]:
+    def _locate_overlay_python(self, overlay_env: Optional[Dict[str, str]] = None) -> Optional[List[str]]:
         env_override = os.getenv("EDMC_OVERLAY_PYTHON")
         if env_override:
             override_path = Path(env_override).expanduser()
@@ -1213,7 +1224,7 @@ class _PluginRuntime:
             LOGGER.debug("Overlay Python override %s not found, falling back", override_path)
 
         if self._flatpak_context.get("is_flatpak"):
-            command = self._flatpak_python_command()
+            command = self._flatpak_python_command(overlay_env)
             if command:
                 return command
 
@@ -1230,7 +1241,7 @@ class _PluginRuntime:
 
         return None
 
-    def _flatpak_python_command(self) -> Optional[List[str]]:
+    def _flatpak_python_command(self, overlay_env: Optional[Dict[str, str]]) -> Optional[List[str]]:
         spawn_path = shutil.which("flatpak-spawn")
         if not spawn_path:
             if not self._flatpak_spawn_warning_emitted:
@@ -1246,7 +1257,19 @@ class _PluginRuntime:
                 self._flatpak_host_warning_emitted = True
             return None
         LOGGER.info("Launching overlay client via flatpak-spawn host interpreter at %s", host_python)
-        return [spawn_path, "--host", host_python]
+        env_args = self._flatpak_env_arguments(overlay_env)
+        return [spawn_path, "--host", *env_args, host_python]
+
+    def _flatpak_env_arguments(self, overlay_env: Optional[Dict[str, str]]) -> List[str]:
+        args: List[str] = []
+        if not overlay_env:
+            return args
+        for key in FLATPAK_ENV_FORWARD_KEYS:
+            value = overlay_env.get(key)
+            if value in (None, ""):
+                continue
+            args.append(f"--env={key}={value}")
+        return args
 
     def _flatpak_host_python_path(self) -> Optional[str]:
         env_override = os.getenv("EDMC_OVERLAY_HOST_PYTHON")

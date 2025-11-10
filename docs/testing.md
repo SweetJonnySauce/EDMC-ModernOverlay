@@ -48,7 +48,7 @@ Automated tests cannot replace eyeballing the overlay, especially when dealing w
 2. **21:9 Fit vs Fill**  
    - Switch the window to 3440×1440 (or 2560×1080).  
    - Toggle between **Fit** and **Fill**. Fit should pillarbox with equal padding; Fill should report `overflow_y = true` and keep LandingPad rigid.  
-   - Enable `fill_group_debug` in `debug.json` and watch for one log entry per LandingPad payload with identical `band=` ranges—evidence that grouping is in effect.
+   - Enable `group_bounds_outline` in `debug.json` to highlight each group’s anchor box while verifying that every payload within a group moves in lockstep.
 
 3. **Tall portrait sanity**  
    - Use `python3 tests/run_resolution_tests.py --config tests/test_resolution.json --wait-to-finish 3` to drive a mock Elite window through the portrait sizes configured in `tests/test_resolution.json`.  
@@ -57,7 +57,7 @@ Automated tests cannot replace eyeballing the overlay, especially when dealing w
 4. **Prefix-based grouping**  
    - Ensure `overlay_groupings.json` declares `grouping.mode = "id_prefix"` for Mining Analytics (or another multi-widget plugin).  
    - Replay `tests/edr-docking.log` or your plugin’s log via `tests/send_overlay_from_log.py`.  
-   - In Fill mode, `fill-debug` output should list distinct group suffixes (`metrics`, `alerts`, etc.) with their own `band=` data, while the dashed `group_bounds_outline` rectangles stay rigid around each widget.
+   - With `group_bounds_outline` enabled, Fill mode should render distinct dashed rectangles (and anchor dots) for each configured prefix while keeping them rigid relative to one another.
 
 5. **Ad-hoc payloads**  
    - `python3 tests/send_overlay_shape.py --length 220 --angle 45` draws a synthetic vector arrow so you can confirm scaling remains isotropic.  

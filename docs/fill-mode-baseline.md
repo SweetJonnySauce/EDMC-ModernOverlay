@@ -39,16 +39,11 @@ Every prefix shares the same proportional shift, so gauges and badges remain rig
 
 ## Debugging tools
 
-- Set `fill_group_debug = true` in `debug.json` to log per-payload diagnostics whenever Fill mode is active. Each paint pass emits lines similar to:
-  ```
-  fill-debug scale=2.688 size=(3440.0×2580.0) base_offset=(0.0, 0.0): LandingPad:shell-0 vector … band=x[0.102,0.898] y[0.321,0.679] anchor=(0.500,0.500)
-  ```
-  The `band` block shows the normalised bounds and anchor that produced the proportional translation.
-- Toggle `group_bounds_outline` (also in `debug.json`) to draw the cached bounds/anchor dots for each group directly on the overlay. This highlights which payloads are sharing a Fill translation.
+- Toggle `group_bounds_outline` (in `debug.json`) to draw the cached bounds/anchor dots for each group directly on the overlay. This highlights which payloads are sharing a Fill translation.
 - Enable `overlay_outline` to see the raw window tracked by the overlay client. Verifying that the dashed group bounds stay rigid relative to this outline is the quickest visual regression test.
 
 When investigating a Fill regression:
 
 1. Ensure the plugin override declares the expected grouping mode/prefixes.
-2. Enable `fill_group_debug` and confirm the log shows one entry per group, not per payload (duplicates imply overrides didn’t match).
-3. Use `tests/send_overlay_from_log.py --log tests/landingpad.log` to replay real payloads while watching the debug overlay. The `fill-debug` lines should report consistent band ranges even as the window size changes.
+2. Enable `group_bounds_outline` and confirm each group renders a single dashed rectangle with a stable anchor dot; duplicates imply overrides didn’t match.
+3. Use `tests/send_overlay_from_log.py --log tests/landingpad.log` to replay real payloads while watching the debug overlay. The outlines should remain rigid even as the window size changes.

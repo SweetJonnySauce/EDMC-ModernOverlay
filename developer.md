@@ -62,7 +62,7 @@ This is particularly useful when capturing coordinates or validating grouping be
 Modern Overlay centralises common pen widths in `overlay-client/render_config.json`. Adjust the values to tune debug visuals without touching code:
 
 - `grid`: spacing grid rendered by the developer background toggle (debug only).
-- `group_outline`: dashed bounding box drawn when `fill_group_debug` is enabled (debug only).
+- `group_outline`: dashed bounding box drawn when `group_bounds_outline` is enabled (debug only).
 - `viewport_indicator`: the oversized orange guideline arrows that show Fill overflow (debug only).
 - `legacy_rect`: outline for legacy `shape="rect"` payloads.
 - `vector_line`: the main stroke used for vector payloads (sparklines, trend lines, guidance beams).
@@ -96,7 +96,7 @@ These details are helpful when debugging sizing issues (e.g., 21:9 vs. 4:3 monit
 
 ### Fill-mode diagnostics
 
-Set `fill_group_debug` to `true` in `debug.json` to log per-payload coordinates whenever Fill mode is active. In Fill mode the legacy canvas is scaled so that the window is completely filled, which means one axis overflows and we remap groups proportionally. Each paint pass prints the plugin, payload ID, raw logical coordinates, and the window-space result after scaling so you can sanity-check group offsets while tuning the transform. Payloads are no longer clamped to the visible window while debugging, so expect the rendered text/rects to overflow exactly as the yellow outline indicates.
+Enable `group_bounds_outline` in `debug.json` to render dashed rectangles (plus anchor dots) for each cached group while tuning Fill mode behaviour. Because Fill scales the legacy canvas until one axis overflows, these outlines make it easy to confirm that related payloads are translating together and remaining rigid even when they extend beyond the visible window.
 
 ## Transform Pipeline Overview
 
