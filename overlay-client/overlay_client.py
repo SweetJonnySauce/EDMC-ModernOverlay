@@ -3764,7 +3764,9 @@ class _QtVectorPainterAdapter(VectorPainterAdapter):
         font.setPointSizeF(self._window._legacy_preset_point_size("small", state, mapper))
         font.setWeight(QFont.Weight.Normal)
         self._painter.setFont(font)
-        self._painter.drawText(x, y, text)
+        metrics = QFontMetrics(font)
+        baseline = int(round(y + metrics.ascent()))
+        self._painter.drawText(x, baseline, text)
 
 def resolve_port_file(args_port: Optional[str]) -> Path:
     if args_port:
