@@ -49,9 +49,10 @@ EDMC Modern Overlay is a cross-platform (Windows, Linux X11 on Gnome), two-part 
 When EDMC runs as `io.edcd.EDMarketConnector` inside Flatpak, the plugin can auto-launch the overlay client outside the sandbox so it keeps working with tools such as `wmctrl`. Create a host-side virtualenv and install the overlay client requirements there:
 
 ```bash
-python3 -m venv ~/.var/app/io.edcd.EDMarketConnector/data/EDMarketConnector/plugins/EDMC-ModernOverlay/overlay-client/.hostvenv
-~/.var/app/io.edcd.EDMarketConnector/data/EDMarketConnector/plugins/EDMC-ModernOverlay/overlay-client/.hostvenv/bin/python -m pip install --upgrade pip
-~/.var/app/io.edcd.EDMarketConnector/data/EDMarketConnector/plugins/EDMC-ModernOverlay/overlay-client/.hostvenv/bin/python -m pip install -r ~/.var/app/io.edcd.EDMarketConnector/data/EDMarketConnector/plugins/EDMC-ModernOverlay/overlay-client/requirements.txt
+PLUGIN_HOME=~/.var/app/io.edcd.EDMarketConnector/data/EDMarketConnector/plugins/EDMC-ModernOverlay
+python3 -m venv "$PLUGIN_HOME/overlay-client/.hostvenv"
+"$PLUGIN_HOME/overlay-client/.hostvenv/bin/python" -m pip install --upgrade pip
+"$PLUGIN_HOME/overlay-client/.hostvenv/bin/python" -m pip install -r "$PLUGIN_HOME/overlay-client/requirements.txt"
 ```
 
 Restart EDMC (Flatpak) and the plugin will detect the sandbox, run `flatpak-spawn --host …/.hostvenv/bin/python overlay_client.py`, and note the Flatpak mode in the overlay status banner. If you keep the interpreter somewhere else, use:
