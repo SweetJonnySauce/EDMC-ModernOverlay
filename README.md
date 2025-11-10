@@ -69,6 +69,8 @@ flatpak override --user io.edcd.EDMarketConnector --talk-name=org.freedesktop.Fl
 
 The auto-detection prioritises `EDMC_OVERLAY_HOST_PYTHON`; otherwise it falls back to `overlay-client/.hostvenv/bin/python`.
 
+> **Caution:** With this setup the overlay client process itself runs outside the Flatpak sandbox, so it inherits the host user’s privileges. Only enable the host launch if you trust the plugin code and the environment where it runs.
+
 ### Installing Euroscripts font
 To use the Elite: Dangerous cockpit font (Eurocaps) in the overlay HUD:
 
