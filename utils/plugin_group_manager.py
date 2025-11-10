@@ -1378,6 +1378,11 @@ class PluginGroupManagerApp:
         group_name = (record.group or "").strip()
         if group_name:
             return "Ungrouped", group_name
+        # Fall back to the matcher so we can re-evaluate the record against the current
+        # ID prefix groups even if the cached payload metadata lacks a stored group.
+        unmatched_plugin = self._matcher.unmatched_group_for(record.plugin, record.payload_id)
+        if unmatched_plugin:
+            return "Ungrouped", unmatched_plugin
         resolved = self._match_group_for_payload(record.payload_id)
         if resolved:
             return "Ungrouped", resolved
