@@ -6,11 +6,12 @@ import json
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import shutil
 import sys
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 if __package__:
     from .version import (
@@ -252,6 +253,9 @@ class _PluginRuntime:
         self._payload_filter_excludes: Set[str] = set()
         self._payload_logging_enabled: bool = False
         self._debug_config_notice_logged = False
+        self._flatpak_context = self._detect_flatpak_context()
+        self._flatpak_spawn_warning_emitted = False
+        self._flatpak_host_warning_emitted = False
         self._load_payload_debug_config(force=True)
         self._configure_payload_logger()
 
@@ -365,6 +369,10 @@ class _PluginRuntime:
             "port": self.broadcaster.port,
             "version": PLUGIN_VERSION,
         }
+        if self._flatpak_context.get("is_flatpak"):
+            data["flatpak"] = True
+            if self._flatpak_context.get("app_id"):
+                data["flatpak_app"] = self._flatpak_context["app_id"]
         target.write_text(json.dumps(data, indent=2), encoding="utf-8")
         _log(f"Wrote port.json with port {self.broadcaster.port} (plugin version {PLUGIN_VERSION})")
 
@@ -497,8 +505,8 @@ class _PluginRuntime:
         if not overlay_script:
             _log("Overlay client not found; watchdog disabled")
             return False
-        python_executable = self._locate_overlay_python()
-        if python_executable is None:
+        python_command = self._locate_overlay_python()
+        if python_command is None:
             _log(
                 "Overlay client environment not found. Create overlay-client/.venv (or set EDMC_OVERLAY_PYTHON) and restart EDMC-ModernOverlay."
             )
@@ -506,7 +514,7 @@ class _PluginRuntime:
                 "Overlay launch aborted: no overlay Python interpreter available under overlay-client/.venv or EDMC_OVERLAY_PYTHON."
             )
             return False
-        command = [str(python_executable), str(overlay_script)]
+        command = [*python_command, str(overlay_script)]
         LOGGER.debug(
             "Attempting to start overlay client via watchdog: command=%s cwd=%s",
             command,
@@ -1195,30 +1203,67 @@ class _PluginRuntime:
             else:
                 logger.info("Overlay legacy_raw: %s", legacy_serialised)
 
-    def _locate_overlay_python(self) -> Optional[Path]:
+    def _locate_overlay_python(self) -> Optional[List[str]]:
         env_override = os.getenv("EDMC_OVERLAY_PYTHON")
         if env_override:
             override_path = Path(env_override).expanduser()
             if override_path.exists():
                 LOGGER.debug("Using overlay Python from EDMC_OVERLAY_PYTHON=%s", override_path)
-                return override_path
+                return [str(override_path)]
             LOGGER.debug("Overlay Python override %s not found, falling back", override_path)
 
-        venv_candidates = []
-        plugin_root = self.plugin_dir
-        overlay_client_root = plugin_root / "overlay-client"
-        venv_candidates.append(
+        if self._flatpak_context.get("is_flatpak"):
+            command = self._flatpak_python_command()
+            if command:
+                return command
+
+        overlay_client_root = self.plugin_dir / "overlay-client"
+        venv_path = (
             overlay_client_root
             / ".venv"
             / ("Scripts" if os.name == "nt" else "bin")
             / ("python.exe" if os.name == "nt" else "python")
         )
+        if venv_path.exists():
+            LOGGER.debug("Using overlay client Python interpreter at %s", venv_path)
+            return [str(venv_path)]
 
-        for candidate in venv_candidates:
-            if candidate.exists():
-                LOGGER.debug("Using overlay client Python interpreter at %s", candidate)
-                return candidate
+        return None
 
+    def _flatpak_python_command(self) -> Optional[List[str]]:
+        spawn_path = shutil.which("flatpak-spawn")
+        if not spawn_path:
+            if not self._flatpak_spawn_warning_emitted:
+                LOGGER.warning("Flatpak detected but flatpak-spawn binary not found; cannot launch overlay outside sandbox.")
+                self._flatpak_spawn_warning_emitted = True
+            return None
+        host_python = self._flatpak_host_python_path()
+        if host_python is None:
+            if not self._flatpak_host_warning_emitted:
+                LOGGER.warning(
+                    "Flatpak detected but no host Python interpreter found. Create overlay-client/.hostvenv (or set EDMC_OVERLAY_HOST_PYTHON) with the overlay dependencies."
+                )
+                self._flatpak_host_warning_emitted = True
+            return None
+        LOGGER.info("Launching overlay client via flatpak-spawn host interpreter at %s", host_python)
+        return [spawn_path, "--host", host_python]
+
+    def _flatpak_host_python_path(self) -> Optional[str]:
+        env_override = os.getenv("EDMC_OVERLAY_HOST_PYTHON")
+        if env_override:
+            override_path = Path(env_override).expanduser()
+            if override_path.exists():
+                return str(override_path)
+            LOGGER.debug("EDMC_OVERLAY_HOST_PYTHON=%s does not exist; ignoring override", override_path)
+        candidate_dirs: Sequence[Path] = (
+            self.plugin_dir / "overlay-client" / ".hostvenv" / "bin",
+            self.plugin_dir / "overlay-client" / ".hostvenv" / "Scripts",
+        )
+        for directory in candidate_dirs:
+            for name in ("python3", "python"):
+                candidate = directory / name
+                if candidate.exists():
+                    return str(candidate)
         return None
 
     def _detect_wayland_compositor(self) -> str:
@@ -1241,6 +1286,29 @@ class _PluginRuntime:
             return "unknown"
         return "unknown"
 
+    def _detect_flatpak_context(self) -> Dict[str, Any]:
+        env = os.environ
+        flatpak_id = env.get("FLATPAK_ID") or env.get("container_app")
+        is_flatpak = bool(flatpak_id or env.get("container") == "flatpak")
+        plugin_path = self.plugin_dir
+        try:
+            resolved = plugin_path.resolve()
+        except Exception:
+            resolved = plugin_path
+        var_app_root = Path.home() / ".var" / "app"
+        try:
+            relative = resolved.relative_to(var_app_root)
+        except ValueError:
+            relative = None
+        if relative is not None:
+            is_flatpak = True
+            if not flatpak_id and relative.parts:
+                flatpak_id = relative.parts[0]
+        context = {"is_flatpak": is_flatpak}
+        if flatpak_id:
+            context["app_id"] = flatpak_id
+        return context
+
     def _build_overlay_environment(self) -> Dict[str, str]:
         env = dict(os.environ)
         session = (env.get("XDG_SESSION_TYPE") or "").lower()
@@ -1249,6 +1317,10 @@ class _PluginRuntime:
         env["EDMC_OVERLAY_SESSION_TYPE"] = session or "unknown"
         env["EDMC_OVERLAY_COMPOSITOR"] = compositor
         env["EDMC_OVERLAY_FORCE_XWAYLAND"] = "1" if force_xwayland else "0"
+        env["EDMC_OVERLAY_IS_FLATPAK"] = "1" if self._flatpak_context.get("is_flatpak") else "0"
+        app_id = self._flatpak_context.get("app_id")
+        if app_id:
+            env["EDMC_OVERLAY_FLATPAK_ID"] = str(app_id)
         if sys.platform.startswith("linux"):
             if session == "wayland" and not force_xwayland:
                 env.setdefault("QT_QPA_PLATFORM", "wayland")
@@ -1261,11 +1333,16 @@ class _PluginRuntime:
 
     def _platform_context_payload(self) -> Dict[str, Any]:
         session = (os.environ.get("XDG_SESSION_TYPE") or "").lower()
-        return {
+        context = {
             "session_type": session or "unknown",
             "compositor": self._detect_wayland_compositor(),
             "force_xwayland": bool(self._preferences.force_xwayland),
         }
+        if self._flatpak_context.get("is_flatpak"):
+            context["flatpak"] = True
+            if self._flatpak_context.get("app_id"):
+                context["flatpak_app"] = self._flatpak_context["app_id"]
+        return context
 
     def _legacy_overlay_active(self) -> bool:
         try:

@@ -240,10 +240,14 @@ def _initial_platform_context(initial: InitialClientSettings) -> PlatformContext
     force_env = os.environ.get("EDMC_OVERLAY_FORCE_XWAYLAND") == "1"
     session = os.environ.get("EDMC_OVERLAY_SESSION_TYPE") or os.environ.get("XDG_SESSION_TYPE") or ""
     compositor = os.environ.get("EDMC_OVERLAY_COMPOSITOR") or ""
+    flatpak_flag = os.environ.get("EDMC_OVERLAY_IS_FLATPAK") == "1"
+    flatpak_app = os.environ.get("EDMC_OVERLAY_FLATPAK_ID") or ""
     return PlatformContext(
         session_type=session,
         compositor=compositor,
         force_xwayland=bool(initial.force_xwayland or force_env),
+        flatpak=flatpak_flag,
+        flatpak_app=flatpak_app,
     )
 
 class OverlayDataClient(QObject):
@@ -337,7 +341,11 @@ class OverlayDataClient(QObject):
             if script_label != "unknown" and not script_label.lower().startswith("v"):
                 script_label = f"v{script_label}"
             connection_prefix = script_label if script_label != "unknown" else "unknown"
-            connection_message = f"{connection_prefix} - Connected to 127.0.0.1:{port}"
+            flatpak_suffix = ""
+            if metadata.get("flatpak"):
+                app_label = metadata.get("flatpak_app")
+                flatpak_suffix = f" (Flatpak: {app_label})" if app_label else " (Flatpak)"
+            connection_message = f"{connection_prefix} - Connected to 127.0.0.1:{port}{flatpak_suffix}"
             _CLIENT_LOGGER.debug("Status banner updated: %s", connection_message)
             self.status_changed.emit(connection_message)
             backoff = 1.0
@@ -1724,7 +1732,23 @@ class OverlayWindow(QWidget):
             force_flag = self._platform_context.force_xwayland
         else:
             force_flag = bool(force_value)
-        new_context = PlatformContext(session_type=session, compositor=compositor, force_xwayland=force_flag)
+        flatpak_value = context_payload.get("flatpak")
+        if flatpak_value is None:
+            flatpak_flag = self._platform_context.flatpak
+        else:
+            flatpak_flag = bool(flatpak_value)
+        flatpak_app_value = context_payload.get("flatpak_app")
+        if flatpak_app_value is None:
+            flatpak_app_label = self._platform_context.flatpak_app
+        else:
+            flatpak_app_label = str(flatpak_app_value)
+        new_context = PlatformContext(
+            session_type=session,
+            compositor=compositor,
+            force_xwayland=force_flag,
+            flatpak=flatpak_flag,
+            flatpak_app=flatpak_app_label,
+        )
         if new_context == self._platform_context:
             return
         self._platform_context = new_context
@@ -1733,10 +1757,11 @@ class OverlayWindow(QWidget):
         self._platform_controller.apply_click_through(True)
         self._restore_drag_interactivity()
         _CLIENT_LOGGER.debug(
-            "Platform context updated: session=%s compositor=%s force_xwayland=%s",
+            "Platform context updated: session=%s compositor=%s force_xwayland=%s flatpak=%s",
             new_context.session_type or "unknown",
             new_context.compositor or "unknown",
             new_context.force_xwayland,
+            new_context.flatpak,
         )
         self._status = self._format_status_message(self._status_raw)
         if self._show_status and self._status:

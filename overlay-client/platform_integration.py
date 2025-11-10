@@ -21,6 +21,8 @@ class PlatformContext:
     session_type: str = ""
     compositor: str = ""
     force_xwayland: bool = False
+    flatpak: bool = False
+    flatpak_app: str = ""
 
 
 class _IntegrationBase:
