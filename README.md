@@ -45,6 +45,29 @@ EDMC Modern Overlay is a cross-platform (Windows, Linux X11 on Gnome), two-part 
   - Create `overlay-client/.venv` and install `overlay-client/requirements.txt` into it.
 - Start EDMarketConnector; the overlay client launches automatically.
 
+#### Flatpak manual install helper
+When EDMC runs as `io.edcd.EDMarketConnector` inside Flatpak, the plugin can auto-launch the overlay client outside the sandbox so it keeps working with tools such as `wmctrl`. Create a host-side virtualenv and install the overlay client requirements there:
+
+```bash
+python3 -m venv ~/.var/app/io.edcd.EDMarketConnector/data/EDMarketConnector/plugins/EDMC-ModernOverlay/overlay-client/.hostvenv
+~/.var/app/io.edcd.EDMarketConnector/data/EDMarketConnector/plugins/EDMC-ModernOverlay/overlay-client/.hostvenv/bin/python -m pip install --upgrade pip
+~/.var/app/io.edcd.EDMarketConnector/data/EDMarketConnector/plugins/EDMC-ModernOverlay/overlay-client/.hostvenv/bin/python -m pip install -r ~/.var/app/io.edcd.EDMarketConnector/data/EDMarketConnector/plugins/EDMC-ModernOverlay/overlay-client/requirements.txt
+```
+
+Restart EDMC (Flatpak) and the plugin will detect the sandbox, run `flatpak-spawn --host …/.hostvenv/bin/python overlay_client.py`, and note the Flatpak mode in the overlay status banner. If you keep the interpreter somewhere else, use:
+
+```bash
+flatpak override --env=EDMC_OVERLAY_HOST_PYTHON=/path/to/python io.edcd.EDMarketConnector
+```
+
+The optional host launch requires D-Bus access to `org.freedesktop.Flatpak`. Grant it once (per-user if the Flatpak was installed with `--user`):
+
+```bash
+flatpak override --user io.edcd.EDMarketConnector --talk-name=org.freedesktop.Flatpak
+```
+
+The auto-detection prioritises `EDMC_OVERLAY_HOST_PYTHON`; otherwise it falls back to `overlay-client/.hostvenv/bin/python`.
+
 ### Installing Euroscripts font
 To use the Elite: Dangerous cockpit font (Eurocaps) in the overlay HUD:
 
