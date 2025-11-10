@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime
+from collections.abc import Iterable, Sequence
 from typing import Any, Callable, Mapping, MutableMapping, Optional
 
 from legacy_store import LegacyItem, LegacyItemStore
@@ -28,6 +29,51 @@ def _extract_plugin(payload: Mapping[str, Any]) -> Optional[str]:
             if isinstance(value, str) and value:
                 return value
     return None
+
+
+_LEGACY_CONTENT_KEYS = {
+    "text",
+    "Text",
+    "shape",
+    "Shape",
+    "vector",
+    "Vector",
+    "points",
+    "Points",
+    "message",
+    "Message",
+    "x",
+    "X",
+    "y",
+    "Y",
+    "w",
+    "W",
+    "h",
+    "H",
+}
+
+
+def _is_id_only_mapping(payload: Optional[Mapping[str, Any]]) -> bool:
+    if not isinstance(payload, Mapping):
+        return False
+    for key in _LEGACY_CONTENT_KEYS:
+        if key not in payload:
+            continue
+        value = payload[key]
+        if isinstance(value, str):
+            if value.strip():
+                return False
+        elif isinstance(value, Mapping):
+            if value:
+                return False
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            if len(value):
+                return False
+        elif isinstance(value, Iterable) and not isinstance(value, (str, bytes, bytearray)):
+            return False
+        elif value not in (None, 0, 0.0, False):
+            return False
+    return True
 
 
 def process_legacy_payload(
@@ -205,6 +251,10 @@ def process_legacy_payload(
         return True
 
     if item_type == "raw":
+        raw_payload = payload.get("raw")
+        if isinstance(item_id, str) and item_id and _is_id_only_mapping(raw_payload):
+            store.remove(item_id)
+            return True
         return False
 
     return False

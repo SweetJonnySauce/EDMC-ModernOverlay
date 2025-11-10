@@ -46,12 +46,6 @@
           ],
           "anchor": "nw"
         },
-        "Bioscan Summary": {
-          "id_prefixes": [
-            "bioscan_summary_"
-          ],
-          "anchor": "nw"
-        },
         "Bioscan Details": {
           "id_prefixes": [
             "bioscan_details_"
@@ -61,6 +55,12 @@
         "Bioscan Title": {
           "id_prefixes": [
             "bioscan_title_"
+          ],
+          "anchor": "nw"
+        },
+        "Bioscan Summary": {
+          "id_prefixes": [
+            "bioscan_summary_"
           ],
           "anchor": "nw"
         }

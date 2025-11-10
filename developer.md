@@ -16,6 +16,7 @@
       version = identity.get("version", "unknown")
       print(f"Modern Overlay v{version} detected")
   ```
+- Clearing a legacy payload now mirrors every legacy path: sending `text=""`, `ttl=0`, **or** calling `send_raw({"id": "payload-id"})` all normalise to a `legacy_clear` event. The shim logs the event, the plugin mirrors it to `overlay-payloads.log`, and the overlay client removes the matching `id` even if the request originated from the WebSocket CLI.
 
 ## Versioning
 

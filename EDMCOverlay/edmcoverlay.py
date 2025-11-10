@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable, Sequence
 from typing import Any, Dict, Mapping, Optional
 
 try:  # Import relative to package when bundled within EDMC-ModernOverlay
@@ -35,6 +36,49 @@ def _legacy_coerce_str(value: Any) -> Optional[str]:
         return None
     stringified = str(value)
     return stringified if stringified else None
+
+
+_CONTENT_KEYS = {
+    "text",
+    "Text",
+    "shape",
+    "Shape",
+    "vector",
+    "Vector",
+    "message",
+    "Message",
+    "x",
+    "X",
+    "y",
+    "Y",
+    "w",
+    "W",
+    "h",
+    "H",
+}
+
+
+def _is_id_only_payload(message: Mapping[str, Any]) -> bool:
+    if not isinstance(message, Mapping):
+        return False
+    for key in _CONTENT_KEYS:
+        if key not in message:
+            continue
+        value = message[key]
+        if isinstance(value, str):
+            if value.strip():
+                return False
+        elif isinstance(value, Mapping):
+            if value:
+                return False
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            if len(value):
+                return False
+        elif isinstance(value, Iterable) and not isinstance(value, (str, bytes, bytearray)):
+            return False
+        elif value not in (None, 0, 0.0, False):
+            return False
+    return True
 
 
 def _normalise_vector_points(
@@ -134,6 +178,17 @@ def normalise_legacy_payload(message: Mapping[str, Any]) -> Optional[Dict[str, A
         }
         if plugin:
             payload["plugin"] = plugin
+        return payload
+
+    if item_id and text in (None, "") and not shape and _is_id_only_payload(message):
+        payload = {
+            "type": "legacy_clear",
+            "id": item_id,
+            "ttl": 0,
+        }
+        if plugin:
+            payload["plugin"] = plugin
+        LOGGER.debug("ID-only payload treated as legacy_clear: id=%s plugin=%s", item_id, plugin)
         return payload
 
     if item_id and text == "":
