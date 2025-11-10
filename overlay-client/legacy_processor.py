@@ -138,8 +138,21 @@ def process_legacy_payload(
                 if entry.get("text"):
                     point["text"] = str(entry["text"])
                 points.append(point)
-            if len(points) < 2:
-                raise ValueError("Vector shape payload normalised to fewer than two points")
+            if not points:
+                raise ValueError("Vector shape payload normalised to zero points")
+            if len(points) == 1:
+                duplicate = dict(points[0])
+                points.append(duplicate)
+                if trace_fn:
+                    trace_fn(
+                        "legacy_processor:vector_single_point_extended",
+                        payload,
+                        {
+                            "plugin": plugin_name,
+                            "item_id": item_id,
+                            "point": points[0],
+                        },
+                    )
             data = {
                 "base_color": message.get("color", "white"),
                 "points": points,

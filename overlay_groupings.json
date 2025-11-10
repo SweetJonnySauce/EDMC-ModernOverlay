@@ -40,9 +40,9 @@
   "Bioscan": {
     "grouping": {
       "groups": {
-        "Bioscan Details": {
+        "Bioscan Radar": {
           "id_prefixes": [
-            "bioscan_details_"
+            "bioscan_radar_"
           ],
           "anchor": "nw"
         },
@@ -52,15 +52,15 @@
           ],
           "anchor": "nw"
         },
-        "Bioscan Title": {
+        "Bioscan Details": {
           "id_prefixes": [
-            "bioscan_title_"
+            "bioscan_details_"
           ],
           "anchor": "nw"
         },
-        "Bioscan Radar": {
+        "Bioscan Title": {
           "id_prefixes": [
-            "bioscan_radar_"
+            "bioscan_title_"
           ],
           "anchor": "nw"
         }

@@ -37,6 +37,35 @@ def _legacy_coerce_str(value: Any) -> Optional[str]:
     return stringified if stringified else None
 
 
+def _normalise_vector_points(
+    raw_vector: Any,
+    *,
+    item_id: Optional[str],
+    plugin: Optional[str],
+) -> Optional[list[Dict[str, Any]]]:
+    if not isinstance(raw_vector, list):
+        return None
+    points: list[Dict[str, Any]] = []
+    for entry in raw_vector:
+        if isinstance(entry, Mapping):
+            try:
+                points.append(dict(entry))
+            except Exception:
+                continue
+    if len(points) >= 2:
+        return points
+    if len(points) == 1:
+        duplicate = dict(points[0])
+        points.append(duplicate)
+        LOGGER.debug(
+            "Extended single-point vector payload for compatibility: id=%s plugin=%s",
+            item_id,
+            plugin,
+        )
+        return points
+    return None
+
+
 def normalise_legacy_payload(message: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
     """Translate raw legacy overlay payloads into structured events."""
 
@@ -85,10 +114,11 @@ def normalise_legacy_payload(message: Mapping[str, Any]) -> Optional[Dict[str, A
         }
         vector = _lookup("vector", "Vector")
         if shape_lower == "vect":
-            if not isinstance(vector, list) or len(vector) < 2:
+            normalised_points = _normalise_vector_points(vector, item_id=item_id, plugin=plugin)
+            if normalised_points is None:
                 LOGGER.warning("Dropping vect payload with insufficient points: id=%s vector=%s", item_id, vector)
                 return None
-            payload["vector"] = vector
+            payload["vector"] = normalised_points
         else:
             if isinstance(vector, list):
                 payload["vector"] = vector
