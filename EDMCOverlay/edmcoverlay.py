@@ -4,6 +4,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Mapping, Optional
 
+try:  # Import relative to package when bundled within EDMC-ModernOverlay
+    from ..version import __version__ as _MODERN_OVERLAY_VERSION
+except Exception:  # pragma: no cover - fallback when running directly from checkout
+    from version import __version__ as _MODERN_OVERLAY_VERSION
+
 try:
     from overlay_plugin.overlay_api import send_overlay_message
 except Exception:  # pragma: no cover - EDMC will make this available at runtime
@@ -11,6 +16,11 @@ except Exception:  # pragma: no cover - EDMC will make this available at runtime
         return False
 
 LOGGER = logging.getLogger("EDMC.ModernOverlay.Legacy")
+MODERN_OVERLAY_IDENTITY: Dict[str, str] = {
+    "plugin": "EDMC-ModernOverlay",
+    "version": _MODERN_OVERLAY_VERSION,
+}
+"""Public marker advertised to other plugins to detect Modern Overlay."""
 
 
 def _legacy_coerce_int(value: Any, default: int = 0) -> int:

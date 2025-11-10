@@ -6,6 +6,16 @@
 - Plugin-side logs route through EDMC when `config.log` is present; otherwise they fall back to stdout. The overlay client writes to `logs/EDMC-ModernOverlay/overlay-client.log`.
 - Background tasks run on daemon threads so EDMC can exit cleanly even if the overlay client is still doing work.
 - When testing the window-follow path, toggle the developer debug overlay (Shift+F10 by default) to inspect monitor, overlay, and font metrics. The status label now only reports the connection banner and window position so it never changes the overlay geometry.
+- Other plugins can detect Modern Overlay (and the version they are talking to) via `MODERN_OVERLAY_IDENTITY`, which is exported from `EDMCOverlay.edmcoverlay`. Because `edmcoverlay.py` re-exports that module, consumers can simply `import edmcoverlay` and inspect `edmcoverlay.MODERN_OVERLAY_IDENTITY` for `{"plugin": "EDMC-ModernOverlay", "version": "<semver>"}`. Gate Modern Overlay-specific behaviour behind that check instead of probing files on disk.
+- Example detection helper:
+  ```python
+  import edmcoverlay
+
+  identity = getattr(edmcoverlay, "MODERN_OVERLAY_IDENTITY", None)
+  if identity and identity.get("plugin") == "EDMC-ModernOverlay":
+      version = identity.get("version", "unknown")
+      print(f"Modern Overlay v{version} detected")
+  ```
 
 ## Versioning
 

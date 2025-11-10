@@ -39,7 +39,32 @@
   },
   "Bioscan": {
     "grouping": {
-      "groups": {}
+      "groups": {
+        "Bioscan Details": {
+          "id_prefixes": [
+            "bioscan_details_"
+          ],
+          "anchor": "nw"
+        },
+        "Bioscan Summary": {
+          "id_prefixes": [
+            "bioscan_summary_"
+          ],
+          "anchor": "nw"
+        },
+        "Bioscan Title": {
+          "id_prefixes": [
+            "bioscan_title_"
+          ],
+          "anchor": "nw"
+        },
+        "Bioscan Radar": {
+          "id_prefixes": [
+            "bioscan_radar_"
+          ],
+          "anchor": "nw"
+        }
+      }
     },
     "__match__": {
       "id_prefixes": [
