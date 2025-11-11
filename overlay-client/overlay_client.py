@@ -147,6 +147,7 @@ class _MessagePaintCommand(_LegacyPaintCommand):
     ascent: int = 0
     descent: int = 0
     cycle_anchor: Optional[Tuple[int, int]] = None
+    trace_fn: Optional[Callable[[str, Mapping[str, Any]], None]] = None
 
     def paint(self, window: "OverlayWindow", painter: QPainter, offset_x: int, offset_y: int) -> None:
         font = QFont(window._font_family)
@@ -157,6 +158,17 @@ class _MessagePaintCommand(_LegacyPaintCommand):
         draw_x = int(round(self.x + offset_x))
         draw_baseline = int(round(self.baseline + offset_y))
         painter.drawText(draw_x, draw_baseline, self.text)
+        if self.trace_fn:
+            self.trace_fn(
+                "render_message:draw",
+                {
+                    "pixel_x": draw_x,
+                    "baseline": draw_baseline,
+                    "text_width": self.text_width,
+                    "font_size": self.point_size,
+                    "color": self.color.name(),
+                },
+            )
         if self.cycle_anchor:
             anchor_x = int(round(self.cycle_anchor[0] + offset_x))
             anchor_y = int(round(self.cycle_anchor[1] + offset_y))
@@ -2576,9 +2588,6 @@ class OverlayWindow(QWidget):
         cfg = self._debug_config
         if not cfg.trace_enabled:
             return False
-        if cfg.trace_plugin:
-            if not plugin or cfg.trace_plugin != plugin:
-                return False
         if cfg.trace_payload_ids:
             if not message_id:
                 return False
@@ -2740,6 +2749,7 @@ class OverlayWindow(QWidget):
         item = legacy_item.data
         item_id = legacy_item.item_id
         plugin_name = legacy_item.plugin
+        trace_enabled = self._should_trace_payload(plugin_name, item_id)
         color = QColor(str(item.get("color", "white")))
         size = str(item.get("size", "normal")).lower()
         state = self._viewport_state()
@@ -2747,6 +2757,8 @@ class OverlayWindow(QWidget):
         fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
         transform_context = build_payload_transform_context(fill)
         scale = fill.scale
+        base_offset_x = fill.base_offset_x
+        base_offset_y = fill.base_offset_y
         anchor_point: Optional[Tuple[float, float]] = None
         proportional_dx = 0.0
         proportional_dy = 0.0
@@ -2757,6 +2769,21 @@ class OverlayWindow(QWidget):
         self._debug_legacy_point_size = scaled_point_size
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
+        if trace_enabled:
+            self._log_legacy_trace(
+                plugin_name,
+                item_id,
+                "paint:message_input",
+                {
+                    "x": raw_left,
+                    "y": raw_top,
+                    "scale": scale,
+                    "offset_x": base_offset_x,
+                    "offset_y": base_offset_y,
+                    "mode": mapper.transform.mode.value,
+                    "font_size": scaled_point_size,
+                },
+            )
         adjusted_left, adjusted_top = remap_point(fill, transform_meta, raw_left, raw_top, context=transform_context)
         if mapper.transform.mode is ScaleMode.FILL:
             adjusted_left, adjusted_top = self._apply_inverse_group_scale(adjusted_left, adjusted_top, anchor_point, scale)
@@ -2775,6 +2802,25 @@ class OverlayWindow(QWidget):
         bottom = baseline + metrics.descent()
         center_y = int(round((top + bottom) / 2.0))
         bounds = (x, top, x + text_width, bottom)
+        if trace_enabled:
+            self._log_legacy_trace(
+                plugin_name,
+                item_id,
+                "paint:message_output",
+                {
+                    "adjusted_x": adjusted_left,
+                    "adjusted_y": adjusted_top,
+                    "pixel_x": x,
+                    "baseline": baseline,
+                    "text_width": text_width,
+                    "font_size": scaled_point_size,
+                    "mode": mapper.transform.mode.value,
+                },
+            )
+        trace_fn = None
+        if trace_enabled:
+            def trace_fn(stage: str, details: Mapping[str, Any]) -> None:
+                self._log_legacy_trace(plugin_name, item_id, stage, details)
         command = _MessagePaintCommand(
             group_key=group_key,
             group_transform=group_transform,
@@ -2790,6 +2836,7 @@ class OverlayWindow(QWidget):
             ascent=metrics.ascent(),
             descent=metrics.descent(),
             cycle_anchor=(center_x, center_y),
+            trace_fn=trace_fn,
         )
         return command
 
@@ -3744,11 +3791,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         initial_settings.force_xwayland,
     )
     if debug_config.trace_enabled:
-        _CLIENT_LOGGER.debug(
-            "Debug tracing enabled for plugin=%s payload_ids=%s",
-            debug_config.trace_plugin or "*",
-            ",".join(debug_config.trace_payload_ids) if debug_config.trace_payload_ids else "*",
-        )
+        payload_filter = ",".join(debug_config.trace_payload_ids) if debug_config.trace_payload_ids else "*"
+        _CLIENT_LOGGER.debug("Debug tracing enabled (payload_ids=%s)", payload_filter)
 
     app = QApplication(sys.argv)
     data_client = OverlayDataClient(port_file)

@@ -32,7 +32,6 @@ DEBUG_CONFIG_ENABLED = is_dev_build(MODERN_OVERLAY_VERSION)
 @dataclass(frozen=True)
 class DebugConfig:
     trace_enabled: bool = False
-    trace_plugin: Optional[str] = None
     trace_payload_ids: tuple[str, ...] = ()
     overlay_outline: bool = False
     group_bounds_outline: bool = False
@@ -56,11 +55,17 @@ def load_debug_config(path: Path) -> DebugConfig:
     if not isinstance(data, dict):
         return DebugConfig()
 
-    trace_enabled = bool(data.get("trace_enabled", False))
-    trace_plugin = data.get("plugin")
-    payload_value = data.get("payload_ids")
-    if payload_value is None:
-        payload_value = data.get("payload_id") or data.get("payload")
+    tracing_section = data.get("tracing")
+    if isinstance(tracing_section, dict):
+        trace_enabled = bool(tracing_section.get("enabled", False))
+        payload_value = tracing_section.get("payload_ids")
+        if payload_value is None:
+            payload_value = tracing_section.get("payload_id") or tracing_section.get("payload")
+    else:
+        trace_enabled = bool(data.get("trace_enabled", False))
+        payload_value = data.get("payload_ids")
+        if payload_value is None:
+            payload_value = data.get("payload_id") or data.get("payload")
 
     payload_ids: tuple[str, ...] = ()
     if isinstance(payload_value, (list, tuple, set)):
@@ -71,15 +76,11 @@ def load_debug_config(path: Path) -> DebugConfig:
         if single:
             payload_ids = (single,)
 
-    if trace_plugin is not None:
-        trace_plugin = str(trace_plugin).strip() or None
-
     overlay_outline = bool(data.get("overlay_outline", False))
     group_bounds_outline = bool(data.get("group_bounds_outline", False))
 
     return DebugConfig(
         trace_enabled=trace_enabled,
-        trace_plugin=trace_plugin,
         trace_payload_ids=payload_ids,
         overlay_outline=overlay_outline,
         group_bounds_outline=group_bounds_outline,
