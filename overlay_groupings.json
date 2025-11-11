@@ -121,6 +121,12 @@
           "id_prefixes": [
             "edr-navroute-"
           ]
+        },
+        "Edr Navigation": {
+          "id_prefixes": [
+            "edr-navigation-"
+          ],
+          "anchor": "nw"
         }
       }
     }
@@ -153,6 +159,23 @@
           "anchor": "nw"
         }
       }
+    }
+  },
+  "modernoverlay": {
+    "grouping": {
+      "groups": {
+        "Modernoverlay Test": {
+          "id_prefixes": [
+            "modernoverlay-test"
+          ],
+          "anchor": "nw"
+        }
+      }
+    },
+    "__match__": {
+      "id_prefixes": [
+        "modernoverlay-"
+      ]
     }
   }
 }
