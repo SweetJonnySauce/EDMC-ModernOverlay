@@ -324,18 +324,21 @@ class PayloadInspectorApp:
 
         ttk.Button(toolbar, text="Clear suppression", command=self._clear_suppression).pack(side="left", padx=5, pady=5)
 
-        self.log_path_var = tk.StringVar()
-        self._update_log_label(None)
-        ttk.Label(toolbar, textvariable=self.log_path_var).pack(side="left", padx=5)
-
         self.status_var = tk.StringVar(value="Starting tailer...")
         ttk.Label(toolbar, textvariable=self.status_var).pack(side="left", padx=5)
+
+        log_row = ttk.Frame(self.root)
+        log_row.pack(side="top", fill="x", pady=(0, 4))
+        ttk.Label(log_row, text="Log file: ").pack(side="left", padx=(5, 0))
+        self.log_path_var = tk.StringVar()
+        self._update_log_label(None)
+        ttk.Label(log_row, textvariable=self.log_path_var).pack(side="left", padx=5)
 
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill="both", expand=True)
 
         left_frame = ttk.Frame(main_frame)
-        left_frame.pack(side="left", fill="both", expand=True)
+        left_frame.pack(side="left", fill="y", padx=(0, 6))
 
         columns = ("timestamp", "plugin", "plugin_group", "group_label", "payload")
         self.tree = ttk.Treeview(
@@ -353,11 +356,17 @@ class PayloadInspectorApp:
         }
         for column in columns:
             self.tree.heading(column, text=headings[column])
-            width = 160 if column == "timestamp" else 140
+            width = 140 if column == "timestamp" else 110
+            if column == "plugin":
+                width = 100
+            if column == "plugin_group":
+                width = 110
+            if column == "group_label":
+                width = 150
             if column == "payload":
-                width = 220
+                width = 180
             self.tree.column(column, width=width, anchor="w")
-        self.tree.pack(side="left", fill="both", expand=True)
+        self.tree.pack(side="left", fill="y")
 
         scroll_y = ttk.Scrollbar(left_frame, orient="vertical", command=self.tree.yview)
         scroll_y.pack(side="right", fill="y")
@@ -370,12 +379,21 @@ class PayloadInspectorApp:
         right_frame = ttk.Frame(main_frame)
         right_frame.pack(side="left", fill="both", expand=True, padx=(8, 0))
 
-        ttk.Label(right_frame, text="Payload details").pack(anchor="w")
+        preview_frame = ttk.Frame(right_frame)
+        preview_frame.pack(fill="x", pady=(0, 8))
+        ttk.Label(preview_frame, text="Payload preview").pack(anchor="w")
+        self.preview_canvas = tk.Canvas(preview_frame, width=400, height=250, background="#202020", highlightthickness=1)
+        self.preview_canvas.pack(fill="x", expand=False)
+
+        details_header = ttk.Frame(right_frame)
+        details_header.pack(fill="x", pady=(4, 0))
+        ttk.Label(details_header, text="Payload details").pack(side="left", anchor="w")
+        ttk.Button(details_header, text="Copy", command=self._copy_payload_details).pack(side="right")
 
         text_container = ttk.Frame(right_frame)
         text_container.pack(fill="both", expand=True)
 
-        self.detail_text = tk.Text(text_container, wrap="none", font=("Courier", 10))
+        self.detail_text = tk.Text(text_container, wrap="none", font=("Courier", 10), width=80)
         self.detail_text.pack(side="left", fill="both", expand=True)
         self.detail_text.configure(state="disabled")
 
@@ -447,6 +465,8 @@ class PayloadInspectorApp:
         self.detail_text.delete("1.0", tk.END)
         self.detail_text.insert("1.0", details)
         self.detail_text.configure(state="disabled")
+        self._draw_preview(payload)
+        self._current_detail_text = details
 
     def _on_close(self) -> None:
         self._tailer.stop()
@@ -467,6 +487,7 @@ class PayloadInspectorApp:
             children = self.tree.get_children()
             if children:
                 self.tree.see(children[-1])
+        self._draw_preview(None)
 
     def _show_context_menu(self, event) -> None:
         row_id = self.tree.identify_row(event.y)
@@ -590,6 +611,165 @@ class PayloadInspectorApp:
         if payload_id and payload_id in self._suppressed_payload_ids:
             return True
         return False
+
+    @staticmethod
+    def _is_valid_color(value: Any) -> bool:
+        if not isinstance(value, str):
+            return False
+        token = value.strip()
+        if not token:
+            return False
+        if token.startswith("#"):
+            hex_part = token[1:]
+            return len(hex_part) in {3, 4, 6, 8} and all(c in "0123456789abcdefABCDEF" for c in hex_part)
+        lowered = token.lower()
+        if lowered in {"none", "null"}:
+            return False
+        return True
+
+    def _draw_preview(self, payload: Optional[Mapping[str, object]]) -> None:
+        canvas = getattr(self, "preview_canvas", None)
+        if canvas is None:
+            return
+        canvas.delete("all")
+        width = int(canvas.winfo_width() or canvas["width"])
+        height = int(canvas.winfo_height() or canvas["height"])
+        padding = 20
+        inner_w = max(1, width - 2 * padding)
+        inner_h = max(1, height - 2 * padding)
+        canvas.create_rectangle(
+            padding,
+            padding,
+            width - padding,
+            height - padding,
+            outline="#404040",
+            dash=(3, 3),
+        )
+        if not payload:
+            canvas.create_text(width // 2, height // 2, text="(select a payload)", fill="#888888")
+            return
+        try:
+            data = json.loads(payload.get("payload_json", "{}"))
+        except Exception:
+            data = {}
+        x = _coerce_number(data.get("x"))
+        y = _coerce_number(data.get("y"))
+        w = _coerce_number(data.get("w"))
+        h = _coerce_number(data.get("h"))
+        text = data.get("text")
+        shape = str(data.get("shape") or data.get("type") or "").lower()
+        raw_color = data.get("color") or "#80d0ff"
+        color = self._normalise_color(raw_color)
+        fill_value = data.get("fill")
+        points = data.get("vector") if isinstance(data.get("vector"), list) else None
+
+        scale = self._compute_scale(inner_w, inner_h)
+        ref_w, ref_h = 1280, 960
+        scaled_area_w = ref_w * scale
+        scaled_area_h = ref_h * scale
+        offset_x = padding + max(0.0, (inner_w - scaled_area_w) / 2.0)
+        offset_y = padding + max(0.0, (inner_h - scaled_area_h) / 2.0)
+
+        if shape == "vect" and points:
+            scaled_points = []
+            for point in points:
+                px = _coerce_number((point or {}).get("x"))
+                py = _coerce_number((point or {}).get("y"))
+                sx = offset_x + px * scale
+                sy = offset_y + py * scale
+                marker = (point or {}).get("marker")
+                if marker:
+                    marker_color = self._normalise_color(point.get("color") or color)
+                    self._draw_marker(canvas, marker, sx, sy, marker_color, point.get("text"))
+                else:
+                    scaled_points.extend([sx, sy])
+            if len(scaled_points) >= 4:
+                canvas.create_line(
+                    *scaled_points,
+                    fill=color,
+                    width=2,
+                    smooth=True,
+                )
+        elif shape == "rect" or w or h:
+            box_w = max(10, (w or 0) * scale)
+            box_h = max(10, (h or 0) * scale)
+            origin_x = offset_x + (x or 0) * scale
+            origin_y = offset_y + (y or 0) * scale
+            canvas.create_rectangle(
+                origin_x,
+                origin_y,
+                origin_x + box_w,
+                origin_y + box_h,
+                outline=color if self._is_valid_color(color) else "#80d0ff",
+                width=2,
+                fill=fill_value if self._is_valid_color(fill_value) else "",
+            )
+        if text:
+            canvas.create_text(
+                offset_x + (ref_w * scale) / 2.0,
+                offset_y + ref_h * scale - 10,
+                text=str(text),
+                fill="#ffffff",
+                anchor="s",
+            )
+
+    @staticmethod
+    def _compute_scale(target_w: int, target_h: int) -> float:
+        ref_w, ref_h = 1280.0, 960.0
+        if target_w <= 0 or target_h <= 0:
+            return 1.0
+        return max(0.01, min(target_w / ref_w, target_h / ref_h))
+
+    @staticmethod
+    def _normalise_color(value: Any) -> str:
+        if not isinstance(value, str):
+            return "#80d0ff"
+        token = value.strip()
+        if not token:
+            return "#80d0ff"
+        if token.startswith("#"):
+            hex_part = token[1:]
+            if len(hex_part) in {3, 4}:
+                return f"#{hex_part}"
+            if len(hex_part) == 8:
+                # Tk expects #RRGGBB; drop alpha and blend against transparent background simplistically.
+                rgb = hex_part[2:]
+                return f"#{rgb}"
+            if len(hex_part) == 6:
+                return token
+        return token
+
+    def _copy_payload_details(self) -> None:
+        text = getattr(self, "_current_detail_text", None)
+        if not isinstance(text, str) or not text.strip():
+            self.status_var.set("No payload selected to copy.")
+            return
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            self.status_var.set("Payload details copied to clipboard.")
+        except Exception as exc:
+            self.status_var.set(f"Failed to copy payload details: {exc}")
+
+    @staticmethod
+    def _draw_marker(canvas: tk.Canvas, marker: str, x: float, y: float, color: str, text: Optional[str]) -> None:
+        size = 8
+        if marker.lower() == "cross":
+            canvas.create_line(x - size, y, x + size, y, fill=color, width=2)
+            canvas.create_line(x, y - size, x, y + size, fill=color, width=2)
+        elif marker.lower() == "dot":
+            canvas.create_oval(x - size / 2, y - size / 2, x + size / 2, y + size / 2, fill=color, outline=color)
+        else:
+            canvas.create_rectangle(x - size / 2, y - size / 2, x + size / 2, y + size / 2, outline=color)
+        if text:
+            canvas.create_text(x + size + 4, y, text=str(text), anchor="w", fill="#ffffff")
+
+
+def _coerce_number(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def main() -> None:
