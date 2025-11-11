@@ -341,12 +341,9 @@ class PayloadInspectorApp:
         left_frame.pack(side="left", fill="y", padx=(0, 6))
 
         columns = ("timestamp", "plugin", "plugin_group", "group_label", "payload")
-        self.tree = ttk.Treeview(
-            left_frame,
-            columns=columns,
-            show="headings",
-            height=20,
-        )
+        tree_container = ttk.Frame(left_frame)
+        tree_container.pack(fill="both", expand=True)
+        self.tree = ttk.Treeview(tree_container, columns=columns, show="headings")
         headings = {
             "timestamp": "Timestamp",
             "plugin": "Plugin",
@@ -366,15 +363,30 @@ class PayloadInspectorApp:
             if column == "payload":
                 width = 180
             self.tree.column(column, width=width, anchor="w")
-        self.tree.pack(side="left", fill="y")
+        self.tree.pack(side="left", fill="both", expand=True)
 
-        scroll_y = ttk.Scrollbar(left_frame, orient="vertical", command=self.tree.yview)
+        scroll_y = ttk.Scrollbar(tree_container, orient="vertical", command=self.tree.yview)
         scroll_y.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=scroll_y.set)
         self.tree.bind("<<TreeviewSelect>>", self._on_selection_changed)
         # Right-click suppression menu (Button-2 for mac support)
         self.tree.bind("<Button-3>", self._show_context_menu)
         self.tree.bind("<Button-2>", self._show_context_menu)
+
+        tips_frame = ttk.Frame(left_frame)
+        tips_frame.pack(fill="x", pady=(6, 0))
+        tips_row = ttk.Frame(tips_frame)
+        tips_row.pack(fill="x")
+        ttk.Label(tips_row, text="Tip: ").pack(side="left")
+        self.tip_var = tk.StringVar()
+        ttk.Label(tips_row, textvariable=self.tip_var, justify="left").pack(side="left", fill="x", expand=True)
+        self._tips = [
+            "You will need to be in DEV MODE with overlay_payload_log_enabled set to true to see payloads",
+            "Right click on a payload to suppress it",
+            "Use tests/send_overlay_from_log.py with the --log-file parameter to replay a captured payload for testing.",
+        ]
+        self._tip_index = -1
+        self._rotate_tip()
 
         right_frame = ttk.Frame(main_frame)
         right_frame.pack(side="left", fill="both", expand=True, padx=(8, 0))
@@ -393,13 +405,14 @@ class PayloadInspectorApp:
         text_container = ttk.Frame(right_frame)
         text_container.pack(fill="both", expand=True)
 
-        self.detail_text = tk.Text(text_container, wrap="none", font=("Courier", 10), width=80)
+        self.detail_text = tk.Text(text_container, wrap="none", font=("Courier", 10), width=40)
         self.detail_text.pack(side="left", fill="both", expand=True)
         self.detail_text.configure(state="disabled")
 
         detail_scroll_y = ttk.Scrollbar(text_container, orient="vertical", command=self.detail_text.yview)
         detail_scroll_y.pack(side="right", fill="y")
         self.detail_text.configure(yscrollcommand=detail_scroll_y.set)
+
 
     def _toggle_pause(self) -> None:
         self._paused = not self._paused
@@ -751,6 +764,13 @@ class PayloadInspectorApp:
         except Exception as exc:
             self.status_var.set(f"Failed to copy payload details: {exc}")
 
+    def _rotate_tip(self) -> None:
+        if not hasattr(self, "_tips") or not self._tips:
+            self.tip_var.set("")
+            return
+        self._tip_index = (self._tip_index + 1) % len(self._tips)
+        self.tip_var.set(self._tips[self._tip_index])
+        self.root.after(8000, self._rotate_tip)
     @staticmethod
     def _draw_marker(canvas: tk.Canvas, marker: str, x: float, y: float, color: str, text: Optional[str]) -> None:
         size = 8
