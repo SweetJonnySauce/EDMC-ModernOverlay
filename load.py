@@ -200,9 +200,13 @@ PAYLOAD_LOGGER_NAME = f"{LOGGER_NAME}.payloads"
 PAYLOAD_LOG_FILE_NAME = "overlay-payloads.log"
 PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
 PAYLOAD_LOG_MAX_BYTES = 512 * 1024
+DEFAULT_CLIENT_LOG_RETENTION = 5
+CLIENT_LOG_RETENTION_MIN = 1
+CLIENT_LOG_RETENTION_MAX = 20
 
 DEFAULT_DEBUG_CONFIG: Dict[str, Any] = {
-    "capture_client_stderrout": False,
+    "capture_client_stderrout": True,
+    "overlay_logs_to_keep": 5,
     "tracing": {
         "enabled": False,
         "payload_ids": [],
@@ -272,6 +276,7 @@ class _PluginRuntime:
         self._payload_logger.propagate = False
         self._payload_log_handler: Optional[logging.Handler] = None
         self._payload_log_path: Optional[Path] = None
+        self._log_retention_override: Optional[int] = None
         self._plugin_prefix_map: Dict[str, str] = self._load_plugin_prefix_map()
         self._payload_filter_path = self.plugin_dir / "debug.json"
         self._payload_filter_mtime: Optional[float] = None
@@ -285,7 +290,8 @@ class _PluginRuntime:
         self._flatpak_spawn_warning_emitted = False
         self._flatpak_host_warning_emitted = False
         self._load_payload_debug_config(force=True)
-        self._configure_payload_logger()
+        if self._payload_log_handler is None:
+            self._configure_payload_logger()
 
     # Lifecycle ------------------------------------------------------------
 
@@ -411,7 +417,7 @@ class _PluginRuntime:
             pass
 
     def _configure_payload_logger(self) -> None:
-        retention = max(1, int(getattr(self._preferences, "client_log_retention", 5)))
+        retention = self._resolve_client_log_retention()
         backup_count = max(0, retention - 1)
         log_dir = self._resolve_payload_logs_dir()
         log_path = log_dir / PAYLOAD_LOG_FILE_NAME
@@ -446,6 +452,34 @@ class _PluginRuntime:
             PAYLOAD_LOG_MAX_BYTES,
             backup_count,
         )
+
+    def _resolve_client_log_retention(self) -> int:
+        try:
+            base_value = int(getattr(self._preferences, "client_log_retention", DEFAULT_CLIENT_LOG_RETENTION))
+        except (TypeError, ValueError):
+            base_value = DEFAULT_CLIENT_LOG_RETENTION
+        base_value = max(CLIENT_LOG_RETENTION_MIN, min(base_value, CLIENT_LOG_RETENTION_MAX))
+        override = self._log_retention_override
+        return override if override is not None else base_value
+
+    def _set_log_retention_override(self, value: Optional[int]) -> bool:
+        if value is not None:
+            value = max(CLIENT_LOG_RETENTION_MIN, min(int(value), CLIENT_LOG_RETENTION_MAX))
+        if self._log_retention_override == value:
+            return False
+        self._log_retention_override = value
+        effective = self._resolve_client_log_retention()
+        if value is None:
+            LOGGER.debug("Overlay log retention override cleared; using preference value %d", effective)
+        else:
+            LOGGER.debug("Overlay log retention override set to %d via debug.json", effective)
+        return True
+
+    def _on_log_retention_changed(self) -> None:
+        self._configure_payload_logger()
+        if self._last_config:
+            self._last_config["client_log_retention"] = self._resolve_client_log_retention()
+            self._rebroadcast_last_config()
 
     def _resolve_payload_logs_dir(self) -> Path:
         plugin_root = self.plugin_dir.resolve()
@@ -483,11 +517,14 @@ class _PluginRuntime:
 
     def _load_payload_debug_config(self, *, force: bool = False) -> None:
         if not DEV_BUILD:
+            retention_cleared = self._set_log_retention_override(None)
             if force or self._payload_filter_excludes or self._payload_logging_enabled or self._payload_filter_mtime is not None:
                 self._payload_filter_excludes = set()
                 self._payload_logging_enabled = False
                 self._payload_filter_mtime = None
                 self._reset_trace_config()
+            if retention_cleared:
+                self._on_log_retention_changed()
             if force and not self._debug_config_notice_logged:
                 LOGGER.debug(
                     "Ignoring debug.json overrides because dev mode is disabled. Set %s=1 or use a -dev build to enable developer payload logging.",
@@ -508,11 +545,14 @@ class _PluginRuntime:
             else:
                 stat = None
             if stat is None:
+                retention_cleared = self._set_log_retention_override(None)
                 if force or self._payload_filter_excludes or self._payload_logging_enabled:
                     self._payload_filter_excludes = set()
                     self._payload_logging_enabled = False
                     self._payload_filter_mtime = None
                     self._reset_trace_config()
+                if retention_cleared:
+                    self._on_log_retention_changed()
                 return
         if stat is None:
             return
@@ -525,6 +565,9 @@ class _PluginRuntime:
             self._payload_filter_excludes = set()
             self._payload_logging_enabled = False
             self._reset_trace_config()
+            retention_cleared = self._set_log_retention_override(None)
+            if retention_cleared:
+                self._on_log_retention_changed()
             self._payload_filter_mtime = stat.st_mtime
             return
         excludes: Set[str] = set()
@@ -532,6 +575,7 @@ class _PluginRuntime:
         trace_enabled = False
         trace_payload_ids: Tuple[str, ...] = ()
         capture_client_stderrout = False
+        log_retention_override: Optional[int] = None
 
         def _coerce_payload_ids(value: Any) -> Tuple[str, ...]:
             if value is None:
@@ -549,6 +593,19 @@ class _PluginRuntime:
                 if token:
                     return (token,)
             return ()
+
+        def _coerce_log_retention(value: Any) -> Optional[int]:
+            if value is None:
+                return None
+            try:
+                numeric = int(value)
+            except (TypeError, ValueError):
+                return None
+            if numeric <= 0:
+                return CLIENT_LOG_RETENTION_MIN
+            if numeric > CLIENT_LOG_RETENTION_MAX:
+                return CLIENT_LOG_RETENTION_MAX
+            return numeric
 
         if isinstance(data, Mapping):
             payload_section = data.get("payload_logging")
@@ -594,12 +651,18 @@ class _PluginRuntime:
                 capture_client_stderrout = capture_value
             elif capture_value is not None:
                 capture_client_stderrout = bool(capture_value)
+            log_retention_override = _coerce_log_retention(data.get("overlay_logs_to_keep"))
+        else:
+            log_retention_override = None
         self._payload_filter_excludes = excludes
         self._payload_logging_enabled = enabled
         self._trace_enabled = trace_enabled
         self._trace_payload_prefixes = trace_payload_ids
         self._apply_capture_override(capture_client_stderrout)
         self._payload_filter_mtime = stat.st_mtime
+        retention_changed = self._set_log_retention_override(log_retention_override)
+        if retention_changed:
+            self._on_log_retention_changed()
 
     def _start_watchdog(self) -> bool:
         overlay_script = self._locate_overlay_client()
@@ -732,7 +795,7 @@ class _PluginRuntime:
             "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d overlay_opacity=%.2f "
             "force_render=%s force_xwayland=%s debug_overlay=%s cycle_payload_ids=%s font_min=%.1f font_max=%.1f",
             self._preferences.show_connection_status,
-            self._preferences.client_log_retention,
+            self._resolve_client_log_retention(),
             self._preferences.gridlines_enabled,
             self._preferences.gridline_spacing,
             self._preferences.overlay_opacity,
@@ -821,18 +884,6 @@ class _PluginRuntime:
 
     def set_status_fps_preference(self, value: bool) -> None:
         self._preferences.show_ed_fps = bool(value)
-        self._preferences.save()
-        self._send_overlay_config()
-
-    def set_client_log_retention_preference(self, value: int) -> None:
-        try:
-            retention = int(value)
-        except (TypeError, ValueError):
-            retention = self._preferences.client_log_retention
-        retention = max(1, retention)
-        self._preferences.client_log_retention = retention
-        self._configure_payload_logger()
-        LOGGER.debug("Overlay client log retention set to %d", retention)
         self._preferences.save()
         self._send_overlay_config()
 
@@ -1165,7 +1216,7 @@ class _PluginRuntime:
             "show_status": bool(self._preferences.show_connection_status),
             "debug_overlay_corner": str(self._preferences.debug_overlay_corner or "NW"),
             "status_bottom_margin": int(self._preferences.status_bottom_margin()),
-            "client_log_retention": int(self._preferences.client_log_retention),
+            "client_log_retention": int(self._resolve_client_log_retention()),
             "gridlines_enabled": bool(self._preferences.gridlines_enabled),
             "gridline_spacing": int(self._preferences.gridline_spacing),
             "force_render": bool(self._preferences.force_render),
@@ -1662,7 +1713,6 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         gridline_spacing_callback = _plugin.set_gridline_spacing_preference if _plugin else None
         payload_nudge_callback = _plugin.set_payload_nudge_preference if _plugin else None
         payload_gutter_callback = _plugin.set_payload_nudge_gutter_preference if _plugin else None
-        log_retention_callback = _plugin.set_client_log_retention_preference if _plugin else None
         force_render_callback = _plugin.set_force_render_preference if _plugin else None
         title_bar_config_callback = _plugin.set_title_bar_compensation_preference if _plugin else None
         debug_overlay_callback = _plugin.set_debug_overlay_preference if _plugin else None
@@ -1687,7 +1737,6 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             gridline_spacing_callback,
             payload_nudge_callback,
             payload_gutter_callback,
-            log_retention_callback,
             force_render_callback,
             title_bar_config_callback,
             debug_overlay_callback,
@@ -1724,7 +1773,7 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
                 "force_render=%s title_bar_enabled=%s title_bar_height=%d force_xwayland=%s "
                 "debug_overlay=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s scale_mode=%s font_min=%.1f font_max=%.1f",
                 _preferences.show_connection_status,
-                _preferences.client_log_retention,
+                _plugin._resolve_client_log_retention() if _plugin else _preferences.client_log_retention,
                 _preferences.gridlines_enabled,
                 _preferences.gridline_spacing,
                 _preferences.force_render,

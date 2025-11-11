@@ -149,7 +149,6 @@ class PreferencesPanel:
         set_gridline_spacing_callback: Optional[Callable[[int], None]] = None,
         set_payload_nudge_callback: Optional[Callable[[bool], None]] = None,
         set_payload_gutter_callback: Optional[Callable[[int], None]] = None,
-        set_log_retention_callback: Optional[Callable[[int], None]] = None,
         set_force_render_callback: Optional[Callable[[bool], None]] = None,
         set_title_bar_config_callback: Optional[Callable[[bool, int], None]] = None,
         set_debug_overlay_callback: Optional[Callable[[bool], None]] = None,
@@ -202,7 +201,6 @@ class PreferencesPanel:
         self._set_gridline_spacing = set_gridline_spacing_callback
         self._set_payload_nudge = set_payload_nudge_callback
         self._set_payload_gutter = set_payload_gutter_callback
-        self._set_log_retention = set_log_retention_callback
         self._set_force_render = set_force_render_callback
         self._set_title_bar_config = set_title_bar_config_callback
         self._set_debug_overlay = set_debug_overlay_callback
@@ -291,25 +289,6 @@ class PreferencesPanel:
             )
             rb.pack(side="left", padx=(6, 0))
         corner_row.grid(row=3, column=0, sticky="w", pady=(4, 0))
-
-        retention_row = ttk.Frame(frame, style=self._frame_style)
-        retention_label = nb.Label(retention_row, text="Overlay client log files to keep (rotate when current file grows).")
-        retention_label.pack(side="left")
-        self._retention_var = tk.IntVar(value=int(self._preferences.client_log_retention))
-        retention_spin = ttk.Spinbox(
-            retention_row,
-            from_=1,
-            to=20,
-            increment=1,
-            width=5,
-            command=self._on_log_retention_command,
-            textvariable=self._retention_var,
-            style=self._spinbox_style,
-        )
-        retention_spin.pack(side="left", padx=(6, 0))
-        retention_spin.bind("<FocusOut>", self._on_log_retention_event)
-        retention_spin.bind("<Return>", self._on_log_retention_event)
-        retention_row.grid(row=4, column=0, sticky="w", pady=(6, 0))
 
         font_row = ttk.Frame(frame, style=self._frame_style)
         font_label = nb.Label(font_row, text="Font scaling bounds (pt):")
@@ -704,27 +683,6 @@ class PreferencesPanel:
             self._status_var.set(f"Failed to restart overlay: {exc}")
             return
         self._status_var.set("Overlay restart requested.")
-
-    def _on_log_retention_command(self) -> None:
-        self._apply_log_retention()
-
-    def _on_log_retention_event(self, _event) -> None:  # pragma: no cover - Tk event
-        self._apply_log_retention()
-
-    def _apply_log_retention(self) -> None:
-        try:
-            value = int(self._retention_var.get())
-        except Exception:
-            value = self._preferences.client_log_retention
-        value = max(1, value)
-        self._preferences.client_log_retention = value
-        if self._set_log_retention:
-            try:
-                self._set_log_retention(value)
-            except Exception as exc:
-                self._status_var.set(f"Failed to update log retention: {exc}")
-                return
-        self._preferences.save()
 
     def _on_force_render_toggle(self) -> None:
         value = bool(self._var_force_render.get())

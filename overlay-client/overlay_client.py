@@ -3780,6 +3780,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             DEV_MODE_ENV_VAR,
         )
     helper = DeveloperHelperController(_CLIENT_LOGGER, CLIENT_DIR, initial_settings)
+    if debug_config.overlay_logs_to_keep is not None:
+        helper.set_log_retention(debug_config.overlay_logs_to_keep)
 
     _CLIENT_LOGGER.info("Starting overlay client (pid=%s)", os.getpid())
     _CLIENT_LOGGER.debug("Resolved port file path to %s", port_file)

@@ -161,6 +161,26 @@
       }
     }
   },
+  "Navroute": {
+    "grouping": {
+      "groups": {
+        "Navroute Display": {
+          "id_prefixes": [
+            "navroute_display_"
+          ],
+          "anchor": "nw"
+        }
+      }
+    },
+    "__match__": {
+      "id_prefixes": [
+        "navroute_"
+      ]
+    },
+    "notes": [
+      "https://github.com/Silarn/EDMC-NavRoute"
+    ]
+  },
   "modernoverlay": {
     "grouping": {
       "groups": {

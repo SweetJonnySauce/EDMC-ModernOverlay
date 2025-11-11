@@ -6,7 +6,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 try:  # pragma: no cover - overlay client may run without package metadata
     from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR, is_dev_build
@@ -27,6 +27,8 @@ except Exception:  # pragma: no cover - fallback when version module unavailable
 
 
 DEBUG_CONFIG_ENABLED = is_dev_build(MODERN_OVERLAY_VERSION)
+CLIENT_LOG_RETENTION_MIN = 1
+CLIENT_LOG_RETENTION_MAX = 20
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,7 @@ class DebugConfig:
     trace_payload_ids: tuple[str, ...] = ()
     overlay_outline: bool = False
     group_bounds_outline: bool = False
+    overlay_logs_to_keep: Optional[int] = None
 
 
 def load_debug_config(path: Path) -> DebugConfig:
@@ -79,9 +82,25 @@ def load_debug_config(path: Path) -> DebugConfig:
     overlay_outline = bool(data.get("overlay_outline", False))
     group_bounds_outline = bool(data.get("group_bounds_outline", False))
 
+    def _coerce_log_retention(value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        try:
+            numeric = int(value)
+        except (TypeError, ValueError):
+            return None
+        if numeric <= 0:
+            return CLIENT_LOG_RETENTION_MIN
+        if numeric > CLIENT_LOG_RETENTION_MAX:
+            return CLIENT_LOG_RETENTION_MAX
+        return numeric
+
+    overlay_logs_to_keep = _coerce_log_retention(data.get("overlay_logs_to_keep"))
+
     return DebugConfig(
         trace_enabled=trace_enabled,
         trace_payload_ids=payload_ids,
         overlay_outline=overlay_outline,
         group_bounds_outline=group_bounds_outline,
+        overlay_logs_to_keep=overlay_logs_to_keep,
     )
