@@ -725,22 +725,19 @@ class PayloadInspectorApp:
         return max(0.01, min(target_w / ref_w, target_h / ref_h))
 
     @staticmethod
-    def _normalise_color(value: Any) -> str:
+    def _normalise_color(value: Any, *, default: str = "#80d0ff") -> str:
         if not isinstance(value, str):
-            return "#80d0ff"
+            return default
         token = value.strip()
         if not token:
-            return "#80d0ff"
+            return default
         if token.startswith("#"):
             hex_part = token[1:]
-            if len(hex_part) in {3, 4}:
-                return f"#{hex_part}"
             if len(hex_part) == 8:
-                # Tk expects #RRGGBB; drop alpha and blend against transparent background simplistically.
-                rgb = hex_part[2:]
-                return f"#{rgb}"
-            if len(hex_part) == 6:
-                return token
+                hex_part = hex_part[2:]
+            if len(hex_part) in {3, 4, 6}:
+                return f"#{hex_part}"
+            return default
         return token
 
     def _copy_payload_details(self) -> None:
@@ -858,6 +855,7 @@ class PayloadInspectorApp:
         raw_color = data.get("color") or "#80d0ff"
         color = self._normalise_color(raw_color)
         fill_value = data.get("fill")
+        fill_color = self._normalise_color(fill_value, default="") if isinstance(fill_value, str) else ""
         points = data.get("vector") if isinstance(data.get("vector"), list) else None
 
         if shape == "vect" and points:
@@ -892,7 +890,7 @@ class PayloadInspectorApp:
                 origin_y + box_h,
                 outline=color if self._is_valid_color(color) else "#80d0ff",
                 width=2,
-                fill=fill_value if self._is_valid_color(fill_value) else "",
+                fill=fill_color if self._is_valid_color(fill_color) else "",
             )
         return text if isinstance(text, str) and text else None
 
