@@ -678,10 +678,8 @@ class PayloadInspectorApp:
 
         scale = self._compute_scale(inner_w, inner_h)
         ref_w, ref_h = 1280, 960
-        scaled_area_w = ref_w * scale
-        scaled_area_h = ref_h * scale
-        offset_x = padding + max(0.0, (inner_w - scaled_area_w) / 2.0)
-        offset_y = padding + max(0.0, (inner_h - scaled_area_h) / 2.0)
+        offset_x = padding
+        offset_y = padding
 
         if shape == "vect" and points:
             scaled_points = []
@@ -703,7 +701,7 @@ class PayloadInspectorApp:
                     width=2,
                     smooth=True,
                 )
-        elif shape == "rect" or w or h:
+        elif shape == "rect" or shape == "message" or text:
             box_w = max(10, (w or 0) * scale)
             box_h = max(10, (h or 0) * scale)
             origin_x = offset_x + (x or 0) * scale
