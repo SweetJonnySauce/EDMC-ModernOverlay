@@ -201,6 +201,18 @@ PAYLOAD_LOG_FILE_NAME = "overlay-payloads.log"
 PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
 PAYLOAD_LOG_MAX_BYTES = 512 * 1024
 
+DEFAULT_DEBUG_CONFIG: Dict[str, Any] = {
+    "trace_enabled": False,
+    "plugin": "",
+    "payload_ids": [],
+    "payload_logging": {
+        "overlay_payload_log_enabled": True,
+        "exclude_plugins": [],
+    },
+    "overlay_outline": True,
+    "group_bounds_outline": True,
+}
+
 FLATPAK_ENV_FORWARD_KEYS: Tuple[str, ...] = (
     "EDMC_OVERLAY_SESSION_TYPE",
     "EDMC_OVERLAY_COMPOSITOR",
@@ -451,6 +463,17 @@ class _PluginRuntime:
                 continue
         return plugin_root
 
+    def _ensure_default_debug_config(self) -> bool:
+        template = DEFAULT_DEBUG_CONFIG
+        payload = json.dumps(template, indent=2, sort_keys=True) + "\n"
+        try:
+            self._payload_filter_path.write_text(payload, encoding="utf-8")
+        except OSError as exc:
+            LOGGER.warning("Unable to create default debug.json at %s: %s", self._payload_filter_path, exc)
+            return False
+        LOGGER.info("Created default debug.json at %s to enable developer tracing.", self._payload_filter_path)
+        return True
+
     def _reset_trace_config(self) -> None:
         self._trace_enabled = False
         self._trace_plugin_filter = None
@@ -470,14 +493,26 @@ class _PluginRuntime:
                 )
                 self._debug_config_notice_logged = True
             return
+        stat: Optional[os.stat_result]
         try:
             stat = self._payload_filter_path.stat()
         except FileNotFoundError:
-            if force or self._payload_filter_excludes or self._payload_logging_enabled:
-                self._payload_filter_excludes = set()
-                self._payload_logging_enabled = False
-                self._payload_filter_mtime = None
-                self._reset_trace_config()
+            created = self._ensure_default_debug_config() if DEV_BUILD else False
+            if created:
+                try:
+                    stat = self._payload_filter_path.stat()
+                except (FileNotFoundError, OSError):
+                    stat = None
+            else:
+                stat = None
+            if stat is None:
+                if force or self._payload_filter_excludes or self._payload_logging_enabled:
+                    self._payload_filter_excludes = set()
+                    self._payload_logging_enabled = False
+                    self._payload_filter_mtime = None
+                    self._reset_trace_config()
+                return
+        if stat is None:
             return
         if not force and self._payload_filter_mtime is not None and stat.st_mtime <= self._payload_filter_mtime:
             return
