@@ -202,6 +202,7 @@ PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
 PAYLOAD_LOG_MAX_BYTES = 512 * 1024
 
 DEFAULT_DEBUG_CONFIG: Dict[str, Any] = {
+    "capture_client_stderrout": False,
     "tracing": {
         "enabled": False,
         "payload_ids": [],
@@ -278,6 +279,7 @@ class _PluginRuntime:
         self._payload_logging_enabled: bool = False
         self._trace_enabled: bool = False
         self._trace_payload_prefixes: Tuple[str, ...] = ()
+        self._capture_client_stderrout: bool = False
         self._debug_config_notice_logged = False
         self._flatpak_context = self._detect_flatpak_context()
         self._flatpak_spawn_warning_emitted = False
@@ -477,6 +479,7 @@ class _PluginRuntime:
     def _reset_trace_config(self) -> None:
         self._trace_enabled = False
         self._trace_payload_prefixes = ()
+        self._apply_capture_override(False)
 
     def _load_payload_debug_config(self, *, force: bool = False) -> None:
         if not DEV_BUILD:
@@ -528,6 +531,7 @@ class _PluginRuntime:
         enabled = False
         trace_enabled = False
         trace_payload_ids: Tuple[str, ...] = ()
+        capture_client_stderrout = False
 
         def _coerce_payload_ids(value: Any) -> Tuple[str, ...]:
             if value is None:
@@ -585,10 +589,16 @@ class _PluginRuntime:
                 if payload_value is None:
                     payload_value = data.get("payload_id") or data.get("payload")
             trace_payload_ids = _coerce_payload_ids(payload_value)
+            capture_value = data.get("capture_client_stderrout")
+            if isinstance(capture_value, bool):
+                capture_client_stderrout = capture_value
+            elif capture_value is not None:
+                capture_client_stderrout = bool(capture_value)
         self._payload_filter_excludes = excludes
         self._payload_logging_enabled = enabled
         self._trace_enabled = trace_enabled
         self._trace_payload_prefixes = trace_payload_ids
+        self._apply_capture_override(capture_client_stderrout)
         self._payload_filter_mtime = stat.st_mtime
 
     def _start_watchdog(self) -> bool:
@@ -645,11 +655,33 @@ class _PluginRuntime:
         return None
 
     def _capture_enabled(self) -> bool:
-        return bool(self._preferences.capture_output and _resolve_edmc_log_level() <= logging.DEBUG)
+        return bool(self._capture_client_stderrout and _resolve_edmc_log_level() <= logging.DEBUG)
+
+    def _apply_capture_override(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if enabled == self._capture_client_stderrout:
+            return
+        self._capture_client_stderrout = enabled
+        if enabled:
+            LOGGER.debug("Overlay stdout/stderr capture override enabled via debug.json.")
+            if _resolve_edmc_log_level() > logging.DEBUG:
+                LOGGER.debug(
+                    "Overlay stdout/stderr capture override is active, but EDMC logging is not DEBUG; no output will be piped until logging is set to DEBUG."
+                )
+        else:
+            LOGGER.debug("Overlay stdout/stderr capture override disabled via debug.json.")
+        if self.watchdog:
+            try:
+                self.watchdog.set_capture_output(self._capture_enabled())
+            except Exception as exc:
+                LOGGER.debug("Failed to update overlay capture setting: %s", exc)
+        self._update_capture_state(self._capture_enabled())
 
     def _update_capture_state(self, enabled: bool) -> None:
         if enabled and not self._capture_active:
             LOGGER.debug("EDMC DEBUG mode detected; piping overlay stdout/stderr to EDMC log.")
+        elif not enabled and self._capture_active:
+            LOGGER.debug("Overlay stdout/stderr capture inactive (override or EDMC logging level disabled piping).")
         self._capture_active = enabled
 
     def _desired_force_xwayland(self) -> bool:
@@ -696,10 +728,9 @@ class _PluginRuntime:
     def on_preferences_updated(self) -> None:
         self._enforce_force_xwayland(persist=True, update_watchdog=True, emit_config=False)
         LOGGER.debug(
-            "Applying updated preferences: capture_output=%s show_connection_status=%s "
+            "Applying updated preferences: show_connection_status=%s "
             "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d overlay_opacity=%.2f "
             "force_render=%s force_xwayland=%s debug_overlay=%s cycle_payload_ids=%s font_min=%.1f font_max=%.1f",
-            self._preferences.capture_output,
             self._preferences.show_connection_status,
             self._preferences.client_log_retention,
             self._preferences.gridlines_enabled,
@@ -712,9 +743,6 @@ class _PluginRuntime:
             self._preferences.min_font_point,
             self._preferences.max_font_point,
         )
-        if self.watchdog:
-            self.watchdog.set_capture_output(self._capture_enabled())
-        self._update_capture_state(self._capture_enabled())
         self._send_overlay_config()
 
     def send_test_message(self, message: str, x: Optional[int] = None, y: Optional[int] = None) -> None:
@@ -1691,11 +1719,10 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
         _prefs_panel.apply()
         if _preferences:
             LOGGER.debug(
-                "Preferences saved: capture_output=%s show_connection_status=%s "
+                "Preferences saved: show_connection_status=%s "
                 "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d "
                 "force_render=%s title_bar_enabled=%s title_bar_height=%d force_xwayland=%s "
                 "debug_overlay=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s scale_mode=%s font_min=%.1f font_max=%.1f",
-                _preferences.capture_output,
                 _preferences.show_connection_status,
                 _preferences.client_log_retention,
                 _preferences.gridlines_enabled,

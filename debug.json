@@ -1,8 +1,12 @@
 {
+  "capture_client_stderrout": false,
   "group_bounds_outline": true,
   "overlay_outline": true,
   "payload_logging": {
-    "exclude_plugins": [],
+    "exclude_plugins": [
+      "BGS-Tally",
+      "EDR"
+    ],
     "overlay_payload_log_enabled": true
   },
   "tracing": {

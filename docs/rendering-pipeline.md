@@ -7,7 +7,8 @@ This document explains how a payload travels from EDMC into the Modern Overlay c
 1. `debug.json` is read by both the EDMC plugin (`load.py`) and the overlay client (`overlay-client/debug_config.py`).  
 2. Dev builds (or `MODERN_OVERLAY_DEV_MODE=1`) enable the debug configuration.  
 3. `tracing.enabled` gates all subsequent trace output; `tracing.payload_ids` is interpreted as `str.startswith` prefixes. When the list is empty, every payload can emit traces.  
-4. Payload logging and tracing can be toggled independently.
+4. Payload logging and tracing can be toggled independently.  
+5. `capture_client_stderrout` mirrors the overlay client's stdout/stderr back into EDMC’s log (still gated by EDMC’s DEBUG log level).
 
 ## 2. EDMC plugin path
 
