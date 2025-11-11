@@ -15,7 +15,7 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from tkinter import ttk
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -300,6 +300,11 @@ class PayloadInspectorApp:
         self._row_order: list[str] = []
         self._payload_store: Dict[str, Dict[str, object]] = {}
         self._paused = False
+        self._context_menu: Optional[tk.Menu] = None
+        self._suppressed_plugins: set[str] = set()
+        self._suppressed_plugin_groups: set[str] = set()
+        self._suppressed_group_labels: set[str] = set()
+        self._suppressed_payload_ids: set[str] = set()
 
         self._locator = LogLocator(ROOT_DIR, override_dir=log_dir_override)
         self._resolver = GroupResolver(GROUPINGS_PATH)
@@ -316,6 +321,8 @@ class PayloadInspectorApp:
 
         self.pause_button = ttk.Button(toolbar, text="Pause", command=self._toggle_pause)
         self.pause_button.pack(side="left", padx=5, pady=5)
+
+        ttk.Button(toolbar, text="Clear suppression", command=self._clear_suppression).pack(side="left", padx=5, pady=5)
 
         self.log_path_var = tk.StringVar()
         self._update_log_label(None)
@@ -356,6 +363,9 @@ class PayloadInspectorApp:
         scroll_y.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=scroll_y.set)
         self.tree.bind("<<TreeviewSelect>>", self._on_selection_changed)
+        # Right-click suppression menu (Button-2 for mac support)
+        self.tree.bind("<Button-3>", self._show_context_menu)
+        self.tree.bind("<Button-2>", self._show_context_menu)
 
         right_frame = ttk.Frame(main_frame)
         right_frame.pack(side="left", fill="both", expand=True, padx=(8, 0))
@@ -401,6 +411,8 @@ class PayloadInspectorApp:
             self.root.after(200, self._drain_queue)
 
     def _add_row(self, payload: Mapping[str, object], autoscroll: bool = True) -> None:
+        if self._is_suppressed(payload):
+            return
         row_id = f"row-{self._row_counter}"
         self._row_counter += 1
         values = (
@@ -455,6 +467,129 @@ class PayloadInspectorApp:
             children = self.tree.get_children()
             if children:
                 self.tree.see(children[-1])
+
+    def _show_context_menu(self, event) -> None:
+        row_id = self.tree.identify_row(event.y)
+        if not row_id:
+            return
+        self.tree.selection_set(row_id)
+        payload = self._payload_store.get(row_id)
+        if not payload:
+            return
+        if self._context_menu is not None:
+            try:
+                self._context_menu.destroy()
+            except Exception:
+                pass
+        menu = tk.Menu(self.root, tearoff=0)
+        plugin = (payload.get("plugin") or "").strip()
+        plugin_group = (payload.get("plugin_group") or "").strip()
+        group_label = (payload.get("group_label") or "").strip()
+        payload_id = (payload.get("payload_id") or "").strip()
+
+        def _add(label: str, handler: Callable[[], None]) -> None:
+            menu.add_command(label=label, command=handler)
+
+        added = False
+        if plugin:
+            _add(f"Suppress plugin '{plugin}'", lambda p=plugin: self._suppress("plugin", p))
+            added = True
+        if plugin_group:
+            _add(f"Suppress plugin group '{plugin_group}'", lambda g=plugin_group: self._suppress("plugin_group", g))
+            added = True
+        if group_label:
+            _add(
+                f"Suppress ID prefix group '{group_label}'",
+                lambda lbl=group_label: self._suppress("group_label", lbl),
+            )
+            added = True
+        if payload_id:
+            _add(f"Suppress payload id '{payload_id}'", lambda pid=payload_id: self._suppress("payload_id", pid))
+            added = True
+        if added:
+            menu.add_separator()
+        menu.add_command(label="Clear suppression", command=self._clear_suppression)
+        self._context_menu = menu
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _suppress(self, kind: str, value: str) -> None:
+        token = value.strip()
+        if not token:
+            return
+        lowered = token.casefold()
+        if kind == "plugin":
+            if lowered in self._suppressed_plugins:
+                return
+            self._suppressed_plugins.add(lowered)
+            predicate = lambda item: (item.get("plugin") or "").strip().casefold() == lowered
+            self.status_var.set(f"Suppressed plugin '{token}'.")
+        elif kind == "plugin_group":
+            if lowered in self._suppressed_plugin_groups:
+                return
+            self._suppressed_plugin_groups.add(lowered)
+            predicate = lambda item: (item.get("plugin_group") or "").strip().casefold() == lowered
+            self.status_var.set(f"Suppressed plugin group '{token}'.")
+        elif kind == "group_label":
+            if lowered in self._suppressed_group_labels:
+                return
+            self._suppressed_group_labels.add(lowered)
+            predicate = lambda item: (item.get("group_label") or "").strip().casefold() == lowered
+            self.status_var.set(f"Suppressed ID prefix group '{token}'.")
+        elif kind == "payload_id":
+            if token in self._suppressed_payload_ids:
+                return
+            self._suppressed_payload_ids.add(token)
+            predicate = lambda item: (item.get("payload_id") or "").strip() == token
+            self.status_var.set(f"Suppressed payload id '{token}'.")
+        else:
+            return
+        self._remove_rows(predicate)
+
+    def _remove_rows(self, predicate: Callable[[Mapping[str, Any]], bool]) -> None:
+        for row_id in list(self._row_order):
+            payload = self._payload_store.get(row_id)
+            if payload is None:
+                continue
+            try:
+                if predicate(payload):
+                    self.tree.delete(row_id)
+                    self._payload_store.pop(row_id, None)
+                    self._row_order.remove(row_id)
+            except Exception:
+                continue
+
+    def _clear_suppression(self) -> None:
+        if (
+            not self._suppressed_plugins
+            and not self._suppressed_plugin_groups
+            and not self._suppressed_group_labels
+            and not self._suppressed_payload_ids
+        ):
+            self.status_var.set("No suppression rules to clear.")
+            return
+        self._suppressed_plugins.clear()
+        self._suppressed_plugin_groups.clear()
+        self._suppressed_group_labels.clear()
+        self._suppressed_payload_ids.clear()
+        self.status_var.set("Suppression rules cleared.")
+
+    def _is_suppressed(self, payload: Mapping[str, object]) -> bool:
+        plugin = (payload.get("plugin") or "").strip()
+        if plugin and plugin.casefold() in self._suppressed_plugins:
+            return True
+        plugin_group = (payload.get("plugin_group") or "").strip()
+        if plugin_group and plugin_group.casefold() in self._suppressed_plugin_groups:
+            return True
+        group_label = (payload.get("group_label") or "").strip()
+        if group_label and group_label.casefold() in self._suppressed_group_labels:
+            return True
+        payload_id = (payload.get("payload_id") or "").strip()
+        if payload_id and payload_id in self._suppressed_payload_ids:
+            return True
+        return False
 
 
 def main() -> None:
