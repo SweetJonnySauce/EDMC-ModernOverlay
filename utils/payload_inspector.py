@@ -14,8 +14,8 @@ import tkinter as tk
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from tkinter import ttk
-from typing import Any, Callable, Dict, Mapping, Optional, Tuple
+from tkinter import filedialog, ttk
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -36,6 +36,8 @@ GROUPINGS_PATH = ROOT_DIR / "overlay_groupings.json"
 PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
 PAYLOAD_LOG_BASENAMES = ("overlay-payloads.log", "overlay_payloads.log")
 MAX_ROWS = 500
+CONFIG_DIR = Path.home() / ".config" / "edmc_modern_overlay"
+CONFIG_FILE = CONFIG_DIR / "payload_inspector.json"
 
 
 @dataclass
@@ -69,8 +71,16 @@ class LogLocator:
     """Replicate plugin log discovery so rotations & overrides behave identically to runtime."""
 
     def __init__(self, plugin_root: Path, override_dir: Optional[Path] = None) -> None:
-        self._plugin_root = plugin_root
-        self._override_dir = override_dir
+        self._plugin_root = plugin_root.resolve()
+        self._override_dir: Optional[Path] = None
+        self._override_file: Optional[Path] = None
+        if override_dir is not None:
+            target = override_dir.expanduser()
+            if target.suffix:
+                self._override_file = target
+                self._override_dir = target.parent
+            else:
+                self._override_dir = target
         self._log_dir = self._resolve()
 
     @property
@@ -79,9 +89,7 @@ class LogLocator:
 
     def _resolve(self) -> Path:
         if self._override_dir is not None:
-            target = self._override_dir.expanduser()
-            if target.suffix:
-                target = target.parent
+            target = self._override_dir
             target.mkdir(parents=True, exist_ok=True)
             return target
 
@@ -104,6 +112,8 @@ class LogLocator:
         return fallback
 
     def primary_log_file(self) -> Optional[Path]:
+        if self._override_file:
+            return self._override_file
         for name in PAYLOAD_LOG_BASENAMES:
             candidate = self._log_dir / name
             if candidate.exists():
@@ -305,13 +315,17 @@ class PayloadInspectorApp:
         self._suppressed_plugin_groups: set[str] = set()
         self._suppressed_group_labels: set[str] = set()
         self._suppressed_payload_ids: set[str] = set()
+        self._group_preview_payloads: Optional[str] = None
 
-        self._locator = LogLocator(ROOT_DIR, override_dir=log_dir_override)
+        self._user_config = self._load_user_config()
+        custom_path = self._user_config.get("log_file")
+        self._custom_log_file: Optional[Path] = Path(custom_path).expanduser() if custom_path else None
+        self._cli_override = log_dir_override.expanduser() if log_dir_override else None
         self._resolver = GroupResolver(GROUPINGS_PATH)
-        self._tailer = PayloadTailer(self._locator, self._resolver, self._queue, history_limit=MAX_ROWS)
-        self._tailer.start()
+        self._tailer: Optional[PayloadTailer] = None
 
         self._build_widgets()
+        self._start_tailer()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.after(200, self._drain_queue)
 
@@ -329,20 +343,23 @@ class PayloadInspectorApp:
 
         log_row = ttk.Frame(self.root)
         log_row.pack(side="top", fill="x", pady=(0, 4))
-        ttk.Label(log_row, text="Log file: ").pack(side="left", padx=(5, 0))
-        self.log_path_var = tk.StringVar()
-        self._update_log_label(None)
-        ttk.Label(log_row, textvariable=self.log_path_var).pack(side="left", padx=5)
+        ttk.Label(log_row, text="Log file:", font=("TkDefaultFont", 10, "bold")).pack(side="left", padx=(5, 0))
+        self.log_path_var = tk.StringVar(value="resolving...")
+        log_entry = ttk.Entry(log_row, textvariable=self.log_path_var, width=70)
+        log_entry.configure(state="readonly")
+        log_entry.pack(side="left", fill="x", expand=True, padx=5)
+        ttk.Button(log_row, text="Choose...", command=self._choose_log_file).pack(side="right", padx=5)
 
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill="both", expand=True)
 
         left_frame = ttk.Frame(main_frame)
         left_frame.pack(side="left", fill="y", padx=(0, 6))
+        ttk.Label(left_frame, text="Payload list", font=("TkDefaultFont", 10, "bold")).pack(anchor="w", padx=(5, 0), pady=(0, 4))
 
         columns = ("timestamp", "plugin", "plugin_group", "group_label", "payload")
         tree_container = ttk.Frame(left_frame)
-        tree_container.pack(fill="both", expand=True)
+        tree_container.pack(fill="both", expand=True, padx=(5, 0))
         self.tree = ttk.Treeview(tree_container, columns=columns, show="headings")
         headings = {
             "timestamp": "Timestamp",
@@ -374,16 +391,17 @@ class PayloadInspectorApp:
         self.tree.bind("<Button-2>", self._show_context_menu)
 
         tips_frame = ttk.Frame(left_frame)
-        tips_frame.pack(fill="x", pady=(6, 0))
+        tips_frame.pack(fill="x", padx=(5, 0), pady=(6, 0))
         tips_row = ttk.Frame(tips_frame)
         tips_row.pack(fill="x")
-        ttk.Label(tips_row, text="Tip: ").pack(side="left")
+        ttk.Label(tips_row, text="Tip:", font=("TkDefaultFont", 10, "bold")).pack(side="left")
         self.tip_var = tk.StringVar()
         ttk.Label(tips_row, textvariable=self.tip_var, justify="left").pack(side="left", fill="x", expand=True)
         self._tips = [
             "You will need to be in DEV MODE with overlay_payload_log_enabled set to true to see payloads",
             "Right click on a payload to suppress it",
             "Use tests/send_overlay_from_log.py with the --log-file parameter to replay a captured payload for testing.",
+            "Right click on a payload to draw the ID Prefix Group in the preview.",
         ]
         self._tip_index = -1
         self._rotate_tip()
@@ -392,18 +410,18 @@ class PayloadInspectorApp:
         right_frame.pack(side="left", fill="both", expand=True, padx=(8, 0))
 
         preview_frame = ttk.Frame(right_frame)
-        preview_frame.pack(fill="x", pady=(0, 8))
-        ttk.Label(preview_frame, text="Payload preview").pack(anchor="w")
+        preview_frame.pack(fill="x", padx=(5, 0), pady=(0, 8))
+        ttk.Label(preview_frame, text="Payload preview", font=("TkDefaultFont", 10, "bold")).pack(anchor="w")
         self.preview_canvas = tk.Canvas(preview_frame, width=400, height=250, background="#202020", highlightthickness=1)
-        self.preview_canvas.pack(fill="x", expand=False)
+        self.preview_canvas.pack(fill="x", expand=False, padx=(0, 5))
 
         details_header = ttk.Frame(right_frame)
-        details_header.pack(fill="x", pady=(4, 0))
-        ttk.Label(details_header, text="Payload details").pack(side="left", anchor="w")
+        details_header.pack(fill="x", padx=(5, 5), pady=(4, 0))
+        ttk.Label(details_header, text="Payload details", font=("TkDefaultFont", 10, "bold")).pack(side="left", anchor="w")
         ttk.Button(details_header, text="Copy", command=self._copy_payload_details).pack(side="right")
 
         text_container = ttk.Frame(right_frame)
-        text_container.pack(fill="both", expand=True)
+        text_container.pack(fill="both", expand=True, padx=(5, 5))
 
         self.detail_text = tk.Text(text_container, wrap="none", font=("Courier", 10), width=40)
         self.detail_text.pack(side="left", fill="both", expand=True)
@@ -412,6 +430,7 @@ class PayloadInspectorApp:
         detail_scroll_y = ttk.Scrollbar(text_container, orient="vertical", command=self.detail_text.yview)
         detail_scroll_y.pack(side="right", fill="y")
         self.detail_text.configure(yscrollcommand=detail_scroll_y.set)
+        ttk.Frame(right_frame).pack(fill="x", padx=(5, 5), pady=(4, 0))
 
 
     def _toggle_pause(self) -> None:
@@ -478,6 +497,7 @@ class PayloadInspectorApp:
         self.detail_text.delete("1.0", tk.END)
         self.detail_text.insert("1.0", details)
         self.detail_text.configure(state="disabled")
+        self._group_preview_payloads = None
         self._draw_preview(payload)
         self._current_detail_text = details
 
@@ -493,7 +513,7 @@ class PayloadInspectorApp:
             display = path
         else:
             display = f"searching under {self._locator.log_dir}"
-        self.log_path_var.set(f"Log file: {display}")
+        self.log_path_var.set(display)
 
     def _scroll_to_end(self) -> None:
         if hasattr(self, "tree"):
@@ -541,6 +561,12 @@ class PayloadInspectorApp:
             _add(f"Suppress payload id '{payload_id}'", lambda pid=payload_id: self._suppress("payload_id", pid))
             added = True
         if added:
+            menu.add_separator()
+        if group_label:
+            menu.add_command(
+                label=f"Draw ID prefix group '{group_label}'",
+                command=lambda lbl=group_label: self._draw_group_preview(lbl),
+            )
             menu.add_separator()
         menu.add_command(label="Clear suppression", command=self._clear_suppression)
         self._context_menu = menu
@@ -640,7 +666,12 @@ class PayloadInspectorApp:
             return False
         return True
 
-    def _draw_preview(self, payload: Optional[Mapping[str, object]]) -> None:
+    def _draw_preview(
+        self,
+        payload: Optional[Mapping[str, object]],
+        *,
+        group_payloads: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
         canvas = getattr(self, "preview_canvas", None)
         if canvas is None:
             return
@@ -658,68 +689,30 @@ class PayloadInspectorApp:
             outline="#404040",
             dash=(3, 3),
         )
-        if not payload:
+        payload_dicts: List[Dict[str, Any]] = []
+        if group_payloads:
+            payload_dicts.extend(group_payloads)
+        elif payload is not None:
+            payload_dicts.append(self._parse_payload_entry(payload))
+        if not payload_dicts:
             canvas.create_text(width // 2, height // 2, text="(select a payload)", fill="#888888")
             return
-        try:
-            data = json.loads(payload.get("payload_json", "{}"))
-        except Exception:
-            data = {}
-        x = _coerce_number(data.get("x"))
-        y = _coerce_number(data.get("y"))
-        w = _coerce_number(data.get("w"))
-        h = _coerce_number(data.get("h"))
-        text = data.get("text")
-        shape = str(data.get("shape") or data.get("type") or "").lower()
-        raw_color = data.get("color") or "#80d0ff"
-        color = self._normalise_color(raw_color)
-        fill_value = data.get("fill")
-        points = data.get("vector") if isinstance(data.get("vector"), list) else None
-
         scale = self._compute_scale(inner_w, inner_h)
         ref_w, ref_h = 1280, 960
         offset_x = padding
         offset_y = padding
 
-        if shape == "vect" and points:
-            scaled_points = []
-            for point in points:
-                px = _coerce_number((point or {}).get("x"))
-                py = _coerce_number((point or {}).get("y"))
-                sx = offset_x + px * scale
-                sy = offset_y + py * scale
-                marker = (point or {}).get("marker")
-                if marker:
-                    marker_color = self._normalise_color(point.get("color") or color)
-                    self._draw_marker(canvas, marker, sx, sy, marker_color, point.get("text"))
-                else:
-                    scaled_points.extend([sx, sy])
-            if len(scaled_points) >= 4:
-                canvas.create_line(
-                    *scaled_points,
-                    fill=color,
-                    width=2,
-                    smooth=True,
-                )
-        elif shape == "rect" or shape == "message" or text:
-            box_w = max(10, (w or 0) * scale)
-            box_h = max(10, (h or 0) * scale)
-            origin_x = offset_x + (x or 0) * scale
-            origin_y = offset_y + (y or 0) * scale
-            canvas.create_rectangle(
-                origin_x,
-                origin_y,
-                origin_x + box_w,
-                origin_y + box_h,
-                outline=color if self._is_valid_color(color) else "#80d0ff",
-                width=2,
-                fill=fill_value if self._is_valid_color(fill_value) else "",
-            )
-        if text:
+        last_text: Optional[str] = None
+        for data in payload_dicts:
+            text = self._render_payload(canvas, data, offset_x, offset_y, scale)
+            if text:
+                last_text = text
+
+        if last_text and group_payloads is None:
             canvas.create_text(
                 offset_x + (ref_w * scale) / 2.0,
                 offset_y + ref_h * scale - 10,
-                text=str(text),
+                text=str(last_text),
                 fill="#ffffff",
                 anchor="s",
             )
@@ -762,6 +755,39 @@ class PayloadInspectorApp:
         except Exception as exc:
             self.status_var.set(f"Failed to copy payload details: {exc}")
 
+    def _choose_log_file(self) -> None:
+        initial = self.log_path_var.get() or str(self._locator.primary_log_file() or self._locator.log_dir)
+        initial_path = Path(initial)
+        if initial_path.is_file() or initial_path.suffix:
+            initial_dir = initial_path.parent
+        else:
+            initial_dir = initial_path
+        file_path = filedialog.askopenfilename(
+            parent=self.root,
+            initialdir=str(initial_dir),
+            title="Select overlay-payloads.log",
+        )
+        if not file_path:
+            return
+        self._custom_log_file = Path(file_path).expanduser()
+        self._user_config["log_file"] = str(self._custom_log_file)
+        self._save_user_config()
+        self._start_tailer()
+        self.status_var.set(f"Using log file: {file_path}")
+
+    def _draw_group_preview(self, group_label: str) -> None:
+        payloads: List[Dict[str, Any]] = []
+        for entry in self._payload_store.values():
+            label = (entry.get("group_label") or "").strip()
+            if label == group_label:
+                payloads.append(self._parse_payload_entry(entry))
+        if not payloads:
+            self.status_var.set(f"No payloads found for group '{group_label}'.")
+            return
+        self._group_preview_payloads = group_label
+        self._draw_preview(None, group_payloads=payloads)
+        self.status_var.set(f"Drew {len(payloads)} payload(s) for group '{group_label}'.")
+
     def _rotate_tip(self) -> None:
         if not hasattr(self, "_tips") or not self._tips:
             self.tip_var.set("")
@@ -769,6 +795,33 @@ class PayloadInspectorApp:
         self._tip_index = (self._tip_index + 1) % len(self._tips)
         self.tip_var.set(self._tips[self._tip_index])
         self.root.after(8000, self._rotate_tip)
+
+    def _start_tailer(self) -> None:
+        override = None
+        if self._custom_log_file:
+            override = self._custom_log_file
+        elif self._cli_override:
+            override = self._cli_override
+        if getattr(self, "_tailer", None):
+            self._tailer.stop()
+            self._tailer.join(timeout=1)
+        self._locator = LogLocator(ROOT_DIR, override_dir=override)
+        self._tailer = PayloadTailer(self._locator, self._resolver, self._queue, history_limit=MAX_ROWS)
+        self._tailer.start()
+        display = str(self._locator.primary_log_file() or self._locator.log_dir)
+        self._update_log_label(display)
+
+    def _load_user_config(self) -> Dict[str, Any]:
+        try:
+            return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        except json.JSONDecodeError:
+            return {}
+
+    def _save_user_config(self) -> None:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        CONFIG_FILE.write_text(json.dumps(self._user_config, indent=2), encoding="utf-8")
     @staticmethod
     def _draw_marker(canvas: tk.Canvas, marker: str, x: float, y: float, color: str, text: Optional[str]) -> None:
         size = 8
@@ -781,6 +834,67 @@ class PayloadInspectorApp:
             canvas.create_rectangle(x - size / 2, y - size / 2, x + size / 2, y + size / 2, outline=color)
         if text:
             canvas.create_text(x + size + 4, y, text=str(text), anchor="w", fill="#ffffff")
+
+    def _parse_payload_entry(self, payload_entry: Mapping[str, object]) -> Dict[str, Any]:
+        try:
+            return json.loads(payload_entry.get("payload_json", "{}"))
+        except Exception:
+            return {}
+
+    def _render_payload(
+        self,
+        canvas: tk.Canvas,
+        data: Mapping[str, Any],
+        offset_x: float,
+        offset_y: float,
+        scale: float,
+    ) -> Optional[str]:
+        x = _coerce_number(data.get("x"))
+        y = _coerce_number(data.get("y"))
+        w = _coerce_number(data.get("w"))
+        h = _coerce_number(data.get("h"))
+        text = data.get("text")
+        shape = str(data.get("shape") or data.get("type") or "").lower()
+        raw_color = data.get("color") or "#80d0ff"
+        color = self._normalise_color(raw_color)
+        fill_value = data.get("fill")
+        points = data.get("vector") if isinstance(data.get("vector"), list) else None
+
+        if shape == "vect" and points:
+            scaled_points = []
+            for point in points:
+                px = _coerce_number((point or {}).get("x"))
+                py = _coerce_number((point or {}).get("y"))
+                sx = offset_x + px * scale
+                sy = offset_y + py * scale
+                marker = (point or {}).get("marker")
+                if marker:
+                    marker_color = self._normalise_color(point.get("color") or color)
+                    self._draw_marker(canvas, marker, sx, sy, marker_color, point.get("text"))
+                else:
+                    scaled_points.extend([sx, sy])
+            if len(scaled_points) >= 4:
+                canvas.create_line(
+                    *scaled_points,
+                    fill=color,
+                    width=2,
+                    smooth=True,
+                )
+        elif shape == "rect" or shape == "message" or text:
+            box_w = max(10, (w or 0) * scale)
+            box_h = max(10, (h or 0) * scale)
+            origin_x = offset_x + (x or 0) * scale
+            origin_y = offset_y + (y or 0) * scale
+            canvas.create_rectangle(
+                origin_x,
+                origin_y,
+                origin_x + box_w,
+                origin_y + box_h,
+                outline=color if self._is_valid_color(color) else "#80d0ff",
+                width=2,
+                fill=fill_value if self._is_valid_color(fill_value) else "",
+            )
+        return text if isinstance(text, str) and text else None
 
 
 def _coerce_number(value: Any) -> float:
