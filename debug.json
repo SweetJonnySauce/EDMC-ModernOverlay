@@ -6,9 +6,7 @@
     "overlay_payload_log_enabled": true
   },
   "tracing": {
-    "enabled": true,
-    "payload_ids": [
-      "bioscan_radar_circle_1"
-    ]
+    "enabled": false,
+    "payload_ids": []
   }
 }
