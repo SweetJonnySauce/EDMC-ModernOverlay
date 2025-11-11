@@ -504,17 +504,10 @@ class PluginOverrideManager:
             return "nw"
         return token
 
-    def _should_trace(self, plugin: str, message_id: str) -> bool:
+    def _should_trace(self, _plugin: str, message_id: str) -> bool:
         cfg = self._debug_config
         if not cfg.trace_enabled:
             return False
-        plugin_key = self._canonical_plugin_name(plugin)
-        if cfg.trace_plugin:
-            trace_key = self._canonical_plugin_name(cfg.trace_plugin)
-            if trace_key is None:
-                return False
-            if trace_key != plugin_key:
-                return False
         if cfg.trace_payload_ids:
             if not message_id:
                 return False

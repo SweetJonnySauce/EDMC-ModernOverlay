@@ -92,18 +92,19 @@ The CLI scripts warn if `debug.json` does not have payload mirroring enabled. Fl
 
 ```json
 {
-  "trace_enabled": true,
-  "plugin": "LandingPad",
-  "payload_ids": [
-    "shell-",
-    "pad-"
-  ]
+  "tracing": {
+    "enabled": true,
+    "payload_ids": [
+      "shell-",
+      "pad-"
+    ]
+  }
 }
 ```
 
-- `trace_enabled` turns on tracing.
-- `plugin` narrows logs to a single plugin (optional).
-- `payload_ids` accepts a list of prefixes; the engine matches `str.startswith`.
+- `tracing.enabled` turns on tracing.
+- `tracing.payload_ids` accepts a list of prefixes; the engine matches `str.startswith`.
+- Leave `payload_ids` empty to trace every payload.
 
 With tracing enabled the overlay client logs `trace plugin=… stage=…` entries for each paint stage (raw points, adjusted rects, etc.), making it easier to confirm that grouping metadata is being honoured.
 

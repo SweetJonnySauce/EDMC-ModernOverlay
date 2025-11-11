@@ -4,12 +4,14 @@ Fill mode now keeps related payloads rigid by translating whole groups instead o
 
 ## Grouping pipeline
 
+The full end-to-end rendering path (from EDMC ingestion through final paint) now lives in `docs/rendering-pipeline.md`. This section focuses on the Fill-mode specific grouping layer that sits between legacy processing and the paint commands.
+
 1. `FillGroupingHelper.prepare()` runs before every Fill-mode paint pass. It walks `OverlayWindow._legacy_items`, determines a grouping key (plugin by default, or plugin/prefix when `overlay_groupings.json` declares `grouping.mode = "id_prefix"`), and accumulates bounds via `payload_transform.accumulate_group_bounds()`.
 2. The helper stores a `GroupTransform` per group inside `GroupTransformCache`. Each transform tracks the raw bounds (min/max overlay coordinates) plus normalised band/anchor values (`band_*`, `band_anchor_*`) expressed as percentages of the 1280 × 960 legacy canvas.
 3. When a payload is painted, `overlay_client._paint_legacy_*` builds a `FillViewport` with `viewport_transform.build_viewport()` and, if Fill mode is active, computes a proportional translation via `compute_proportional_translation()`. That translation re-centres the group so the anchor remains visible even though the canvas overflowed in one axis.
 4. `GroupTransform` anchors default to the group’s north‑west corner, but overrides can pin the anchor to `center`, `ne`, `sw`, or `se`. Anchors are resolved through `PluginOverrideManager.group_preserve_fill_aspect()` so prefix-specific overrides stay in sync with the renderer.
 
-Effectively, scaling is now uniform: Fill uses the same scale factor on both axes, the inverse group-scale step reverts grouped payloads to their original logical size, and the proportional translation reintroduces controlled letterboxing/pillarboxing per group.
+Effectively, scaling is uniform: Fill uses the same scale factor on both axes, the inverse group-scale step reverts grouped payloads to their original logical size, and the proportional translation reintroduces controlled letterboxing/pillarboxing per group.
 
 ## Anchors via plugin overrides
 

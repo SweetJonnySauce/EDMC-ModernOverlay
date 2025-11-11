@@ -202,9 +202,10 @@ PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
 PAYLOAD_LOG_MAX_BYTES = 512 * 1024
 
 DEFAULT_DEBUG_CONFIG: Dict[str, Any] = {
-    "trace_enabled": False,
-    "plugin": "",
-    "payload_ids": [],
+    "tracing": {
+        "enabled": False,
+        "payload_ids": [],
+    },
     "payload_logging": {
         "overlay_payload_log_enabled": True,
         "exclude_plugins": [],
@@ -276,7 +277,6 @@ class _PluginRuntime:
         self._payload_filter_excludes: Set[str] = set()
         self._payload_logging_enabled: bool = False
         self._trace_enabled: bool = False
-        self._trace_plugin_filter: Optional[str] = None
         self._trace_payload_prefixes: Tuple[str, ...] = ()
         self._debug_config_notice_logged = False
         self._flatpak_context = self._detect_flatpak_context()
@@ -476,7 +476,6 @@ class _PluginRuntime:
 
     def _reset_trace_config(self) -> None:
         self._trace_enabled = False
-        self._trace_plugin_filter = None
         self._trace_payload_prefixes = ()
 
     def _load_payload_debug_config(self, *, force: bool = False) -> None:
@@ -528,7 +527,6 @@ class _PluginRuntime:
         excludes: Set[str] = set()
         enabled = False
         trace_enabled = False
-        trace_plugin: Optional[str] = None
         trace_payload_ids: Tuple[str, ...] = ()
 
         def _coerce_payload_ids(value: Any) -> Tuple[str, ...]:
@@ -574,19 +572,22 @@ class _PluginRuntime:
                     enabled = legacy_flag
                 elif legacy_flag is not None:
                     enabled = bool(legacy_flag)
-            trace_enabled = bool(data.get("trace_enabled", False))
-            plugin_value = data.get("plugin")
-            if plugin_value is not None:
-                plugin_token = str(plugin_value).strip()
-                trace_plugin = plugin_token or None
-            payload_value = data.get("payload_ids")
-            if payload_value is None:
-                payload_value = data.get("payload_id") or data.get("payload")
+            tracing_section = data.get("tracing")
+            payload_value: Any = None
+            if isinstance(tracing_section, Mapping):
+                trace_enabled = bool(tracing_section.get("enabled", False))
+                payload_value = tracing_section.get("payload_ids")
+                if payload_value is None:
+                    payload_value = tracing_section.get("payload_id") or tracing_section.get("payload")
+            else:
+                trace_enabled = bool(data.get("trace_enabled", False))
+                payload_value = data.get("payload_ids")
+                if payload_value is None:
+                    payload_value = data.get("payload_id") or data.get("payload")
             trace_payload_ids = _coerce_payload_ids(payload_value)
         self._payload_filter_excludes = excludes
         self._payload_logging_enabled = enabled
         self._trace_enabled = trace_enabled
-        self._trace_plugin_filter = trace_plugin
         self._trace_payload_prefixes = trace_payload_ids
         self._payload_filter_mtime = stat.st_mtime
 
@@ -1268,9 +1269,6 @@ class _PluginRuntime:
     def _should_trace_payload(self, plugin_name: Optional[str], payload_id: Optional[str]) -> bool:
         if not self._trace_enabled:
             return False
-        if self._trace_plugin_filter:
-            if not plugin_name or self._trace_plugin_filter != plugin_name:
-                return False
         if self._trace_payload_prefixes:
             identifier = payload_id or ""
             if not any(identifier.startswith(prefix) for prefix in self._trace_payload_prefixes):

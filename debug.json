@@ -1,19 +1,14 @@
 {
-  "trace_enabled": false,
-  "plugin": "LandingPad",
-  "payload_ids": [
-    "line-2",
-    "shell-0",
-    "shell-3",
-    "pad-"
-  ],
-  "payload_logging": {
-    "overlay_payload_log_enabled": true,
-    "exclude_plugins": [
-      "bgstallyx",
-      "blah"
-    ]
-  },
+  "group_bounds_outline": true,
   "overlay_outline": true,
-  "group_bounds_outline": true
+  "payload_logging": {
+    "exclude_plugins": [],
+    "overlay_payload_log_enabled": true
+  },
+  "tracing": {
+    "enabled": true,
+    "payload_ids": [
+      "bioscan_radar_circle_1"
+    ]
+  }
 }
