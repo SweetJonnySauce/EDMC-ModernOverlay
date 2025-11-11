@@ -263,6 +263,9 @@ class _PluginRuntime:
         self._payload_filter_mtime: Optional[float] = None
         self._payload_filter_excludes: Set[str] = set()
         self._payload_logging_enabled: bool = False
+        self._trace_enabled: bool = False
+        self._trace_plugin_filter: Optional[str] = None
+        self._trace_payload_prefixes: Tuple[str, ...] = ()
         self._debug_config_notice_logged = False
         self._flatpak_context = self._detect_flatpak_context()
         self._flatpak_spawn_warning_emitted = False
@@ -448,12 +451,18 @@ class _PluginRuntime:
                 continue
         return plugin_root
 
+    def _reset_trace_config(self) -> None:
+        self._trace_enabled = False
+        self._trace_plugin_filter = None
+        self._trace_payload_prefixes = ()
+
     def _load_payload_debug_config(self, *, force: bool = False) -> None:
         if not DEV_BUILD:
             if force or self._payload_filter_excludes or self._payload_logging_enabled or self._payload_filter_mtime is not None:
                 self._payload_filter_excludes = set()
                 self._payload_logging_enabled = False
                 self._payload_filter_mtime = None
+                self._reset_trace_config()
             if force and not self._debug_config_notice_logged:
                 LOGGER.debug(
                     "Ignoring debug.json overrides because dev mode is disabled. Set %s=1 or use a -dev build to enable developer payload logging.",
@@ -468,6 +477,7 @@ class _PluginRuntime:
                 self._payload_filter_excludes = set()
                 self._payload_logging_enabled = False
                 self._payload_filter_mtime = None
+                self._reset_trace_config()
             return
         if not force and self._payload_filter_mtime is not None and stat.st_mtime <= self._payload_filter_mtime:
             return
@@ -477,10 +487,32 @@ class _PluginRuntime:
         except (OSError, json.JSONDecodeError):
             self._payload_filter_excludes = set()
             self._payload_logging_enabled = False
+            self._reset_trace_config()
             self._payload_filter_mtime = stat.st_mtime
             return
         excludes: Set[str] = set()
         enabled = False
+        trace_enabled = False
+        trace_plugin: Optional[str] = None
+        trace_payload_ids: Tuple[str, ...] = ()
+
+        def _coerce_payload_ids(value: Any) -> Tuple[str, ...]:
+            if value is None:
+                return ()
+            if isinstance(value, (list, tuple, set)):
+                cleaned: List[str] = []
+                for item in value:
+                    if isinstance(item, (str, int, float)):
+                        token = str(item).strip()
+                        if token:
+                            cleaned.append(token)
+                return tuple(cleaned)
+            if isinstance(value, (str, int, float)):
+                token = str(value).strip()
+                if token:
+                    return (token,)
+            return ()
+
         if isinstance(data, Mapping):
             payload_section = data.get("payload_logging")
             if isinstance(payload_section, Mapping):
@@ -507,8 +539,20 @@ class _PluginRuntime:
                     enabled = legacy_flag
                 elif legacy_flag is not None:
                     enabled = bool(legacy_flag)
+            trace_enabled = bool(data.get("trace_enabled", False))
+            plugin_value = data.get("plugin")
+            if plugin_value is not None:
+                plugin_token = str(plugin_value).strip()
+                trace_plugin = plugin_token or None
+            payload_value = data.get("payload_ids")
+            if payload_value is None:
+                payload_value = data.get("payload_id") or data.get("payload")
+            trace_payload_ids = _coerce_payload_ids(payload_value)
         self._payload_filter_excludes = excludes
         self._payload_logging_enabled = enabled
+        self._trace_enabled = trace_enabled
+        self._trace_plugin_filter = trace_plugin
+        self._trace_payload_prefixes = trace_payload_ids
         self._payload_filter_mtime = stat.st_mtime
 
     def _start_watchdog(self) -> bool:
@@ -890,12 +934,14 @@ class _PluginRuntime:
         if not self._running:
             return False
         original_payload = dict(payload)
+        self._trace_payload_event("ingest:external_raw", original_payload)
         message = dict(original_payload)
         message.setdefault("cmdr", self._state.get("cmdr", ""))
         message.setdefault("system", self._state.get("system", ""))
         message.setdefault("station", self._state.get("station", ""))
         message.setdefault("docked", self._state.get("docked", False))
         message.setdefault("raw", original_payload)
+        self._trace_payload_event("publish:prepared", message, {"source": "external"})
         self._publish_payload(message)
         return True
 
@@ -951,8 +997,10 @@ class _PluginRuntime:
         if not self._running:
             return False
         raw_payload = dict(payload)
+        self._trace_payload_event("legacy_tcp:received", raw_payload)
         normalised = normalise_legacy_payload(raw_payload)
         if normalised is None:
+            self._trace_payload_event("legacy_tcp:dropped", raw_payload, {"reason": "normalise_failed"})
             LOGGER.debug("Legacy overlay payload dropped (unable to normalise): %s", raw_payload)
             return False
         message: Dict[str, Any] = {
@@ -961,6 +1009,14 @@ class _PluginRuntime:
             "legacy_raw": raw_payload,
         }
         message.setdefault("timestamp", datetime.now(UTC).isoformat())
+        self._trace_payload_event(
+            "legacy_tcp:normalised",
+            message,
+            {
+                "raw_shape": raw_payload.get("shape"),
+                "raw_type": raw_payload.get("type"),
+            },
+        )
         return self._publish_external(message)
 
     def _handle_cli_payload(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -1017,6 +1073,7 @@ class _PluginRuntime:
                             raise ValueError("Vector shape payload requires a 'vector' list with at least two points")
                 else:
                     raise ValueError(f"Unsupported LegacyOverlay payload type: {payload_type}")
+                self._trace_payload_event("cli:legacy_overlay", message)
                 self._publish_payload(message)
                 return {"status": "ok"}
             if command == "overlay_metrics":
@@ -1091,8 +1148,10 @@ class _PluginRuntime:
 
     def _publish_payload(self, payload: Mapping[str, Any]) -> None:
         message = dict(payload)
+        self._trace_payload_event("publish:dispatch", message)
         self._log_payload(message)
         self.broadcaster.publish(dict(message))
+        self._trace_payload_event("publish:sent", message)
 
     def _load_plugin_prefix_map(self) -> Dict[str, str]:
         config_path = self.plugin_dir / "overlay_groupings.json"
@@ -1170,6 +1229,47 @@ class _PluginRuntime:
                 return prefix_guess, payload_id
 
         return None, payload_id
+
+    def _should_trace_payload(self, plugin_name: Optional[str], payload_id: Optional[str]) -> bool:
+        if not self._trace_enabled:
+            return False
+        if self._trace_plugin_filter:
+            if not plugin_name or self._trace_plugin_filter != plugin_name:
+                return False
+        if self._trace_payload_prefixes:
+            identifier = payload_id or ""
+            if not any(identifier.startswith(prefix) for prefix in self._trace_payload_prefixes):
+                return False
+        return True
+
+    def _trace_payload_event(
+        self,
+        stage: str,
+        payload: Mapping[str, Any],
+        extra: Optional[Mapping[str, Any]] = None,
+    ) -> None:
+        if not self._trace_enabled:
+            return
+        plugin_name, payload_id = self._plugin_name_for_payload(payload)
+        if not self._should_trace_payload(plugin_name, payload_id):
+            return
+        info: Dict[str, Any] = {}
+        event_name = payload.get("event")
+        payload_type = payload.get("type")
+        if isinstance(event_name, str) and event_name:
+            info["event"] = event_name
+        if isinstance(payload_type, str) and payload_type:
+            info["type"] = payload_type
+        if extra:
+            for key, value in extra.items():
+                info[key] = value
+        LOGGER.debug(
+            "trace plugin=%s id=%s stage=%s info=%s",
+            plugin_name or "unknown",
+            payload_id or "",
+            stage,
+            info,
+        )
 
     def _log_payload(self, payload: Mapping[str, Any]) -> None:
         event: Optional[str] = None
