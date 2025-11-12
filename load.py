@@ -54,6 +54,15 @@ LOG_TAG = "EDMC-ModernOverlay"
 DEFAULT_WINDOW_BASE_WIDTH = 1280
 DEFAULT_WINDOW_BASE_HEIGHT = 960
 
+VERSION_UPDATE_NOTICE_TEXT = "A newer version of EDMC-ModernOverlay is available"
+VERSION_UPDATE_NOTICE_COLOR = "#ff3333"
+VERSION_UPDATE_NOTICE_TTL = 10
+VERSION_UPDATE_NOTICE_POSITION_X = 20
+VERSION_UPDATE_NOTICE_POSITION_Y = 20
+VERSION_UPDATE_NOTICE_ID = "edmc-modernoverlay-version-notice"
+VERSION_UPDATE_NOTICE_REBROADCASTS = 5
+VERSION_UPDATE_NOTICE_REBROADCAST_INTERVAL = 2.0
+
 EDMC_DEFAULT_LOG_LEVEL = logging.DEBUG if DEV_BUILD else logging.INFO
 _LEVEL_NAME_MAP = {
     "CRITICAL": logging.CRITICAL,
@@ -297,6 +306,9 @@ class _PluginRuntime:
             self._configure_payload_logger()
         self._version_status: Optional[VersionStatus] = None
         self._version_status_lock = threading.Lock()
+        self._version_update_notice_sent = False
+        self._version_notice_timer_lock = threading.Lock()
+        self._version_notice_timers: Set[threading.Timer] = set()
         threading.Thread(
             target=self._evaluate_version_status_once,
             name="ModernOverlayVersionCheck",
@@ -335,6 +347,7 @@ class _PluginRuntime:
         register_publisher(self._publish_external)
         self._start_legacy_tcp_server()
         self._send_overlay_config(rebroadcast=True)
+        self._maybe_emit_version_update_notice()
         _log("Plugin started")
         return PLUGIN_NAME
 
@@ -346,6 +359,7 @@ class _PluginRuntime:
         unregister_publisher()
         _log("Plugin stopping")
         self._cancel_config_timers()
+        self._cancel_version_notice_timers()
         self._stop_legacy_tcp_server()
         if self.watchdog:
             if self.watchdog.stop():
@@ -421,10 +435,94 @@ class _PluginRuntime:
             )
         with self._version_status_lock:
             self._version_status = status
+        self._maybe_emit_version_update_notice()
 
     def get_version_status(self) -> Optional[VersionStatus]:
         with self._version_status_lock:
             return self._version_status
+
+    def _maybe_emit_version_update_notice(self) -> None:
+        status = self.get_version_status()
+        if status is None:
+            return
+        if not status.update_available:
+            return
+        if self._version_update_notice_sent:
+            return
+        if not self._running:
+            return
+        if self._send_version_update_notice(status):
+            self._schedule_version_notice_rebroadcasts()
+
+    def _build_version_update_notice_payload(self) -> Dict[str, Any]:
+        current_time = datetime.now(UTC).isoformat()
+        return {
+            "timestamp": current_time,
+            "event": "LegacyOverlay",
+            "type": "message",
+            "id": VERSION_UPDATE_NOTICE_ID,
+            "text": VERSION_UPDATE_NOTICE_TEXT,
+            "color": VERSION_UPDATE_NOTICE_COLOR,
+            "x": VERSION_UPDATE_NOTICE_POSITION_X,
+            "y": VERSION_UPDATE_NOTICE_POSITION_Y,
+            "ttl": VERSION_UPDATE_NOTICE_TTL,
+            "size": "normal",
+        }
+
+    def _send_version_update_notice(self, status: VersionStatus) -> bool:
+        payload = self._build_version_update_notice_payload()
+        if send_overlay_message(payload):
+            LOGGER.info(
+                "Overlay update notice displayed; current=%s latest=%s",
+                status.current_version,
+                status.latest_version or "unknown",
+            )
+            self._version_update_notice_sent = True
+            return True
+        LOGGER.debug("Failed to publish version update notice to overlay")
+        return False
+
+    def _schedule_version_notice_rebroadcasts(
+        self,
+        count: int = VERSION_UPDATE_NOTICE_REBROADCASTS,
+        interval: float = VERSION_UPDATE_NOTICE_REBROADCAST_INTERVAL,
+    ) -> None:
+        if count <= 0 or interval <= 0:
+            return
+
+        self._cancel_version_notice_timers()
+
+        def _schedule(delay: float) -> None:
+            timer_ref: Optional[threading.Timer] = None
+
+            def _callback() -> None:
+                try:
+                    if not self._running or not self._version_update_notice_sent:
+                        return
+                    payload = self._build_version_update_notice_payload()
+                    if send_overlay_message(payload):
+                        LOGGER.debug("Rebroadcasted version update notice to overlay")
+                finally:
+                    if timer_ref is not None:
+                        with self._version_notice_timer_lock:
+                            self._version_notice_timers.discard(timer_ref)
+
+            timer_ref = threading.Timer(delay, _callback)
+            timer_ref.daemon = True
+            with self._version_notice_timer_lock:
+                self._version_notice_timers.add(timer_ref)
+            timer_ref.start()
+
+        for index in range(count):
+            delay = interval * (index + 1)
+            _schedule(delay)
+
+    def _cancel_version_notice_timers(self) -> None:
+        with self._version_notice_timer_lock:
+            timers = tuple(self._version_notice_timers)
+            self._version_notice_timers.clear()
+        for timer in timers:
+            timer.cancel()
 
     def _write_port_file(self) -> None:
         target = self.plugin_dir / "port.json"
