@@ -10,7 +10,7 @@
   "show_debug_overlay": false,
   "min_font_point": 6.0,
   "max_font_point": 14.0,
-  "status_bottom_margin": 70,
+  "status_bottom_margin": 20,
   "title_bar_enabled": false,
   "title_bar_height": 30,
   "cycle_payload_ids": false,
@@ -18,5 +18,5 @@
   "scale_mode": "fill",
   "nudge_overflow_payloads": true,
   "payload_nudge_gutter": 30,
-  "status_message_gutter": 50
+  "status_message_gutter": 0
 }

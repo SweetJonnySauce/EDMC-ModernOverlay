@@ -9,6 +9,7 @@ import os
 import shutil
 import sys
 import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
@@ -22,6 +23,7 @@ if __package__:
     from .overlay_plugin.overlay_watchdog import OverlayWatchdog
     from .overlay_plugin.overlay_socket_server import WebSocketBroadcaster
     from .overlay_plugin.preferences import Preferences, PreferencesPanel, STATUS_GUTTER_MAX
+    from .overlay_plugin.version_helper import VersionStatus, evaluate_version_status
     from .overlay_plugin.legacy_tcp_server import LegacyOverlayTCPServer
     from .overlay_plugin.overlay_api import (
         register_publisher,
@@ -34,6 +36,7 @@ else:  # pragma: no cover - EDMC loads as top-level module
     from overlay_plugin.overlay_watchdog import OverlayWatchdog
     from overlay_plugin.overlay_socket_server import WebSocketBroadcaster
     from overlay_plugin.preferences import Preferences, PreferencesPanel, STATUS_GUTTER_MAX
+    from overlay_plugin.version_helper import VersionStatus, evaluate_version_status
     from overlay_plugin.legacy_tcp_server import LegacyOverlayTCPServer
     from overlay_plugin.overlay_api import (
         register_publisher,
@@ -292,6 +295,13 @@ class _PluginRuntime:
         self._load_payload_debug_config(force=True)
         if self._payload_log_handler is None:
             self._configure_payload_logger()
+        self._version_status: Optional[VersionStatus] = None
+        self._version_status_lock = threading.Lock()
+        threading.Thread(
+            target=self._evaluate_version_status_once,
+            name="ModernOverlayVersionCheck",
+            daemon=True,
+        ).start()
 
     # Lifecycle ------------------------------------------------------------
 
@@ -396,6 +406,25 @@ class _PluginRuntime:
             self._state["station"] = station
         if event in {"Location", "FSDJump", "SupercruiseExit"} and entry.get("StationName"):
             self._state["station"] = entry["StationName"]
+
+    def _evaluate_version_status_once(self) -> None:
+        try:
+            status = evaluate_version_status(PLUGIN_VERSION)
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            LOGGER.debug("Version check failed: %s", exc, exc_info=exc)
+            status = VersionStatus(
+                current_version=PLUGIN_VERSION,
+                latest_version=None,
+                is_outdated=False,
+                checked_at=time.time(),
+                error=str(exc),
+            )
+        with self._version_status_lock:
+            self._version_status = status
+
+    def get_version_status(self) -> Optional[VersionStatus]:
+        with self._version_status_lock:
+            return self._version_status
 
     def _write_port_file(self) -> None:
         target = self.plugin_dir / "port.json"
@@ -1706,6 +1735,8 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         return None
     send_callback = _plugin.send_test_message if _plugin else None
     opacity_callback = _plugin.preview_overlay_opacity if _plugin else None
+    version_status = _plugin.get_version_status() if _plugin else None
+    version_update_available = bool(version_status.update_available) if version_status else False
     try:
         status_callback = _plugin.set_show_status_preference if _plugin else None
         status_gutter_callback = _plugin.set_status_gutter_preference if _plugin else None
@@ -1750,6 +1781,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             restart_overlay_callback,
             dev_mode=DEV_BUILD,
             plugin_version=MODERN_OVERLAY_VERSION,
+            version_update_available=version_update_available,
         )
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)
@@ -1759,6 +1791,14 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
     frame = panel.frame
     LOGGER.debug("plugin_prefs returning frame=%r", frame)
     return frame
+
+
+def get_version_status() -> Optional[VersionStatus]:
+    """Expose the cached upstream version status for other integrations."""
+
+    if _plugin is None:
+        return None
+    return _plugin.get_version_status()
 
 
 def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - save hook

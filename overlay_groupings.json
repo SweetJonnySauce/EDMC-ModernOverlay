@@ -33,6 +33,13 @@
             "bgstally-frame-system_info"
           ],
           "anchor": "nw"
+        },
+        "BGS-Tally Ready": {
+          "id_prefixes": [
+            "bgstally-frame-info",
+            "bgstally-msg-info-"
+          ],
+          "anchor": "nw"
         }
       }
     }

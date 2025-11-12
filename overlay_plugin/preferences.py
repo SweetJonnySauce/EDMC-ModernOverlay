@@ -168,6 +168,7 @@ class PreferencesPanel:
         restart_overlay_callback: Optional[Callable[[], None]] = None,
         dev_mode: bool = False,
         plugin_version: Optional[str] = None,
+        version_update_available: bool = False,
     ) -> None:
         import tkinter as tk
         from tkinter import ttk
@@ -230,6 +231,7 @@ class PreferencesPanel:
         self._status_gutter_apply_in_progress = False
         self._var_status_gutter.trace_add("write", self._on_status_gutter_trace)
         self._plugin_version = (plugin_version or "").strip()
+        self._version_update_available = bool(version_update_available)
         self._test_var = tk.StringVar()
         self._test_x_var = tk.StringVar()
         self._test_y_var = tk.StringVar()
@@ -241,9 +243,13 @@ class PreferencesPanel:
         header_frame = ttk.Frame(frame, style=self._frame_style)
         header_frame.grid(row=0, column=0, sticky="we")
         header_frame.columnconfigure(0, weight=1)
+        header_frame.columnconfigure(1, weight=0)
+
         if self._plugin_version:
+            version_column = ttk.Frame(header_frame, style=self._frame_style)
+            version_column.grid(row=0, column=1, sticky="ne")
             version_label = nb.Label(
-                header_frame,
+                version_column,
                 text=f"Version {self._plugin_version}",
                 cursor="hand2",
                 foreground="#1a73e8",
@@ -255,7 +261,7 @@ class PreferencesPanel:
                 version_label.configure(font=link_font)
             except Exception:
                 pass
-            version_label.pack(side="right")
+            version_label.grid(row=0, column=0, sticky="e")
             version_label.bind("<Button-1>", self._open_release_link)
             version_label.bind("<Return>", self._open_release_link)
             version_label.bind(
@@ -264,6 +270,13 @@ class PreferencesPanel:
             version_label.bind(
                 "<Leave>", lambda _event, widget=version_label: widget.configure(foreground="#1a73e8")
             )
+            if self._version_update_available:
+                warning_label = nb.Label(
+                    version_column,
+                    text="A newer version is available",
+                    foreground="#c62828",
+                )
+                warning_label.grid(row=1, column=0, sticky="e", pady=(2, 0))
 
         user_section = ttk.Frame(frame, style=self._frame_style)
         user_section.grid(row=1, column=0, sticky="we")
