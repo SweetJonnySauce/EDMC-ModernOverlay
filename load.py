@@ -21,7 +21,7 @@ if __package__:
     )
     from .overlay_plugin.overlay_watchdog import OverlayWatchdog
     from .overlay_plugin.overlay_socket_server import WebSocketBroadcaster
-    from .overlay_plugin.preferences import Preferences, PreferencesPanel
+    from .overlay_plugin.preferences import Preferences, PreferencesPanel, STATUS_GUTTER_MAX
     from .overlay_plugin.legacy_tcp_server import LegacyOverlayTCPServer
     from .overlay_plugin.overlay_api import (
         register_publisher,
@@ -33,7 +33,7 @@ else:  # pragma: no cover - EDMC loads as top-level module
     from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR, is_dev_build
     from overlay_plugin.overlay_watchdog import OverlayWatchdog
     from overlay_plugin.overlay_socket_server import WebSocketBroadcaster
-    from overlay_plugin.preferences import Preferences, PreferencesPanel
+    from overlay_plugin.preferences import Preferences, PreferencesPanel, STATUS_GUTTER_MAX
     from overlay_plugin.legacy_tcp_server import LegacyOverlayTCPServer
     from overlay_plugin.overlay_api import (
         register_publisher,
@@ -877,13 +877,15 @@ class _PluginRuntime:
         self._preferences.save()
         self._send_overlay_config()
 
-    def set_status_bandwidth_preference(self, value: bool) -> None:
-        self._preferences.show_ed_bandwidth = bool(value)
-        self._preferences.save()
-        self._send_overlay_config()
-
-    def set_status_fps_preference(self, value: bool) -> None:
-        self._preferences.show_ed_fps = bool(value)
+    def set_status_gutter_preference(self, value: int) -> None:
+        try:
+            gutter = int(value)
+        except (TypeError, ValueError):
+            gutter = self._preferences.status_message_gutter
+        gutter = max(0, min(gutter, STATUS_GUTTER_MAX))
+        if gutter == self._preferences.status_message_gutter:
+            return
+        self._preferences.status_message_gutter = gutter
         self._preferences.save()
         self._send_overlay_config()
 
@@ -1706,9 +1708,8 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
     opacity_callback = _plugin.preview_overlay_opacity if _plugin else None
     try:
         status_callback = _plugin.set_show_status_preference if _plugin else None
+        status_gutter_callback = _plugin.set_status_gutter_preference if _plugin else None
         debug_corner_callback = _plugin.set_debug_overlay_corner_preference if _plugin else None
-        status_bandwidth_callback = _plugin.set_status_bandwidth_preference if _plugin else None
-        status_fps_callback = _plugin.set_status_fps_preference if _plugin else None
         gridlines_enabled_callback = _plugin.set_gridlines_enabled_preference if _plugin else None
         gridline_spacing_callback = _plugin.set_gridline_spacing_preference if _plugin else None
         payload_nudge_callback = _plugin.set_payload_nudge_preference if _plugin else None
@@ -1730,9 +1731,8 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             send_callback,
             opacity_callback,
             status_callback,
+            status_gutter_callback,
             debug_corner_callback,
-            status_bandwidth_callback,
-            status_fps_callback,
             gridlines_enabled_callback,
             gridline_spacing_callback,
             payload_nudge_callback,
@@ -1748,6 +1748,8 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             cycle_prev_callback,
             cycle_next_callback,
             restart_overlay_callback,
+            dev_mode=DEV_BUILD,
+            plugin_version=MODERN_OVERLAY_VERSION,
         )
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)

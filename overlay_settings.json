@@ -1,8 +1,6 @@
 {
   "overlay_opacity": 0.0,
-  "show_connection_status": false,
-  "show_ed_bandwidth": false,
-  "show_ed_fps": false,
+  "show_connection_status": true,
   "debug_overlay_corner": "SE",
   "client_log_retention": 5,
   "gridlines_enabled": true,
@@ -11,13 +9,14 @@
   "force_xwayland": false,
   "show_debug_overlay": false,
   "min_font_point": 6.0,
-  "max_font_point": 13.0,
-  "status_bottom_margin": 20,
+  "max_font_point": 14.0,
+  "status_bottom_margin": 70,
   "title_bar_enabled": false,
   "title_bar_height": 30,
   "cycle_payload_ids": false,
   "copy_payload_id_on_cycle": true,
   "scale_mode": "fill",
   "nudge_overflow_payloads": true,
-  "payload_nudge_gutter": 30
+  "payload_nudge_gutter": 30,
+  "status_message_gutter": 50
 }
