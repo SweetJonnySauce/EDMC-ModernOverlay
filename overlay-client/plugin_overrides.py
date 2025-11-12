@@ -12,7 +12,7 @@ from debug_config import DebugConfig
 
 JsonDict = Dict[str, Any]
 
-_ANCHOR_OPTIONS = {"nw", "ne", "sw", "se", "center"}
+_ANCHOR_OPTIONS = {"nw", "ne", "sw", "se", "center", "top", "bottom", "left", "right"}
 
 
 @dataclass
@@ -197,118 +197,122 @@ class PluginOverrideManager:
                 continue
 
             match_prefixes: List[str] = []
-            match_section = plugin_payload.get("__match__")
-            if isinstance(match_section, Mapping):
-                prefixes = match_section.get("id_prefixes")
-                if isinstance(prefixes, Iterable):
-                    for value in prefixes:
-                        if isinstance(value, str) and value:
-                            prefix = value.casefold()
-                            if prefix not in match_prefixes:
-                                match_prefixes.append(prefix)
+
+            def _extend_match_prefixes(raw: Any) -> None:
+                if isinstance(raw, str):
+                    candidates = [raw]
+                elif isinstance(raw, Iterable):
+                    candidates = [entry for entry in raw if isinstance(entry, str)]
+                else:
+                    candidates = []
+                for value in candidates:
+                    token = value.strip()
+                    if not token:
+                        continue
+                    prefix = token.casefold()
+                    if prefix not in match_prefixes:
+                        match_prefixes.append(prefix)
+
+            _extend_match_prefixes(plugin_payload.get("matchingPrefixes"))
+
+            if not match_prefixes:
+                match_section = plugin_payload.get("__match__")
+                if isinstance(match_section, Mapping):
+                    _extend_match_prefixes(match_section.get("id_prefixes"))
 
             grouping_specs: List[_GroupSpec] = []
+            group_prefix_hints: List[str] = []
+
+            def _clean_group_prefixes(raw_value: Any) -> Tuple[str, ...]:
+                if isinstance(raw_value, str):
+                    values = [raw_value]
+                elif isinstance(raw_value, Iterable):
+                    values = [entry for entry in raw_value if isinstance(entry, str)]
+                else:
+                    values = []
+                cleaned: List[str] = []
+                for entry in values:
+                    token = entry.strip()
+                    if token:
+                        cleaned.append(token.casefold())
+                return tuple(cleaned)
+
+            def _parse_anchor(source: Mapping[str, Any]) -> Optional[str]:
+                anchor_field = source.get("idPrefixGroupAnchor") or source.get("anchor")
+                if isinstance(anchor_field, str) and anchor_field.strip():
+                    return anchor_field.strip()
+                legacy_block = source.get("preserve_fill_aspect")
+                if isinstance(legacy_block, Mapping):
+                    legacy_anchor = legacy_block.get("anchor")
+                    if isinstance(legacy_anchor, str) and legacy_anchor.strip():
+                        return legacy_anchor.strip()
+                return None
+
+            def _append_group_spec(label: Optional[str], prefixes: Tuple[str, ...], anchor: Optional[str]) -> None:
+                if not prefixes:
+                    return
+                grouping_specs.append(
+                    _GroupSpec(
+                        label=label,
+                        prefixes=prefixes,
+                        defaults=None,
+                        anchor=anchor,
+                    )
+                )
+                for prefix in prefixes:
+                    if prefix not in group_prefix_hints:
+                        group_prefix_hints.append(prefix)
+
+            id_prefix_groups = plugin_payload.get("idPrefixGroups")
+            if isinstance(id_prefix_groups, Mapping):
+                for label, group_value in id_prefix_groups.items():
+                    if not isinstance(group_value, Mapping):
+                        continue
+                    cleaned_prefixes = _clean_group_prefixes(
+                        group_value.get("idPrefixes") or group_value.get("id_prefixes")
+                    )
+                    anchor_token = _parse_anchor(group_value)
+                    label_value = str(label).strip() if isinstance(label, str) and label else None
+                    _append_group_spec(label_value, cleaned_prefixes, anchor_token)
+
             grouping_section = plugin_payload.get("grouping")
             if isinstance(grouping_section, Mapping):
-                group_prefix_hints: List[str] = []
-
-                def _clean_group_prefixes(group_value: Mapping[str, Any]) -> List[str]:
-                    prefixes_field = group_value.get("id_prefixes")
-                    prefixes_list: List[str] = []
-                    if isinstance(prefixes_field, str) and prefixes_field:
-                        prefixes_list = [prefixes_field]
-                    elif isinstance(prefixes_field, Iterable):
-                        for entry in prefixes_field:
-                            if isinstance(entry, str) and entry:
-                                prefixes_list.append(entry)
-                    if not prefixes_list:
-                        single_prefix = group_value.get("prefix")
-                        if isinstance(single_prefix, str) and single_prefix:
-                            prefixes_list = [single_prefix]
-                    return [prefix.casefold() for prefix in prefixes_list if prefix]
-
-                def _parse_anchor(source: Mapping[str, Any]) -> Optional[str]:
-                    anchor_field = source.get("anchor")
-                    if isinstance(anchor_field, str) and anchor_field.strip():
-                        return anchor_field.strip()
-                    legacy_block = source.get("preserve_fill_aspect")
-                    if isinstance(legacy_block, Mapping):
-                        legacy_anchor = legacy_block.get("anchor")
-                        if isinstance(legacy_anchor, str) and legacy_anchor.strip():
-                            return legacy_anchor.strip()
-                    return None
                 groups_spec = grouping_section.get("groups")
                 if isinstance(groups_spec, Mapping):
                     for label, group_value in groups_spec.items():
                         if not isinstance(group_value, Mapping):
                             continue
-                        cleaned_prefixes = tuple(_clean_group_prefixes(group_value))
+                        cleaned_prefixes = _clean_group_prefixes(group_value.get("id_prefixes"))
                         if not cleaned_prefixes:
-                            continue
-                        for prefix in cleaned_prefixes:
-                            if prefix not in group_prefix_hints:
-                                group_prefix_hints.append(prefix)
-                        group_label = str(label).strip() if isinstance(label, str) and label else None
-                        defaults = None
+                            cleaned_prefixes = _clean_group_prefixes(group_value.get("prefix"))
                         anchor_token = _parse_anchor(group_value)
-                        grouping_specs.append(
-                            _GroupSpec(
-                                label=group_label,
-                                prefixes=cleaned_prefixes,
-                                defaults=defaults,
-                                anchor=anchor_token,
-                            )
-                        )
+                        label_value = str(label).strip() if isinstance(label, str) and label else None
+                        _append_group_spec(label_value, cleaned_prefixes, anchor_token)
 
                 prefixes_spec = grouping_section.get("prefixes")
                 if isinstance(prefixes_spec, Mapping):
                     for label, prefix_value in prefixes_spec.items():
-                        prefixes: List[str] = []
-                        defaults: Optional[JsonDict] = None
-                        label_value: Optional[str] = None
+                        prefixes: Tuple[str, ...] = ()
                         anchor_token: Optional[str] = None
+                        label_value: Optional[str] = None
                         if isinstance(prefix_value, str):
-                            prefixes = [prefix_value]
-                            label_value = str(label) if isinstance(label, str) and label else prefix_value
+                            prefixes = _clean_group_prefixes(prefix_value)
+                            label_value = str(label).strip() if isinstance(label, str) and label else prefix_value
                         elif isinstance(prefix_value, Mapping):
-                            raw_prefix = prefix_value.get("prefix")
-                            if isinstance(raw_prefix, str) and raw_prefix:
-                                prefixes = [raw_prefix]
-                            label_value = str(label) if isinstance(label, str) and label else (raw_prefix or None)
-                            defaults = None
+                            prefixes = _clean_group_prefixes(prefix_value.get("prefix"))
+                            label_value = str(label).strip() if isinstance(label, str) and label else None
                             anchor_token = _parse_anchor(prefix_value)
-                        cleaned_prefixes = tuple(prefix.casefold() for prefix in prefixes if prefix)
-                        if not cleaned_prefixes:
-                            continue
-                        for prefix in cleaned_prefixes:
-                            if prefix not in group_prefix_hints:
-                                group_prefix_hints.append(prefix)
-                        grouping_specs.append(
-                            _GroupSpec(
-                                label=label_value,
-                                prefixes=cleaned_prefixes,
-                                defaults=defaults,
-                                anchor=anchor_token,
-                            )
-                        )
+                        _append_group_spec(label_value, prefixes, anchor_token)
                 elif isinstance(prefixes_spec, Iterable):
                     for entry in prefixes_spec:
                         if isinstance(entry, str) and entry:
                             cleaned_entry = entry.casefold()
-                            if cleaned_entry not in group_prefix_hints:
-                                group_prefix_hints.append(cleaned_entry)
-                            grouping_specs.append(
-                                _GroupSpec(
-                                    label=entry,
-                                    prefixes=(cleaned_entry,),
-                                    defaults=None,
-                                )
-                            )
+                            _append_group_spec(entry, (cleaned_entry,), None)
 
-                if group_prefix_hints:
-                    for prefix in group_prefix_hints:
-                        if prefix not in match_prefixes:
-                            match_prefixes.append(prefix)
+            if group_prefix_hints:
+                for prefix in group_prefix_hints:
+                    if prefix not in match_prefixes:
+                        match_prefixes.append(prefix)
 
             overrides: List[Tuple[str, JsonDict]] = []
             plugin_defaults: JsonDict = {}
@@ -316,6 +320,10 @@ class PluginOverrideManager:
                 if key == "notes":
                     continue
                 if key == "grouping":
+                    continue
+                if key == "idPrefixGroups":
+                    continue
+                if key == "matchingPrefixes":
                     continue
                 if not isinstance(spec, Mapping) or key.startswith("__"):
                     continue

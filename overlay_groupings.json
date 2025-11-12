@@ -1,208 +1,173 @@
 {
   "BGS-Tally": {
-    "__match__": {
-      "id_prefixes": [
-        "bgstally-"
-      ]
-    },
-    "notes": [
-      "Everything for bgstally"
+    "matchingPrefixes": [
+      "bgstally-"
     ],
-    "grouping": {
-      "groups": {
-        "BGS-Tally Colonisation": {
-          "id_prefixes": [
-            "bgstally-msg-colonisation-",
-            "bgstally-frame-colonisation"
-          ]
-        },
-        "BGS-Tally Tick Notifications": {
-          "id_prefixes": [
-            "bgstally-frame-tick",
-            "bgstally-msg-tick-",
-            "bgstally-frame-system_tick",
-            "bgstally-msg-system_tick-",
-            "bgstally-msg-tickwarn-",
-            "bgstally-frame-tickwarn"
-          ]
-        },
-        "BGS-Tally System Info": {
-          "id_prefixes": [
-            "bgstally-msg-system_info",
-            "bgstally-frame-indicator",
-            "bgstally-frame-system_info"
-          ],
-          "anchor": "nw"
-        },
-        "BGS-Tally Ready": {
-          "id_prefixes": [
-            "bgstally-frame-info",
-            "bgstally-msg-info-"
-          ],
-          "anchor": "nw"
-        }
+    "idPrefixGroups": {
+      "BGS-Tally Colonisation": {
+        "idPrefixes": [
+          "bgstally-msg-colonisation-",
+          "bgstally-frame-colonisation"
+        ]
+      },
+      "BGS-Tally Tick Notifications": {
+        "idPrefixes": [
+          "bgstally-frame-tick",
+          "bgstally-msg-tick-",
+          "bgstally-frame-system_tick",
+          "bgstally-msg-system_tick-",
+          "bgstally-msg-tickwarn-",
+          "bgstally-frame-tickwarn"
+        ]
+      },
+      "BGS-Tally System Info": {
+        "idPrefixes": [
+          "bgstally-msg-system_info",
+          "bgstally-frame-indicator",
+          "bgstally-frame-system_info"
+        ],
+        "idPrefixGroupAnchor": "nw"
+      },
+      "BGS-Tally Ready": {
+        "idPrefixes": [
+          "bgstally-frame-info",
+          "bgstally-msg-info-"
+        ],
+        "idPrefixGroupAnchor": "nw"
       }
     }
   },
   "Bioscan": {
-    "grouping": {
-      "groups": {
-        "Bioscan Radar": {
-          "id_prefixes": [
-            "bioscan_radar_"
-          ],
-          "anchor": "nw"
-        },
-        "Bioscan Details": {
-          "id_prefixes": [
-            "bioscan_details_"
-          ],
-          "anchor": "nw"
-        },
-        "Bioscan Summary": {
-          "id_prefixes": [
-            "bioscan_summary_"
-          ],
-          "anchor": "nw"
-        },
-        "Bioscan Title": {
-          "id_prefixes": [
-            "bioscan_title_"
-          ],
-          "anchor": "nw"
-        }
+    "matchingPrefixes": [
+      "bioscan_"
+    ],
+    "idPrefixGroups": {
+      "Bioscan Radar": {
+        "idPrefixes": [
+          "bioscan_radar_"
+        ],
+        "idPrefixGroupAnchor": "nw"
+      },
+      "Bioscan Details": {
+        "idPrefixes": [
+          "bioscan_details_"
+        ],
+        "idPrefixGroupAnchor": "nw"
+      },
+      "Bioscan Summary": {
+        "idPrefixes": [
+          "bioscan_summary_"
+        ],
+        "idPrefixGroupAnchor": "nw"
+      },
+      "Bioscan Title": {
+        "idPrefixes": [
+          "bioscan_title_"
+        ],
+        "idPrefixGroupAnchor": "nw"
       }
-    },
-    "__match__": {
-      "id_prefixes": [
-        "bioscan_"
-      ]
     }
   },
   "ED-Mining-Analytics": {
-    "grouping": {
-      "groups": {
-        "All-edmca-prefixes": {
-          "id_prefixes": [
-            "edmcma"
-          ]
-        }
+    "idPrefixGroups": {
+      "All-edmca-prefixes": {
+        "idPrefixes": [
+          "edmcma"
+        ]
       }
     }
   },
   "EDR": {
-    "__match__": {
-      "id_prefixes": [
-        "edr-"
-      ]
-    },
-    "grouping": {
-      "groups": {
-        "docking": {
-          "id_prefixes": [
-            "edr-docking-",
-            "edr-docking-station-"
-          ]
-        },
-        "bounty": {
-          "id_prefixes": [
-            "edr-bounty"
-          ]
-        },
-        "intel": {
-          "id_prefixes": [
-            "edr-intel"
-          ]
-        },
-        "target": {
-          "id_prefixes": [
-            "edr-target"
-          ]
-        },
-        "notice": {
-          "id_prefixes": [
-            "edr-notice-"
-          ]
-        },
-        "Edr Navroute": {
-          "id_prefixes": [
-            "edr-navroute-"
-          ]
-        },
-        "Edr Navigation": {
-          "id_prefixes": [
-            "edr-navigation-"
-          ],
-          "anchor": "nw"
-        }
+    "matchingPrefixes": [
+      "edr-"
+    ],
+    "idPrefixGroups": {
+      "docking": {
+        "idPrefixes": [
+          "edr-docking-",
+          "edr-docking-station-"
+        ]
+      },
+      "bounty": {
+        "idPrefixes": [
+          "edr-bounty"
+        ]
+      },
+      "intel": {
+        "idPrefixes": [
+          "edr-intel"
+        ]
+      },
+      "target": {
+        "idPrefixes": [
+          "edr-target"
+        ]
+      },
+      "notice": {
+        "idPrefixes": [
+          "edr-notice-"
+        ]
+      },
+      "Edr Navroute": {
+        "idPrefixes": [
+          "edr-navroute-"
+        ]
+      },
+      "Edr Navigation": {
+        "idPrefixes": [
+          "edr-navigation-"
+        ],
+        "idPrefixGroupAnchor": "nw"
       }
     }
   },
   "LandingPad": {
-    "notes": [
-      "This groups the LandingPad overlay so Fill mode can handle the image as a single unit."
+    "matchingPrefixes": [
+      "shell-",
+      "line-",
+      "toaster-left-",
+      "toaster-right-",
+      "pad-",
+      "station-"
     ],
-    "__match__": {
-      "id_prefixes": [
-        "shell-",
-        "line-",
-        "toaster-left-",
-        "toaster-right-",
-        "pad-",
-        "station-"
-      ]
-    },
-    "grouping": {
-      "groups": {
-        "All LandingPad Prefixes": {
-          "id_prefixes": [
-            "shell-",
-            "line-",
-            "toaster-left-",
-            "toaster-right-",
-            "pad-",
-            "station-"
-          ],
-          "anchor": "nw"
-        }
+    "idPrefixGroups": {
+      "All LandingPad Prefixes": {
+        "idPrefixes": [
+          "shell-",
+          "line-",
+          "toaster-left-",
+          "toaster-right-",
+          "pad-",
+          "station-"
+        ],
+        "idPrefixGroupAnchor": "nw"
       }
     }
   },
   "Navroute": {
-    "grouping": {
-      "groups": {
-        "Navroute Display": {
-          "id_prefixes": [
-            "navroute_display_"
-          ],
-          "anchor": "nw"
-        }
+    "matchingPrefixes": [
+      "navroute_"
+    ],
+    "idPrefixGroups": {
+      "Navroute Display": {
+        "idPrefixes": [
+          "navroute_display_"
+        ],
+        "idPrefixGroupAnchor": "nw"
       }
-    },
-    "__match__": {
-      "id_prefixes": [
-        "navroute_"
-      ]
-    },
-    "notes": [
-      "https://github.com/Silarn/EDMC-NavRoute"
-    ]
+    }
   },
   "modernoverlay": {
-    "grouping": {
-      "groups": {
-        "Modernoverlay Test": {
-          "id_prefixes": [
-            "modernoverlay-test"
-          ],
-          "anchor": "nw"
-        }
+    "matchingPrefixes": [
+      "modernoverlay-"
+    ],
+    "idPrefixGroups": {
+      "Modernoverlay Test": {
+        "idPrefixes": [
+          "modernoverlay-test"
+        ],
+        "idPrefixGroupAnchor": "nw"
       }
-    },
-    "__match__": {
-      "id_prefixes": [
-        "modernoverlay-"
-      ]
     }
   }
 }

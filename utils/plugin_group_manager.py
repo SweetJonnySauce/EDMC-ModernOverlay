@@ -39,7 +39,7 @@ DEBUG_CONFIG_PATH = ROOT_DIR / "debug.json"
 TRACE_LOG_PATH = Path(__file__).resolve().with_name("plugin_group_manager_context.log")
 PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
 PAYLOAD_LOG_BASENAMES = ("overlay-payloads.log", "overlay_payloads.log")
-ANCHOR_CHOICES = ("nw", "ne", "sw", "se", "center")
+ANCHOR_CHOICES = ("nw", "ne", "sw", "se", "center", "top", "bottom", "left", "right")
 GENERIC_PAYLOAD_TOKENS = {"vect", "shape", "text"}
 GROUP_SELECTOR_STYLE = "ModernOverlayGroupSelect.TCombobox"
 LEFT_COLUMN_WIDTH = 180
@@ -489,72 +489,124 @@ class GroupConfigStore:
         self._data = cleaned
 
     def _normalise_plugin_entry(self, entry: MutableMapping[str, object]) -> MutableMapping[str, object]:
-        grouping = entry.get("grouping")
+        normalised: MutableMapping[str, object] = {}
+        prefixes = self._normalise_prefix_list(entry.get("matchingPrefixes"))
+        if not prefixes:
+            legacy_match = entry.get("__match__")
+            if isinstance(legacy_match, Mapping):
+                prefixes = self._normalise_prefix_list(legacy_match.get("id_prefixes"))
+        if prefixes:
+            normalised["matchingPrefixes"] = prefixes
+
+        groups = self._normalise_group_map(entry)
+        if groups:
+            normalised["idPrefixGroups"] = groups
+
+        notes = entry.get("notes")
+        if notes:
+            normalised["notes"] = notes
+        return normalised
+
+    @staticmethod
+    def _normalise_prefix_list(raw_value: Any) -> List[str]:
+        values: List[str] = []
+        if isinstance(raw_value, str):
+            values = [raw_value]
+        elif isinstance(raw_value, Iterable) and not isinstance(raw_value, (str, bytes)):
+            values = [entry for entry in raw_value if isinstance(entry, str)]
+        seen: List[str] = []
+        cleaned: List[str] = []
+        for token in values:
+            stripped = token.strip()
+            if stripped and stripped not in seen:
+                seen.append(stripped)
+                cleaned.append(stripped)
+        return cleaned
+
+    def _normalise_group_map(self, entry: Mapping[str, object]) -> Dict[str, Dict[str, object]]:
         groups: Dict[str, Dict[str, object]] = {}
-        if isinstance(grouping, Mapping):
-            raw_groups = grouping.get("groups")
-            if isinstance(raw_groups, Mapping):
-                for label, spec in raw_groups.items():
+
+        raw_groups = entry.get("idPrefixGroups")
+        if isinstance(raw_groups, Mapping):
+            for label, spec in raw_groups.items():
+                if not isinstance(spec, Mapping):
+                    continue
+                label_value = str(label).strip() if isinstance(label, str) and label else None
+                normalised = self._normalise_group_spec(dict(spec))
+                key = label_value or (normalised.get("idPrefixes") or [None])[0]
+                if key:
+                    groups[key] = normalised
+
+        legacy_grouping = entry.get("grouping")
+        if isinstance(legacy_grouping, Mapping):
+            legacy_groups = legacy_grouping.get("groups")
+            if isinstance(legacy_groups, Mapping):
+                for label, spec in legacy_groups.items():
                     if not isinstance(spec, Mapping):
                         continue
-                    key = str(label) if isinstance(label, str) else None
+                    label_value = str(label).strip() if isinstance(label, str) and label else None
                     normalised = self._normalise_group_spec(dict(spec))
-                    label_key = key or (normalised["id_prefixes"][0] if normalised["id_prefixes"] else None)
-                    if label_key:
-                        groups[label_key] = normalised
-            prefixes = grouping.get("prefixes")
-            if isinstance(prefixes, Mapping):
-                for label, value in prefixes.items():
-                    label_value = str(label) if isinstance(label, str) else None
+                    key = label_value or (normalised.get("idPrefixes") or [None])[0]
+                    if key and key not in groups:
+                        groups[key] = normalised
+            legacy_prefixes = legacy_grouping.get("prefixes")
+            if isinstance(legacy_prefixes, Mapping):
+                for label, value in legacy_prefixes.items():
+                    label_value = str(label).strip() if isinstance(label, str) and label else None
+                    spec: Dict[str, object]
                     if isinstance(value, str):
-                        spec = {"id_prefixes": [value]}
+                        spec = {"idPrefixes": [value]}
                     elif isinstance(value, Mapping):
-                        raw_prefix = value.get("prefix")
-                        if not isinstance(raw_prefix, str):
-                            continue
                         spec = dict(value)
-                        spec["id_prefixes"] = [raw_prefix]
                     else:
                         continue
                     normalised = self._normalise_group_spec(spec)
-                    key = label_value or (normalised["id_prefixes"][0] if normalised["id_prefixes"] else None)
-                    if key:
+                    key = label_value or (normalised.get("idPrefixes") or [None])[0]
+                    if key and key not in groups:
                         groups[key] = normalised
-            elif isinstance(prefixes, Iterable):
-                for item in prefixes:
-                    if isinstance(item, str) and item:
-                        groups[item] = {"id_prefixes": [item]}
-        entry["grouping"] = {"groups": groups}
-        return entry
+            elif isinstance(legacy_prefixes, Iterable):
+                for entry_value in legacy_prefixes:
+                    if isinstance(entry_value, str) and entry_value:
+                        normalised = self._normalise_group_spec({"idPrefixes": [entry_value]})
+                        key = normalised.get("idPrefixes", [None])[0]
+                        if key and key not in groups:
+                            groups[key] = normalised
+
+        return groups
 
     @staticmethod
-    def _normalise_group_spec(spec: MutableMapping[str, object]) -> Dict[str, object]:
-        prefixes_field = spec.get("id_prefixes") or spec.get("prefixes")
-        prefixes: List[str] = []
-        if isinstance(prefixes_field, str):
-            prefixes = [prefixes_field]
-        elif isinstance(prefixes_field, Iterable):
-            for token in prefixes_field:
-                if isinstance(token, str) and token.strip():
-                    prefixes.append(token.strip())
-        if not prefixes:
-            single = spec.get("prefix")
-            if isinstance(single, str) and single.strip():
-                prefixes = [single.strip()]
-        spec = dict(spec)
-        spec["id_prefixes"] = prefixes
-        spec.pop("prefix", None)
-        spec.pop("prefixes", None)
-        anchor_value = spec.get("anchor")
-        if isinstance(anchor_value, str):
-            anchor_token = anchor_value.strip().lower()
-            if anchor_token in ANCHOR_CHOICES:
-                spec["anchor"] = anchor_token
-            else:
-                spec.pop("anchor", None)
-        else:
-            spec.pop("anchor", None)
-        return spec
+    def _normalise_anchor(value: Any) -> Optional[str]:
+        if not isinstance(value, str):
+            return None
+        token = value.strip().lower()
+        if not token:
+            return None
+        if token == "first":
+            token = "nw"
+        elif token == "centroid":
+            token = "center"
+        if token in ANCHOR_CHOICES:
+            return token
+        return None
+
+    def _normalise_group_spec(self, spec: MutableMapping[str, object]) -> Dict[str, object]:
+        prefixes = self._normalise_prefix_list(
+            spec.get("idPrefixes")
+            or spec.get("id_prefixes")
+            or spec.get("prefixes")
+            or spec.get("prefix")
+            or []
+        )
+        cleaned: Dict[str, object] = {}
+        if prefixes:
+            cleaned["idPrefixes"] = prefixes
+        anchor_token = self._normalise_anchor(spec.get("idPrefixGroupAnchor") or spec.get("anchor"))
+        if anchor_token:
+            cleaned["idPrefixGroupAnchor"] = anchor_token
+        notes_value = spec.get("notes")
+        if isinstance(notes_value, str) and notes_value.strip():
+            cleaned["notes"] = notes_value.strip()
+        return cleaned
 
     def save(self) -> None:
         with self._lock:
@@ -575,8 +627,7 @@ class GroupConfigStore:
         with self._lock:
             for name in sorted(self._data.keys(), key=str.casefold):
                 entry = self._data[name]
-                grouping = entry.get("grouping", {})
-                groups_block = grouping.get("groups", {})
+                groups_block = entry.get("idPrefixGroups", {})
                 view_entries: List[Dict[str, object]] = []
                 match_prefixes: List[str] = []
 
@@ -586,27 +637,25 @@ class GroupConfigStore:
                         if cleaned and cleaned not in match_prefixes:
                             match_prefixes.append(cleaned)
 
-                match_section = entry.get("__match__")
-                if isinstance(match_section, Mapping):
-                    match_values = match_section.get("id_prefixes")
-                    if isinstance(match_values, str):
-                        _append_prefix(match_values)
-                    elif isinstance(match_values, Iterable):
-                        for token in match_values:
-                            _append_prefix(token)
+                match_values = entry.get("matchingPrefixes")
+                if isinstance(match_values, str):
+                    _append_prefix(match_values)
+                elif isinstance(match_values, Iterable) and not isinstance(match_values, (str, bytes)):
+                    for token in match_values:
+                        _append_prefix(token)
 
                 if isinstance(groups_block, Mapping):
                     for label in sorted(groups_block.keys(), key=str.casefold):
                         spec = groups_block[label]
                         if not isinstance(spec, Mapping):
                             continue
-                        prefixes_value = spec.get("id_prefixes") or []
+                        prefixes_value = spec.get("idPrefixes") or spec.get("id_prefixes") or []
                         prefixes = [
                             str(item).strip()
                             for item in prefixes_value
                             if isinstance(item, (str, int, float)) and str(item).strip()
                         ]
-                        anchor = spec.get("anchor") or ""
+                        anchor = spec.get("idPrefixGroupAnchor") or spec.get("anchor") or ""
                         notes = spec.get("notes") or ""
                         view_entries.append(
                             {
@@ -645,29 +694,32 @@ class GroupConfigStore:
         with self._lock:
             if cleaned_name in self._data:
                 raise ValueError(f"Group '{cleaned_name}' already exists.")
-            grouping_block: Dict[str, object] = {"groups": {}}
+            grouping_block: Dict[str, Dict[str, object]] = {}
             if initial_grouping:
                 label = initial_grouping.get("label")
                 if isinstance(label, str) and label:
-                    anchor_value = initial_grouping.get("anchor")
-                    anchor_token = anchor_value.strip().lower() if isinstance(anchor_value, str) else None
-                    if anchor_token and anchor_token not in ANCHOR_CHOICES:
-                        raise ValueError(f"Anchor must be one of {', '.join(ANCHOR_CHOICES)}.")
-                    entry_spec: Dict[str, object] = {
-                        "id_prefixes": list(initial_grouping.get("id_prefixes", [])),
-                    }
-                    if anchor_token:
-                        entry_spec["anchor"] = anchor_token
-                    notes_value = initial_grouping.get("notes")
-                    if isinstance(notes_value, str) and notes_value.strip():
-                        entry_spec["notes"] = notes_value.strip()
-                    grouping_block["groups"][label] = entry_spec
-            entry: Dict[str, object] = {"grouping": grouping_block}
-            cleaned_match = [token.strip() for token in (match_prefixes or []) if isinstance(token, str) and token.strip()]
+                    entry_spec = self._normalise_group_spec(
+                        {
+                            "idPrefixes": initial_grouping.get("idPrefixes")
+                            or initial_grouping.get("id_prefixes")
+                            or initial_grouping.get("prefixes")
+                            or [],
+                            "idPrefixGroupAnchor": initial_grouping.get("anchor"),
+                            "notes": initial_grouping.get("notes"),
+                        }
+                    )
+                    grouping_block[label] = entry_spec
+            entry: Dict[str, object] = {"idPrefixGroups": grouping_block}
+            cleaned_match = self._normalise_prefix_list(match_prefixes or [])
             if not cleaned_match and initial_grouping:
-                cleaned_match = [token.strip() for token in initial_grouping.get("id_prefixes", []) if isinstance(token, str) and token.strip()]
+                cleaned_match = self._normalise_prefix_list(
+                    initial_grouping.get("idPrefixes")
+                    or initial_grouping.get("id_prefixes")
+                    or initial_grouping.get("prefixes")
+                    or []
+                )
             if cleaned_match:
-                entry["__match__"] = {"id_prefixes": cleaned_match}
+                entry["matchingPrefixes"] = cleaned_match
             cleaned_notes = _normalise_notes(notes)
             if cleaned_notes:
                 entry["notes"] = cleaned_notes
@@ -700,11 +752,11 @@ class GroupConfigStore:
                 raise ValueError(f"Group '{target_name}' already exists.")
 
             if match_prefixes is not None:
-                cleaned_matches = [token.strip() for token in match_prefixes if isinstance(token, str) and token.strip()]
+                cleaned_matches = self._normalise_prefix_list(match_prefixes)
                 if cleaned_matches:
-                    entry["__match__"] = {"id_prefixes": cleaned_matches}
+                    entry["matchingPrefixes"] = cleaned_matches
                 else:
-                    entry.pop("__match__", None)
+                    entry.pop("matchingPrefixes", None)
 
             if notes is not None:
                 cleaned_notes = _normalise_notes(notes)
@@ -738,23 +790,20 @@ class GroupConfigStore:
             entry = self._data.get(group_name)
             if not entry:
                 raise ValueError(f"Group '{group_name}' not found.")
-            grouping = entry.get("grouping")
-            if not isinstance(grouping, Mapping):
-                raise ValueError(f"Group '{group_name}' has no grouping configuration.")
-            groups = grouping.setdefault("groups", {})
+            groups = entry.setdefault("idPrefixGroups", {})
             if not isinstance(groups, dict):
-                grouping["groups"] = {}
-                groups = grouping["groups"]
+                entry["idPrefixGroups"] = {}
+                groups = entry["idPrefixGroups"]
             if cleaned_label in groups:
                 raise ValueError(f"Grouping '{cleaned_label}' already exists for '{group_name}'.")
             cleaned_notes = notes.strip() if isinstance(notes, str) else None
-            groups[cleaned_label] = {
-                "id_prefixes": list(prefixes),
-            }
-            if anchor_token:
-                groups[cleaned_label]["anchor"] = anchor_token
-            if cleaned_notes:
-                groups[cleaned_label]["notes"] = cleaned_notes
+            groups[cleaned_label] = self._normalise_group_spec(
+                {
+                    "idPrefixes": list(prefixes),
+                    "idPrefixGroupAnchor": anchor_token,
+                    "notes": cleaned_notes,
+                }
+            )
             self.save()
 
     def update_grouping(
@@ -775,10 +824,7 @@ class GroupConfigStore:
             entry = self._data.get(group_name)
             if not entry:
                 raise ValueError(f"Group '{group_name}' not found.")
-            grouping = entry.get("grouping")
-            if not isinstance(grouping, Mapping):
-                raise ValueError(f"Group '{group_name}' has no grouping configuration.")
-            groups = grouping.get("groups")
+            groups = entry.get("idPrefixGroups")
             if not isinstance(groups, dict) or original_label not in groups:
                 raise ValueError(f"Grouping '{original_label}' not found in '{group_name}'.")
             target_spec = groups[original_label]
@@ -786,18 +832,18 @@ class GroupConfigStore:
                 target_spec = {}
                 groups[original_label] = target_spec
             if prefixes is not None:
-                cleaned_prefixes = [token.strip() for token in prefixes if isinstance(token, str) and token.strip()]
+                cleaned_prefixes = self._normalise_prefix_list(prefixes)
                 if not cleaned_prefixes:
                     raise ValueError("At least one ID prefix is required.")
-                target_spec["id_prefixes"] = cleaned_prefixes
+                target_spec["idPrefixes"] = cleaned_prefixes
             if anchor is not None:
                 anchor_token = anchor.strip().lower()
                 if anchor_token:
                     if anchor_token not in ANCHOR_CHOICES:
                         raise ValueError(f"Anchor must be one of {', '.join(ANCHOR_CHOICES)}.")
-                    target_spec["anchor"] = anchor_token
+                    target_spec["idPrefixGroupAnchor"] = anchor_token
                 else:
-                    target_spec.pop("anchor", None)
+                    target_spec.pop("idPrefixGroupAnchor", None)
             if notes is not None:
                 cleaned_notes = notes.strip()
                 if cleaned_notes:
@@ -815,11 +861,10 @@ class GroupConfigStore:
             entry = self._data.get(group_name)
             if not entry:
                 return
-            grouping = entry.get("grouping")
-            if not isinstance(grouping, Mapping):
+            groups = entry.get("idPrefixGroups")
+            if not isinstance(groups, dict):
                 return
-            groups = grouping.get("groups")
-            if isinstance(groups, dict) and label in groups:
+            if label in groups:
                 del groups[label]
                 self.save()
 
@@ -886,15 +931,17 @@ class EditGroupDialog(simpledialog.Dialog):
         ttk.Entry(master, textvariable=self.name_var, width=40).grid(row=0, column=1, sticky="ew")
 
         current_matches: List[str] = []
-        match_section = self._entry.get("__match__")
-        if isinstance(match_section, Mapping):
-            values = match_section.get("id_prefixes")
-            if isinstance(values, Iterable):
-                for token in values:
-                    if isinstance(token, (str, int, float)):
-                        text = str(token).strip()
-                        if text:
-                            current_matches.append(text)
+        match_values = self._entry.get("matchingPrefixes")
+        if isinstance(match_values, str):
+            text = match_values.strip()
+            if text:
+                current_matches.append(text)
+        elif isinstance(match_values, Iterable) and not isinstance(match_values, (str, bytes)):
+            for token in match_values:
+                if isinstance(token, (str, int, float)):
+                    text = str(token).strip()
+                    if text:
+                        current_matches.append(text)
         master.grid_columnconfigure(1, weight=1)
         ttk.Label(master, text="Match prefixes (comma separated)").grid(row=1, column=0, sticky="w")
         self.match_prefix_var = tk.StringVar(value=", ".join(current_matches))
@@ -1536,18 +1583,13 @@ class PluginGroupManagerApp:
             LOG.debug("Add-to-prefix aborted: group entry missing for %s.", group_name)
             messagebox.showerror("Add to ID Prefix group", f"Group '{group_name}' data is unavailable.")
             return
-        grouping_block = group_entry.get("grouping")
-        if not isinstance(grouping_block, Mapping):
-            LOG.debug("Add-to-prefix aborted: grouping block missing for %s.", group_name)
-            messagebox.showerror("Add to ID Prefix group", f"Group '{group_name}' has no ID Prefix groups yet.")
-            return
-        groups = grouping_block.get("groups")
+        groups = group_entry.get("idPrefixGroups")
         if not isinstance(groups, Mapping) or grouping_label not in groups:
             LOG.debug("Add-to-prefix aborted: grouping %s missing in %s.", grouping_label, group_name)
             messagebox.showerror("Add to ID Prefix group", f"ID Prefix group '{grouping_label}' not found in {group_name}.")
             return
         target_spec = groups.get(grouping_label) or {}
-        raw_prefixes = target_spec.get("id_prefixes") or target_spec.get("prefixes") or []
+        raw_prefixes = target_spec.get("idPrefixes") or target_spec.get("id_prefixes") or target_spec.get("prefixes") or []
         existing_prefixes: List[str] = []
         for token in raw_prefixes:
             text = str(token).strip()

@@ -134,8 +134,18 @@ class FillGroupingHelper:
             mode = "nw"
         elif mode == "centroid":
             mode = "center"
+        center_x = (bounds.min_x + bounds.max_x) / 2.0
+        center_y = (bounds.min_y + bounds.max_y) / 2.0
         if mode == "center":
-            return (bounds.min_x + bounds.max_x) / 2.0, (bounds.min_y + bounds.max_y) / 2.0
+            return center_x, center_y
+        if mode == "top":
+            return center_x, bounds.min_y
+        if mode == "bottom":
+            return center_x, bounds.max_y
+        if mode == "left":
+            return bounds.min_x, center_y
+        if mode == "right":
+            return bounds.max_x, center_y
         if mode == "ne":
             return bounds.max_x, bounds.min_y
         if mode == "sw":

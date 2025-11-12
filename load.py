@@ -1412,18 +1412,47 @@ class _PluginRuntime:
         if not isinstance(data, Mapping):
             return {}
         prefixes: Dict[str, str] = {}
+
+        def _extend_prefix_map(entries: Iterable[str], plugin_label: str) -> None:
+            for entry in entries:
+                token = entry.strip()
+                if token:
+                    prefixes[token] = plugin_label
+
+        def _normalise_prefix_iter(raw: Any) -> Iterable[str]:
+            if isinstance(raw, str):
+                return [raw]
+            if isinstance(raw, Iterable) and not isinstance(raw, (str, bytes)):
+                return [str(item) for item in raw if isinstance(item, str)]
+            return []
+
         for plugin_name, config in data.items():
             if not isinstance(plugin_name, str) or not isinstance(config, Mapping):
                 continue
-            match = config.get("__match__")
-            if not isinstance(match, Mapping):
-                continue
-            values = match.get("id_prefixes")
-            if not isinstance(values, Iterable):
-                continue
-            for entry in values:
-                if isinstance(entry, str) and entry:
-                    prefixes[entry] = plugin_name
+
+            matching = config.get("matchingPrefixes")
+            candidates = list(_normalise_prefix_iter(matching))
+            if not candidates:
+                legacy_match = config.get("__match__")
+                if isinstance(legacy_match, Mapping):
+                    candidates.extend(_normalise_prefix_iter(legacy_match.get("id_prefixes")))
+            if not candidates:
+                # Fall back to prefixes declared under groups for legacy files
+                groups_block = config.get("idPrefixGroups")
+                if isinstance(groups_block, Mapping):
+                    for spec in groups_block.values():
+                        if isinstance(spec, Mapping):
+                            candidates.extend(_normalise_prefix_iter(spec.get("idPrefixes") or spec.get("id_prefixes")))
+                legacy_grouping = config.get("grouping")
+                if isinstance(legacy_grouping, Mapping):
+                    raw_groups = legacy_grouping.get("groups")
+                    if isinstance(raw_groups, Mapping):
+                        for spec in raw_groups.values():
+                            if isinstance(spec, Mapping):
+                                candidates.extend(_normalise_prefix_iter(spec.get("id_prefixes")))
+
+            _extend_prefix_map(candidates, plugin_name)
+
         return prefixes
 
     def _plugin_name_for_payload(self, payload: Mapping[str, Any]) -> Tuple[Optional[str], Optional[str]]:

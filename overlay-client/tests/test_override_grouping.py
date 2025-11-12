@@ -32,11 +32,9 @@ def test_grouping_by_id_prefix(override_file: Path) -> None:
         json.dumps(
             {
                 "Example": {
-                    "grouping": {
-                        "prefixes": {
-                            "metrics": "example.metric.",
-                            "alerts": "example.alert."
-                        }
+                    "idPrefixGroups": {
+                        "metrics": {"idPrefixes": ["example.metric."]},
+                        "alerts": {"idPrefixes": ["example.alert."]}
                     }
                 }
             }
@@ -58,12 +56,8 @@ def test_grouping_prefix_configuration_without_transform(override_file: Path) ->
         json.dumps(
             {
                 "Example": {
-                    "grouping": {
-                        "prefixes": {
-                            "alerts": {
-                                "prefix": "example.alert."
-                            }
-                        }
+                    "idPrefixGroups": {
+                        "alerts": {"idPrefixes": ["example.alert."]}
                     }
                 }
             }
@@ -91,11 +85,9 @@ def test_group_is_configured_id_prefix(override_file: Path) -> None:
         json.dumps(
             {
                 "Example": {
-                    "grouping": {
-                        "groups": {
-                            "alerts": {
-                                "id_prefixes": ["example.alert."],
-                            }
+                    "idPrefixGroups": {
+                        "alerts": {
+                            "idPrefixes": ["example.alert."],
                         }
                     }
                 }
@@ -116,14 +108,12 @@ def test_grouping_groups_block_configures_prefixes(override_file: Path) -> None:
         json.dumps(
             {
                 "EDR": {
-                    "grouping": {
-                        "groups": {
-                            "docking": {
-                                "id_prefixes": [
-                                    "edr-docking-",
-                                    "edr-docking-station-"
-                                ]
-                            }
+                    "idPrefixGroups": {
+                        "docking": {
+                            "idPrefixes": [
+                                "edr-docking-",
+                                "edr-docking-station-"
+                            ]
                         }
                     }
                 }
@@ -160,17 +150,13 @@ def test_grouping_key_infers_plugin_when_missing_plugin_name(override_file: Path
         json.dumps(
             {
                 "EDR": {
-                    "__match__": {
-                        "id_prefixes": ["edr-"]
-                    },
-                    "grouping": {
-                        "groups": {
-                            "docking": {
-                                "id_prefixes": [
-                                    "edr-docking-",
-                                    "edr-docking-station-"
-                                ]
-                            }
+                    "matchingPrefixes": ["edr-"],
+                    "idPrefixGroups": {
+                        "docking": {
+                            "idPrefixes": [
+                                "edr-docking-",
+                                "edr-docking-station-"
+                            ]
                         }
                     }
                 }
@@ -190,20 +176,18 @@ def test_group_anchor_selection(override_file: Path) -> None:
         json.dumps(
             {
                 "Example": {
-                    "grouping": {
-                        "groups": {
-                            "alerts": {
-                                "id_prefixes": ["example.alert."],
-                                "anchor": "se"
-                            },
-                            "metrics": {
-                                "id_prefixes": ["example.metric."],
-                                "anchor": "center"
-                            },
-                            "default": {
-                                "id_prefixes": ["example.default."],
-                                "anchor": "invalid"
-                            }
+                    "idPrefixGroups": {
+                        "alerts": {
+                            "idPrefixes": ["example.alert."],
+                            "idPrefixGroupAnchor": "se"
+                        },
+                        "metrics": {
+                            "idPrefixes": ["example.metric."],
+                            "idPrefixGroupAnchor": "center"
+                        },
+                        "default": {
+                            "idPrefixes": ["example.default."],
+                            "idPrefixGroupAnchor": "invalid"
                         }
                     }
                 }
