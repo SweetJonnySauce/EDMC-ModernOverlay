@@ -31,6 +31,12 @@ declare -a PROFILE_PACKAGES_CORE=()
 declare -a PROFILE_PACKAGES_QT=()
 declare -a PROFILE_PACKAGES_WAYLAND=()
 PKG_UPDATE_COMPLETED=0
+PACKAGE_MANAGER_KIND=""
+PACKAGE_STATUS_CHECK_SUPPORTED=0
+declare -a PACKAGES_TO_INSTALL=()
+declare -a PACKAGES_TO_UPGRADE=()
+declare -a PACKAGES_ALREADY_OK=()
+declare -A PACKAGE_STATUS_DETAILS=()
 
 print_usage() {
     cat <<'EOF'
@@ -338,6 +344,99 @@ run_package_install() {
     else
         "${PKG_INSTALL_CMD[@]}" "${packages[@]}"
     fi
+}
+
+reset_package_status_tracking() {
+    PACKAGES_TO_INSTALL=()
+    PACKAGES_TO_UPGRADE=()
+    PACKAGES_ALREADY_OK=()
+    PACKAGE_STATUS_DETAILS=()
+}
+
+get_pkg_manager_binary() {
+    local part
+    for part in "${PKG_INSTALL_CMD[@]}"; do
+        case "$part" in
+            sudo|doas|pkexec) continue ;;
+            *)
+                printf '%s' "$part"
+                return
+                ;;
+        esac
+    done
+}
+
+detect_package_manager_kind() {
+    if [[ -n "$PACKAGE_MANAGER_KIND" ]]; then
+        printf '%s' "$PACKAGE_MANAGER_KIND"
+        return
+    fi
+    local binary
+    binary="$(get_pkg_manager_binary)"
+    case "$binary" in
+        apt|apt-get) PACKAGE_MANAGER_KIND="apt" ;;
+        dnf|yum|microdnf) PACKAGE_MANAGER_KIND="dnf" ;;
+        zypper) PACKAGE_MANAGER_KIND="zypper" ;;
+        pacman) PACKAGE_MANAGER_KIND="pacman" ;;
+        *) PACKAGE_MANAGER_KIND="" ;;
+    esac
+    printf '%s' "$PACKAGE_MANAGER_KIND"
+}
+
+classify_packages_for_apt() {
+    local pkg status_line status installed_version candidate
+    for pkg in "$@"; do
+        if ! status_line="$(dpkg-query -W -f='${db:Status-Abbrev}\t${Version}\n' "$pkg" 2>/dev/null)"; then
+            PACKAGES_TO_INSTALL+=("$pkg")
+            PACKAGE_STATUS_DETAILS["$pkg"]="not installed"
+            continue
+        fi
+        IFS=$'\t' read -r status installed_version <<<"$status_line"
+        if [[ "${status}" != ii* || -z "$installed_version" ]]; then
+            PACKAGES_TO_INSTALL+=("$pkg")
+            PACKAGE_STATUS_DETAILS["$pkg"]="not installed"
+            continue
+        fi
+        candidate="$(apt-cache policy "$pkg" 2>/dev/null | awk '/Candidate:/ {print $2; exit}')"
+        if [[ -z "$candidate" || "$candidate" == "(none)" ]]; then
+            candidate="$installed_version"
+        fi
+        if [[ -n "$candidate" && -n "$installed_version" ]] && dpkg --compare-versions "$candidate" gt "$installed_version"; then
+            PACKAGES_TO_UPGRADE+=("$pkg")
+            PACKAGE_STATUS_DETAILS["$pkg"]="installed ${installed_version} → candidate ${candidate}"
+        else
+            PACKAGES_ALREADY_OK+=("$pkg")
+            PACKAGE_STATUS_DETAILS["$pkg"]="installed ${installed_version}"
+        fi
+    done
+}
+
+classify_package_statuses() {
+    reset_package_status_tracking
+    local manager_kind
+    manager_kind="$(detect_package_manager_kind)"
+    if [[ -z "$manager_kind" ]]; then
+        PACKAGE_STATUS_CHECK_SUPPORTED=0
+        PACKAGES_TO_INSTALL=("$@")
+        for pkg in "$@"; do
+            PACKAGE_STATUS_DETAILS["$pkg"]="status check unavailable (unknown package manager)"
+        done
+        return
+    fi
+
+    case "$manager_kind" in
+        apt)
+            PACKAGE_STATUS_CHECK_SUPPORTED=1
+            classify_packages_for_apt "$@"
+            ;;
+        *)
+            PACKAGE_STATUS_CHECK_SUPPORTED=0
+            PACKAGES_TO_INSTALL=("$@")
+            for pkg in "$@"; do
+                PACKAGE_STATUS_DETAILS["$pkg"]="status check unsupported for manager '${manager_kind}'"
+            done
+            ;;
+    esac
 }
 
 expand_path_template() {
@@ -790,6 +889,7 @@ disable_conflicting_plugins() {
 ensure_system_packages() {
     ensure_distro_profile
     local packages=("${PROFILE_PACKAGES_CORE[@]}" "${PROFILE_PACKAGES_QT[@]}")
+    local pkg
     local fallback_notice="python3 python3-venv python3-pip rsync libxcb-cursor0 libxkbcommon-x11-0"
     if ((${#packages[@]} == 0)); then
         echo "⚠️  Automatic dependency installation is disabled for profile '$PROFILE_LABEL'."
@@ -799,13 +899,47 @@ ensure_system_packages() {
 
     echo "📦 Modern Overlay requires the following packages on '$PROFILE_LABEL':"
     printf '    %s\n' "${packages[@]}"
-    if ! prompt_yes_no "Install / upgrade these packages now?"; then
+
+    classify_package_statuses "${packages[@]}"
+
+    if (( ! PACKAGE_STATUS_CHECK_SUPPORTED )); then
+        echo "ℹ️  Detailed package status checks are unavailable for this package manager; requesting installation for all listed packages."
+    fi
+
+    if ((${#PACKAGES_ALREADY_OK[@]} > 0)); then
+        echo "   ✅ Already satisfied:"
+        local pkg
+        for pkg in "${PACKAGES_ALREADY_OK[@]}"; do
+            printf '      - %s (%s)\n' "$pkg" "${PACKAGE_STATUS_DETAILS[$pkg]}"
+        done
+    fi
+    if ((${#PACKAGES_TO_INSTALL[@]} > 0)); then
+        echo "   📥 Needs installation:"
+        for pkg in "${PACKAGES_TO_INSTALL[@]}"; do
+            printf '      - %s (%s)\n' "$pkg" "${PACKAGE_STATUS_DETAILS[$pkg]}"
+        done
+    fi
+    if ((${#PACKAGES_TO_UPGRADE[@]} > 0)); then
+        echo "   ⬆️  Needs upgrade:"
+        for pkg in "${PACKAGES_TO_UPGRADE[@]}"; do
+            printf '      - %s (%s)\n' "$pkg" "${PACKAGE_STATUS_DETAILS[$pkg]}"
+        done
+    fi
+
+    local -a action_packages=("${PACKAGES_TO_INSTALL[@]}" "${PACKAGES_TO_UPGRADE[@]}")
+    if ((${#action_packages[@]} == 0)); then
+        echo "✅ All required packages are already present for '$PROFILE_LABEL'."
+        return
+    fi
+
+    local prompt_message="Install / upgrade ${#action_packages[@]} package(s) now?"
+    if ! prompt_yes_no "$prompt_message"; then
         echo "❌ Installation cannot continue without required system packages." >&2
         exit 1
     fi
 
     require_command sudo "sudo"
-    run_package_install "core dependencies" "${packages[@]}"
+    run_package_install "core dependencies" "${action_packages[@]}"
 }
 
 maybe_install_wayland_deps() {
