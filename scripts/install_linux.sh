@@ -665,15 +665,15 @@ find_release_root() {
 prompt_yes_no() {
     local prompt="${1:-Continue?}"
     if [[ "$ASSUME_YES" == true ]]; then
-        echo "${prompt} [y/N]: y (auto-approved)"
+        echo "${prompt} [Y/n]: y (auto-approved)"
         return 0
     fi
     local answer
     while true; do
-        read -r -p "${prompt} [y/N]: " answer || return 1
+        read -r -p "${prompt} [Y/n]: " answer || return 1
         case "${answer}" in
-            [Yy][Ee][Ss]|[Yy]) return 0 ;;
-            [Nn][Oo]|[Nn]|'') return 1 ;;
+            [Yy][Ee][Ss]|[Yy]|'') return 0 ;;
+            [Nn][Oo]|[Nn]) return 1 ;;
             *) echo "Please answer yes or no." ;;
         esac
     done
