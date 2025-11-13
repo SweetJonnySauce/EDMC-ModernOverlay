@@ -462,9 +462,21 @@ class GroupConfigStore:
         # RLock avoids deadlocks when save() is called from other locked methods.
         self._lock = threading.RLock()
         self._data: Dict[str, MutableMapping[str, object]] = {}
+        self._mtime: Optional[float] = None
         self._load()
 
+    def _current_mtime(self) -> Optional[float]:
+        try:
+            return self._path.stat().st_mtime
+        except OSError:
+            return None
+
     def _load(self) -> None:
+        with self._lock:
+            self._load_unlocked()
+            self._mtime = self._current_mtime()
+
+    def _load_unlocked(self) -> None:
         try:
             raw_text = self._path.read_text(encoding="utf-8")
         except FileNotFoundError:
@@ -487,6 +499,15 @@ class GroupConfigStore:
                 continue
             cleaned[plugin_name] = self._normalise_plugin_entry(dict(payload))
         self._data = cleaned
+
+    def refresh_if_changed(self) -> bool:
+        with self._lock:
+            current_mtime = self._current_mtime()
+            if current_mtime == self._mtime:
+                return False
+            self._load_unlocked()
+            self._mtime = self._current_mtime()
+            return True
 
     def _normalise_plugin_entry(self, entry: MutableMapping[str, object]) -> MutableMapping[str, object]:
         normalised: MutableMapping[str, object] = {}
@@ -612,6 +633,7 @@ class GroupConfigStore:
         with self._lock:
             ordered = {name: self._data[name] for name in sorted(self._data.keys())}
             self._path.write_text(json.dumps(ordered, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            self._mtime = self._current_mtime()
 
     def list_groups(self) -> List[str]:
         with self._lock:
@@ -1152,6 +1174,8 @@ class PluginGroupManagerApp:
         self._queue: "queue.Queue[Tuple[str, object]]" = queue.Queue()
         self._watcher: Optional[PayloadWatcher] = None
         self._gather_thread: Optional[LogGatherer] = None
+        self._group_file_poll_ms = 1000
+        self._closed = False
 
         self.root = tk.Tk()
         default_font = tkfont.nametofont("TkDefaultFont")
@@ -1191,6 +1215,7 @@ class PluginGroupManagerApp:
         self._refresh_group_data()
         self._update_payload_count()
         self.root.after(200, self._process_queue)
+        self.root.after(self._group_file_poll_ms, self._poll_groupings_file)
 
     def _resolve_payload_window_background(self) -> str:
         """Mirror the payload inspector background so dropdown matches."""
@@ -1960,14 +1985,16 @@ class PluginGroupManagerApp:
         self._gather_thread = LogGatherer(self._locator, self._matcher, self._payload_store, self._queue)
         self._gather_thread.start()
 
-    def _purge_matched(self) -> None:
+    def _purge_matched(self, emit_status: bool = True) -> int:
         self._matcher.refresh()
         removed = self._payload_store.remove_matched(self._matcher)
         if removed:
             self._refresh_payload_list()
         self._update_payload_count()
-        message = f"Removed {removed} payload(s) that now match configured groupings."
-        self.status_var.set(message)
+        if emit_status:
+            message = f"Removed {removed} payload(s) that now match configured groupings."
+            self.status_var.set(message)
+        return removed
 
     def _enable_group_scroll(self, _event) -> None:
         if self._group_scroll_bound:
@@ -2206,6 +2233,8 @@ class PluginGroupManagerApp:
 
     # Queue processing ----------------------------------------------------
     def _process_queue(self) -> None:
+        if self._closed:
+            return
         try:
             while True:
                 message_type, payload = self._queue.get_nowait()
@@ -2226,9 +2255,29 @@ class PluginGroupManagerApp:
                     self.status_var.set(f"Gather complete: added {added} new payload(s) from {files} log file(s).")
         except queue.Empty:
             pass
-        self.root.after(200, self._process_queue)
+        if not self._closed:
+            self.root.after(200, self._process_queue)
+
+    def _poll_groupings_file(self) -> None:
+        if self._closed:
+            return
+        try:
+            changed = self._group_store.refresh_if_changed()
+        except Exception as exc:
+            LOG.debug("Failed to refresh overlay_groupings.json: %s", exc)
+            changed = False
+        if changed:
+            removed = self._purge_matched(emit_status=False)
+            self._refresh_group_data()
+            message = "overlay_groupings.json changed on disk; reloaded."
+            if removed:
+                message += f" Removed {removed} payload(s) that now match configured groupings."
+            self.status_var.set(message)
+        if not self._closed:
+            self.root.after(self._group_file_poll_ms, self._poll_groupings_file)
 
     def _on_close(self) -> None:
+        self._closed = True
         self._stop_watcher()
         self._disable_group_scroll(None)
         self.root.destroy()

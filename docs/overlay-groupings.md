@@ -1,0 +1,155 @@
+# Overlay Groupings Guide
+
+`overlay_groupings.json` is the single source of truth for Modern Overlay’s plugin-specific behaviour. It powers three things:
+
+1. **Plugin detection** – payloads without a `plugin` field are mapped to the correct owner via `matchingPrefixes`.
+2. **Grouping** – related payloads stay rigid in Fill mode when they share a named `idPrefixGroup`.
+3. **Anchoring** – each group can declare the anchor point Modern Overlay should keep stationary when nudging windows back on screen.
+
+This document explains the current schema, the helper tooling, and the workflows we now support.
+
+## Schema overview
+
+The JSON root is an object keyed by the display name you want shown in the overlay UI. Each entry follows this schema (draft 2020‑12):
+
+```jsonc
+{
+  "Example Plugin": {
+    "matchingPrefixes": ["example-"],
+    "idPrefixGroups": {
+      "alerts": {
+        "idPrefixes": ["example-alert-"],
+        "idPrefixGroupAnchor": "ne"
+      }
+    }
+  }
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `matchingPrefixes` | array of non-empty strings | Optional. Used for plugin inference. Whenever an `idPrefixes` array is provided, missing entries are appended automatically (add-only). Entries are lowercased and deduplicated. |
+| `idPrefixGroups` | object | Optional, but any entry here must contain at least one group. Each property name is the label shown in tooling (e.g., “alerts”). |
+| `idPrefixGroups.<name>.idPrefixes` | array of non-empty strings | Required whenever a group is created. Prefixes are lowercased, deduplicated, and unique per plugin group—if you reassign a prefix, it is removed from all other groups automatically. |
+| `idPrefixGroups.<name>.idPrefixGroupAnchor` | enum | Optional. One of `nw`, `ne`, `sw`, `se`, `center`, `top`, `bottom`, `left`, or `right`. Defaults to `nw` when omitted. |
+
+Additional metadata (`notes`, legacy `grouping.*`, etc.) is ignored by the current engine but preserved so you can document intent for reviewers.
+
+### Reference schema
+
+The repository ships with `schemas/overlay_groupings.schema.json` (Draft 2020‑12). `overlay_groupings.json` already points to it via `$schema`, so editors such as VS Code will fetch it automatically. For reference, the schema contents are below:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EDMC Modern Overlay Payload Group Definition",
+  "type": "object",
+  "additionalProperties": { "$ref": "#/$defs/pluginGroup" },
+  "$defs": {
+    "pluginGroup": {
+      "type": "object",
+      "properties": {
+        "matchingPrefixes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "idPrefixGroups": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/$defs/idPrefixGroup" }
+        }
+      },
+      "anyOf": [
+        { "required": ["matchingPrefixes"] },
+        { "required": ["idPrefixGroups"] }
+      ],
+      "additionalProperties": false
+    },
+    "idPrefixGroup": {
+      "type": "object",
+      "properties": {
+        "idPrefixes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "idPrefixGroupAnchor": {
+          "type": "string",
+          "enum": ["nw", "ne", "sw", "se", "center", "top", "bottom", "left", "right"]
+        }
+      },
+      "required": ["idPrefixes"],
+      "additionalProperties": false
+    }
+  }
+}
+```
+
+## Authoring options
+
+### Manual edits
+
+You can edit `overlay_groupings.json` directly; the schema above is self-contained and stored alongside the repository. Keep the file in version control, run `python3 -m json.tool overlay_groupings.json` (or a formatter of your choice) for quick validation, and cover behavioural changes with tests/logs when possible.
+
+### Public API (`define_plugin_group`)
+
+Third-party plugins should call the bundled helper to create or replace their entries at runtime:
+
+```python
+from overlay_plugin.overlay_api import define_plugin_group, PluginGroupingError
+
+try:
+    define_plugin_group(
+        plugin_group="MyPlugin",
+        matching_prefixes=["myplugin-"],
+        id_prefix_group="alerts",
+        id_prefixes=["myplugin-alert-"],
+        id_prefix_group_anchor="ne",
+    )
+except PluginGroupingError as exc:
+    # Modern Overlay is offline or the payload was invalid
+    print(f"Could not register grouping: {exc}")
+```
+
+The helper enforces the schema, lowercases prefixes, ensures per-plugin uniqueness, and writes the JSON back to disk so the overlay client reloads it instantly.
+
+### CLI helper (`scripts/plugin_group_cli.py`)
+
+Run `scripts/plugin_group_cli.py --plugin-group Example --id-prefix-group alerts --id-prefixes example-alert- --write` to edit the file from the terminal. Without `--write` the script operates in a dry-run mode, printing the resulting JSON block so you can review it before committing.
+
+### GUI helper (`utils/plugin_group_tester.py`)
+
+Launch `python3 utils/plugin_group_tester.py` for a Tk-based form that posts to the same API. It defaults to a mock example, lets you paste prefixes one-per-line, and reports the response inline (200 = updated, 204 = no-op, 400/500 = validation/runtime errors).
+
+### Interactive manager (`utils/plugin_group_manager.py`)
+
+The full Plugin Group Manager remains available for exploratory work:
+
+- Watches live payload logs, suggests prefixes/groups, and lets you edit everything through dialogs.
+- Automatically reloads if it notices that `overlay_groupings.json` changed on disk (including API- or CLI-driven updates) and purges payloads that now match a group.
+- Great for vetting Fill-mode anchors with real payloads before copying the values into commits.
+
+## Runtime behaviour
+
+- **Prefix casing/uniqueness:** every prefix is stored lowercased. When you assign an `idPrefixes` list to a group, the API removes those prefixes from every other group under the same plugin to avoid ambiguous matches.
+- **Matching inference:** the overlay client uses `matchingPrefixes` first, falling back to `idPrefixes` inside each group and legacy hints. Supplying at least one matching prefix keeps plugin detection deterministic.
+- **Anchor enforcement:** the renderer validates anchors against the nine allowed tokens. Invalid entries fall back to `nw` so the overlay never crashes; fix the source JSON when this happens.
+- **Hot reload:** both the overlay client and the Plugin Group Manager poll file mtimes so changes take effect without restarts. Treat the JSON like a shared resource—always make edits atomically (write to a temp file, then replace) or use the provided helpers.
+
+## Testing & validation
+
+| Scope | Command | Purpose |
+|-------|---------|---------|
+| API contract | `pytest tests/test_overlay_api.py` | Validates schema enforcement, prefix lowercasing, per-plugin uniqueness, and error cases for the public API. |
+| Override parser | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_override_grouping.py` | Ensures `overlay_groupings.json` is parsed into runtime grouping metadata correctly (matching, anchors, grouping keys). |
+| Manual sanity | `python3 utils/plugin_group_manager.py` | Exercise the UI, verify anchors/bounds, and ensure new groups behave correctly with live payloads. |
+
+Before shipping new prefixes, capture representative payloads (e.g., with `tests/send_overlay_from_log.py`) and verify that Fill mode keeps the new groups rigid. Document intentional changes in release notes or `docs/developer.md` so downstream maintainers know why the prefixes exist.
+
+## Best practices
+
+- Keep `overlay_groupings.json` under version control and review API-generated diffs like any other code change.
+- Mention new or renamed groups in README/FAQ/ release notes so plugin authors know what to expect.
+- Prefer declarative metadata over payload mutation; anchors, grouping, and matching prefixes cover all current runtime behaviour.
+- When in doubt, prototype in the Plugin Group Manager, then replicate the final prefixes/anchors via the API or CLI to avoid typos.

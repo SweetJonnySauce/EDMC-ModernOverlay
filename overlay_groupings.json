@@ -1,4 +1,5 @@
 {
+  "$schema": "./schemas/overlay_groupings.schema.json",
   "BGS-Tally": {
     "matchingPrefixes": [
       "bgstally-"
@@ -74,6 +75,19 @@
         "idPrefixes": [
           "edmcma"
         ]
+      }
+    }
+  },
+  "EDMC-ModernOverlay": {
+    "matchingPrefixes": [
+      "modernoverlay-"
+    ],
+    "idPrefixGroups": {
+      "Modernoverlay Test": {
+        "idPrefixes": [
+          "modernoverlay-test"
+        ],
+        "idPrefixGroupAnchor": "nw"
       }
     }
   },
@@ -157,16 +171,25 @@
       }
     }
   },
-  "modernoverlay": {
+  "Example Plugin": {
     "matchingPrefixes": [
-      "modernoverlay-"
+      "example-",
+      "example-alt-",
+      "test-1"
     ],
     "idPrefixGroups": {
-      "Modernoverlay Test": {
+      "status": {
         "idPrefixes": [
-          "modernoverlay-test"
+          "example-status-",
+          "example-alert-"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "ne"
+      },
+      "test": {
+        "idPrefixes": [
+          "example-bob"
+        ],
+        "idPrefixGroupAnchor": "top"
       }
     }
   }

@@ -36,6 +36,7 @@ jobs:
             '--exclude=dist/'
             '--exclude=docs/'
             '--exclude=tests/'
+            '--exclude=schemas/'
             '--exclude=.codex/'
             '--exclude=.vscode/'
             '--exclude=debug.json'

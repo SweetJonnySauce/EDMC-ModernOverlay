@@ -3,13 +3,22 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Mapping, MutableMapping, Optional
+from pathlib import Path
+from threading import RLock
+from typing import Any, Callable, Dict, Mapping, MutableMapping, Optional, Sequence, Tuple, Union
 
 _LOGGER = logging.getLogger("EDMC.ModernOverlay.API")
 _MAX_MESSAGE_BYTES = 16_384
+_ANCHOR_CHOICES = {"nw", "ne", "sw", "se", "center", "top", "bottom", "left", "right"}
 
 _publisher: Optional[Callable[[Mapping[str, Any]], bool]] = None
+_grouping_store: Optional["_PluginGroupingStore"] = None
+
+
+class PluginGroupingError(ValueError):
+    """Raised when callers provide invalid plugin grouping data."""
 
 
 def register_publisher(publisher: Callable[[Mapping[str, Any]], bool]) -> None:
@@ -28,6 +37,20 @@ def unregister_publisher() -> None:
 
     global _publisher
     _publisher = None
+
+
+def register_grouping_store(path: Union[str, Path]) -> None:
+    """Expose the overlay grouping JSON so other plugins can edit it."""
+
+    global _grouping_store
+    _grouping_store = _PluginGroupingStore(Path(path))
+
+
+def unregister_grouping_store() -> None:
+    """Forget the overlay grouping JSON path (used when shutting down)."""
+
+    global _grouping_store
+    _grouping_store = None
 
 
 def send_overlay_message(message: Mapping[str, Any]) -> bool:
@@ -77,6 +100,51 @@ def send_overlay_message(message: Mapping[str, Any]) -> bool:
         return False
 
 
+def define_plugin_group(
+    *,
+    plugin_group: str,
+    matching_prefixes: Optional[Sequence[str]] = None,
+    id_prefix_group: Optional[str] = None,
+    id_prefixes: Optional[Sequence[str]] = None,
+    id_prefix_group_anchor: Optional[str] = None,
+) -> bool:
+    """Create or replace grouping metadata for a plugin.
+
+    Returns ``True`` when the JSON file was updated. Raises
+    :class:`PluginGroupingError` when validation fails or when the overlay
+    plugin is not running.
+    """
+
+    if not plugin_group:
+        raise PluginGroupingError("pluginGroup is required")
+
+    store = _grouping_store
+    if store is None:
+        raise PluginGroupingError("Modern Overlay plugin is unavailable; cannot define plugin groups")
+
+    plugin_label = _normalise_label(plugin_group, "pluginGroup")
+    if matching_prefixes is None and id_prefix_group is None and id_prefixes is None and id_prefix_group_anchor is None:
+        raise PluginGroupingError("Provide matchingPrefixes, idPrefixGroup, idPrefixes, or idPrefixGroupAnchor")
+
+    match_list = _normalise_prefixes(matching_prefixes, "matchingPrefixes") if matching_prefixes is not None else None
+    id_group_label = _normalise_label(id_prefix_group, "idPrefixGroup") if id_prefix_group is not None else None
+    id_prefix_list = _normalise_prefixes(id_prefixes, "idPrefixes") if id_prefixes is not None else None
+    if id_prefix_list is not None and id_group_label is None:
+        raise PluginGroupingError("idPrefixGroup is required when specifying idPrefixes")
+    anchor_token = _normalise_anchor(id_prefix_group_anchor) if id_prefix_group_anchor is not None else None
+    if anchor_token is not None and id_group_label is None:
+        raise PluginGroupingError("idPrefixGroup is required when specifying idPrefixGroupAnchor")
+
+    update = _GroupingUpdate(
+        plugin_group=plugin_label,
+        matching_prefixes=match_list,
+        id_prefix_group=id_group_label,
+        id_prefixes=id_prefix_list,
+        id_prefix_group_anchor=anchor_token,
+    )
+    return store.apply(update)
+
+
 def _normalise_message(message: Mapping[str, Any]) -> Optional[MutableMapping[str, Any]]:
     if not isinstance(message, Mapping):
         _log_warning("Overlay message must be a mapping/dict")
@@ -97,6 +165,75 @@ def _normalise_message(message: Mapping[str, Any]) -> Optional[MutableMapping[st
     return payload
 
 
+def _normalise_label(value: Optional[str], field: str) -> str:
+    if not isinstance(value, str):
+        raise PluginGroupingError(f"{field} must be a string")
+    token = value.strip()
+    if not token:
+        raise PluginGroupingError(f"{field} must be a non-empty string")
+    return token
+
+
+def _normalise_prefixes(values: Optional[Sequence[str]], field: str) -> Tuple[str, ...]:
+    if values is None:
+        return ()
+    if isinstance(values, str):
+        iterable = [values]
+    else:
+        iterable = list(values)
+    cleaned: list[str] = []
+    seen = set()
+    for entry in iterable:
+        if not isinstance(entry, str):
+            raise PluginGroupingError(f"{field} entries must be strings")
+        token = entry.strip()
+        if not token:
+            continue
+        lowered = token.lower()
+        if lowered not in seen:
+            cleaned.append(lowered)
+            seen.add(lowered)
+    if not cleaned:
+        raise PluginGroupingError(f"{field} must contain at least one non-empty string")
+    return tuple(cleaned)
+
+
+def _normalise_anchor(value: Optional[str]) -> str:
+    if not isinstance(value, str):
+        raise PluginGroupingError("idPrefixGroupAnchor must be a string")
+    token = value.strip().lower()
+    if not token:
+        raise PluginGroupingError("idPrefixGroupAnchor must be non-empty")
+    if token not in _ANCHOR_CHOICES:
+        raise PluginGroupingError(
+            "idPrefixGroupAnchor must be one of: " + ", ".join(sorted(_ANCHOR_CHOICES))
+        )
+    return token
+
+
+def _matches_contains_prefix(matches: Sequence[Any], prefix: str) -> bool:
+    candidate = prefix.strip().lower()
+    if not candidate:
+        return True
+    for entry in matches:
+        if isinstance(entry, str) and entry.strip().lower() == candidate:
+            return True
+    return False
+
+
+def _prefix_is_captured(prefix: str, matches: Sequence[Any]) -> bool:
+    candidate = prefix.strip().lower()
+    if not candidate:
+        return True
+    for entry in matches:
+        if not isinstance(entry, str):
+            continue
+        token = entry.strip().lower()
+        if token and candidate.startswith(token):
+            return True
+    return False
+
+
 def _log_warning(message: str, *args: Any) -> None:
     _emit(logging.WARNING, message, *args)
 
@@ -115,3 +252,127 @@ def _emit(level: int, message: str, *args: Any) -> None:
         _LOGGER.log(level, message, *args)
     else:
         _LOGGER.log(level, message)
+
+
+@dataclass(frozen=True)
+class _GroupingUpdate:
+    plugin_group: str
+    matching_prefixes: Optional[Tuple[str, ...]]
+    id_prefix_group: Optional[str]
+    id_prefixes: Optional[Tuple[str, ...]]
+    id_prefix_group_anchor: Optional[str]
+
+
+class _PluginGroupingStore:
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._lock = RLock()
+
+    def apply(self, update: _GroupingUpdate) -> bool:
+        with self._lock:
+            data = self._load()
+            plugin_block = data.get(update.plugin_group)
+            attach_plugin_block = False
+            if not isinstance(plugin_block, dict):
+                plugin_block = {}
+                attach_plugin_block = True
+            mutated = False
+
+            if update.matching_prefixes is not None:
+                new_matches = list(update.matching_prefixes)
+                if plugin_block.get("matchingPrefixes") != new_matches:
+                    plugin_block["matchingPrefixes"] = new_matches
+                    mutated = True
+
+            if update.id_prefix_group is not None:
+                groups = plugin_block.get("idPrefixGroups")
+                groups_missing = not isinstance(groups, dict)
+                if groups_missing:
+                    groups = {}
+                group_entry = groups.get(update.id_prefix_group)
+                group_missing = not isinstance(group_entry, dict)
+                if group_missing and update.id_prefixes is None:
+                    raise PluginGroupingError(
+                        f"idPrefixes must be provided when creating idPrefixGroup '{update.id_prefix_group}'"
+                    )
+                if group_missing:
+                    group_entry = {}
+
+                if update.id_prefixes is not None:
+                    new_prefixes = list(update.id_prefixes)
+                    if group_entry.get("idPrefixes") != new_prefixes:
+                        group_entry["idPrefixes"] = new_prefixes
+                        mutated = True
+                    # Remove these prefixes from every other group so they stay unique within this plugin.
+                    for other_label, other_entry in list(groups.items()):
+                        if other_label == update.id_prefix_group:
+                            continue
+                        if not isinstance(other_entry, dict):
+                            continue
+                        other_prefixes = other_entry.get("idPrefixes")
+                        if not isinstance(other_prefixes, list) or not other_prefixes:
+                            continue
+                        original = list(other_prefixes)
+                        filtered = [prefix for prefix in original if prefix not in new_prefixes]
+                        if filtered == original:
+                            continue
+                        other_entry["idPrefixes"] = filtered
+                        if not filtered:
+                            other_entry.pop("idPrefixes", None)
+                        groups[other_label] = other_entry
+                        mutated = True
+                    matches = plugin_block.get("matchingPrefixes")
+                    if not isinstance(matches, list):
+                        matches = []
+                        plugin_block["matchingPrefixes"] = matches
+                        mutated = True
+                    for prefix in update.id_prefixes:
+                        if _prefix_is_captured(prefix, matches):
+                            continue
+                        if not _matches_contains_prefix(matches, prefix):
+                            matches.append(prefix)
+                            mutated = True
+
+                if update.id_prefix_group_anchor is not None:
+                    if group_entry.get("idPrefixGroupAnchor") != update.id_prefix_group_anchor:
+                        group_entry["idPrefixGroupAnchor"] = update.id_prefix_group_anchor
+                        mutated = True
+
+                if group_missing or groups_missing:
+                    mutated = True
+                groups[update.id_prefix_group] = group_entry
+                plugin_block["idPrefixGroups"] = groups
+            else:
+                if update.id_prefixes is not None or update.id_prefix_group_anchor is not None:
+                    raise PluginGroupingError("idPrefixGroup is required when specifying idPrefixes or idPrefixGroupAnchor")
+
+        if mutated:
+            if attach_plugin_block:
+                data[update.plugin_group] = plugin_block
+            self._write(data)
+        return mutated
+
+    def _load(self) -> Dict[str, Any]:
+        try:
+            raw_text = self._path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return {}
+        except OSError as exc:  # pragma: no cover - filesystem issues
+            raise PluginGroupingError(f"Unable to read {self._path}: {exc}") from exc
+        if not raw_text.strip():
+            return {}
+        try:
+            data = json.loads(raw_text)
+        except json.JSONDecodeError as exc:
+            raise PluginGroupingError(f"overlay_groupings.json is not valid JSON: {exc}") from exc
+        if not isinstance(data, dict):
+            raise PluginGroupingError("overlay_groupings.json must contain a JSON object at the root")
+        return dict(data)
+
+    def _write(self, data: Mapping[str, Any]) -> None:
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            serialised = json.dumps(data, indent=2, ensure_ascii=False)
+            self._path.write_text(serialised + "\n", encoding="utf-8")
+        except OSError as exc:  # pragma: no cover - filesystem issues
+            raise PluginGroupingError(f"Unable to write {self._path}: {exc}") from exc

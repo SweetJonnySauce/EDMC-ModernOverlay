@@ -18,6 +18,33 @@
   ```
 - Clearing a legacy payload now mirrors every legacy path: sending `text=""`, `ttl=0`, **or** calling `send_raw({"id": "payload-id"})` all normalise to a `legacy_clear` event. The shim logs the event, the plugin mirrors it to `overlay-payloads.log`, and the overlay client removes the matching `id` even if the request originated from the WebSocket CLI.
 
+## Declaring plugin groups via API
+
+The public helper module also exposes `define_plugin_group()` so plugins can register their own grouping metadata without editing `overlay_groupings.json` manually. The helper enforces the schema constraints already in place and lowercases/uniquifies prefixes for you:
+
+```python
+from overlay_plugin.overlay_api import define_plugin_group, PluginGroupingError
+
+try:
+    define_plugin_group(
+        plugin_group="MyPlugin",
+        matching_prefixes=["myplugin-"],
+        id_prefix_group="alerts",
+        id_prefixes=["myplugin-alert-"],
+        id_prefix_group_anchor="ne",
+    )
+except PluginGroupingError as exc:
+    # Modern Overlay isn't running or the call was invalid
+    print(f"Could not register grouping: {exc}")
+```
+
+- `plugin_group` is the JSON root key. Provide at least one of `matching_prefixes`, `id_prefix_group`, `id_prefixes`, or `id_prefix_group_anchor`.
+- `matching_prefixes` replaces the existing list; when `id_prefixes` is supplied, any missing entries are appended automatically (add-only) and scoped to the plugin.
+- `id_prefix_group` identifies/creates the nested block. Creating a new group requires `id_prefixes`; later calls can update just the anchor.
+- `id_prefix_group_anchor` must be one of the nine overlay anchors (`nw`, `ne`, …). Send it alongside the group name (and optionally new prefixes) to overwrite the stored anchor.
+
+Every call rewrites `overlay_groupings.json`, so keep the file under version control, document intentional changes (for example in release notes), and cover new plugin groups with regression tests. Pull requests should include the updated JSON plus any developer notes explaining the new prefixes.
+
 ## Versioning
 
 - The release number lives in `version.py` (`__version__`). Bump it before tagging so EDMC, the overlay client, and API consumers remain in sync.

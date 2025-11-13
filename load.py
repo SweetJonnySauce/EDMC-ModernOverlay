@@ -26,8 +26,10 @@ if __package__:
     from .overlay_plugin.version_helper import VersionStatus, evaluate_version_status
     from .overlay_plugin.legacy_tcp_server import LegacyOverlayTCPServer
     from .overlay_plugin.overlay_api import (
+        register_grouping_store,
         register_publisher,
         send_overlay_message,
+        unregister_grouping_store,
         unregister_publisher,
     )
     from .EDMCOverlay.edmcoverlay import normalise_legacy_payload
@@ -39,8 +41,10 @@ else:  # pragma: no cover - EDMC loads as top-level module
     from overlay_plugin.version_helper import VersionStatus, evaluate_version_status
     from overlay_plugin.legacy_tcp_server import LegacyOverlayTCPServer
     from overlay_plugin.overlay_api import (
+        register_grouping_store,
         register_publisher,
         send_overlay_message,
+        unregister_grouping_store,
         unregister_publisher,
     )
     from EDMCOverlay.edmcoverlay import normalise_legacy_payload
@@ -309,6 +313,7 @@ class _PluginRuntime:
         self._version_update_notice_sent = False
         self._version_notice_timer_lock = threading.Lock()
         self._version_notice_timers: Set[threading.Timer] = set()
+        register_grouping_store(self.plugin_dir / "overlay_groupings.json")
         threading.Thread(
             target=self._evaluate_version_status_once,
             name="ModernOverlayVersionCheck",
@@ -357,6 +362,7 @@ class _PluginRuntime:
                 return
             self._running = False
         unregister_publisher()
+        unregister_grouping_store()
         _log("Plugin stopping")
         self._cancel_config_timers()
         self._cancel_version_notice_timers()
