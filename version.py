@@ -6,7 +6,7 @@ from typing import Optional
 
 __all__ = ["__version__", "is_dev_build", "DEV_MODE_ENV_VAR"]
 
-__version__ = "0.6.7-dev"
+__version__ = "0.6.7-a"
 DEV_MODE_ENV_VAR = "MODERN_OVERLAY_DEV_MODE"
 
 
