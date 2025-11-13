@@ -32,7 +32,40 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ScriptDir = Split-Path -Parent $PSCommandPath
+function Resolve-ScriptDirectory {
+    # Determine script location even when compiled to an EXE (PSCommandPath becomes empty there).
+    $candidates = @()
+    if (-not [string]::IsNullOrWhiteSpace($PSCommandPath)) {
+        $candidates += (Split-Path -Parent $PSCommandPath)
+    }
+    if ($MyInvocation -and $MyInvocation.MyCommand) {
+        $pathProp = $MyInvocation.MyCommand.PSObject.Properties['Path']
+        if ($pathProp -and -not [string]::IsNullOrWhiteSpace($pathProp.Value)) {
+            $candidates += (Split-Path -Parent $pathProp.Value)
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+        $candidates += $PSScriptRoot
+    }
+    $candidates += [System.AppContext]::BaseDirectory
+
+    foreach ($candidate in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+        try {
+            if (Test-Path -LiteralPath $candidate) {
+                return (Get-Item -LiteralPath $candidate).FullName
+            }
+        } catch {
+            continue
+        }
+    }
+
+    return [System.AppContext]::BaseDirectory
+}
+
+$ScriptDir = Resolve-ScriptDirectory
 $ReleaseRoot = $null
 $PayloadDir = $null
 $PythonSpec = $null
@@ -58,6 +91,28 @@ function Fail-Install {
     param([string]$Message)
     Write-ErrorLine $Message
     exit 1
+}
+
+function Wait-ForExitConfirmation {
+    param([string]$Prompt)
+
+    $message = $Prompt
+    try {
+        Read-Host $message | Out-Null
+        return
+    } catch {
+        # Fall through to console-based handling.
+    }
+
+    try {
+        Write-Host $message
+        [void][System.Console]::ReadLine()
+        return
+    } catch {
+        # No console available (e.g., PS2EXE without console). Give the user a moment to read the message.
+        Write-Host "$message (auto-closing in 5 seconds...)"
+        Start-Sleep -Seconds 5
+    }
 }
 
 function Prompt-YesNo {
@@ -492,7 +547,7 @@ function Maybe-InstallEurocaps {
         Write-Info 'Skipping Eurocaps font download.'
         return
     }
-    if (-not (Prompt-YesNo -Message 'Confirm you already have a license to use the Eurocaps font (e.g., via your Elite Dangerous purchase).' -Default:$false)) {
+    if (-not (Prompt-YesNo -Message 'Confirm you already have a license to use the Eurocaps font.' -Default:$false)) {
         Write-Info 'Eurocaps installation cancelled because the license confirmation was declined.'
         return
     }
@@ -506,6 +561,11 @@ function Final-Notes {
     Write-Info 'Re-run install_windows.ps1 any time you want to update the plugin or re-install the optional Eurocaps font.'
     if ($DryRun) {
         Write-Info 'Dry-run mode was enabled; no files were modified.'
+    }
+    if ($AssumeYes) {
+        Write-Info 'Install finished. Exiting automatically because -AssumeYes was provided.'
+    } else {
+        Wait-ForExitConfirmation -Prompt 'Install finished. Press Enter to exit.'
     }
 }
 
