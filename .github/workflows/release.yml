@@ -50,7 +50,7 @@ jobs:
           rsync -a "${EXCLUDES[@]}" ./ dist/linux/EDMC-ModernOverlay/
 
           # Windows helper scripts at archive root
-          cp scripts/install_windows.ps1 scripts/install-eurocaps.bat dist/windows/
+          cp scripts/install_windows.ps1 dist/windows/
 
           # Linux helper script + manifest at archive root
           cp scripts/install_linux.sh scripts/install_matrix.json dist/linux/
@@ -68,7 +68,7 @@ jobs:
             VER="dev-${shortsha}"
           fi
           # Windows zip
-          (cd dist/windows && zip -r "../EDMC-ModernOverlay-windows-${VER}.zip" EDMC-ModernOverlay install_windows.ps1 install-eurocaps.bat)
+          (cd dist/windows && zip -r "../EDMC-ModernOverlay-windows-${VER}.zip" EDMC-ModernOverlay install_windows.ps1)
           # Linux tar.gz
           (cd dist/linux && tar -czf "../EDMC-ModernOverlay-linux-${VER}.tar.gz" EDMC-ModernOverlay install_linux.sh install_matrix.json)
           ls -al dist
@@ -90,3 +90,4 @@ jobs:
           files: |
             dist/EDMC-ModernOverlay-windows-*.zip
             dist/EDMC-ModernOverlay-linux-*.tar.gz
+
