@@ -1,0 +1,79 @@
+{
+  "plugin_paths": {
+    "standard": [
+      "${XDG_DATA_HOME:-$HOME/.local/share}/EDMarketConnector/plugins",
+      "$HOME/.local/share/EDMarketConnector/plugins",
+      "$HOME/.config/EDMarketConnector/plugins"
+    ],
+    "flatpak": [
+      "$HOME/.var/app/io.edcd.EDMarketConnector/data/EDMarketConnector/plugins"
+    ]
+  },
+  "distros": [
+    {
+      "id": "debian",
+      "label": "Debian / Ubuntu",
+      "match": {
+        "ids": ["debian", "ubuntu", "pop", "linuxmint", "neon", "zorin", "kali", "parrot"],
+        "id_like": ["debian", "ubuntu"]
+      },
+      "pkg_manager": {
+        "update": ["sudo", "apt-get", "update"],
+        "install": ["sudo", "apt-get", "install", "-y"]
+      },
+      "packages": {
+        "core": ["python3", "python3-venv", "python3-pip", "rsync", "curl"],
+        "qt": ["libxcb-cursor0", "libxkbcommon-x11-0"],
+        "wayland": ["wmctrl", "x11-utils"]
+      }
+    },
+    {
+      "id": "fedora",
+      "label": "Fedora / RHEL / CentOS Stream",
+      "match": {
+        "ids": ["fedora", "rhel", "centos", "rocky", "almalinux"],
+        "id_like": ["fedora", "rhel"]
+      },
+      "pkg_manager": {
+        "install": ["sudo", "dnf", "install", "-y"]
+      },
+      "packages": {
+        "core": ["python3", "python3-pip", "python3-virtualenv", "rsync", "curl"],
+        "qt": ["libxkbcommon", "libxkbcommon-x11", "xcb-util-cursor"],
+        "wayland": ["wmctrl", "xorg-x11-utils"]
+      }
+    },
+    {
+      "id": "opensuse",
+      "label": "openSUSE / SLE",
+      "match": {
+        "ids": ["opensuse", "opensuse-leap", "opensuse-tumbleweed", "sles"],
+        "id_like": ["suse"]
+      },
+      "pkg_manager": {
+        "install": ["sudo", "zypper", "install", "-y"]
+      },
+      "packages": {
+        "core": ["python3", "python3-pip", "python3-virtualenv", "rsync", "curl"],
+        "qt": ["libxcb-cursor0", "libxkbcommon-x11-0"],
+        "wayland": ["wmctrl", "xprop"]
+      }
+    },
+    {
+      "id": "arch",
+      "label": "Arch / Manjaro / SteamOS",
+      "match": {
+        "ids": ["arch", "manjaro", "endeavouros", "steamos"],
+        "id_like": ["arch"]
+      },
+      "pkg_manager": {
+        "install": ["sudo", "pacman", "-Sy", "--needed"]
+      },
+      "packages": {
+        "core": ["python", "python-pip", "rsync", "curl"],
+        "qt": ["libxcb", "xcb-util-cursor", "libxkbcommon"],
+        "wayland": ["wmctrl", "xorg-xprop"]
+      }
+    }
+  ]
+}

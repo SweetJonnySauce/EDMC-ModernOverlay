@@ -34,16 +34,24 @@ EDMC Modern Overlay is a cross-platform (Windows, Linux X11 on Gnome), two-part 
 
 ### Linux
 - Close EDMarketConnector before installing.
-- Make sure you have Python 3 and venv support available (e.g. on Debian/Ubuntu: `sudo apt install python3 python3-venv`).
 - From the extracted folder, run the installer:
   - `./install_linux.sh` (ensure it’s executable) or `bash ./install_linux.sh`
+- Optional flags:
+  - `-y/--yes/--assume-yes` to auto-confirm prompts.
+  - `--profile <id>` to force a distro profile from `scripts/install_matrix.json` (e.g. `debian`, `fedora`, `arch`, `opensuse`, `skip`).
+  - `--dry-run` to see what would happen without modifying your system.
+  - A single positional path argument overrides the plugin directory detection.
 - Follow the on-screen prompts; the installer handles the rest (except installation of the Euroscripts font).
 - The installer will:
-  - Detect (or prompt for) the EDMC plugins directory (defaults to `~/.local/share/EDMarketConnector/plugins/`).
+  - Detect (or prompt for) the EDMC plugins directory (XDG defaults plus Flatpak’s `~/.var/app/io.edcd.EDMarketConnector/...`).
+  - Determine your distro family via `scripts/install_matrix.json` and install required packages with the correct package manager (apt, dnf, zypper, pacman). Use `--profile skip` if you prefer to handle dependencies yourself.
+  - Offer to install optional Wayland helper packages defined in the manifest.
   - Disable legacy `EDMCOverlay*` plugins if found.
   - Copy `EDMC-ModernOverlay/` into the plugins directory.
   - Create `overlay-client/.venv` and install `overlay-client/requirements.txt` into it.
 - Start EDMarketConnector; the overlay client launches automatically.
+
+`scripts/install_matrix.json` lists the distro profiles and package sets. To support another distribution, add a new entry (or adjust the package lists) and rerun the installer.
 
 #### Flatpak manual install helper
 > **Caution:** Enabling the host launch runs the overlay client outside the Flatpak sandbox, so it inherits the host user’s privileges. Only do this if you trust the plugin code and the system where it runs.

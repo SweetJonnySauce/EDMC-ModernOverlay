@@ -7,6 +7,383 @@ IFS=$'\n\t'
 
 readonly SCRIPT_PATH="${BASH_SOURCE[0]}"
 readonly SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+readonly MATRIX_FILE="${SCRIPT_DIR}/install_matrix.json"
+
+ASSUME_YES=false
+DRY_RUN=false
+PLUGIN_DIR_OVERRIDE=""
+
+declare -a POSITIONAL_ARGS=()
+declare -a MATRIX_STANDARD_PATHS=()
+declare -a MATRIX_FLATPAK_PATHS=()
+MATRIX_PATHS_LOADED=0
+
+PROFILE_OVERRIDE=""
+PROFILE_SELECTED=0
+PROFILE_SOURCE=""
+PROFILE_ID=""
+PROFILE_LABEL=""
+declare -a PKG_UPDATE_CMD=()
+declare -a PKG_INSTALL_CMD=()
+declare -a PROFILE_PACKAGES_CORE=()
+declare -a PROFILE_PACKAGES_QT=()
+declare -a PROFILE_PACKAGES_WAYLAND=()
+PKG_UPDATE_COMPLETED=0
+
+print_usage() {
+    cat <<'EOF'
+Usage: install_linux.sh [options]
+
+Options:
+  -y, --yes, --assume-yes   Automatically answer "yes" to prompts.
+      --dry-run             Show the actions that would be taken without making changes.
+      --profile <id>        Force a distro profile from scripts/install_matrix.json (e.g. debian, fedora).
+      --help                Show this message.
+
+You may optionally supply a single positional argument that points at the EDMC plugins directory.
+EOF
+}
+
+parse_args() {
+    POSITIONAL_ARGS=()
+    while (($# > 0)); do
+        case "$1" in
+            -y|--yes|--assume-yes)
+                ASSUME_YES=true
+                ;;
+            --dry-run)
+                DRY_RUN=true
+                ;;
+            --profile)
+                shift || { echo "❌ --profile requires an argument." >&2; exit 1; }
+                PROFILE_OVERRIDE="${1,,}"
+                ;;
+            -h|--help)
+                print_usage
+                exit 0
+                ;;
+            --)
+                shift
+                break
+                ;;
+            -*)
+                echo "❌ Unknown option: $1" >&2
+                print_usage
+                exit 1
+                ;;
+            *)
+                POSITIONAL_ARGS+=("$1")
+                ;;
+        esac
+        shift || break
+    done
+    while (($# > 0)); do
+        POSITIONAL_ARGS+=("$1")
+        shift
+    done
+    if ((${#POSITIONAL_ARGS[@]} > 1)); then
+        echo "❌ Unexpected positional arguments: ${POSITIONAL_ARGS[*]}" >&2
+        exit 1
+    fi
+    if ((${#POSITIONAL_ARGS[@]} == 1)); then
+        PLUGIN_DIR_OVERRIDE="${POSITIONAL_ARGS[0]}"
+    fi
+}
+
+format_command() {
+    local formatted=""
+    local part
+    for part in "$@"; do
+        formatted+=" $(printf '%q' "$part")"
+    done
+    printf '%s' "${formatted# }"
+}
+
+matrix_helper() {
+    local mode="$1"
+    shift
+    if [[ ! -f "$MATRIX_FILE" ]]; then
+        echo "❌ Manifest file '$MATRIX_FILE' not found. Re-download the release archive." >&2
+        exit 1
+    fi
+    python3 - "$MATRIX_FILE" "$mode" "$@" <<'PY'
+import json
+import shlex
+import sys
+
+def emit_array(name, items):
+    if not items:
+        print(f"{name}=()")
+        return
+    joined = " ".join(shlex.quote(str(item)) for item in items)
+    print(f"{name}=({joined})")
+
+def emit_profile(profile):
+    label = profile.get("label") or profile.get("id") or "Unknown"
+    print("PROFILE_FOUND=1")
+    print(f"PROFILE_ID={shlex.quote(profile.get('id', 'unknown'))}")
+    print(f"PROFILE_LABEL={shlex.quote(label)}")
+    pkg = profile.get("pkg_manager") or {}
+    emit_array("PKG_UPDATE_CMD", pkg.get("update") or [])
+    emit_array("PKG_INSTALL_CMD", pkg.get("install") or [])
+    packages = profile.get("packages") or {}
+    emit_array("PROFILE_PACKAGES_CORE", packages.get("core") or [])
+    emit_array("PROFILE_PACKAGES_QT", packages.get("qt") or [])
+    emit_array("PROFILE_PACKAGES_WAYLAND", packages.get("wayland") or [])
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+distros = data.get("distros", [])
+mode = sys.argv[2]
+
+def normalise(values):
+    return [str(value).lower() for value in values]
+
+if mode == "paths":
+    plugin_paths = data.get("plugin_paths", {})
+    emit_array("MATRIX_STANDARD_PATHS", plugin_paths.get("standard") or [])
+    emit_array("MATRIX_FLATPAK_PATHS", plugin_paths.get("flatpak") or [])
+elif mode == "match":
+    os_id = sys.argv[3].lower() if len(sys.argv) > 3 else ""
+    like_raw = sys.argv[4] if len(sys.argv) > 4 else ""
+    like_values = [chunk.lower() for chunk in like_raw.split(",") if chunk]
+    for profile in distros:
+        match = profile.get("match") or {}
+        ids = normalise(match.get("ids") or [])
+        likes = normalise(match.get("id_like") or [])
+        if os_id and os_id in ids:
+            emit_profile(profile)
+            break
+        if os_id and os_id in likes:
+            emit_profile(profile)
+            break
+        if like_values and ids and any(value in ids for value in like_values):
+            emit_profile(profile)
+            break
+        if like_values and likes and any(value in likes for value in like_values):
+            emit_profile(profile)
+            break
+elif mode == "list":
+    for index, profile in enumerate(distros, start=1):
+        pid = profile.get("id") or f"profile-{index}"
+        label = profile.get("label") or pid
+        print(f"{index}|{pid}|{label}")
+elif mode == "by-id":
+    target = sys.argv[3].lower()
+    for profile in distros:
+        pid = (profile.get("id") or "").lower()
+        if pid == target:
+            emit_profile(profile)
+            break
+else:
+    raise SystemExit(f"Unknown matrix helper mode: {mode}")
+PY
+}
+
+load_plugin_path_templates() {
+    if (( MATRIX_PATHS_LOADED )); then
+        return
+    fi
+    eval "$(matrix_helper paths)"
+    MATRIX_PATHS_LOADED=1
+}
+
+select_custom_profile() {
+    PROFILE_SELECTED=1
+    PROFILE_SOURCE="manual-skip"
+    PROFILE_ID="custom"
+    PROFILE_LABEL="Custom (manual dependency management)"
+    PKG_UPDATE_CMD=()
+    PKG_INSTALL_CMD=()
+    PROFILE_PACKAGES_CORE=()
+    PROFILE_PACKAGES_QT=()
+    PROFILE_PACKAGES_WAYLAND=()
+}
+
+select_profile_by_id() {
+    local profile_id="${1,,}"
+    if [[ -z "$profile_id" ]]; then
+        return 1
+    fi
+    if [[ "$profile_id" == "skip" || "$profile_id" == "none" ]]; then
+        select_custom_profile
+        return 0
+    fi
+    local output
+    output="$(matrix_helper by-id "$profile_id")"
+    if [[ -z "$output" ]]; then
+        return 1
+    fi
+    eval "$output"
+    if [[ "${PROFILE_FOUND:-0}" -eq 1 ]]; then
+        PROFILE_SELECTED=1
+        PROFILE_SOURCE="manual"
+        return 0
+    fi
+    return 1
+}
+
+ensure_distro_profile() {
+    if (( PROFILE_SELECTED )); then
+        return
+    fi
+    if [[ -n "$PROFILE_OVERRIDE" ]]; then
+        if ! select_profile_by_id "$PROFILE_OVERRIDE"; then
+            echo "❌ Unknown distro profile '$PROFILE_OVERRIDE'. Check scripts/install_matrix.json." >&2
+            exit 1
+        fi
+        return
+    fi
+    auto_detect_profile
+}
+
+auto_detect_profile() {
+    local os_id="unknown"
+    local os_like=""
+    if [[ -r /etc/os-release ]]; then
+        # shellcheck disable=SC1091
+        . /etc/os-release
+        os_id="${ID:-unknown}"
+        os_like="${ID_LIKE:-}"
+    fi
+    local like_csv="${os_like// /,}"
+    local output
+    output="$(matrix_helper match "${os_id,,}" "${like_csv,,}")"
+    if [[ -n "$output" ]]; then
+        eval "$output"
+        if [[ "${PROFILE_FOUND:-0}" -eq 1 ]]; then
+            PROFILE_SELECTED=1
+            PROFILE_SOURCE="auto"
+            return
+        fi
+    fi
+    echo "⚠️  Could not automatically determine distro profile for ID='${os_id}' (ID_LIKE='${os_like}')."
+    if [[ "$ASSUME_YES" == true ]]; then
+        echo "❌ Non-interactive mode requires --profile <id> when auto-detection fails." >&2
+        exit 1
+    fi
+    prompt_manual_profile_selection
+}
+
+prompt_manual_profile_selection() {
+    local entries
+    entries="$(matrix_helper list)"
+    if [[ -z "$entries" ]]; then
+        echo "❌ scripts/install_matrix.json does not define any distro profiles." >&2
+        exit 1
+    fi
+    echo "Available distro profiles:"
+    echo " 0) Skip automatic package installation (manage dependencies yourself)"
+    local -a profile_ids=()
+    local -a profile_labels=()
+    local -a profile_numbers=()
+    local line
+    while IFS='|' read -r number ident label; do
+        profile_ids+=("$ident")
+        profile_labels+=("$label")
+        profile_numbers+=("$number")
+        printf ' %s) %s (%s)\n' "$number" "$label" "$ident"
+    done <<< "$entries"
+    local choice
+    while true; do
+        read -r -p "Select a profile [0-${#profile_ids[@]}]: " choice
+        choice="${choice,,}"
+        if [[ -z "$choice" ]]; then
+            continue
+        fi
+        if [[ "$choice" == "0" || "$choice" == "skip" || "$choice" == "none" ]]; then
+            select_custom_profile
+            return
+        fi
+        local idx
+        for idx in "${!profile_ids[@]}"; do
+            if [[ "$choice" == "${profile_numbers[idx]}" || "$choice" == "${profile_ids[idx],,}" ]]; then
+                if select_profile_by_id "${profile_ids[idx]}"; then
+                    return
+                fi
+                echo "❌ Failed to load profile '${profile_ids[idx]}'. Check scripts/install_matrix.json." >&2
+                exit 1
+            fi
+        done
+        echo "Unrecognised selection '$choice'."
+    done
+}
+
+run_package_install() {
+    local label="$1"
+    shift
+    local packages=("$@")
+    if ((${#packages[@]} == 0)); then
+        echo "ℹ️  No packages defined for $label on profile '$PROFILE_LABEL'."
+        return
+    fi
+    if ((${#PKG_INSTALL_CMD[@]} == 0)); then
+        echo "❌ Package install command is undefined for profile '$PROFILE_LABEL'. Please install manually: ${packages[*]}" >&2
+        exit 1
+    fi
+    if (( ! PKG_UPDATE_COMPLETED )) && ((${#PKG_UPDATE_CMD[@]} > 0)); then
+        echo "ℹ️  Updating package index before installing ${label}..."
+        if [[ "$DRY_RUN" == true ]]; then
+            echo "📝 [dry-run] $(format_command "${PKG_UPDATE_CMD[@]}")"
+        else
+            "${PKG_UPDATE_CMD[@]}"
+        fi
+        PKG_UPDATE_COMPLETED=1
+    fi
+    echo "ℹ️  Installing ${label} via ${PKG_INSTALL_CMD[1]:-package manager}..."
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "📝 [dry-run] $(format_command "${PKG_INSTALL_CMD[@]}" "${packages[@]}")"
+    else
+        "${PKG_INSTALL_CMD[@]}" "${packages[@]}"
+    fi
+}
+
+expand_path_template() {
+    local template="$1"
+    if [[ -z "$template" ]]; then
+        return
+    fi
+    # Allow ${VAR:-default} style expressions from the manifest.
+    local expanded
+    expanded="$(eval "echo \"$template\"")"
+    printf '%s' "$expanded"
+}
+
+maybe_create_directory() {
+    local target="$1"
+    if [[ -d "$target" ]]; then
+        return
+    fi
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "📝 [dry-run] Would create directory '$target'."
+        return
+    fi
+    mkdir -p "$target"
+}
+
+canonicalize_path() {
+    local target="$1"
+    if [[ -z "$target" ]]; then
+        return
+    fi
+    if [[ -d "$target" ]]; then
+        (cd "$target" >/dev/null 2>&1 && pwd)
+    else
+        printf '%s' "$target"
+    fi
+}
+
+expand_user_path() {
+    local raw="${1:-}"
+    python3 - "$raw" <<'PY'
+import os
+import sys
+
+raw_value = sys.argv[1]
+expanded = os.path.expanduser(os.path.expandvars(raw_value))
+print(expanded)
+PY
+}
 
 find_release_root() {
     if [[ -d "${SCRIPT_DIR}/EDMC-ModernOverlay" ]]; then
@@ -21,6 +398,10 @@ find_release_root() {
 
 prompt_yes_no() {
     local prompt="${1:-Continue?}"
+    if [[ "$ASSUME_YES" == true ]]; then
+        echo "${prompt} [y/N]: y (auto-approved)"
+        return 0
+    fi
     local answer
     while true; do
         read -r -p "${prompt} [y/N]: " answer || return 1
@@ -42,31 +423,86 @@ require_command() {
 }
 
 detect_plugins_dir() {
-    local base="${XDG_DATA_HOME:-$HOME/.local/share}"
-    local candidate="${base}/EDMarketConnector/plugins"
-    if [[ -d "$candidate" ]]; then
-        echo "✅ Detected EDMarketConnector plugins directory at '$candidate'."
-        if prompt_yes_no "Use this directory?"; then
-            PLUGIN_DIR="$(cd "$candidate" && pwd)"
+    load_plugin_path_templates
+    local candidate
+    if [[ -n "$PLUGIN_DIR_OVERRIDE" ]]; then
+        candidate="$(expand_user_path "$PLUGIN_DIR_OVERRIDE")"
+        if [[ -z "$candidate" ]]; then
+            echo "❌ Provided plugin directory path is empty." >&2
+            exit 1
+        fi
+        if [[ -d "$candidate" ]]; then
+            PLUGIN_DIR="$(canonicalize_path "$candidate")"
+            echo "✅ Using plugin directory (override): $PLUGIN_DIR"
+            return
+        fi
+        echo "⚠️  Override directory '$candidate' does not exist."
+        if prompt_yes_no "Create this directory?"; then
+            maybe_create_directory "$candidate"
+            PLUGIN_DIR="$(canonicalize_path "$candidate")"
             echo "✅ Using plugin directory: $PLUGIN_DIR"
             return
         fi
-    else
-        echo "⚠️  EDMarketConnector plugin directory not found at '$candidate'."
+        echo "❌ Installation requires a valid plugin directory." >&2
+        exit 1
+    fi
+
+    local -a candidates=()
+    declare -A seen_candidates=()
+    local template expanded
+    for template in "${MATRIX_STANDARD_PATHS[@]}" "${MATRIX_FLATPAK_PATHS[@]}"; do
+        expanded="$(expand_path_template "$template")"
+        if [[ -n "$expanded" && -z "${seen_candidates[$expanded]:-}" ]]; then
+            candidates+=("$expanded")
+            seen_candidates["$expanded"]=1
+        fi
+    done
+
+    for candidate in "${candidates[@]}"; do
+        if [[ -d "$candidate" ]]; then
+            echo "✅ Detected EDMarketConnector plugins directory at '$candidate'."
+            if prompt_yes_no "Use this directory?"; then
+                PLUGIN_DIR="$(canonicalize_path "$candidate")"
+                echo "✅ Using plugin directory: $PLUGIN_DIR"
+                return
+            fi
+        fi
+    done
+
+    if ((${#candidates[@]} > 0)); then
+        local suggested="${candidates[0]}"
+        if [[ -n "$suggested" ]]; then
+            echo "⚠️  Default plugin directory not found at '$suggested'."
+            if prompt_yes_no "Create and use this directory?"; then
+                maybe_create_directory "$suggested"
+                PLUGIN_DIR="$(canonicalize_path "$suggested")"
+                echo "✅ Using plugin directory: $PLUGIN_DIR"
+                return
+            fi
+        fi
+    fi
+
+    echo "Unable to automatically locate the EDMarketConnector plugins directory."
+    if ((${#candidates[@]} > 0)); then
+        echo "Suggested locations to check:"
+        for candidate in "${candidates[@]}"; do
+            echo "   - $candidate"
+        done
     fi
 
     while true; do
         read -r -p "Enter the path to your EDMarketConnector plugins directory: " candidate
+        candidate="$(expand_user_path "$candidate")"
         [[ -z "$candidate" ]] && { echo "❌ Path cannot be empty."; continue; }
         if [[ -d "$candidate" ]]; then
-            PLUGIN_DIR="$(cd "$candidate" && pwd)"
+            PLUGIN_DIR="$(canonicalize_path "$candidate")"
             echo "✅ Using plugin directory: $PLUGIN_DIR"
             return
         fi
         echo "⚠️  Directory '$candidate' does not exist."
         if prompt_yes_no "Create this directory?"; then
-            mkdir -p "$candidate"
-            PLUGIN_DIR="$(cd "$candidate" && pwd)"
+            maybe_create_directory "$candidate"
+            PLUGIN_DIR="$(canonicalize_path "$candidate")"
             echo "✅ Created and using plugin directory: $PLUGIN_DIR"
             return
         fi
@@ -77,6 +513,10 @@ detect_plugins_dir() {
 ensure_edmc_not_running() {
     if command -v pgrep >/dev/null 2>&1 && pgrep -f "EDMarketConnector" >/dev/null 2>&1; then
         echo "⚠️  EDMarketConnector appears to be running."
+        if [[ "$ASSUME_YES" == true ]]; then
+            echo "❌ Cannot continue in non-interactive mode while EDMarketConnector is running." >&2
+            exit 1
+        fi
         if prompt_yes_no "Quit EDMarketConnector and continue installation?"; then
             echo "Please close EDMarketConnector now, then press Enter to continue."
             read -r _
@@ -91,6 +531,10 @@ ensure_edmc_not_running() {
     elif ! command -v pgrep >/dev/null 2>&1; then
         echo "⚠️  Cannot automatically detect if EDMarketConnector is running (pgrep not available)."
         echo "    Please ensure the application is closed before continuing."
+        if [[ "$ASSUME_YES" == true ]]; then
+            echo "ℹ️  Continuing without automatic EDMarketConnector detection due to --assume-yes."
+            return
+        fi
         if ! prompt_yes_no "Continue with installation?"; then
             echo "❌ Installation aborted by user." >&2
             exit 1
@@ -99,6 +543,17 @@ ensure_edmc_not_running() {
 }
 
 disable_conflicting_plugins() {
+    if [[ -z "${PLUGIN_DIR:-}" ]]; then
+        echo "❌ Plugin directory is not set. Run detect_plugins_dir first." >&2
+        exit 1
+    fi
+    if [[ ! -d "$PLUGIN_DIR" ]]; then
+        if [[ "$DRY_RUN" == true ]]; then
+            echo "📝 [dry-run] Plugin directory '$PLUGIN_DIR' does not exist yet; skipping legacy plugin scan."
+            return
+        fi
+        mkdir -p "$PLUGIN_DIR"
+    fi
     local conflicts=()
     shopt -s nullglob
     for entry in "$PLUGIN_DIR"/*; do
@@ -125,8 +580,12 @@ disable_conflicting_plugins() {
                 echo "   - $(basename "$path") is already disabled."
                 continue
             fi
-            mv "$path" "$new_name"
-            echo "   - Disabled $(basename "$path")."
+            if [[ "$DRY_RUN" == true ]]; then
+                echo "📝 [dry-run] Would rename '$(basename "$path")' to '$(basename "$new_name")'."
+            else
+                mv "$path" "$new_name"
+                echo "   - Disabled $(basename "$path")."
+            fi
         done
     else
         echo "❌ Cannot proceed while legacy overlay is enabled. Aborting." >&2
@@ -135,59 +594,54 @@ disable_conflicting_plugins() {
 }
 
 ensure_system_packages() {
-    local packages=(
-        libxcb-cursor0
-        libxkbcommon-x11-0
-    )
-
-    if ! command -v dpkg-query >/dev/null 2>&1; then
-        echo "⚠️  Skipping system package check because 'dpkg-query' is unavailable."
-        echo "    Please ensure the following packages are installed manually: ${packages[*]}"
+    ensure_distro_profile
+    local packages=("${PROFILE_PACKAGES_CORE[@]}" "${PROFILE_PACKAGES_QT[@]}")
+    local fallback_notice="python3 python3-venv python3-pip rsync libxcb-cursor0 libxkbcommon-x11-0"
+    if ((${#packages[@]} == 0)); then
+        echo "⚠️  Automatic dependency installation is disabled for profile '$PROFILE_LABEL'."
+        echo "    Ensure these packages (or their equivalents) are installed manually: ${fallback_notice}"
         return
     fi
 
-    local missing=()
-    for pkg in "${packages[@]}"; do
-        if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
-            missing+=("$pkg")
-        fi
-    done
-
-    if (( ${#missing[@]} == 0 )); then
-        echo "✅ Required system packages already installed: ${packages[*]}"
-        return
-    fi
-
-    echo "📦 Modern Overlay requires the following system packages:"
+    echo "📦 Modern Overlay requires the following packages on '$PROFILE_LABEL':"
     printf '    %s\n' "${packages[@]}"
-    echo "⚠️  Missing packages detected: ${missing[*]}"
-    echo "    This step will run 'sudo apt-get update' followed by 'sudo apt-get install -y ${missing[*]}'."
-    if ! prompt_yes_no "Install missing system packages now?"; then
+    if ! prompt_yes_no "Install / upgrade these packages now?"; then
         echo "❌ Installation cannot continue without required system packages." >&2
         exit 1
     fi
 
-    require_command sudo
-    echo "ℹ️  Running 'sudo apt-get update'..."
-    sudo apt-get update
-    echo "ℹ️  Running 'sudo apt-get install -y ${missing[*]}'..."
-    sudo apt-get install -y "${missing[@]}"
+    require_command sudo "sudo"
+    run_package_install "core dependencies" "${packages[@]}"
 }
 
 maybe_install_wayland_deps() {
-    echo "ℹ️  Wayland session support requires 'wmctrl' and 'x11-utils' for window tracking."
-    if ! prompt_yes_no "Install Wayland helper packages now (sudo apt install wmctrl x11-utils)?"; then
+    ensure_distro_profile
+    local packages=("${PROFILE_PACKAGES_WAYLAND[@]}")
+    if ((${#packages[@]} == 0)); then
+        echo "ℹ️  No Wayland helper packages are defined for profile '$PROFILE_LABEL'."
+        return
+    fi
+    echo "ℹ️  Wayland session support benefits from the following helper packages:"
+    printf '    %s\n' "${packages[@]}"
+    if ! prompt_yes_no "Install Wayland/X11 helper packages now?"; then
         echo "ℹ️  Skipping Wayland/X11 helper packages."
         return
     fi
 
-    require_command sudo
-    echo "ℹ️  Running 'sudo apt install -y wmctrl x11-utils'..."
-    sudo apt install -y wmctrl x11-utils
+    require_command sudo "sudo"
+    run_package_install "Wayland helper packages" "${packages[@]}"
 }
 
 create_venv_and_install() {
     local target="$1"
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "📝 [dry-run] Would ensure Python virtual environment at '$target/overlay-client/.venv' and install overlay-client requirements."
+        return
+    fi
+    if [[ ! -d "$target" ]]; then
+        echo "❌ Target directory '$target' not found while preparing virtual environment." >&2
+        exit 1
+    fi
     pushd "$target" >/dev/null
     if [[ ! -d overlay-client ]]; then
         echo "❌ Missing overlay-client directory in $target. Aborting." >&2
@@ -214,6 +668,10 @@ copy_initial_install() {
     local src="$1"
     local plugin_root="$2"
     echo "📁 Copying Modern Overlay into plugins directory..."
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "📝 [dry-run] Would copy '$(basename "$src")' into '$plugin_root' and set up overlay-client/.venv."
+        return
+    fi
     cp -a "$src" "$plugin_root"
     local target="${plugin_root}/$(basename "$src")"
     create_venv_and_install "$target"
@@ -222,6 +680,10 @@ copy_initial_install() {
 rsync_update_plugin() {
     local src="$1"
     local dest="$2"
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "📝 [dry-run] Would update existing installation in '$dest' using rsync while preserving overlay-client/.venv."
+        return
+    fi
     if ! command -v rsync >/dev/null 2>&1; then
         echo "❌ rsync is required to update the plugin without overwriting the virtualenv." >&2
         exit 1
@@ -240,6 +702,10 @@ ensure_existing_install() {
     local dest="$1"
     if [[ ! -d "$dest/overlay-client/.venv" ]]; then
         echo "⚠️  Existing installation lacks a virtual environment. Creating one..."
+        if [[ "$DRY_RUN" == true ]]; then
+            echo "📝 [dry-run] Would create Python virtual environment in '$dest/overlay-client/.venv'."
+            return
+        fi
         create_venv_and_install "$dest"
     fi
 }
@@ -251,11 +717,19 @@ final_notes() {
 ❗ install_eurocaps.sh was not run. Execute it separately if you wish to install the Eurocaps font.
 
 EOF
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "📝 Dry-run mode was enabled; no files or packages were modified."
+    fi
 }
 
 main() {
+    parse_args "$@"
     find_release_root
     require_command python3 "python3"
+    if [[ ! -f "$MATRIX_FILE" ]]; then
+        echo "❌ Matrix manifest '$MATRIX_FILE' is missing. Re-download the release archive." >&2
+        exit 1
+    fi
     detect_plugins_dir
     ensure_edmc_not_running
     ensure_system_packages
@@ -284,7 +758,9 @@ main() {
     fi
 
     final_notes
-    read -r -p $'Install finished, hit Enter to continue...'
+    if [[ "$DRY_RUN" != true && "$ASSUME_YES" != true && -t 0 ]]; then
+        read -r -p $'Install finished, hit Enter to continue...'
+    fi
 }
 
 main "$@"
