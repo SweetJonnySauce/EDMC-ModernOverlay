@@ -1628,7 +1628,7 @@ class _PluginRuntime:
         if host_python is None:
             if not self._flatpak_host_warning_emitted:
                 LOGGER.warning(
-                    "Flatpak detected but no host Python interpreter found. Create overlay-client/.hostvenv (or set EDMC_OVERLAY_HOST_PYTHON) with the overlay dependencies."
+                    "Flatpak detected but no host Python interpreter found. Ensure overlay-client/.venv exists (or set EDMC_OVERLAY_HOST_PYTHON) with the overlay dependencies."
                 )
                 self._flatpak_host_warning_emitted = True
             return None
@@ -1655,8 +1655,8 @@ class _PluginRuntime:
                 return str(override_path)
             LOGGER.debug("EDMC_OVERLAY_HOST_PYTHON=%s does not exist; ignoring override", override_path)
         candidate_dirs: Sequence[Path] = (
-            self.plugin_dir / "overlay-client" / ".hostvenv" / "bin",
-            self.plugin_dir / "overlay-client" / ".hostvenv" / "Scripts",
+            self.plugin_dir / "overlay-client" / ".venv" / "bin",
+            self.plugin_dir / "overlay-client" / ".venv" / "Scripts",
         )
         for directory in candidate_dirs:
             for name in ("python3", "python"):
