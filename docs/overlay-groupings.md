@@ -28,10 +28,10 @@ The JSON root is an object keyed by the display name you want shown in the overl
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `matchingPrefixes` | array of non-empty strings | Optional. Used for plugin inference. Whenever an `idPrefixes` array is provided, missing entries are appended automatically (add-only). Entries are lowercased and deduplicated. In general, the `idPrefixes` provided should be top level and broadly scoped to capture as many of the payloads (think `bioscan-` more than `bioscan-details-`). |
-| `idPrefixGroups` | object | Optional, but any entry here must contain at least one group. Each property name is the label shown in tooling (e.g., “alerts”). |
-| `idPrefixGroups.<name>.idPrefixes` | array of non-empty strings | Required whenever a group is created. Prefixes are lowercased, deduplicated, and unique per plugin group—if you reassign a prefix, it is removed from all other groups automatically. |
-| `idPrefixGroups.<name>.idPrefixGroupAnchor` | enum | Optional. One of `nw`, `ne`, `sw`, `se`, `center`, `top`, `bottom`, `left`, or `right`. Defaults to `nw` when omitted. |
+| `matchingPrefixes` | array of non-empty strings | Optional. Used for plugin inference. Whenever an `idPrefixes` array is provided, missing entries are appended automatically (add-only). Entries are lowercased and deduplicated. In general, the `idPrefixes` provided should be top level and broadly scoped to capture as many of the payloads. Think `bioscan-` more than `bioscan-details-`. |
+| `idPrefixGroups` | object | Optional, but any entry here must contain at least one group. Each property name is the label shown in tooling (e.g., “Bioscan Details”). |
+| `idPrefixGroups.<name>.idPrefixes` | array of non-empty strings | Required whenever a group is created. Prefixes are lowercased, deduplicated, and unique per plugin group—if you reassign a prefix, it is removed from all other groups automatically. In general, the `idPrefixes` provided should be lower level and more narrow scoped (but still a prefix). Think `bgstally-msg-info-` more than `bgstally-msg-info-0`.|
+| `idPrefixGroups.<name>.idPrefixGroupAnchor` | enum | Optional. One of `nw`, `ne`, `sw`, `se`, `center`, `top`, `bottom`, `left`, or `right`. Defaults to `nw` when omitted. ng: at the moment, this only affects initial scaling. Eventually, developers can use these anchors for more refined placment (think "right alignment"). `top`, `bottom`, `left`, and `right` are not yet implemented.|
 
 Additional metadata (`notes`, legacy `grouping.*`, etc.) is ignored by the current engine but preserved so you can document intent for reviewers.
 
