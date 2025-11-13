@@ -45,9 +45,8 @@ EDMC-ModernOverlay/
 │       └── SourceSans3-OFL.txt
 ├── overlay_settings.json           # Sample preferences persisted by the plugin
 ├── scripts/                        # Helper scripts for common setup tasks
-│   ├── install-eurocaps.sh         # Linux font installer helper
 │   ├── install-eurocaps.bat        # Windows font installer helper
-│   └── install_linux.sh            # Linux installer wrapper
+│   └── install_linux.sh            # Linux installer & font wrapper
 └── version.py                      # Central version metadata for releases
 ```
 
@@ -66,7 +65,7 @@ EDMC-ModernOverlay/
 
 ## Why isn't the Eurocaps font installed automatically?
 
-The license for Eurocaps is ambiguous at best. The best I can tell, Eurocaps is one of Typodermic’s freeware fonts and the author distributes it under their standard “Font Software for Desktop End User License Agreement (v230123), see https://typodermicfonts.com/end-user-license-agreement. A free compatible font is provided with the plugin and includes the license. It is your decision if you want to copy the Eurocaps font.
+Eurocaps ships with Elite: Dangerous, but its redistribution rights are tied to Typodermic’s “Font Software for Desktop End User License Agreement (v230123)” (https://typodermicfonts.com/end-user-license-agreement). Because we can’t grant you that license, the installer now asks **you** to confirm that you already have the rights to use Eurocaps before it downloads the font. If you say no, the install continues with the bundled open-source fonts instead. Windows users can still run `scripts\install-eurocaps.bat`; Linux users just re-run `install_linux.sh` and accept the Eurocaps prompt when they’re ready.
 
 ## PowerShell says scripts are disabled. How do I run `install_windows.ps1`?
 

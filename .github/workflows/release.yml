@@ -52,15 +52,15 @@ jobs:
           # Windows helper scripts at archive root
           cp scripts/install_windows.ps1 scripts/install-eurocaps.bat dist/windows/
 
-          # Linux helper scripts at archive root
-          cp scripts/install_linux.sh scripts/install-eurocaps.sh dist/linux/
+          # Linux helper script + manifest at archive root
+          cp scripts/install_linux.sh scripts/install_matrix.json dist/linux/
 
       - name: Create archives
         shell: bash
         run: |
           set -euo pipefail
           # Ensure Linux helper scripts are executable so tar preserves +x
-          chmod +x dist/linux/install_linux.sh dist/linux/install-eurocaps.sh
+          chmod +x dist/linux/install_linux.sh
           # Normalize version for filenames (fallback to short SHA when empty)
           VER="${VERSION:-}"
           if [[ -z "$VER" ]]; then
@@ -70,7 +70,7 @@ jobs:
           # Windows zip
           (cd dist/windows && zip -r "../EDMC-ModernOverlay-windows-${VER}.zip" EDMC-ModernOverlay install_windows.ps1 install-eurocaps.bat)
           # Linux tar.gz
-          (cd dist/linux && tar -czf "../EDMC-ModernOverlay-linux-${VER}.tar.gz" EDMC-ModernOverlay install_linux.sh install-eurocaps.sh)
+          (cd dist/linux && tar -czf "../EDMC-ModernOverlay-linux-${VER}.tar.gz" EDMC-ModernOverlay install_linux.sh install_matrix.json)
           ls -al dist
 
       - name: Upload workflow artifacts

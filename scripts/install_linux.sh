@@ -8,6 +8,8 @@ IFS=$'\n\t'
 readonly SCRIPT_PATH="${BASH_SOURCE[0]}"
 readonly SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 readonly MATRIX_FILE="${SCRIPT_DIR}/install_matrix.json"
+readonly EUROCAPS_FONT_URL="https://raw.githubusercontent.com/inorton/EDMCOverlay/master/EDMCOverlay/EDMCOverlay/EUROCAPS.TTF"
+readonly EUROCAPS_FONT_NAME="Eurocaps.ttf"
 
 ASSUME_YES=false
 DRY_RUN=false
@@ -385,6 +387,131 @@ print(expanded)
 PY
 }
 
+prompt_for_manual_plugin_dir() {
+    local candidate
+    while true; do
+        read -r -p "Enter the path to your EDMarketConnector plugins directory: " candidate
+        candidate="$(expand_user_path "$candidate")"
+        if [[ -z "$candidate" ]]; then
+            echo "❌ Path cannot be empty."
+            continue
+        fi
+        if [[ -d "$candidate" ]]; then
+            PLUGIN_DIR="$(canonicalize_path "$candidate")"
+            echo "✅ Using plugin directory: $PLUGIN_DIR"
+            return
+        fi
+        echo "⚠️  Directory '$candidate' does not exist."
+        if prompt_yes_no "Create this directory?"; then
+            maybe_create_directory "$candidate"
+            PLUGIN_DIR="$(canonicalize_path "$candidate")"
+            echo "✅ Created and using plugin directory: $PLUGIN_DIR"
+            return
+        fi
+        echo "Please provide a valid directory."
+    done
+}
+
+download_with_tool() {
+    local url="$1"
+    local dest="$2"
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "📝 [dry-run] Would download '$url' into '$dest'."
+        return 0
+    fi
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$url" -o "$dest"
+        return $?
+    fi
+    if command -v wget >/dev/null 2>&1; then
+        wget -qO "$dest" "$url"
+        return $?
+    fi
+    echo "❌ Neither curl nor wget is available to download '$url'. Install one of them first." >&2
+    return 1
+}
+
+ensure_font_list_entry() {
+    local font_file="$1"
+    local preferred_file="$2"
+    if [[ ! -f "$preferred_file" ]]; then
+        echo "ℹ️  preferred_fonts.txt not found; the overlay will still detect ${font_file} automatically."
+        return
+    fi
+    if grep -iq "^${font_file}$" "$preferred_file"; then
+        echo "ℹ️  ${font_file} already listed in preferred_fonts.txt."
+        return
+    fi
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "📝 [dry-run] Would append '${font_file}' to '$preferred_file'."
+        return
+    fi
+    echo "${font_file}" >> "$preferred_file"
+    echo "✅ Added ${font_file} to preferred_fonts.txt."
+}
+
+install_eurocaps_font() {
+    local fonts_dir="$1"
+    local font_path="${fonts_dir}/${EUROCAPS_FONT_NAME}"
+    local preferred_list="${fonts_dir}/preferred_fonts.txt"
+    maybe_create_directory "$fonts_dir"
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "📝 [dry-run] Would download ${EUROCAPS_FONT_NAME} to '$font_path'."
+        ensure_font_list_entry "${EUROCAPS_FONT_NAME}" "$preferred_list"
+        return 0
+    fi
+    local tmp_file
+    tmp_file="$(mktemp)" || {
+        echo "❌ Failed to allocate temporary file for the Eurocaps font." >&2
+        return 1
+    }
+    echo "⬇️  Downloading ${EUROCAPS_FONT_NAME}..."
+    if ! download_with_tool "$EUROCAPS_FONT_URL" "$tmp_file"; then
+        echo "❌ Unable to download the Eurocaps font." >&2
+        rm -f "$tmp_file"
+        return 1
+    fi
+    if [[ ! -s "$tmp_file" ]]; then
+        echo "❌ Downloaded Eurocaps font appears to be empty. Aborting." >&2
+        rm -f "$tmp_file"
+        return 1
+    fi
+    if command -v install >/dev/null 2>&1; then
+        install -m 644 "$tmp_file" "$font_path"
+    else
+        cp "$tmp_file" "$font_path"
+        chmod 644 "$font_path" >/dev/null 2>&1 || true
+    fi
+    rm -f "$tmp_file"
+    echo "✅ Installed ${EUROCAPS_FONT_NAME} to '$font_path'."
+    ensure_font_list_entry "${EUROCAPS_FONT_NAME}" "$preferred_list"
+    return 0
+}
+
+maybe_install_eurocaps() {
+    local plugin_home="$1"
+    local fonts_dir="${plugin_home}/overlay-client/fonts"
+    local font_path="${fonts_dir}/${EUROCAPS_FONT_NAME}"
+    if [[ ! -d "$fonts_dir" ]]; then
+        echo "ℹ️  Font directory '$fonts_dir' not found; skipping Eurocaps font installation."
+        return
+    fi
+    if [[ -f "$font_path" ]]; then
+        echo "ℹ️  ${EUROCAPS_FONT_NAME} already exists at '$font_path'; skipping download."
+        return
+    fi
+    echo "ℹ️  The Eurocaps cockpit font provides the authentic Elite Dangerous HUD look."
+    if ! prompt_yes_no "Download and install ${EUROCAPS_FONT_NAME} now?"; then
+        echo "ℹ️  Skipping Eurocaps font download."
+        return
+    fi
+    if ! prompt_yes_no "Confirm you already have a license to use the Eurocaps font (e.g., via your Elite Dangerous purchase). Proceed?"; then
+        echo "ℹ️  Eurocaps installation cancelled because the license confirmation was declined."
+        return
+    fi
+    install_eurocaps_font "$fonts_dir"
+}
+
 find_release_root() {
     if [[ -d "${SCRIPT_DIR}/EDMC-ModernOverlay" ]]; then
         RELEASE_ROOT="${SCRIPT_DIR}"
@@ -447,18 +574,102 @@ detect_plugins_dir() {
         exit 1
     fi
 
-    local -a candidates=()
-    declare -A seen_candidates=()
+    local -a standard_candidates=()
+    local -a flatpak_candidates=()
+    declare -A standard_seen=()
+    declare -A flatpak_seen=()
     local template expanded
-    for template in "${MATRIX_STANDARD_PATHS[@]}" "${MATRIX_FLATPAK_PATHS[@]}"; do
+    for template in "${MATRIX_STANDARD_PATHS[@]}"; do
         expanded="$(expand_path_template "$template")"
-        if [[ -n "$expanded" && -z "${seen_candidates[$expanded]:-}" ]]; then
-            candidates+=("$expanded")
-            seen_candidates["$expanded"]=1
+        if [[ -n "$expanded" && -z "${standard_seen[$expanded]:-}" ]]; then
+            standard_candidates+=("$expanded")
+            standard_seen["$expanded"]=1
+        fi
+    done
+    for template in "${MATRIX_FLATPAK_PATHS[@]}"; do
+        expanded="$(expand_path_template "$template")"
+        if [[ -n "$expanded" && -z "${flatpak_seen[$expanded]:-}" ]]; then
+            flatpak_candidates+=("$expanded")
+            flatpak_seen["$expanded"]=1
         fi
     done
 
-    for candidate in "${candidates[@]}"; do
+    local -a combined_candidates=()
+    declare -A combined_seen=()
+    for candidate in "${standard_candidates[@]}" "${flatpak_candidates[@]}"; do
+        if [[ -n "$candidate" && -z "${combined_seen[$candidate]:-}" ]]; then
+            combined_candidates+=("$candidate")
+            combined_seen["$candidate"]=1
+        fi
+    done
+
+    local -a existing_standard=()
+    local -a existing_flatpak=()
+    for candidate in "${standard_candidates[@]}"; do
+        if [[ -d "$candidate" ]]; then
+            existing_standard+=("$candidate")
+        fi
+    done
+    for candidate in "${flatpak_candidates[@]}"; do
+        if [[ -d "$candidate" ]]; then
+            existing_flatpak+=("$candidate")
+        fi
+    done
+
+    if (( ${#existing_standard[@]} > 0 && ${#existing_flatpak[@]} > 0 )); then
+        if [[ "$ASSUME_YES" == true ]]; then
+            local default_target="${existing_standard[0]}"
+            local default_label="base"
+            if [[ -z "$default_target" ]]; then
+                default_target="${existing_flatpak[0]}"
+                default_label="Flatpak"
+            fi
+            echo "ℹ️  Detected both base and Flatpak EDMC installations; defaulting to the ${default_label} plugins directory '$default_target' due to --assume-yes."
+            PLUGIN_DIR="$(canonicalize_path "$default_target")"
+            echo "✅ Using plugin directory: $PLUGIN_DIR"
+            return
+        fi
+        echo "✅ Detected both a base EDMC install and a Flatpak EDMC install."
+        echo "Select which installation should receive Modern Overlay:"
+        local -a option_paths=()
+        local -a option_labels=()
+        local idx=1
+        for candidate in "${existing_standard[@]}"; do
+            option_paths+=("$candidate")
+            option_labels+=("Base install")
+            printf ' %d) Base install: %s\n' "$idx" "$candidate"
+            ((idx++))
+        done
+        for candidate in "${existing_flatpak[@]}"; do
+            option_paths+=("$candidate")
+            option_labels+=("Flatpak install")
+            printf ' %d) Flatpak install: %s\n' "$idx" "$candidate"
+            ((idx++))
+        done
+        echo " C) Enter a different directory"
+        local choice
+        while true; do
+            read -r -p "Choose a target [1-$((idx-1)) or C]: " choice
+            choice="${choice,,}"
+            if [[ "$choice" == "c" || "$choice" == "custom" ]]; then
+                prompt_for_manual_plugin_dir
+                return
+            fi
+            if [[ "$choice" =~ ^[0-9]+$ ]]; then
+                local number=$((10#$choice))
+                if (( number >= 1 && number < idx )); then
+                    local selected="${option_paths[number-1]}"
+                    local label="${option_labels[number-1]}"
+                    PLUGIN_DIR="$(canonicalize_path "$selected")"
+                    echo "✅ Using ${label} directory: $PLUGIN_DIR"
+                    return
+                fi
+            fi
+            echo "Unrecognised selection '$choice'."
+        done
+    fi
+
+    for candidate in "${combined_candidates[@]}"; do
         if [[ -d "$candidate" ]]; then
             echo "✅ Detected EDMarketConnector plugins directory at '$candidate'."
             if prompt_yes_no "Use this directory?"; then
@@ -469,8 +680,8 @@ detect_plugins_dir() {
         fi
     done
 
-    if ((${#candidates[@]} > 0)); then
-        local suggested="${candidates[0]}"
+    if ((${#combined_candidates[@]} > 0)); then
+        local suggested="${combined_candidates[0]}"
         if [[ -n "$suggested" ]]; then
             echo "⚠️  Default plugin directory not found at '$suggested'."
             if prompt_yes_no "Create and use this directory?"; then
@@ -483,31 +694,14 @@ detect_plugins_dir() {
     fi
 
     echo "Unable to automatically locate the EDMarketConnector plugins directory."
-    if ((${#candidates[@]} > 0)); then
+    if ((${#combined_candidates[@]} > 0)); then
         echo "Suggested locations to check:"
-        for candidate in "${candidates[@]}"; do
+        for candidate in "${combined_candidates[@]}"; do
             echo "   - $candidate"
         done
     fi
 
-    while true; do
-        read -r -p "Enter the path to your EDMarketConnector plugins directory: " candidate
-        candidate="$(expand_user_path "$candidate")"
-        [[ -z "$candidate" ]] && { echo "❌ Path cannot be empty."; continue; }
-        if [[ -d "$candidate" ]]; then
-            PLUGIN_DIR="$(canonicalize_path "$candidate")"
-            echo "✅ Using plugin directory: $PLUGIN_DIR"
-            return
-        fi
-        echo "⚠️  Directory '$candidate' does not exist."
-        if prompt_yes_no "Create this directory?"; then
-            maybe_create_directory "$candidate"
-            PLUGIN_DIR="$(canonicalize_path "$candidate")"
-            echo "✅ Created and using plugin directory: $PLUGIN_DIR"
-            return
-        fi
-        echo "Please provide a valid directory."
-    done
+    prompt_for_manual_plugin_dir
 }
 
 ensure_edmc_not_running() {
@@ -714,7 +908,7 @@ final_notes() {
     cat <<'EOF'
 
 ✅ Installation complete.
-❗ install_eurocaps.sh was not run. Execute it separately if you wish to install the Eurocaps font.
+ℹ️  Re-run install_linux.sh if you later decide to install (or re-install) the optional Eurocaps font.
 
 EOF
     if [[ "$DRY_RUN" == true ]]; then
@@ -757,6 +951,7 @@ main() {
         rsync_update_plugin "$src_dir" "$dest_dir"
     fi
 
+    maybe_install_eurocaps "$dest_dir"
     final_notes
     if [[ "$DRY_RUN" != true && "$ASSUME_YES" != true && -t 0 ]]; then
         read -r -p $'Install finished, hit Enter to continue...'

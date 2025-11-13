@@ -1,5 +1,0 @@
-EDMCOverlay
-debug
-overlay_plugin
-scripts
-tests

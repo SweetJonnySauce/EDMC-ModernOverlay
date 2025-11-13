@@ -19,7 +19,7 @@ EDMC Modern Overlay is a cross-platform (Windows, Linux X11 on Gnome), two-part 
   - `EDMC-ModernOverlay/` (the plugin and overlay client code)
   - Platform install helpers at the archive root:
     - Windows: `install_windows.ps1`, `install-eurocaps.bat`
-    - Linux: `install_linux.sh`, `install-eurocaps.sh`
+    - Linux: `install_linux.sh`
 
 ### Windows
 - Close EDMarketConnector.
@@ -42,13 +42,14 @@ EDMC Modern Overlay is a cross-platform (Windows, Linux X11 on Gnome), two-part 
   - `--dry-run` to see what would happen without modifying your system.
   - A single positional path argument overrides the plugin directory detection.
 - Follow the on-screen prompts; the installer handles the rest (except installation of the Euroscripts font).
-- The installer will:
-  - Detect (or prompt for) the EDMC plugins directory (XDG defaults plus Flatpak’s `~/.var/app/io.edcd.EDMarketConnector/...`).
-  - Determine your distro family via `scripts/install_matrix.json` and install required packages with the correct package manager (apt, dnf, zypper, pacman). Use `--profile skip` if you prefer to handle dependencies yourself.
-  - Offer to install optional Wayland helper packages defined in the manifest.
-  - Disable legacy `EDMCOverlay*` plugins if found.
-  - Copy `EDMC-ModernOverlay/` into the plugins directory.
-  - Create `overlay-client/.venv` and install `overlay-client/requirements.txt` into it.
+  - The installer will:
+  - Detect (or prompt for) the EDMC plugins directory (XDG defaults plus Flatpak’s `~/.var/app/io.edcd.EDMarketConnector/...`). When both base and Flatpak installs are present, the script asks which one to target.
+    - Determine your distro family via `scripts/install_matrix.json` and install required packages with the correct package manager (apt, dnf, zypper, pacman). Use `--profile skip` if you prefer to handle dependencies yourself.
+    - Offer to install optional Wayland helper packages defined in the manifest.
+    - Offer to download the Eurocaps cockpit font after deployment (only proceed if you already have a license for the font via your Elite: Dangerous purchase).
+    - Disable legacy `EDMCOverlay*` plugins if found.
+    - Copy `EDMC-ModernOverlay/` into the plugins directory.
+    - Create `overlay-client/.venv` and install `overlay-client/requirements.txt` into it.
 - Start EDMarketConnector; the overlay client launches automatically.
 
 `scripts/install_matrix.json` lists the distro profiles and package sets. To support another distribution, add a new entry (or adjust the package lists) and rerun the installer.
@@ -84,7 +85,7 @@ To use the Elite: Dangerous cockpit font (Eurocaps) in the overlay HUD:
 
 You can automate the download and placement with the bundled helpers:
 
-- Linux: `scripts/install-eurocaps.sh` *(optionally pass the plugin path if it isn't under `~/.local/share/EDMarketConnector/plugins/`)*
+- Linux: Re-run `install_linux.sh` and accept the Eurocaps prompt (you'll be asked to confirm you already have a license to use the font).
 - Windows: `scripts\install-eurocaps.bat` *(optionally pass the plugin path if it isn't under `%LOCALAPPDATA%\EDMarketConnector\plugins\`)*
 
 Both scripts verify the plugin directory, fetch `Eurocaps.ttf`, copy it into `overlay-client/fonts/`, and add it to `preferred_fonts.txt` when that file exists.
