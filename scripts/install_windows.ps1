@@ -354,6 +354,19 @@ function Create-VenvAndInstall {
         Fail-Install "Missing overlay-client directory in '$TargetDir'."
     }
 
+    $rebuildRequested = $false
+    if (Test-Path -LiteralPath $venvPath) {
+        Write-Info "Existing Python virtual environment detected at '$venvPath'."
+        if (Prompt-YesNo -Message 'Rebuild the overlay-client virtual environment?' -Default:$true) {
+            $rebuildRequested = $true
+        }
+    }
+
+    if ($rebuildRequested) {
+        Write-Info 'Removing existing virtual environment before rebuilding...'
+        Remove-Item -LiteralPath $venvPath -Recurse -Force
+    }
+
     if (-not (Test-Path -LiteralPath $venvPath)) {
         Write-Info "Creating Python virtual environment at '$venvPath'."
         Invoke-Python -Python $PythonSpec -Arguments @('-m', 'venv', $venvPath)
@@ -371,11 +384,6 @@ function Create-VenvAndInstall {
 
 function Ensure-ExistingInstall {
     param([string]$InstallDir)
-    $venvPath = Join-Path $InstallDir 'overlay-client\.venv'
-    if (Test-Path -LiteralPath $venvPath) {
-        return
-    }
-    Write-Warn "Existing installation at '$InstallDir' does not have a virtual environment. Creating one now."
     Create-VenvAndInstall -TargetDir $InstallDir
 }
 
@@ -543,11 +551,11 @@ function Maybe-InstallEurocaps {
     }
 
     Write-Info 'The Eurocaps cockpit font provides the authentic Elite Dangerous HUD look.'
-    if (-not (Prompt-YesNo -Message "Download and install $FontName now?" -Default:$false)) {
+    if (-not (Prompt-YesNo -Message "Download and install $FontName now?" -Default:$true)) {
         Write-Info 'Skipping Eurocaps font download.'
         return
     }
-    if (-not (Prompt-YesNo -Message 'Confirm you already have a license to use the Eurocaps font.' -Default:$false)) {
+    if (-not (Prompt-YesNo -Message 'Confirm you already have a license to use the Eurocaps font.' -Default:$true)) {
         Write-Info 'Eurocaps installation cancelled because the license confirmation was declined.'
         return
     }
@@ -590,12 +598,12 @@ function Main {
         Copy-InitialInstall -SourceDir $PayloadDir -PluginRoot $pluginsRoot
     } else {
         Write-Warn "Existing installation detected at '$installDir'."
-        Write-Warn 'Plugin files will be replaced while preserving overlay-client\.venv.'
+        Write-Warn "Plugin files will be replaced; you'll be prompted whether to rebuild overlay-client\.venv afterwards."
         if (-not (Prompt-YesNo -Message 'Proceed with updating the installation?' -Default:$true)) {
             Fail-Install 'Installation aborted by user.'
         }
-        Ensure-ExistingInstall -InstallDir $installDir
         Update-ExistingInstall -SourceDir $PayloadDir -DestDir $installDir
+        Ensure-ExistingInstall -InstallDir $installDir
     }
 
     Maybe-InstallEurocaps -PluginHome $installDir

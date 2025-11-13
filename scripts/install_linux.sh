@@ -1014,6 +1014,19 @@ create_venv_and_install() {
         exit 1
     fi
 
+    local rebuild_requested=0
+    if [[ -d overlay-client/.venv ]]; then
+        echo "ℹ️  Existing Python virtual environment detected at overlay-client/.venv."
+        if prompt_yes_no "Rebuild the overlay-client virtual environment?"; then
+            rebuild_requested=1
+        fi
+    fi
+
+    if (( rebuild_requested )); then
+        echo "🧹 Removing existing virtual environment before rebuilding..."
+        rm -rf overlay-client/.venv
+    fi
+
     if [[ ! -d overlay-client/.venv ]]; then
         echo "🐍 Creating Python virtual environment..."
         python3 -m venv overlay-client/.venv
@@ -1065,14 +1078,7 @@ rsync_update_plugin() {
 
 ensure_existing_install() {
     local dest="$1"
-    if [[ ! -d "$dest/overlay-client/.venv" ]]; then
-        echo "⚠️  Existing installation lacks a virtual environment. Creating one..."
-        if [[ "$DRY_RUN" == true ]]; then
-            echo "📝 [dry-run] Would create Python virtual environment in '$dest/overlay-client/.venv'."
-            return
-        fi
-        create_venv_and_install "$dest"
-    fi
+    create_venv_and_install "$dest"
 }
 
 final_notes() {
@@ -1112,13 +1118,13 @@ main() {
         copy_initial_install "$src_dir" "$PLUGIN_DIR"
     else
         echo "⚠️  An existing installation was detected at '$dest_dir'."
-        echo "    Plugin files will be replaced while preserving the existing overlay-client/.venv."
+        echo "    Plugin files will be replaced; you'll be prompted whether to rebuild overlay-client/.venv afterwards."
         if ! prompt_yes_no "Proceed with updating the installation?"; then
             echo "❌ Installation aborted by user to protect the existing virtual environment." >&2
             exit 1
         fi
-        ensure_existing_install "$dest_dir"
         rsync_update_plugin "$src_dir" "$dest_dir"
+        ensure_existing_install "$dest_dir"
     fi
 
     maybe_install_eurocaps "$dest_dir"
