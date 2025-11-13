@@ -644,7 +644,7 @@ maybe_install_eurocaps() {
         echo "ℹ️  Skipping Eurocaps font download."
         return
     fi
-    if ! prompt_yes_no "Confirm you already have a license to use the Eurocaps font (e.g., via your Elite Dangerous purchase). Proceed?"; then
+    if ! prompt_yes_no "Confirm you already have a license to use the Eurocaps font. Proceed?"; then
         echo "ℹ️  Eurocaps installation cancelled because the license confirmation was declined."
         return
     fi
