@@ -1,16 +1,75 @@
 # install_windows.ps1 - helper to deploy EDMC Modern Overlay on Windows.
+<#
+.SYNOPSIS
+Deploys or updates the EDMC Modern Overlay plugin inside the EDMarketConnector plugins directory.
+
+.DESCRIPTION
+The script mirrors the workflow used by install_linux.sh:
+1. Detect (or prompt for) the EDMC plugins directory.
+2. Ensure EDMarketConnector is not running.
+3. Disable legacy EDMCOverlay plugins.
+4. Copy the EDMC-ModernOverlay payload alongside this script into the plugins directory.
+5. Create overlay-client\.venv (or reuse an existing one) and install requirements.
+6. Optionally download the Eurocaps font for the authentic Elite Dangerous HUD look.
+
+.PARAMETER PluginDir
+Overrides the detected EDMarketConnector plugins directory.
+
+.PARAMETER AssumeYes
+Automatically answer "yes" to prompts.
+
+.PARAMETER DryRun
+Print the actions that would be performed without making any changes.
+#>
+
+[CmdletBinding()]
+param(
+    [string]$PluginDir,
+    [switch]$AssumeYes,
+    [switch]$DryRun
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ScriptPath = $PSCommandPath
-$ScriptDir = Split-Path -Parent $ScriptPath
+$ScriptDir = Split-Path -Parent $PSCommandPath
+$ReleaseRoot = $null
+$PayloadDir = $null
+$PythonSpec = $null
+$FontUrl = 'https://raw.githubusercontent.com/inorton/EDMCOverlay/master/EDMCOverlay/EDMCOverlay/EUROCAPS.TTF'
+$FontName = 'Eurocaps.ttf'
+
+function Write-Info {
+    param([string]$Message)
+    Write-Host "[INFO] $Message"
+}
+
+function Write-Warn {
+    param([string]$Message)
+    Write-Host "[WARN] $Message" -ForegroundColor Yellow
+}
+
+function Write-ErrorLine {
+    param([string]$Message)
+    Write-Host "[ERROR] $Message" -ForegroundColor Red
+}
+
+function Fail-Install {
+    param([string]$Message)
+    Write-ErrorLine $Message
+    exit 1
+}
 
 function Prompt-YesNo {
     param(
         [string]$Message = 'Continue?',
-        [bool]$Default = $false
+        [bool]$Default = $true
     )
+
+    if ($AssumeYes) {
+        Write-Info "$Message [auto-yes]"
+        return $true
+    }
 
     $suffix = if ($Default) { 'Y/n' } else { 'y/N' }
     while ($true) {
@@ -18,98 +77,146 @@ function Prompt-YesNo {
         if ([string]::IsNullOrWhiteSpace($response)) {
             return $Default
         }
-
         switch -Regex ($response.Trim()) {
             '^(y|yes)$' { return $true }
             '^(n|no)$' { return $false }
-            default { Write-Host 'Please answer yes or no.' }
+            default {
+                Write-Warn 'Please answer yes or no.'
+            }
         }
     }
 }
 
+function Normalize-Path {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $null
+    }
+    try {
+        if (Test-Path -LiteralPath $Path) {
+            return (Get-Item -LiteralPath $Path).FullName
+        }
+        $parent = Split-Path -Parent $Path
+        if (-not [string]::IsNullOrWhiteSpace($parent) -and (Test-Path -LiteralPath $parent)) {
+            $leaf = Split-Path -Leaf $Path
+            return Join-Path (Get-Item -LiteralPath $parent).FullName $leaf
+        }
+        return [IO.Path]::GetFullPath($Path)
+    } catch {
+        return $Path
+    }
+}
+
+function Ensure-Directory {
+    param([string]$Path)
+    if (Test-Path -LiteralPath $Path) {
+        return
+    }
+    if ($DryRun) {
+        Write-Info "[dry-run] Would create directory '$Path'."
+        return
+    }
+    Write-Info "Creating directory '$Path'."
+    New-Item -ItemType Directory -Path $Path -Force | Out-Null
+}
+
 function Find-ReleaseRoot {
-    $candidate = Join-Path $ScriptDir 'EDMC-ModernOverlay'
-    if (Test-Path $candidate) {
-        return (Get-Item $ScriptDir).FullName
+    if (Test-Path -LiteralPath (Join-Path $ScriptDir 'EDMC-ModernOverlay')) {
+        return (Get-Item -LiteralPath $ScriptDir).FullName
     }
 
     $parent = Split-Path -Parent $ScriptDir
-    $candidate = Join-Path $parent 'EDMC-ModernOverlay'
-    if (Test-Path $candidate) {
-        return (Get-Item $parent).FullName
+    if (-not [string]::IsNullOrWhiteSpace($parent) -and
+        (Test-Path -LiteralPath (Join-Path $parent 'EDMC-ModernOverlay'))) {
+        return (Get-Item -LiteralPath $parent).FullName
     }
 
-    throw "Could not find 'EDMC-ModernOverlay' directory alongside the install script."
+    Fail-Install "Could not find 'EDMC-ModernOverlay' directory alongside install_windows.ps1."
+}
+
+function Get-DefaultPluginRoot {
+    if ($env:LOCALAPPDATA) {
+        return Join-Path $env:LOCALAPPDATA 'EDMarketConnector\plugins'
+    }
+    return Join-Path $env:USERPROFILE 'AppData\Local\EDMarketConnector\plugins'
+}
+
+function Detect-PluginRoot {
+    if ($PluginDir) {
+        $normalized = Normalize-Path $PluginDir
+        Write-Info "Using plugin directory override: $normalized"
+        if (-not (Test-Path -LiteralPath $normalized)) {
+            if (Prompt-YesNo -Message "Directory '$normalized' does not exist. Create it?" -Default:$true) {
+                Ensure-Directory $normalized
+            } else {
+                Fail-Install 'Installation requires a valid plugin directory.'
+            }
+        }
+        return $normalized
+    }
+
+    $defaultPath = Normalize-Path (Get-DefaultPluginRoot)
+    if (Test-Path -LiteralPath $defaultPath) {
+        if (Prompt-YesNo -Message "Detected EDMC plugins directory at '$defaultPath'. Use it?" -Default:$true) {
+            return $defaultPath
+        }
+    } else {
+        Write-Warn "EDMC plugins directory not found at '$defaultPath'."
+        if (Prompt-YesNo -Message "Create '$defaultPath'?" -Default:$true) {
+            Ensure-Directory $defaultPath
+            return $defaultPath
+        }
+    }
+
+    while ($true) {
+        $input = Read-Host 'Enter the path to your EDMC plugins directory'
+        $normalized = Normalize-Path $input
+        if ([string]::IsNullOrWhiteSpace($normalized)) {
+            Write-Warn 'Path cannot be empty.'
+            continue
+        }
+        if (Test-Path -LiteralPath $normalized) {
+            return $normalized
+        }
+        if (Prompt-YesNo -Message "Directory '$normalized' does not exist. Create it?" -Default:$true) {
+            Ensure-Directory $normalized
+            return $normalized
+        }
+        Write-Warn 'Please provide a valid directory.'
+    }
 }
 
 function Resolve-Python {
     $candidates = @(
-        @('py', '-3'),
-        @('py'),
-        @('python3'),
-        @('python')
+        @{ Command = 'py'; Args = @('-3') },
+        @{ Command = 'py'; Args = @() },
+        @{ Command = 'python3'; Args = @() },
+        @{ Command = 'python'; Args = @() }
     )
 
-    foreach ($entry in $candidates) {
-        $command = $entry[0]
-        if (-not (Get-Command $command -ErrorAction SilentlyContinue)) {
+    foreach ($candidate in $candidates) {
+        $cmd = Get-Command -Name $candidate.Command -ErrorAction SilentlyContinue
+        if (-not $cmd) {
             continue
         }
-        $prefixArgs = @()
-        if ($entry.Count -gt 1) {
-            $prefixArgs = $entry[1..($entry.Count - 1)]
-        }
-
         $checkArgs = @()
-        if ($prefixArgs.Count -gt 0) {
-            $checkArgs += $prefixArgs
+        if ($candidate.Args.Count -gt 0) {
+            $checkArgs += $candidate.Args
         }
-        $checkArgs += @('-c', 'import sys; sys.exit(0) if sys.version_info >= (3, 0) else sys.exit(1)')
+        $checkArgs += @('-c', 'import sys; sys.exit(0) if sys.version_info >= (3, 8) else sys.exit(1)')
 
         try {
-            & $command @checkArgs *> $null
+            & $candidate.Command @checkArgs *> $null
             return [pscustomobject]@{
-                Command    = $command
-                PrefixArgs = $prefixArgs
+                Command    = $candidate.Command
+                PrefixArgs = $candidate.Args
             }
         } catch {
             continue
         }
     }
 
-    throw 'Python 3 is required but could not be found on PATH.'
-}
-
-function Detect-PluginDir {
-    $base = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $env:USERPROFILE 'AppData\Local' }
-    $default = Join-Path $base 'EDMarketConnector\plugins'
-
-    if (Test-Path $default) {
-        Write-Host "Detected EDMarketConnector plugins directory at '$default'."
-        if (Prompt-YesNo -Message 'Use this directory?') {
-            return (Get-Item $default).FullName
-        }
-    } else {
-        Write-Host "EDMarketConnector plugin directory not found at '$default'."
-    }
-
-    while ($true) {
-        $inputPath = Read-Host 'Enter the path to your EDMarketConnector plugins directory'
-        if ([string]::IsNullOrWhiteSpace($inputPath)) {
-            Write-Host 'Path cannot be empty.'
-            continue
-        }
-        $inputPath = [IO.Path]::GetFullPath($inputPath)
-        if (Test-Path $inputPath) {
-            return (Get-Item $inputPath).FullName
-        }
-        Write-Host "Directory '$inputPath' does not exist."
-        if (Prompt-YesNo -Message 'Create this directory?') {
-            New-Item -Path $inputPath -ItemType Directory -Force | Out-Null
-            return (Get-Item $inputPath).FullName
-        }
-        Write-Host 'Please provide a valid directory.'
-    }
+    Fail-Install 'Python 3.8+ is required but was not found on PATH.'
 }
 
 function Ensure-EdmcNotRunning {
@@ -118,97 +225,119 @@ function Ensure-EdmcNotRunning {
         return
     }
 
-    Write-Host 'EDMarketConnector appears to be running.'
-    if (-not (Prompt-YesNo -Message 'Close EDMarketConnector and continue installation?')) {
-        throw 'Installation requires EDMarketConnector to be closed.'
+    Write-Warn 'EDMarketConnector appears to be running.'
+    if (-not (Prompt-YesNo -Message 'Close EDMarketConnector and continue?')) {
+        Fail-Install 'Installation requires EDMarketConnector to be closed.'
     }
 
+    Write-Info 'Waiting for EDMarketConnector to exit...'
     while (Get-Process -Name 'EDMarketConnector' -ErrorAction SilentlyContinue) {
-        Write-Host 'Waiting for EDMarketConnector to exit...'
         Start-Sleep -Seconds 2
     }
 }
 
 function Disable-ConflictingPlugins {
-    param(
-        [string]$PluginDir
-    )
+    param([string]$PluginRoot)
 
-    $conflicts = Get-ChildItem -Path $PluginDir -Directory -ErrorAction SilentlyContinue | Where-Object {
-        $_.Name -like 'EDMCOverlay*' -and $_.Name -notlike '*.disabled'
+    $conflicts = Get-ChildItem -Path $PluginRoot -Directory -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -like 'EDMCOverlay*' -and $_.Name -notmatch '\.disabled$' -and $_.Name -notlike 'EDMC-ModernOverlay*'
     }
 
     if (-not $conflicts) {
         return
     }
 
-    Write-Host 'Found legacy overlay plugins that conflict with Modern Overlay:'
-    foreach ($item in $conflicts) {
-        Write-Host " - $($item.Name)"
-    }
+    Write-Warn 'Found legacy overlay plugins that conflict with Modern Overlay:'
+    $conflicts | ForEach-Object { Write-Warn " - $($_.FullName)" }
 
     if (-not (Prompt-YesNo -Message 'Disable the legacy overlay plugin(s)?')) {
-        throw 'Cannot proceed while legacy overlay is enabled.'
+        Fail-Install 'Cannot proceed while legacy overlay plugins are enabled.'
     }
 
     foreach ($item in $conflicts) {
-        $target = Join-Path $PluginDir "$($item.Name).disabled"
-        if (Test-Path $target) {
-            Write-Host " - $($item.Name) is already disabled."
+        $target = "$($item.FullName).disabled"
+        if (Test-Path -LiteralPath $target) {
+            Write-Info "Legacy plugin '$($item.Name)' already disabled."
             continue
         }
-        Rename-Item -Path $item.FullName -NewName "$($item.Name).disabled"
-        Write-Host " - Disabled $($item.Name)."
+        if ($DryRun) {
+            Write-Info "[dry-run] Would rename '$($item.FullName)' to '$target'."
+            continue
+        }
+        Rename-Item -LiteralPath $item.FullName -NewName ("$($item.Name).disabled")
+        Write-Info "Disabled legacy plugin '$($item.Name)'."
     }
+}
+
+function Invoke-Python {
+    param(
+        [Parameter(Mandatory = $true)][pscustomobject]$Python,
+        [Parameter(Mandatory = $true)][string[]]$Arguments
+    )
+    $args = @()
+    if ($Python.PrefixArgs -and $Python.PrefixArgs.Count -gt 0) {
+        $args += $Python.PrefixArgs
+    }
+    $args += $Arguments
+    & $Python.Command @args
 }
 
 function Create-VenvAndInstall {
     param(
-        [string]$TargetDir,
-        [pscustomobject]$Python
+        [string]$TargetDir
     )
 
-    $overlayClient = Join-Path $TargetDir 'overlay-client'
-    if (-not (Test-Path $overlayClient)) {
-        throw "Missing overlay-client directory in '$TargetDir'."
+    $venvPath = Join-Path $TargetDir 'overlay-client\.venv'
+    $requirements = Join-Path $TargetDir 'overlay-client\requirements.txt'
+
+    if ($DryRun) {
+        Write-Info "[dry-run] Would ensure Python virtual environment at '$venvPath' and install requirements from '$requirements'."
+        return
     }
 
-    $venvPath = Join-Path $overlayClient '.venv'
-    if (-not (Test-Path $venvPath)) {
-        Write-Host "Creating Python virtual environment at '$venvPath'..."
-        $args = @()
-        if ($Python.PrefixArgs) {
-            $args += $Python.PrefixArgs
-        }
-        $args += @('-m', 'venv', $venvPath)
-        & $Python.Command @args
+    if (-not (Test-Path -LiteralPath (Join-Path $TargetDir 'overlay-client'))) {
+        Fail-Install "Missing overlay-client directory in '$TargetDir'."
+    }
+
+    if (-not (Test-Path -LiteralPath $venvPath)) {
+        Write-Info "Creating Python virtual environment at '$venvPath'."
+        Invoke-Python -Python $PythonSpec -Arguments @('-m', 'venv', $venvPath)
     }
 
     $venvPython = Join-Path $venvPath 'Scripts\python.exe'
-    if (-not (Test-Path $venvPython)) {
-        throw "Virtual environment at '$venvPath' is missing python.exe."
+    if (-not (Test-Path -LiteralPath $venvPython)) {
+        Fail-Install "Virtual environment at '$venvPath' is missing python.exe."
     }
 
-    $requirementsPath = Join-Path $overlayClient 'requirements.txt'
-    Write-Host "Installing overlay client requirements from '$requirementsPath' into '$venvPath'..."
-    & $venvPython -m pip install --upgrade pip *> $null
-    & $venvPython -m pip install -r $requirementsPath
+    Write-Info 'Installing overlay client requirements (this may take a moment)...'
+    & $venvPython -m pip install --upgrade pip
+    & $venvPython -m pip install -r $requirements
+}
+
+function Ensure-ExistingInstall {
+    param([string]$InstallDir)
+    $venvPath = Join-Path $InstallDir 'overlay-client\.venv'
+    if (Test-Path -LiteralPath $venvPath) {
+        return
+    }
+    Write-Warn "Existing installation at '$InstallDir' does not have a virtual environment. Creating one now."
+    Create-VenvAndInstall -TargetDir $InstallDir
 }
 
 function Copy-InitialInstall {
     param(
         [string]$SourceDir,
-        [string]$PluginRoot,
-        [pscustomobject]$Python
+        [string]$PluginRoot
     )
 
-    Write-Host 'Copying Modern Overlay into plugins directory...'
-    $target = Join-Path $PluginRoot (Split-Path $SourceDir -Leaf)
-    if (Test-Path $target) {
-        Remove-Item -Path $target -Recurse -Force
+    $dest = Join-Path $PluginRoot 'EDMC-ModernOverlay'
+    Write-Info "Copying Modern Overlay into '$PluginRoot'."
+    if ($DryRun) {
+        Write-Info "[dry-run] Would copy '$SourceDir' to '$dest'."
+        return
     }
     Copy-Item -Path $SourceDir -Destination $PluginRoot -Recurse -Force
-    Create-VenvAndInstall -TargetDir $target -Python $Python
+    Create-VenvAndInstall -TargetDir $dest
 }
 
 function Update-ExistingInstall {
@@ -217,96 +346,205 @@ function Update-ExistingInstall {
         [string]$DestDir
     )
 
-    if (-not (Get-Command robocopy -ErrorAction SilentlyContinue)) {
-        throw 'robocopy is required to update the plugin without overwriting the virtualenv.'
+    if ($DryRun) {
+        Write-Info "[dry-run] Would replace '$DestDir' with the payload from '$SourceDir' while preserving overlay-client\.venv and Eurocaps.ttf."
+        return
     }
 
-    Write-Host 'Updating existing Modern Overlay installation...'
-    # Preserve the destination virtualenv and user-installed Eurocaps font during mirror.
-    $excludeVenvDest = Join-Path $DestDir 'overlay-client\.venv'
-    $excludeEurocapsDest = Join-Path $DestDir 'overlay-client\fonts\EUROCAPS.ttf'
-    $args = @(
-        $SourceDir,
-        $DestDir,
-        '/MIR',
-        '/XD', $excludeVenvDest,
-        '/XF', $excludeEurocapsDest
-    )
-
-    & robocopy @args | Out-Null
-    $code = $LASTEXITCODE
-    if ($code -ge 8) {
-        throw "robocopy failed with exit code $code."
+    $parent = Split-Path -Parent $DestDir
+    if (-not (Test-Path -LiteralPath $parent)) {
+        Fail-Install "Parent directory '$parent' not found while updating '$DestDir'."
     }
-}
 
-function Ensure-ExistingInstall {
-    param(
-        [string]$DestDir,
-        [pscustomobject]$Python
-    )
+    $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("edmc-overlay-backup-" + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 
     $venvPath = Join-Path $DestDir 'overlay-client\.venv'
-    if (-not (Test-Path $venvPath)) {
-        Write-Host 'Existing installation lacks a virtual environment. Creating one...'
-        Create-VenvAndInstall -TargetDir $DestDir -Python $Python
-    }
-}
+    $fontPath = Join-Path $DestDir 'overlay-client\fonts\Eurocaps.ttf'
+    $venvBackup = $null
+    $fontBackup = $null
 
-function Show-FinalNotes {
-    Write-Host ''
-    Write-Host 'Installation complete.'
-    Write-Host 'install_eurocaps.sh was not run. Execute it separately if you wish to install the Eurocaps font.'
-    Write-Host ''
     try {
-        # Final prompt so the window doesn't close immediately when double-clicked
-        Read-Host 'Install complete. Hit Enter to continue' | Out-Null
-    } catch {
-        # If input is not available (non-interactive run), ignore
+        if (Test-Path -LiteralPath $venvPath) {
+            $venvBackup = Join-Path $tempRoot '.venv'
+            Move-Item -LiteralPath $venvPath -Destination $venvBackup
+        }
+        if (Test-Path -LiteralPath $fontPath) {
+            $fontBackup = Join-Path $tempRoot $FontName
+            Copy-Item -LiteralPath $fontPath -Destination $fontBackup -Force
+        }
+
+        if (Test-Path -LiteralPath $DestDir) {
+            Remove-Item -LiteralPath $DestDir -Recurse -Force
+        }
+
+        Copy-Item -Path $SourceDir -Destination $parent -Recurse -Force
+
+        if ($venvBackup) {
+            $restoredVenv = Join-Path $DestDir 'overlay-client\.venv'
+            Move-Item -LiteralPath $venvBackup -Destination $restoredVenv
+        }
+        if ($fontBackup) {
+            $restoredFont = Join-Path $DestDir 'overlay-client\fonts\Eurocaps.ttf'
+            Copy-Item -LiteralPath $fontBackup -Destination $restoredFont -Force
+        }
+    } finally {
+        Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
-function Invoke-Main {
-    $releaseRoot = Find-ReleaseRoot
-    $python = Resolve-Python
-    if (-not $python -or -not ($python.PSObject.Properties["Command"]) -or -not $python.Command) {
-        throw 'Python 3 interpreter could not be resolved. Ensure Python 3 is installed and on PATH (try "py -3", "python3", or "python").'
+function Ensure-FontListEntry {
+    param(
+        [string]$FontFile,
+        [string]$PreferredList
+    )
+
+    if (-not (Test-Path -LiteralPath $PreferredList)) {
+        Write-Info "preferred_fonts.txt not found at '$PreferredList'. The overlay will still detect $FontFile automatically."
+        return
     }
 
-    $prefix = if ($python.PrefixArgs -and $python.PrefixArgs.Count -gt 0) { ' ' + ($python.PrefixArgs -join ' ') } else { '' }
-    Write-Host "Using Python interpreter '$($python.Command)$prefix'."
+    $existing = Select-String -Path $PreferredList -Pattern "^(?i)$FontFile$" -Quiet -ErrorAction SilentlyContinue
+    if ($existing) {
+        Write-Info "$FontFile already listed in preferred_fonts.txt."
+        return
+    }
 
-    $pluginDir = Detect-PluginDir
+    if ($DryRun) {
+        Write-Info "[dry-run] Would append '$FontFile' to '$PreferredList'."
+        return
+    }
+
+    Add-Content -Path $PreferredList -Value $FontFile
+    Write-Info "Added $FontFile to preferred_fonts.txt."
+}
+
+function Download-File {
+    param(
+        [string]$Url,
+        [string]$Destination
+    )
+
+    if ($DryRun) {
+        Write-Info "[dry-run] Would download '$Url' to '$Destination'."
+        return $true
+    }
+
+    try {
+        Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
+        return $true
+    } catch {
+        Write-ErrorLine "Failed to download '$Url'. $_"
+        return $false
+    }
+}
+
+function Install-EurocapsFont {
+    param([string]$FontsDir)
+
+    $fontPath = Join-Path $FontsDir $FontName
+    $preferred = Join-Path $FontsDir 'preferred_fonts.txt'
+
+    Ensure-Directory -Path $FontsDir
+
+    if ($DryRun) {
+        Write-Info "[dry-run] Would install $FontName to '$fontPath'."
+        Ensure-FontListEntry -FontFile $FontName -PreferredList $preferred
+        return
+    }
+
+    $tmp = [IO.Path]::GetTempFileName()
+    Write-Info "Downloading $FontName..."
+    if (-not (Download-File -Url $FontUrl -Destination $tmp)) {
+        Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue
+        return
+    }
+
+    if (-not (Test-Path -LiteralPath $tmp) -or ((Get-Item -LiteralPath $tmp).Length -eq 0)) {
+        Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue
+        Fail-Install "Downloaded font file is empty. Aborting."
+    }
+
+    Copy-Item -Path $tmp -Destination $fontPath -Force
+    Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue
+    Write-Info "Installed $FontName to '$fontPath'."
+    Ensure-FontListEntry -FontFile $FontName -PreferredList $preferred
+}
+
+function Maybe-InstallEurocaps {
+    param([string]$PluginHome)
+
+    $fontsDir = Join-Path $PluginHome 'overlay-client\fonts'
+    $fontPath = Join-Path $fontsDir $FontName
+
+    if (-not (Test-Path -LiteralPath $fontsDir)) {
+        Write-Info "Font directory '$fontsDir' not found; skipping Eurocaps installation."
+        return
+    }
+
+    if (Test-Path -LiteralPath $fontPath) {
+        Write-Info "$FontName already present; skipping download."
+        return
+    }
+
+    Write-Info 'The Eurocaps cockpit font provides the authentic Elite Dangerous HUD look.'
+    if (-not (Prompt-YesNo -Message "Download and install $FontName now?" -Default:$false)) {
+        Write-Info 'Skipping Eurocaps font download.'
+        return
+    }
+    if (-not (Prompt-YesNo -Message 'Confirm you already have a license to use the Eurocaps font (e.g., via your Elite Dangerous purchase).' -Default:$false)) {
+        Write-Info 'Eurocaps installation cancelled because the license confirmation was declined.'
+        return
+    }
+
+    Install-EurocapsFont -FontsDir $fontsDir
+}
+
+function Final-Notes {
+    Write-Host ''
+    Write-Info 'Installation steps completed.'
+    Write-Info 'Re-run install_windows.ps1 any time you want to update the plugin or re-install the optional Eurocaps font.'
+    if ($DryRun) {
+        Write-Info 'Dry-run mode was enabled; no files were modified.'
+    }
+}
+
+function Main {
+    $script:ReleaseRoot = Find-ReleaseRoot
+    $script:PayloadDir = Join-Path $ReleaseRoot 'EDMC-ModernOverlay'
+    if (-not (Test-Path -LiteralPath $PayloadDir)) {
+        Fail-Install "Source payload '$PayloadDir' not found."
+    }
+
+    $script:PythonSpec = Resolve-Python
+    $pluginsRoot = Detect-PluginRoot
+    Write-Info "Using EDMC plugins directory: $pluginsRoot"
+    Ensure-Directory -Path $pluginsRoot
+
     Ensure-EdmcNotRunning
-    Disable-ConflictingPlugins -PluginDir $pluginDir
+    Disable-ConflictingPlugins -PluginRoot $pluginsRoot
 
-    $sourceDir = Join-Path $releaseRoot 'EDMC-ModernOverlay'
-    if (-not (Test-Path $sourceDir)) {
-        throw "Source directory '$sourceDir' not found."
-    }
+    $installDir = Join-Path $pluginsRoot 'EDMC-ModernOverlay'
 
-    $destDir = Join-Path $pluginDir 'EDMC-ModernOverlay'
-    if (-not (Test-Path $destDir)) {
-        Copy-InitialInstall -SourceDir $sourceDir -PluginRoot $pluginDir -Python $python
+    if (-not (Test-Path -LiteralPath $installDir)) {
+        Copy-InitialInstall -SourceDir $PayloadDir -PluginRoot $pluginsRoot
     } else {
-        Write-Host "An existing installation was detected at '$destDir'."
-        Write-Host 'Plugin files will be replaced while preserving the existing overlay-client\.venv.'
-        if (-not (Prompt-YesNo -Message 'Proceed with updating the installation?')) {
-            throw 'Installation aborted by user to protect the existing virtual environment.'
+        Write-Warn "Existing installation detected at '$installDir'."
+        Write-Warn 'Plugin files will be replaced while preserving overlay-client\.venv.'
+        if (-not (Prompt-YesNo -Message 'Proceed with updating the installation?' -Default:$true)) {
+            Fail-Install 'Installation aborted by user.'
         }
-        Ensure-ExistingInstall -DestDir $destDir -Python $python
-        Update-ExistingInstall -SourceDir $sourceDir -DestDir $destDir
-        # Sanity check in case robocopy purged the venv despite exclusion rules
-        Ensure-ExistingInstall -DestDir $destDir -Python $python
+        Ensure-ExistingInstall -InstallDir $installDir
+        Update-ExistingInstall -SourceDir $PayloadDir -DestDir $installDir
     }
 
-    Show-FinalNotes
+    Maybe-InstallEurocaps -PluginHome $installDir
+    Final-Notes
 }
 
 try {
-    Invoke-Main
-    exit 0
+    Main
 } catch {
-    Write-Error $_.Exception.Message
+    Write-ErrorLine $_.Exception.Message
     exit 1
 }
