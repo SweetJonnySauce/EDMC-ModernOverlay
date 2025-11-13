@@ -33,6 +33,7 @@ declare -a PROFILE_PACKAGES_WAYLAND=()
 PKG_UPDATE_COMPLETED=0
 PACKAGE_MANAGER_KIND=""
 PACKAGE_STATUS_CHECK_SUPPORTED=0
+DISPLAY_STACK_DETECTED=""
 declare -a PACKAGES_TO_INSTALL=()
 declare -a PACKAGES_TO_UPGRADE=()
 declare -a PACKAGES_ALREADY_OK=()
@@ -437,6 +438,45 @@ classify_package_statuses() {
             done
             ;;
     esac
+}
+
+detect_display_stack() {
+    if [[ -n "$DISPLAY_STACK_DETECTED" ]]; then
+        printf '%s' "$DISPLAY_STACK_DETECTED"
+        return
+    fi
+    local detected="unknown"
+    local session_type="${XDG_SESSION_TYPE:-}"
+    case "${session_type,,}" in
+        wayland)
+            detected="wayland"
+            ;;
+        x11|xorg*)
+            detected="x11"
+            ;;
+    esac
+    if [[ "$detected" == "unknown" && -n "${WAYLAND_DISPLAY:-}" ]]; then
+        detected="wayland"
+    fi
+    if [[ "$detected" == "unknown" && -n "${DISPLAY:-}" ]]; then
+        detected="x11"
+    fi
+    if [[ "$detected" == "unknown" && -n "${XDG_SESSION_ID:-}" && -n "${XDG_RUNTIME_DIR:-}" ]]; then
+        if command -v loginctl >/dev/null 2>&1; then
+            local loginctl_type
+            loginctl_type="$(loginctl show-session "$XDG_SESSION_ID" -p Type 2>/dev/null | cut -d= -f2)"
+            case "${loginctl_type,,}" in
+                wayland)
+                    detected="wayland"
+                    ;;
+                x11|xorg*)
+                    detected="x11"
+                    ;;
+            esac
+        fi
+    fi
+    DISPLAY_STACK_DETECTED="$detected"
+    printf '%s' "$DISPLAY_STACK_DETECTED"
 }
 
 expand_path_template() {
@@ -888,13 +928,28 @@ disable_conflicting_plugins() {
 
 ensure_system_packages() {
     ensure_distro_profile
+    local session_stack
+    session_stack="$(detect_display_stack)"
     local packages=("${PROFILE_PACKAGES_CORE[@]}" "${PROFILE_PACKAGES_QT[@]}")
-    local pkg
     local fallback_notice="python3 python3-venv python3-pip rsync libxcb-cursor0 libxkbcommon-x11-0"
+    if [[ "$session_stack" == "wayland" && ${#PROFILE_PACKAGES_WAYLAND[@]} > 0 ]]; then
+        packages+=("${PROFILE_PACKAGES_WAYLAND[@]}")
+        fallback_notice+=" wmctrl x11-utils"
+    elif [[ "$session_stack" == "wayland" ]]; then
+        fallback_notice+=" wmctrl x11-utils"
+    fi
     if ((${#packages[@]} == 0)); then
         echo "⚠️  Automatic dependency installation is disabled for profile '$PROFILE_LABEL'."
         echo "    Ensure these packages (or their equivalents) are installed manually: ${fallback_notice}"
         return
+    fi
+
+    if [[ "$session_stack" == "wayland" && ${#PROFILE_PACKAGES_WAYLAND[@]} > 0 ]]; then
+        echo "ℹ️  Wayland session detected; including helper packages with the core dependencies."
+    elif [[ "$session_stack" == "x11" && ${#PROFILE_PACKAGES_WAYLAND[@]} > 0 ]]; then
+        echo "ℹ️  X11 session detected; skipping Wayland helper packages."
+    elif [[ "$session_stack" == "unknown" && ${#PROFILE_PACKAGES_WAYLAND[@]} > 0 ]]; then
+        echo "ℹ️  Session type could not be determined automatically; Wayland helper packages will be skipped."
     fi
 
     echo "📦 Modern Overlay requires the following packages on '$PROFILE_LABEL':"
@@ -940,24 +995,6 @@ ensure_system_packages() {
 
     require_command sudo "sudo"
     run_package_install "core dependencies" "${action_packages[@]}"
-}
-
-maybe_install_wayland_deps() {
-    ensure_distro_profile
-    local packages=("${PROFILE_PACKAGES_WAYLAND[@]}")
-    if ((${#packages[@]} == 0)); then
-        echo "ℹ️  No Wayland helper packages are defined for profile '$PROFILE_LABEL'."
-        return
-    fi
-    echo "ℹ️  Wayland session support benefits from the following helper packages:"
-    printf '    %s\n' "${packages[@]}"
-    if ! prompt_yes_no "Install Wayland/X11 helper packages now?"; then
-        echo "ℹ️  Skipping Wayland/X11 helper packages."
-        return
-    fi
-
-    require_command sudo "sudo"
-    run_package_install "Wayland helper packages" "${packages[@]}"
 }
 
 create_venv_and_install() {
@@ -1061,7 +1098,6 @@ main() {
     detect_plugins_dir
     ensure_edmc_not_running
     ensure_system_packages
-    maybe_install_wayland_deps
     disable_conflicting_plugins
 
     local src_dir="${RELEASE_ROOT}/EDMC-ModernOverlay"
