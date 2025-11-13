@@ -20,7 +20,9 @@
 
 ## Declaring plugin groups via API
 
-The public helper module also exposes `define_plugin_group()` so plugins can register their own grouping metadata without editing `overlay_groupings.json` manually. The helper enforces the schema constraints already in place and lowercases/uniquifies prefixes for you:
+The public helper module also exposes `define_plugin_group()` so plugins can register their own grouping metadata without editing `overlay_groupings.json` manually. The helper enforces the schema constraints already in place and lowercases/uniquifies prefixes for you.
+
+See [`docs/overlay-groupings.md`](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/blob/main/docs/overlay-groupings.md) for more information.
 
 ```python
 from overlay_plugin.overlay_api import define_plugin_group, PluginGroupingError
