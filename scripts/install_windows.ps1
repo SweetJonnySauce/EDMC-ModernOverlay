@@ -90,6 +90,87 @@ function Write-ErrorLine {
     Write-Host "[ERROR] $Message" -ForegroundColor Red
 }
 
+function Wait-ForShellExtraction {
+    param(
+        [Parameter(Mandatory)][string]$MonitorPath,
+        [int]$TimeoutSeconds = 120
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $lastCount = -1
+    $stableReads = 0
+    while ((Get-Date) -lt $deadline) {
+        if (-not (Test-Path -LiteralPath $MonitorPath)) {
+            Start-Sleep -Milliseconds 250
+            continue
+        }
+
+        $count = (Get-ChildItem -LiteralPath $MonitorPath -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object).Count
+        if ($count -gt 0 -and $count -eq $lastCount) {
+            $stableReads++
+            if ($stableReads -ge 4) {
+                return
+            }
+        } else {
+            $stableReads = 0
+            $lastCount = $count
+        }
+
+        Start-Sleep -Milliseconds 250
+    }
+
+    Write-Warn "Shell.Application extraction did not finish within $TimeoutSeconds seconds for '$MonitorPath'; continuing."
+}
+
+function Expand-ArchiveWithFallback {
+    param(
+        [Parameter(Mandatory)][string]$LiteralPath,
+        [Parameter(Mandatory)][string]$DestinationPath,
+        [string]$ExpectedRoot
+    )
+
+    $expandError = $null
+    try {
+        if (-not (Get-Command -Name Expand-Archive -ErrorAction SilentlyContinue)) {
+            Import-Module -Name Microsoft.PowerShell.Archive -ErrorAction Stop | Out-Null
+        }
+        Expand-Archive -LiteralPath $LiteralPath -DestinationPath $DestinationPath -Force -ErrorAction Stop
+        return
+    } catch {
+        $expandError = $_
+        Write-Warn ("Expand-Archive unavailable or failed ({0}). Attempting Shell.Application fallback." -f $expandError.Exception.Message)
+    }
+
+    try {
+        $shell = New-Object -ComObject Shell.Application
+    } catch {
+        Fail-Install ("Unable to extract '{0}'. Expand-Archive failed and Shell.Application could not be created: {1}" -f $LiteralPath, $_.Exception.Message)
+    }
+
+    if (-not (Test-Path -LiteralPath $DestinationPath)) {
+        New-Item -ItemType Directory -Path $DestinationPath -Force | Out-Null
+    }
+
+    $zipNS = $shell.NameSpace($LiteralPath)
+    if (-not $zipNS) {
+        Fail-Install "Shell.Application could not open archive '$LiteralPath'."
+    }
+    $destNS = $shell.NameSpace($DestinationPath)
+    if (-not $destNS) {
+        Fail-Install "Shell.Application could not access destination '$DestinationPath'."
+    }
+
+    $copyFlags = 0x10 -bor 0x04 -bor 0x1000
+    $destNS.CopyHere($zipNS.Items(), $copyFlags)
+
+    if ($ExpectedRoot) {
+        $monitor = Join-Path $DestinationPath $ExpectedRoot
+        Wait-ForShellExtraction -MonitorPath $monitor
+    } else {
+        Start-Sleep -Seconds 2
+    }
+}
+
 function Initialize-EmbeddedPayload {
     if ([string]::IsNullOrWhiteSpace($EmbeddedPayloadBase64)) {
         return
@@ -103,7 +184,7 @@ function Initialize-EmbeddedPayload {
     $archivePath = Join-Path $tempRoot 'payload.zip'
     Write-Info "Extracting embedded payload to '$tempRoot'."
     [IO.File]::WriteAllBytes($archivePath, [Convert]::FromBase64String($EmbeddedPayloadBase64))
-    Expand-Archive -LiteralPath $archivePath -DestinationPath $tempRoot -Force
+    Expand-ArchiveWithFallback -LiteralPath $archivePath -DestinationPath $tempRoot -ExpectedRoot 'EDMC-ModernOverlay'
     Remove-Item -LiteralPath $archivePath -Force
 
     $expectedDir = Join-Path $tempRoot 'EDMC-ModernOverlay'
