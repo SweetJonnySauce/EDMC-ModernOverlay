@@ -1,7 +1,16 @@
 # EDMC Modern Overlay (beta)
 [![Github All Releases](https://img.shields.io/github/downloads/SweetJonnySauce/EDMC-ModernOverlay/total.svg)](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest)
 
-EDMC Modern Overlay is a cross-platform (Windows and Linux), two-part implementation (plugin and overlay-client) for Elite Dangerous Market Connector ([EDMarketConnector](https://github.com/EDCD/EDMarketConnector)). It streams data from EDMC plugins over a lightweight TCP socket and displays a transparent, click-through PyQt6 heads-up display on the Elite Dangrous game. It runs in both borderless and windowed mode.
+EDMC Modern Overlay is a cross-platform (Windows and Linux), two-part implementation (plugin and overlay-client) for Elite Dangerous Market Connector ([EDMC](https://github.com/EDCD/EDMarketConnector)). It streams data from EDMC plugins over a lightweight TCP socket and displays a transparent, click-through PyQt6 heads-up display on the Elite Dangrous game. It runs in both borderless and windowed mode.
+
+# Key Features
+- Backwards compatibility with [EDMCOverlay](https://github.com/inorton/EDMCOverlay)
+- Works in borderless or windowed mode on any display size
+- Cross platform for Windows and Linux
+- Support 4 distributions for Linux (Debian, Fedora, OpenSuse, Arch) and can be extended
+- Supports host and Flatpak installs of EDMC on Linux
+- Code is 100% Python
+- Numerous development features for EDMC Plugin Developers
 
 ## Installation
 
@@ -13,13 +22,13 @@ EDMC Modern Overlay is a cross-platform (Windows and Linux), two-part implementa
 - On Windows, Microsoft Visual C++ 14.0 or greater is required. Get it with "Microsoft C++ Build Tools": https://visualstudio.microsoft.com/visual-cpp-build-tools/
 
 ### Installation
-- Grab the latest OS-specific archive from GitHub Releases:
+- Grab the latest OS-specific release asset from [GitHub Releases](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest):
   - Windows (PowerShell script bundle): `EDMC-ModernOverlay-windows_powershell-<version>.zip` – includes `EDMC-ModernOverlay/` plus `install_windows.ps1` so you can inspect and run the script directly. Extract the files and run `install_windows.ps1` in Powershell
   - Windows (standalone EXE): `EDMC-ModernOverlay-windows-<version>.exe`. Download the exe and run it. You will need to accept the "Microsoft Defender SmartScreen prevented an unrecognized app from starting." warning when installing by clicking on "More info..."
   - Linux (Supports Debian, Fedora, OpenSuse, and Arch for both EDMC Base and Flatpak installions): `EDMC-ModernOverlay-linux-<version>.tar.gz` – includes `EDMC-ModernOverlay/`, `install_linux.sh`, and the distro manifest `install_matrix.json`. Extract the archive and run `install_linux.sh` from the terminal.
 
 ### Upgrades
-- Grab the latest OS-speific archive from GitHub Releases and re-run the install script (or double click on the exe file). The install file will walk you through the upgrade options.
+- Grab the latest OS-speific release asset from [GitHub Releases](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest) and re-run the install script (or double click on the exe file). The install file will walk you through the upgrade options.
 
 ### Notes
 - Python Environment: All installations require the overlay-client to have its own python environment. This is required for PyQt support. The installations will automatically build the environment for you. In the case of upgrades, you can chose rebuild the python environment or skip it.
@@ -41,7 +50,7 @@ flatpak override --user io.edcd.EDMarketConnector --talk-name=org.freedesktop.Fl
 ```
 The auto-detection prioritises `EDMC_OVERLAY_HOST_PYTHON`; otherwise it falls back to `overlay-client/.venv/bin/python`.
 
-## Features
+## More Features
 
 - Background `asyncio` JSON-over-TCP broadcaster that stays off EDMC’s Tk thread and degrades gracefully if the listener cannot bind.
 - Watchdog-managed overlay client that restarts the PyQt process after crashes and mirrors EDMC’s logging controls (stdout/stderr capture, payload mirroring).
