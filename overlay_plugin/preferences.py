@@ -616,8 +616,10 @@ class PreferencesPanel:
             legacy_row = ttk.Frame(dev_frame, style=self._frame_style)
             legacy_text_btn = nb.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
             legacy_rect_btn = nb.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
+            legacy_emoji_btn = nb.Button(legacy_row, text="Send legacy emoji", command=self._on_legacy_emoji)
             legacy_text_btn.pack(side="left")
             legacy_rect_btn.pack(side="left", padx=(8, 0))
+            legacy_emoji_btn.pack(side="left", padx=(8, 0))
             legacy_row.grid(row=dev_row, column=0, sticky="w", pady=(2, 0))
             dev_row += 1
 
@@ -1074,6 +1076,17 @@ class PreferencesPanel:
             self._status_var.set(f"Legacy text failed: {exc}")
             return
         self._status_var.set("Legacy text sent via edmcoverlay API.")
+
+    def _on_legacy_emoji(self) -> None:
+        overlay = self._legacy_overlay()
+        if overlay is None:
+            return
+        try:
+            overlay.send_message("modernoverlay-test-emoji", "\N{memo}", "#80d0ff", 60, 120, ttl=5, size="large")
+        except Exception as exc:
+            self._status_var.set(f"Legacy emoji failed: {exc}")
+            return
+        self._status_var.set("Legacy emoji sent via edmcoverlay API.")
 
     def _on_legacy_rect(self) -> None:
         overlay = self._legacy_overlay()
