@@ -235,6 +235,12 @@ DEFAULT_DEBUG_CONFIG: Dict[str, Any] = {
     "group_bounds_outline": True,
 }
 
+def _is_force_render_enabled(preferences: Optional[Preferences]) -> bool:
+    if preferences is None:
+        return False
+    return bool(getattr(preferences, "force_render", False)) if DEV_BUILD else False
+
+
 FLATPAK_ENV_FORWARD_KEYS: Tuple[str, ...] = (
     "EDMC_OVERLAY_SESSION_TYPE",
     "EDMC_OVERLAY_COMPOSITOR",
@@ -932,7 +938,7 @@ class _PluginRuntime:
             self._preferences.gridlines_enabled,
             self._preferences.gridline_spacing,
             self._preferences.overlay_opacity,
-            self._preferences.force_render,
+            _is_force_render_enabled(self._preferences),
             self._preferences.force_xwayland,
             self._preferences.show_debug_overlay,
             self._preferences.cycle_payload_ids,
@@ -1054,10 +1060,14 @@ class _PluginRuntime:
         self._send_overlay_config()
 
     def set_force_render_preference(self, value: bool) -> None:
-        self._preferences.force_render = bool(value)
+        flag = bool(value)
+        if not DEV_BUILD and flag:
+            LOGGER.warning("Ignoring force-render toggle; this option is restricted to developer builds.")
+            flag = False
+        self._preferences.force_render = flag
         LOGGER.debug(
             "Overlay force-render %s",
-            "enabled" if self._preferences.force_render else "disabled",
+            "enabled" if _is_force_render_enabled(self._preferences) else "disabled",
         )
         self._send_overlay_config()
 
@@ -1354,7 +1364,7 @@ class _PluginRuntime:
             "client_log_retention": int(self._resolve_client_log_retention()),
             "gridlines_enabled": bool(self._preferences.gridlines_enabled),
             "gridline_spacing": int(self._preferences.gridline_spacing),
-            "force_render": bool(self._preferences.force_render),
+            "force_render": _is_force_render_enabled(self._preferences),
             "title_bar_enabled": bool(self._preferences.title_bar_enabled),
             "title_bar_height": int(self._preferences.title_bar_height),
             "show_debug_overlay": bool(self._preferences.show_debug_overlay),
@@ -1628,7 +1638,7 @@ class _PluginRuntime:
         if host_python is None:
             if not self._flatpak_host_warning_emitted:
                 LOGGER.warning(
-                    "Flatpak detected but no host Python interpreter found. Create overlay-client/.hostvenv (or set EDMC_OVERLAY_HOST_PYTHON) with the overlay dependencies."
+                    "Flatpak detected but no host Python interpreter found. Ensure overlay-client/.venv exists (or set EDMC_OVERLAY_HOST_PYTHON) with the overlay dependencies."
                 )
                 self._flatpak_host_warning_emitted = True
             return None
@@ -1655,8 +1665,8 @@ class _PluginRuntime:
                 return str(override_path)
             LOGGER.debug("EDMC_OVERLAY_HOST_PYTHON=%s does not exist; ignoring override", override_path)
         candidate_dirs: Sequence[Path] = (
-            self.plugin_dir / "overlay-client" / ".hostvenv" / "bin",
-            self.plugin_dir / "overlay-client" / ".hostvenv" / "Scripts",
+            self.plugin_dir / "overlay-client" / ".venv" / "bin",
+            self.plugin_dir / "overlay-client" / ".venv" / "Scripts",
         )
         for directory in candidate_dirs:
             for name in ("python3", "python"):
@@ -1841,7 +1851,7 @@ _prefs_panel: Optional[PreferencesPanel] = None
 def plugin_start3(plugin_dir: str) -> str:
     _log(f"Initialising Modern Overlay plugin from {plugin_dir}")
     global _plugin, _preferences
-    _preferences = Preferences(Path(plugin_dir))
+    _preferences = Preferences(Path(plugin_dir), dev_mode=DEV_BUILD)
     _plugin = _PluginRuntime(plugin_dir, _preferences)
     return _plugin.start()
 
@@ -1951,7 +1961,7 @@ def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - s
                 _plugin._resolve_client_log_retention() if _plugin else _preferences.client_log_retention,
                 _preferences.gridlines_enabled,
                 _preferences.gridline_spacing,
-                _preferences.force_render,
+                _is_force_render_enabled(_preferences),
                 _preferences.title_bar_enabled,
                 _preferences.title_bar_height,
                 _preferences.force_xwayland,
@@ -1984,3 +1994,4 @@ def journal_entry(
 name = PLUGIN_NAME
 version = PLUGIN_VERSION
 cmdr = ""
+

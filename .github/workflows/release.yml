@@ -26,7 +26,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p dist/windows dist/windows/EDMC-ModernOverlay
+          mkdir -p dist/windows_powershell dist/windows_powershell/EDMC-ModernOverlay
+          mkdir -p dist/windows_exe dist/windows_exe/EDMC-ModernOverlay
           mkdir -p dist/linux dist/linux/EDMC-ModernOverlay
 
           EXCLUDES=(
@@ -46,31 +47,35 @@ jobs:
 
           # Copy plugin code into EDMC-ModernOverlay directory for both bundles,
           # excluding CI config and the scripts folder (scripts is included separately).
-          rsync -a "${EXCLUDES[@]}" ./ dist/windows/EDMC-ModernOverlay/
+          rsync -a "${EXCLUDES[@]}" ./ dist/windows_powershell/EDMC-ModernOverlay/
+          rsync -a "${EXCLUDES[@]}" ./ dist/windows_exe/EDMC-ModernOverlay/
           rsync -a "${EXCLUDES[@]}" ./ dist/linux/EDMC-ModernOverlay/
 
           # Windows helper scripts at archive root
-          cp scripts/install_windows.ps1 scripts/install-eurocaps.bat dist/windows/
+          cp scripts/install_windows.ps1 dist/windows_powershell/
+          cp scripts/install_windows.exe dist/windows_exe/
 
-          # Linux helper scripts at archive root
-          cp scripts/install_linux.sh scripts/install-eurocaps.sh dist/linux/
+          # Linux helper script + manifest at archive root
+          cp scripts/install_linux.sh scripts/install_matrix.json dist/linux/
 
       - name: Create archives
         shell: bash
         run: |
           set -euo pipefail
           # Ensure Linux helper scripts are executable so tar preserves +x
-          chmod +x dist/linux/install_linux.sh dist/linux/install-eurocaps.sh
+          chmod +x dist/linux/install_linux.sh
           # Normalize version for filenames (fallback to short SHA when empty)
           VER="${VERSION:-}"
           if [[ -z "$VER" ]]; then
             shortsha="$(git rev-parse --short=7 HEAD)"
             VER="dev-${shortsha}"
           fi
-          # Windows zip
-          (cd dist/windows && zip -r "../EDMC-ModernOverlay-windows-${VER}.zip" EDMC-ModernOverlay install_windows.ps1 install-eurocaps.bat)
+          # Windows PowerShell zip
+          (cd dist/windows_powershell && zip -r "../EDMC-ModernOverlay-windows_powershell-${VER}.zip" EDMC-ModernOverlay install_windows.ps1)
+          # Windows EXE zip
+          (cd dist/windows_exe && zip -r "../EDMC-ModernOverlay-windows_exe-${VER}.zip" EDMC-ModernOverlay install_windows.exe)
           # Linux tar.gz
-          (cd dist/linux && tar -czf "../EDMC-ModernOverlay-linux-${VER}.tar.gz" EDMC-ModernOverlay install_linux.sh install-eurocaps.sh)
+          (cd dist/linux && tar -czf "../EDMC-ModernOverlay-linux-${VER}.tar.gz" EDMC-ModernOverlay install_linux.sh install_matrix.json)
           ls -al dist
 
       - name: Upload workflow artifacts
@@ -78,7 +83,8 @@ jobs:
         with:
           name: release-bundles
           path: |
-            dist/EDMC-ModernOverlay-windows-*.zip
+            dist/EDMC-ModernOverlay-windows_powershell-*.zip
+            dist/EDMC-ModernOverlay-windows_exe-*.zip
             dist/EDMC-ModernOverlay-linux-*.tar.gz
           if-no-files-found: error
 
@@ -88,5 +94,7 @@ jobs:
         with:
           tag_name: ${{ github.event.release.tag_name || github.ref_name }}
           files: |
-            dist/EDMC-ModernOverlay-windows-*.zip
+            dist/EDMC-ModernOverlay-windows_powershell-*.zip
+            dist/EDMC-ModernOverlay-windows_exe-*.zip
             dist/EDMC-ModernOverlay-linux-*.tar.gz
+

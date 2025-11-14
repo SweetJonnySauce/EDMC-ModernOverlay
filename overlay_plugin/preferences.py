@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,12 +16,15 @@ STATUS_GUTTER_MAX = 500
 STATUS_GUTTER_DEFAULT = 50
 LATEST_RELEASE_URL = "https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest"
 
+LOGGER = logging.getLogger(__name__)
+
 
 @dataclass
 class Preferences:
     """Simple JSON-backed preferences store."""
 
     plugin_dir: Path
+    dev_mode: bool = False
     overlay_opacity: float = 0.0
     show_connection_status: bool = False
     debug_overlay_corner: str = "NW"
@@ -45,6 +49,7 @@ class Preferences:
         self.plugin_dir = Path(self.plugin_dir)
         self._path = self.plugin_dir / PREFERENCES_FILE
         self._load()
+        self.disable_force_render_for_release()
 
     # Persistence ---------------------------------------------------------
 
@@ -134,6 +139,27 @@ class Preferences:
             "status_message_gutter": int(self.status_message_gutter),
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def disable_force_render_for_release(self) -> bool:
+        """Ensure release builds cannot persist the developer-only override."""
+
+        if self.dev_mode:
+            return False
+        if not getattr(self, "force_render", False):
+            return False
+        self.force_render = False
+        try:
+            self.save()
+        except Exception as exc:
+            LOGGER.warning(
+                "Failed to persist force-render disable for release mode: %s",
+                exc,
+            )
+            return False
+        LOGGER.info(
+            "Disabled 'Keep overlay visible when Elite Dangerous is not the foreground window' for release builds."
+        )
+        return True
 
     def status_bottom_margin(self) -> int:
         return STATUS_BASE_MARGIN + int(max(0, self.status_message_gutter))

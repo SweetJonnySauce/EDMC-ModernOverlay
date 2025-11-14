@@ -19,7 +19,7 @@ EDMC Modern Overlay is a cross-platform (Windows, Linux X11 on Gnome), two-part 
   - `EDMC-ModernOverlay/` (the plugin and overlay client code)
   - Platform install helpers at the archive root:
     - Windows: `install_windows.ps1`, `install-eurocaps.bat`
-    - Linux: `install_linux.sh`, `install-eurocaps.sh`
+    - Linux: `install_linux.sh`
 
 ### Windows
 - Close EDMarketConnector.
@@ -34,30 +34,39 @@ EDMC Modern Overlay is a cross-platform (Windows, Linux X11 on Gnome), two-part 
 
 ### Linux
 - Close EDMarketConnector before installing.
-- Make sure you have Python 3 and venv support available (e.g. on Debian/Ubuntu: `sudo apt install python3 python3-venv`).
 - From the extracted folder, run the installer:
   - `./install_linux.sh` (ensure it’s executable) or `bash ./install_linux.sh`
+- Optional flags:
+  - `-y/--yes/--assume-yes` to auto-confirm prompts.
+  - `--profile <id>` to force a distro profile from `scripts/install_matrix.json` (e.g. `debian`, `fedora`, `arch`, `opensuse`, `skip`).
+  - `--dry-run` to see what would happen without modifying your system.
+  - A single positional path argument overrides the plugin directory detection.
 - Follow the on-screen prompts; the installer handles the rest (except installation of the Euroscripts font).
-- The installer will:
-  - Detect (or prompt for) the EDMC plugins directory (defaults to `~/.local/share/EDMarketConnector/plugins/`).
-  - Disable legacy `EDMCOverlay*` plugins if found.
-  - Copy `EDMC-ModernOverlay/` into the plugins directory.
-  - Create `overlay-client/.venv` and install `overlay-client/requirements.txt` into it.
+  - The installer will:
+  - Detect (or prompt for) the EDMC plugins directory (XDG defaults plus Flatpak’s `~/.var/app/io.edcd.EDMarketConnector/...`). When both base and Flatpak installs are present, the script asks which one to target.
+    - Determine your distro family via `scripts/install_matrix.json` and install required packages with the correct package manager (apt, dnf, zypper, pacman). Use `--profile skip` if you prefer to handle dependencies yourself.
+    - Offer to install optional Wayland helper packages defined in the manifest.
+    - Offer to download the Eurocaps cockpit font after deployment (only proceed if you already have a license for the font via your Elite: Dangerous purchase).
+    - Disable legacy `EDMCOverlay*` plugins if found.
+    - Copy `EDMC-ModernOverlay/` into the plugins directory.
+    - Create `overlay-client/.venv` and install `overlay-client/requirements.txt` into it.
 - Start EDMarketConnector; the overlay client launches automatically.
+
+`scripts/install_matrix.json` lists the distro profiles and package sets. To support another distribution, add a new entry (or adjust the package lists) and rerun the installer.
 
 #### Flatpak manual install helper
 > **Caution:** Enabling the host launch runs the overlay client outside the Flatpak sandbox, so it inherits the host user’s privileges. Only do this if you trust the plugin code and the system where it runs.
 
-When EDMC runs as `io.edcd.EDMarketConnector` inside Flatpak, the plugin can auto-launch the overlay client outside the sandbox so it keeps working with tools such as `wmctrl`. Create a host-side virtualenv and install the overlay client requirements there:
+When EDMC runs as `io.edcd.EDMarketConnector` inside Flatpak, the plugin can auto-launch the overlay client outside the sandbox so it keeps working with tools such as `wmctrl`. Ensure the standard `overlay-client/.venv` virtualenv exists inside the plugin directory (the installer already sets this up, but you can recreate it manually):
 
 ```bash
 PLUGIN_HOME=~/.var/app/io.edcd.EDMarketConnector/data/EDMarketConnector/plugins/EDMC-ModernOverlay
-python3 -m venv "$PLUGIN_HOME/overlay-client/.hostvenv"
-"$PLUGIN_HOME/overlay-client/.hostvenv/bin/python" -m pip install --upgrade pip
-"$PLUGIN_HOME/overlay-client/.hostvenv/bin/python" -m pip install -r "$PLUGIN_HOME/overlay-client/requirements.txt"
+python3 -m venv "$PLUGIN_HOME/overlay-client/.venv"
+"$PLUGIN_HOME/overlay-client/.venv/bin/python" -m pip install --upgrade pip
+"$PLUGIN_HOME/overlay-client/.venv/bin/python" -m pip install -r "$PLUGIN_HOME/overlay-client/requirements.txt"
 ```
 
-Restart EDMC (Flatpak) and the plugin will detect the sandbox, run `flatpak-spawn --host …/.hostvenv/bin/python overlay_client.py`, and note the Flatpak mode in the overlay status banner. If you keep the interpreter somewhere else, use:
+Restart EDMC (Flatpak) and the plugin will detect the sandbox, run `flatpak-spawn --host …/.venv/bin/python overlay_client.py`, and note the Flatpak mode in the overlay status banner. If you keep the interpreter somewhere else, use:
 
 ```bash
 flatpak override --env=EDMC_OVERLAY_HOST_PYTHON=/path/to/python io.edcd.EDMarketConnector
@@ -69,14 +78,14 @@ The optional host launch requires D-Bus access to `org.freedesktop.Flatpak`. Gra
 flatpak override --user io.edcd.EDMarketConnector --talk-name=org.freedesktop.Flatpak
 ```
 
-The auto-detection prioritises `EDMC_OVERLAY_HOST_PYTHON`; otherwise it falls back to `overlay-client/.hostvenv/bin/python`.
+The auto-detection prioritises `EDMC_OVERLAY_HOST_PYTHON`; otherwise it falls back to `overlay-client/.venv/bin/python`.
 
 ### Installing Euroscripts font
 To use the Elite: Dangerous cockpit font (Eurocaps) in the overlay HUD:
 
 You can automate the download and placement with the bundled helpers:
 
-- Linux: `scripts/install-eurocaps.sh` *(optionally pass the plugin path if it isn't under `~/.local/share/EDMarketConnector/plugins/`)*
+- Linux: Re-run `install_linux.sh` and accept the Eurocaps prompt (you'll be asked to confirm you already have a license to use the font).
 - Windows: `scripts\install-eurocaps.bat` *(optionally pass the plugin path if it isn't under `%LOCALAPPDATA%\EDMarketConnector\plugins\`)*
 
 Both scripts verify the plugin directory, fetch `Eurocaps.ttf`, copy it into `overlay-client/fonts/`, and add it to `preferred_fonts.txt` when that file exists.
