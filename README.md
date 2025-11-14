@@ -25,7 +25,7 @@ EDMC Modern Overlay is a cross-platform (Windows and Linux), two-part implementa
 - Grab the latest OS-specific release asset from [GitHub Releases](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest):
   - Windows (PowerShell script bundle): `EDMC-ModernOverlay-windows_powershell-<version>.zip` – includes `EDMC-ModernOverlay/` plus `install_windows.ps1` so you can inspect and run the script directly. Extract the files and run `install_windows.ps1` in Powershell
   - Windows (standalone EXE): `EDMC-ModernOverlay-windows-<version>.exe`. Download the exe and run it. You will need to accept the "Microsoft Defender SmartScreen prevented an unrecognized app from starting." warning when installing by clicking on "More info..."
-  - Linux (Supports Debian, Fedora, OpenSuse, and Arch for both EDMC Base and Flatpak installions): `EDMC-ModernOverlay-linux-<version>.tar.gz` – includes `EDMC-ModernOverlay/`, `install_linux.sh`, and the distro manifest `install_matrix.json`. Extract the archive and run `install_linux.sh` from the terminal.
+  - Linux (distro aware): `EDMC-ModernOverlay-linux-<version>.tar.gz` – includes `EDMC-ModernOverlay/`, `install_linux.sh`, and the distro manifest `install_matrix.json`. Extract the archive and run `install_linux.sh` from the terminal
 
 ## Upgrades
 - Grab the latest OS-speific release asset from [GitHub Releases](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest) and re-run the install script (or double click on the exe file). The install file will walk you through the upgrade options.
@@ -35,22 +35,22 @@ EDMC Modern Overlay is a cross-platform (Windows and Linux), two-part implementa
 
 - **EUROCAPS.ttf:** The install asks you to confirm you have a license to install EUROCAPS.ttf. [Why do I need a license for EUROCAPS.ttf?](FAQ.md#why-do-i-need-a-license-for-eurocapsttf)
 
-- **Linux Dependency Packages:** `install_linux.sh` reads `scripts/install_matrix.json` and installs the distro-specific prerequisites for the overlay client. The manifest currently for and pulls in if necessary:
+- **Linux Dependency Packages:** `install_linux.sh` reads `install_matrix.json` and installs the distro-specific prerequisites for the overlay client. The manifest currently checks for and pulls in if necessary:
   - Debian / Ubuntu: `python3`, `python3-venv`, `python3-pip`, `rsync`, `curl`, plus Qt helpers `libxcb-cursor0`, `libxkbcommon-x11-0`, and Wayland helpers `wmctrl`, `x11-utils`
   - Fedora / RHEL / CentOS Stream: `python3`, `python3-pip`, `python3-virtualenv`, `rsync`, `curl`, `libxkbcommon`, `libxkbcommon-x11`, `xcb-util-cursor`, and Wayland helpers `wmctrl`, `xorg-x11-utils`
   - openSUSE / SLE: `python3`, `python3-pip`, `python3-virtualenv`, `rsync`, `curl`, plus Qt helpers `libxcb-cursor0`, `libxkbcommon-x11-0`, and Wayland helpers `wmctrl`, `xprop`
   - Arch / Manjaro / SteamOS: `python`, `python-pip`, `rsync`, `curl`, plus Qt helpers `libxcb`, `xcb-util-cursor`, `libxkbcommon`, and Wayland helpers `wmctrl`, `xorg-xprop`
 
-- **Flatpack Sandboxing:** The Flatpak version of EDMC runs in a sandboxed environment. The sandboxed environment does not include the packages needed to run the overlay-client. Because of this, the client will be launched using the command `flatpak-spawn --host …/.venv/bin/python overlay_client.py` with `-env` arguements. You should only run this plugin if you trust the plugin code and the system where it runs.
+- **Flatpack Sandboxing:** The Flatpak version of EDMC runs in a sandboxed environment. The sandboxed environment does not include the packages needed to run the overlay-client. Because of this, the client will be launched outide of the sandboxed environment. You should only run this plugin if you trust the plugin code and the system where it runs.
 
   > **Caution:** Enabling the host launch runs the overlay client outside the Flatpak sandbox, so it inherits the host user’s privileges. Only do this if you trust the plugin code and the system where it runs.
 
-  Flatpak includes th following override when launching the client:
+  Flatpak uses the following override when launching the client:
   ```bash
   flatpak override --env=EDMC_OVERLAY_HOST_PYTHON=/path/to/python io.edcd.EDMarketConnector
   ```
 
-  The optional host launch requires D-Bus access to `org.freedesktop.Flatpak`. Grant it once (per-user if the Flatpak was installed with `--user`):
+  The Flatpak host launch requires D-Bus access to `org.freedesktop.Flatpak`. Grant it once (per-user if the Flatpak was installed with `--user`):
   ```bash
   flatpak override --user io.edcd.EDMarketConnector --talk-name=org.freedesktop.Flatpak
   ```
@@ -59,29 +59,25 @@ EDMC Modern Overlay is a cross-platform (Windows and Linux), two-part implementa
 # More Features
 
 - Background `asyncio` JSON-over-TCP broadcaster that stays off EDMC’s Tk thread and degrades gracefully if the listener cannot bind.
-- Watchdog-managed overlay client that restarts the PyQt process after crashes and mirrors EDMC’s logging controls (stdout/stderr capture, payload mirroring).
+- Watchdog-managed overlay client that restarts the PyQt process after crashes and mirrors EDMC’s logging controls (stdout/stderr capture).
 - JSON discovery file (`port.json`) that the overlay reads to locate the active port, removed automatically when the broadcaster is offline.
-- Transparent PyQt6 HUD with legacy text/shape rendering, gridlines, window-follow offsets, force-render toggle, and live test messages.
+- Transparent PyQt6 HUD with legacy text, shape, and emoji rendering.
 - Custom font support with case-insensitive discovery and a `preferred_fonts.txt` priority list.
-- Preferences-driven scaling, window sizing, opacity, and log-retention controls exposed through a myNotebook settings pane.
+- Custom emoji font support with fallback options.
 - Public helper API (`overlay_plugin.overlay_api.send_overlay_message`) that validates and forwards payloads from other plugins.
 - Drop-in `edmcoverlay` compatibility module for legacy callers.
-- Dedicated rotating client log written under the EDMC logs directory with user-configurable retention.
 
 # Using EDMC-ModernOverlay
 
 ## Everyday workflow
-1. **Enable the plugin in EDMC.** Open `File → Settings → Plugins`, tick `EDMC-ModernOverlay`, and restart EDMC so it can register the plugin.
-2. **Let EDMC manage the overlay process.** On startup the plugin writes `port.json` next to `EDMC-ModernOverlay/` with the TCP port (and `flatpak` metadata when applicable), then `OverlayWatchdog` launches `overlay-client/overlay_client.py` using the bundled virtual environment. The watchdog keeps the PyQt6 overlay alive and automatically restarts it if it crashes, so you never need to run the client manually.
-3. **Configure the HUD from EDMC.** Go to `File → Settings → EDMC-ModernOverlay` and adjust:
+1. **Enable the plugin in EDMC.** Install the plugin and resstart EDMC. In EDMC, open `File → Settings → Plugins`, and navigate to `EDMC-ModernOverlay` for user settings
+2. **Configure the HUD from EDMC.** Go to `File → Settings → EDMC-ModernOverlay` and adjust:
    - Scaling (`Fit` keeps the original aspect ratio, `Fill` stretches groups proportionally).
-   - Whether to show the connection status banner plus its gutter/margin in pixels.
+   - Whether to show the connection status banner in lower left hand corner plus its gutter/margin in pixels.
    - Debug overlay metrics and the corner they appear in.
-   - Font scaling bounds for payload text, the Elite title-bar compensation toggle + height, and the overflow “nudge back into view” gutter.
-   - These preferences are saved to `EDMC-ModernOverlay/overlay_settings.json`, so you can back up or copy that file between machines.
-   - Developer builds (versions suffixed with `-dev` or when `MODERN_OVERLAY_DEV_MODE=1`) also reveal a **Developer Settings** block that adds overlay restart/testing buttons, background opacity controls, temporary gridlines, payload cycling, and legacy test payload senders.
-4. **Verify connectivity and gather diagnostics.** Toggle the “Show connection status message” setting to display the live status banner in the overlay. Payload activity is logged to `logs/EDMC-ModernOverlay/overlay-payloads.log` (created under `%LOCALAPPDATA%\EDMarketConnector\logs` on Windows or `~/.local/share/EDMarketConnector/logs` on Linux) and rotates according to the `client_log_retention` value sent to the overlay. Advanced users can edit `debug.json` in the plugin directory to enable payload tracing or pipe the overlay client’s stdout/stderr into the EDMC log for troubleshooting.
-5. **Keep the virtual environment healthy.** Both installers detect an existing `overlay-client/.venv`, prompt before rebuilding it, and reinstall `overlay-client/requirements.txt`. If the overlay stops launching, re-run the installer (or delete `.venv` and rerun it) so a fresh environment is created with the right dependencies and the watchdog can start the client again.
+   - Font scaling bounds for payload text. This sets the min/max size of the normal font on different display sizes. 
+   - Elite title-bar compensation toggle + height. Turn this true if running in windowed mode with a title bar.
+   - Nudge overflowing payloads back into view” + gutter. Useful in `Fill` if you find text extending beyond the right or bottom edges of the screen.
 
 ## Programmatic API
 
