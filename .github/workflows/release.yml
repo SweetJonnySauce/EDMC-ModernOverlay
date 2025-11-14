@@ -91,3 +91,66 @@ jobs:
             dist/EDMC-ModernOverlay-windows_powershell-*.zip
             dist/EDMC-ModernOverlay-linux-*.tar.gz
 
+  windows_installer:
+    name: Build Windows installer EXE
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ github.event.release.tag_name || github.ref_name || format('run-{0}', github.run_number) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ps2exe module
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name ps2exe -Scope CurrentUser -Force -AllowClobber
+
+      - name: Build installer executable
+        shell: pwsh
+        run: |
+          Import-Module ps2exe
+
+          $root = (Get-Location).ProviderPath
+          $stage = Join-Path $root 'dist/windows_exe'
+          $scriptPath = Join-Path $root 'scripts/build_install_windows_exe.ps1'
+
+          Write-Host "Building installer using staging path '$stage'."
+          & $scriptPath -StagingPath $stage -SourceRoot $root
+
+          $exePath = Join-Path $stage 'install_windows.exe'
+          if (-not (Test-Path -LiteralPath $exePath)) {
+              throw "Installer executable was not created at '$exePath'."
+          }
+
+          $version = "${env:VERSION}"
+          if ([string]::IsNullOrWhiteSpace($version)) {
+              $shortSha = (& git rev-parse --short=7 HEAD).Trim()
+              $version = "dev-$shortSha"
+          }
+
+          $outputDir = Join-Path $root 'dist'
+          if (-not (Test-Path -LiteralPath $outputDir)) {
+              New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+          }
+          $finalExe = Join-Path $outputDir ("EDMC-ModernOverlay-windows-{0}.exe" -f $version)
+          Copy-Item -LiteralPath $exePath -Destination $finalExe -Force
+          Write-Host "Installer copied to '$finalExe'."
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-exe
+          path: dist/EDMC-ModernOverlay-windows-*.exe
+          if-no-files-found: error
+
+      - name: Attach EXE to GitHub Release
+        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
+          files: |
+            dist/EDMC-ModernOverlay-windows-*.exe
+
