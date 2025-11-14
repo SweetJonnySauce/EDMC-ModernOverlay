@@ -29,6 +29,21 @@ param(
     [switch]$DryRun
 )
 
+$script:MinimumPSVersion = [Version]'3.0'
+$script:CurrentPSVersion = $PSVersionTable.PSVersion
+
+if ($script:CurrentPSVersion -lt $script:MinimumPSVersion) {
+    Write-Host "[ERROR] This installer requires PowerShell $MinimumPSVersion or newer. Detected version: $CurrentPSVersion" -ForegroundColor Red
+    Write-Host "Please install Windows Management Framework 5.1 (or PowerShell 7+) and rerun the installer."
+    try {
+        Read-Host "Press Enter to exit..." | Out-Null
+    } catch {
+        Write-Host "No console available; closing automatically in 5 seconds..."
+        Start-Sleep -Seconds 5
+    }
+    exit 1
+}
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -38,8 +53,10 @@ $script:EmbeddedPayloadTempRoot = $null
 function Resolve-ScriptDirectory {
     # Determine script location even when compiled to an EXE (PSCommandPath becomes empty there).
     $candidates = @()
-    if (-not [string]::IsNullOrWhiteSpace($PSCommandPath)) {
-        $candidates += (Split-Path -Parent $PSCommandPath)
+    if (Test-Path variable:PSCommandPath) {
+        if (-not [string]::IsNullOrWhiteSpace($PSCommandPath)) {
+            $candidates += (Split-Path -Parent $PSCommandPath)
+        }
     }
     if ($MyInvocation -and $MyInvocation.MyCommand) {
         $pathProp = $MyInvocation.MyCommand.PSObject.Properties['Path']
@@ -47,8 +64,10 @@ function Resolve-ScriptDirectory {
             $candidates += (Split-Path -Parent $pathProp.Value)
         }
     }
-    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
-        $candidates += $PSScriptRoot
+    if (Test-Path variable:PSScriptRoot) {
+        if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+            $candidates += $PSScriptRoot
+        }
     }
     $candidates += [System.AppContext]::BaseDirectory
 
@@ -92,7 +111,7 @@ function Write-ErrorLine {
 
 function Wait-ForShellExtraction {
     param(
-        [Parameter(Mandatory)][string]$MonitorPath,
+        [Parameter(Mandatory=$true)][string]$MonitorPath,
         [int]$TimeoutSeconds = 120
     )
 
@@ -124,8 +143,8 @@ function Wait-ForShellExtraction {
 
 function Expand-ArchiveWithFallback {
     param(
-        [Parameter(Mandatory)][string]$LiteralPath,
-        [Parameter(Mandatory)][string]$DestinationPath,
+        [Parameter(Mandatory=$true)][string]$LiteralPath,
+        [Parameter(Mandatory=$true)][string]$DestinationPath,
         [string]$ExpectedRoot
     )
 
