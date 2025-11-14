@@ -29,14 +29,34 @@ param(
     [switch]$DryRun
 )
 
+$script:MinimumPSVersion = [Version]'3.0'
+$script:CurrentPSVersion = $PSVersionTable.PSVersion
+
+if ($script:CurrentPSVersion -lt $script:MinimumPSVersion) {
+    Write-Host "[ERROR] This installer requires PowerShell $MinimumPSVersion or newer. Detected version: $CurrentPSVersion" -ForegroundColor Red
+    Write-Host "Please install Windows Management Framework 5.1 (or PowerShell 7+) and rerun the installer."
+    try {
+        Read-Host "Press Enter to exit..." | Out-Null
+    } catch {
+        Write-Host "No console available; closing automatically in 5 seconds..."
+        Start-Sleep -Seconds 5
+    }
+    exit 1
+}
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+$script:EmbeddedPayloadBase64 = $null # EMBEDDED_PAYLOAD_PLACEHOLDER
+$script:EmbeddedPayloadTempRoot = $null
 
 function Resolve-ScriptDirectory {
     # Determine script location even when compiled to an EXE (PSCommandPath becomes empty there).
     $candidates = @()
-    if (-not [string]::IsNullOrWhiteSpace($PSCommandPath)) {
-        $candidates += (Split-Path -Parent $PSCommandPath)
+    if (Test-Path variable:PSCommandPath) {
+        if (-not [string]::IsNullOrWhiteSpace($PSCommandPath)) {
+            $candidates += (Split-Path -Parent $PSCommandPath)
+        }
     }
     if ($MyInvocation -and $MyInvocation.MyCommand) {
         $pathProp = $MyInvocation.MyCommand.PSObject.Properties['Path']
@@ -44,8 +64,10 @@ function Resolve-ScriptDirectory {
             $candidates += (Split-Path -Parent $pathProp.Value)
         }
     }
-    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
-        $candidates += $PSScriptRoot
+    if (Test-Path variable:PSScriptRoot) {
+        if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+            $candidates += $PSScriptRoot
+        }
     }
     $candidates += [System.AppContext]::BaseDirectory
 
@@ -87,10 +109,130 @@ function Write-ErrorLine {
     Write-Host "[ERROR] $Message" -ForegroundColor Red
 }
 
+function Wait-ForShellExtraction {
+    param(
+        [Parameter(Mandatory=$true)][string]$MonitorPath,
+        [int]$TimeoutSeconds = 120
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $lastCount = -1
+    $stableReads = 0
+    while ((Get-Date) -lt $deadline) {
+        if (-not (Test-Path -LiteralPath $MonitorPath)) {
+            Start-Sleep -Milliseconds 250
+            continue
+        }
+
+        $count = (Get-ChildItem -LiteralPath $MonitorPath -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object).Count
+        if ($count -gt 0 -and $count -eq $lastCount) {
+            $stableReads++
+            if ($stableReads -ge 4) {
+                return
+            }
+        } else {
+            $stableReads = 0
+            $lastCount = $count
+        }
+
+        Start-Sleep -Milliseconds 250
+    }
+
+    Write-Warn "Shell.Application extraction did not finish within $TimeoutSeconds seconds for '$MonitorPath'; continuing."
+}
+
+function Expand-ArchiveWithFallback {
+    param(
+        [Parameter(Mandatory=$true)][string]$LiteralPath,
+        [Parameter(Mandatory=$true)][string]$DestinationPath,
+        [string]$ExpectedRoot
+    )
+
+    $expandError = $null
+    try {
+        if (-not (Get-Command -Name Expand-Archive -ErrorAction SilentlyContinue)) {
+            Import-Module -Name Microsoft.PowerShell.Archive -ErrorAction Stop | Out-Null
+        }
+        Expand-Archive -LiteralPath $LiteralPath -DestinationPath $DestinationPath -Force -ErrorAction Stop
+        return
+    } catch {
+        $expandError = $_
+        Write-Warn ("Expand-Archive unavailable or failed ({0}). Attempting Shell.Application fallback." -f $expandError.Exception.Message)
+    }
+
+    try {
+        $shell = New-Object -ComObject Shell.Application
+    } catch {
+        Fail-Install ("Unable to extract '{0}'. Expand-Archive failed and Shell.Application could not be created: {1}" -f $LiteralPath, $_.Exception.Message)
+    }
+
+    if (-not (Test-Path -LiteralPath $DestinationPath)) {
+        New-Item -ItemType Directory -Path $DestinationPath -Force | Out-Null
+    }
+
+    $zipNS = $shell.NameSpace($LiteralPath)
+    if (-not $zipNS) {
+        Fail-Install "Shell.Application could not open archive '$LiteralPath'."
+    }
+    $destNS = $shell.NameSpace($DestinationPath)
+    if (-not $destNS) {
+        Fail-Install "Shell.Application could not access destination '$DestinationPath'."
+    }
+
+    $copyFlags = 0x10 -bor 0x04 -bor 0x1000
+    $destNS.CopyHere($zipNS.Items(), $copyFlags)
+
+    if ($ExpectedRoot) {
+        $monitor = Join-Path $DestinationPath $ExpectedRoot
+        Wait-ForShellExtraction -MonitorPath $monitor
+    } else {
+        Start-Sleep -Seconds 2
+    }
+}
+
+function Initialize-EmbeddedPayload {
+    if ([string]::IsNullOrWhiteSpace($EmbeddedPayloadBase64)) {
+        return
+    }
+
+    $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("EDMCModernOverlay_{0}" -f ([guid]::NewGuid().ToString('N')))
+    if (-not (Test-Path -LiteralPath $tempRoot)) {
+        New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+    }
+
+    $archivePath = Join-Path $tempRoot 'payload.zip'
+    Write-Info "Extracting embedded payload to '$tempRoot'."
+    [IO.File]::WriteAllBytes($archivePath, [Convert]::FromBase64String($EmbeddedPayloadBase64))
+    Expand-ArchiveWithFallback -LiteralPath $archivePath -DestinationPath $tempRoot -ExpectedRoot 'EDMC-ModernOverlay'
+    Remove-Item -LiteralPath $archivePath -Force
+
+    $expectedDir = Join-Path $tempRoot 'EDMC-ModernOverlay'
+    if (-not (Test-Path -LiteralPath $expectedDir)) {
+        Fail-Install "Embedded payload missing 'EDMC-ModernOverlay' directory."
+    }
+
+    $script:EmbeddedPayloadTempRoot = $tempRoot
+}
+
+function Cleanup-EmbeddedPayload {
+    if (-not $EmbeddedPayloadTempRoot) {
+        return
+    }
+
+    if (-not (Test-Path -LiteralPath $EmbeddedPayloadTempRoot)) {
+        return
+    }
+
+    try {
+        Remove-Item -LiteralPath $EmbeddedPayloadTempRoot -Recurse -Force -ErrorAction Stop
+    } catch {
+        Write-Warn "Failed to clean up temporary payload directory '$EmbeddedPayloadTempRoot'."
+    }
+}
+
 function Fail-Install {
     param([string]$Message)
-    Write-ErrorLine $Message
-    exit 1
+    throw (New-Object System.Exception($Message))
 }
 
 function Wait-ForExitConfirmation {
@@ -176,6 +318,14 @@ function Ensure-Directory {
 }
 
 function Find-ReleaseRoot {
+    if ($EmbeddedPayloadTempRoot) {
+        $payloadPath = Join-Path $EmbeddedPayloadTempRoot 'EDMC-ModernOverlay'
+        if (Test-Path -LiteralPath $payloadPath) {
+            return (Get-Item -LiteralPath $EmbeddedPayloadTempRoot).FullName
+        }
+        Write-Warn "Embedded payload directory missing expected content, falling back to disk-based payload."
+    }
+
     if (Test-Path -LiteralPath (Join-Path $ScriptDir 'EDMC-ModernOverlay')) {
         return (Get-Item -LiteralPath $ScriptDir).FullName
     }
@@ -610,9 +760,16 @@ function Main {
     Final-Notes
 }
 
+$script:InstallerHadError = $false
 try {
+    Initialize-EmbeddedPayload
     Main
 } catch {
+    $script:InstallerHadError = $true
     Write-ErrorLine $_.Exception.Message
-    exit 1
+} finally {
+    Cleanup-EmbeddedPayload
+    if ($InstallerHadError) {
+        exit 1
+    }
 }
