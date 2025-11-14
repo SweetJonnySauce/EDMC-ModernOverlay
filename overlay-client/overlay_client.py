@@ -58,6 +58,7 @@ from vector_renderer import render_vector, VectorPainterAdapter  # type: ignore 
 from plugin_overrides import PluginOverrideManager  # type: ignore  # noqa: E402
 from debug_config import DEBUG_CONFIG_ENABLED, DebugConfig, load_debug_config  # type: ignore  # noqa: E402
 from group_transform import GroupTransform, GroupKey  # type: ignore  # noqa: E402
+from font_utils import apply_font_fallbacks  # type: ignore  # noqa: E402
 from viewport_helper import (
     BASE_HEIGHT,
     BASE_WIDTH,
@@ -151,6 +152,7 @@ class _MessagePaintCommand(_LegacyPaintCommand):
 
     def paint(self, window: "OverlayWindow", painter: QPainter, offset_x: int, offset_y: int) -> None:
         font = QFont(window._font_family)
+        window._apply_font_fallbacks(font)
         font.setPointSizeF(self.point_size)
         font.setWeight(QFont.Weight.Normal)
         painter.setFont(font)
@@ -449,6 +451,7 @@ class OverlayWindow(QWidget):
     def __init__(self, initial: InitialClientSettings, debug_config: DebugConfig) -> None:
         super().__init__()
         self._font_family = self._resolve_font_family()
+        self._font_fallbacks: Tuple[str, ...] = self._resolve_emoji_font_families()
         self._status_raw = "Initialising"
         self._status = self._status_raw
         self._state: Dict[str, Any] = {
@@ -554,6 +557,7 @@ class OverlayWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
 
         message_font = QFont(self._font_family, 16)
+        self._apply_font_fallbacks(message_font)
         message_font.setWeight(QFont.Weight.Normal)
         self.message_label = QLabel("")
         self.message_label.setFont(message_font)
@@ -1427,6 +1431,7 @@ class OverlayWindow(QWidget):
         highlight_color = QColor("#ffb347")
         background = QColor(0, 0, 0, 180)
         font = QFont(self._font_family)
+        self._apply_font_fallbacks(font)
         state = self._viewport_state()
         title_point = max(
             20.0,
@@ -1446,6 +1451,7 @@ class OverlayWindow(QWidget):
         metrics = painter.fontMetrics()
         text_width = metrics.horizontalAdvance(text)
         plugin_font = QFont(self._font_family)
+        self._apply_font_fallbacks(plugin_font)
         plugin_point = max(12.0, min(title_point - 4.0, title_point * 0.8))
         plugin_font.setPointSizeF(plugin_point)
         plugin_font.setWeight(QFont.Weight.Normal)
@@ -2791,6 +2797,7 @@ class OverlayWindow(QWidget):
             adjusted_top += proportional_dy
         text = str(item.get("text", ""))
         metrics_font = QFont(self._font_family)
+        self._apply_font_fallbacks(metrics_font)
         metrics_font.setPointSizeF(scaled_point_size)
         metrics_font.setWeight(QFont.Weight.Normal)
         metrics = QFontMetrics(metrics_font)
@@ -3266,6 +3273,7 @@ class OverlayWindow(QWidget):
             mapper.transform.scale,
             self._font_family,
             preset_point_size,
+            font_fallbacks=self._font_fallbacks,
         )
         if not bounds.is_valid():
             return
@@ -3427,6 +3435,7 @@ class OverlayWindow(QWidget):
         )
         painter.save()
         debug_font = QFont(self._font_family, 10)
+        self._apply_font_fallbacks(debug_font)
         painter.setFont(debug_font)
         metrics = painter.fontMetrics()
         line_height = metrics.height()
@@ -3697,6 +3706,114 @@ class OverlayWindow(QWidget):
         _CLIENT_LOGGER.warning("Preferred fonts unavailable; falling back to %s", default_family)
         return default_family
 
+    def _resolve_emoji_font_families(self) -> Tuple[str, ...]:
+        fonts_dir = Path(__file__).resolve().parent / "fonts"
+
+        def find_font_case_insensitive(filename: str) -> Optional[Path]:
+            if not filename:
+                return None
+            target = filename.lower()
+            if not fonts_dir.exists():
+                return None
+            for child in fonts_dir.iterdir():
+                if child.is_file() and child.name.lower() == target:
+                    return child
+            return None
+
+        try:
+            available_lookup = {name.casefold(): name for name in QFontDatabase.families()}
+        except Exception as exc:
+            _CLIENT_LOGGER.warning("Could not enumerate installed fonts for emoji fallbacks: %s", exc)
+            available_lookup = {}
+
+        fallback_families: list[str] = []
+        seen: set[str] = set()
+        base_family = (self._font_family or "").strip()
+        if base_family:
+            seen.add(base_family.casefold())
+
+        def add_family(name: Optional[str]) -> None:
+            if not name:
+                return
+            lowered = name.casefold()
+            if lowered in seen:
+                return
+            seen.add(lowered)
+            fallback_families.append(name)
+
+        def register_font_file(path: Optional[Path], label: str) -> None:
+            if not path:
+                return
+            try:
+                font_id = QFontDatabase.addApplicationFont(str(path))
+            except Exception as exc:
+                _CLIENT_LOGGER.warning("Failed to load %s font from %s: %s", label, path, exc)
+                return
+            if font_id == -1:
+                _CLIENT_LOGGER.warning("%s font file at %s could not be registered; skipping", label, path)
+                return
+            families = QFontDatabase.applicationFontFamilies(font_id)
+            if not families:
+                _CLIENT_LOGGER.warning("%s font registered but reported no families; skipping", label)
+                return
+            for family in families:
+                available_lookup[family.casefold()] = family
+                add_family(family)
+
+        def add_if_available(candidate: str, *, warn: bool = False) -> None:
+            resolved = available_lookup.get(candidate.casefold())
+            if resolved:
+                add_family(resolved)
+            elif warn:
+                _CLIENT_LOGGER.warning("Emoji fallback '%s' listed in emoji_fallbacks.txt but not installed", candidate)
+
+        fallback_marker = fonts_dir / "emoji_fallbacks.txt"
+        if fallback_marker.exists():
+            try:
+                for raw_line in fallback_marker.read_text(encoding="utf-8").splitlines():
+                    candidate = raw_line.strip()
+                    if not candidate or candidate.startswith(("#", ";")):
+                        continue
+                    path = find_font_case_insensitive(candidate)
+                    if path:
+                        register_font_file(path, f"emoji fallback '{path.name}'")
+                    else:
+                        add_if_available(candidate, warn=True)
+            except Exception as exc:
+                _CLIENT_LOGGER.warning("Failed to read emoji fallback list at %s: %s", fallback_marker, exc)
+
+        bundled_candidates = [
+            "NotoColorEmoji.ttf",
+            "NotoColorEmoji-WindowsCompatible.ttf",
+            "NotoColorEmojiCompat.ttf",
+            "NotoEmoji-Regular.ttf",
+            "TwemojiMozilla.ttf",
+        ]
+        for filename in bundled_candidates:
+            register_font_file(find_font_case_insensitive(filename), f"emoji fallback '{filename}'")
+
+        installed_candidates = [
+            "Noto Color Emoji",
+            "Noto Emoji",
+            "Noto Emoji Black",
+            "Segoe UI Emoji",
+            "Segoe UI Symbol",
+            "Apple Color Emoji",
+            "Twemoji Mozilla",
+            "JoyPixels",
+            "EmojiOne Color",
+            "OpenMoji Color",
+            "OpenMoji",
+        ]
+        for candidate in installed_candidates:
+            add_if_available(candidate, warn=False)
+
+        if fallback_families:
+            _CLIENT_LOGGER.debug("Emoji fallbacks enabled: %s", ", ".join(fallback_families))
+        else:
+            _CLIENT_LOGGER.debug("No emoji fallback fonts discovered; %s will be used alone", self._font_family)
+        return tuple(fallback_families)
+
     def _line_width(self, key: str) -> int:
         default = _LINE_WIDTH_DEFAULTS.get(key, 1)
         value = self._line_widths.get(key, default)
@@ -3705,6 +3822,9 @@ class OverlayWindow(QWidget):
         except (TypeError, ValueError):
             width = default
         return max(0, width)
+
+    def _apply_font_fallbacks(self, font: QFont) -> None:
+        apply_font_fallbacks(font, getattr(self, "_font_fallbacks", ()))
 
 
 class _QtVectorPainterAdapter(VectorPainterAdapter):
@@ -3747,6 +3867,7 @@ class _QtVectorPainterAdapter(VectorPainterAdapter):
         pen = QPen(q_color)
         self._painter.setPen(pen)
         font = QFont(self._window._font_family)
+        self._window._apply_font_fallbacks(font)
         mapper = self._window._compute_legacy_mapper()
         state = self._window._viewport_state()
         font.setPointSizeF(self._window._legacy_preset_point_size("small", state, mapper))

@@ -6,6 +6,8 @@ from typing import Any, Callable, Iterable, List, Mapping, Optional, Sequence, T
 
 from PyQt6.QtGui import QFont, QFontMetrics
 
+from font_utils import apply_font_fallbacks
+
 from legacy_store import LegacyItem
 from viewport_helper import BASE_HEIGHT, BASE_WIDTH
 
@@ -273,6 +275,7 @@ def accumulate_group_bounds(
     pixels_per_overlay_unit: float,
     font_family: str,
     preset_point_size: Callable[[str], float],
+    font_fallbacks: Optional[Sequence[str]] = None,
 ) -> None:
     from group_transform import GroupBounds  # local import to avoid cycles
 
@@ -295,6 +298,7 @@ def accumulate_group_bounds(
             y_val = float(logical.get("y", data.get("y", 0.0)))
             size_label = str(data.get("size", "normal")) if isinstance(data, Mapping) else "normal"
             font = QFont(font_family)
+            apply_font_fallbacks(font, font_fallbacks)
             font.setPointSizeF(preset_point_size(size_label))
             metrics = QFontMetrics(font)
             text_value = str(data.get("text", ""))

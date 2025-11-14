@@ -1,0 +1,5 @@
+# List emoji-capable font filenames or installed family names here (one per line).
+# Lines starting with # or ; are ignored.
+# Example entries:
+# NotoColorEmoji.ttf
+# Segoe UI Emoji

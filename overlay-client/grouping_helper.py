@@ -57,6 +57,7 @@ class FillGroupingHelper:
                 pixel_scale,
                 self._owner._font_family,
                 preset_point_size,
+                font_fallbacks=self._owner._font_fallbacks,
             )
 
         base_width = BASE_WIDTH if BASE_WIDTH > 0.0 else 1.0
