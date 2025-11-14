@@ -102,8 +102,32 @@ function Copy-PayloadTree {
 $resolvedStaging = Resolve-StagingPath -Path $StagingPath
 $resolvedSource = Resolve-SourceRoot -Path $SourceRoot
 
+function Write-EmbeddedInstaller {
+    param(
+        [string]$SourceScript,
+        [string]$DestinationScript,
+        [string]$PayloadBase64
+    )
+
+    $placeholder = '$script:EmbeddedPayloadBase64 = $null # EMBEDDED_PAYLOAD_PLACEHOLDER'
+    $scriptContent = Get-Content -LiteralPath $SourceScript -Raw
+    if (-not $scriptContent.Contains($placeholder)) {
+        Fail "Installer script placeholder '$placeholder' not found."
+    }
+
+    $replacement = @"
+$script:EmbeddedPayloadBase64 = @'
+$PayloadBase64
+'@
+"@
+
+    $updatedContent = $scriptContent.Replace($placeholder, $replacement.TrimEnd("`r", "`n"))
+    Set-Content -LiteralPath $DestinationScript -Value $updatedContent -Encoding UTF8
+}
+
+$payloadDestination = Join-Path $resolvedStaging 'EDMC-ModernOverlay'
+
 if ($resolvedSource) {
-    $payloadDestination = Join-Path $resolvedStaging 'EDMC-ModernOverlay'
     if (Test-Path -LiteralPath $payloadDestination) {
         Write-Host "Clearing existing payload at '$payloadDestination'."
         Remove-Item -LiteralPath $payloadDestination -Recurse -Force
@@ -124,15 +148,35 @@ if (-not (Test-Path -LiteralPath $installScript)) {
     Fail "install_windows.ps1 was not found at '$installScript'."
 }
 
+$payloadDir = $payloadDestination
+if (-not (Test-Path -LiteralPath $payloadDir)) {
+    Fail "Payload directory '$payloadDir' was not found. Provide -SourceRoot or pre-stage the payload."
+}
+
+$payloadArchive = Join-Path $resolvedStaging 'embedded_payload.zip'
+if (Test-Path -LiteralPath $payloadArchive) {
+    Remove-Item -LiteralPath $payloadArchive -Force
+}
+
+Write-Host "Creating embedded payload archive from '$payloadDir'."
+Compress-Archive -Path $payloadDir -DestinationPath $payloadArchive -Force
+$payloadBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($payloadArchive))
+Remove-Item -LiteralPath $payloadArchive -Force
+
+$embeddedInstallScript = Join-Path $resolvedStaging 'install_windows_embedded.ps1'
+Write-EmbeddedInstaller -SourceScript $installScript -DestinationScript $embeddedInstallScript -PayloadBase64 $payloadBase64
+
 $outputExe = Join-Path $resolvedStaging 'install_windows.exe'
 Write-Host "Compiling installer:"
-Write-Host "  Source : $installScript"
+Write-Host "  Source : $embeddedInstallScript"
 Write-Host "  Output : $outputExe"
 
 Invoke-ps2exe `
-    -InputFile $installScript `
+    -InputFile $embeddedInstallScript `
     -OutputFile $outputExe `
     -Title "EDMC Modern Overlay Installer" `
     -Description "Installs the EDMC Modern Overlay plugin next to EDMC."
+
+Remove-Item -LiteralPath $embeddedInstallScript -Force
 
 Write-Host "install_windows.exe has been generated at '$outputExe'."

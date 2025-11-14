@@ -32,6 +32,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$script:EmbeddedPayloadBase64 = $null # EMBEDDED_PAYLOAD_PLACEHOLDER
+$script:EmbeddedPayloadTempRoot = $null
+
 function Resolve-ScriptDirectory {
     # Determine script location even when compiled to an EXE (PSCommandPath becomes empty there).
     $candidates = @()
@@ -87,10 +90,49 @@ function Write-ErrorLine {
     Write-Host "[ERROR] $Message" -ForegroundColor Red
 }
 
+function Initialize-EmbeddedPayload {
+    if ([string]::IsNullOrWhiteSpace($EmbeddedPayloadBase64)) {
+        return
+    }
+
+    $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("EDMCModernOverlay_{0}" -f ([guid]::NewGuid().ToString('N')))
+    if (-not (Test-Path -LiteralPath $tempRoot)) {
+        New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+    }
+
+    $archivePath = Join-Path $tempRoot 'payload.zip'
+    Write-Info "Extracting embedded payload to '$tempRoot'."
+    [IO.File]::WriteAllBytes($archivePath, [Convert]::FromBase64String($EmbeddedPayloadBase64))
+    Expand-Archive -LiteralPath $archivePath -DestinationPath $tempRoot -Force
+    Remove-Item -LiteralPath $archivePath -Force
+
+    $expectedDir = Join-Path $tempRoot 'EDMC-ModernOverlay'
+    if (-not (Test-Path -LiteralPath $expectedDir)) {
+        Fail-Install "Embedded payload missing 'EDMC-ModernOverlay' directory."
+    }
+
+    $script:EmbeddedPayloadTempRoot = $tempRoot
+}
+
+function Cleanup-EmbeddedPayload {
+    if (-not $EmbeddedPayloadTempRoot) {
+        return
+    }
+
+    if (-not (Test-Path -LiteralPath $EmbeddedPayloadTempRoot)) {
+        return
+    }
+
+    try {
+        Remove-Item -LiteralPath $EmbeddedPayloadTempRoot -Recurse -Force -ErrorAction Stop
+    } catch {
+        Write-Warn "Failed to clean up temporary payload directory '$EmbeddedPayloadTempRoot'."
+    }
+}
+
 function Fail-Install {
     param([string]$Message)
-    Write-ErrorLine $Message
-    exit 1
+    throw (New-Object System.Exception($Message))
 }
 
 function Wait-ForExitConfirmation {
@@ -176,6 +218,14 @@ function Ensure-Directory {
 }
 
 function Find-ReleaseRoot {
+    if ($EmbeddedPayloadTempRoot) {
+        $payloadPath = Join-Path $EmbeddedPayloadTempRoot 'EDMC-ModernOverlay'
+        if (Test-Path -LiteralPath $payloadPath) {
+            return (Get-Item -LiteralPath $EmbeddedPayloadTempRoot).FullName
+        }
+        Write-Warn "Embedded payload directory missing expected content, falling back to disk-based payload."
+    }
+
     if (Test-Path -LiteralPath (Join-Path $ScriptDir 'EDMC-ModernOverlay')) {
         return (Get-Item -LiteralPath $ScriptDir).FullName
     }
@@ -610,9 +660,16 @@ function Main {
     Final-Notes
 }
 
+$script:InstallerHadError = $false
 try {
+    Initialize-EmbeddedPayload
     Main
 } catch {
+    $script:InstallerHadError = $true
     Write-ErrorLine $_.Exception.Message
-    exit 1
+} finally {
+    Cleanup-EmbeddedPayload
+    if ($InstallerHadError) {
+        exit 1
+    }
 }
