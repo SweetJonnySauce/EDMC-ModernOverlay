@@ -1,8 +1,8 @@
 {
   "capture_client_stderrout": true,
-  "group_bounds_outline": true,
+  "group_bounds_outline": false,
   "overlay_logs_to_keep": 5,
-  "overlay_outline": true,
+  "overlay_outline": false,
   "payload_logging": {
     "exclude_plugins": [],
     "overlay_payload_log_enabled": true

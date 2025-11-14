@@ -63,7 +63,7 @@ EDMC-ModernOverlay/
 
 **Why are JSON preferences handled outside of EDMC?** The PyQt overlay process runs outside EDMC’s Python interpreter and reads `overlay_settings.json` directly so it can pick up the latest settings without importing EDMC modules. Storing the preferences here keeps a single source of truth that both the plugin and the external client can access.
 
-## Why isn't the Eurocaps font installed automatically?
+## Why do I need a license for EUROCAPS.ttf
 
 Eurocaps ships with Elite: Dangerous, but its redistribution rights are tied to Typodermic’s “Font Software for Desktop End User License Agreement (v230123)” (https://typodermicfonts.com/end-user-license-agreement). Because we can’t grant you that license, the installer now asks **you** to confirm that you already have the rights to use Eurocaps before it downloads the font. If you say no, the install continues with the bundled open-source fonts instead. Windows users can still run `scripts\install-eurocaps.bat`; Linux users just re-run `install_linux.sh` and accept the Eurocaps prompt when they’re ready.
 
