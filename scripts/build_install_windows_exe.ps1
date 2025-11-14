@@ -115,11 +115,11 @@ function Write-EmbeddedInstaller {
         Fail "Installer script placeholder '$placeholder' not found."
     }
 
-    $template = @'
-$script:EmbeddedPayloadBase64 = @'
+    $template = @"
+`$script:EmbeddedPayloadBase64 = @'
 {0}
 '@
-'@
+"@
 
     $replacement = $template -f $PayloadBase64
     $updatedContent = $scriptContent.Replace($placeholder, $replacement.TrimEnd("`r", "`n"))
