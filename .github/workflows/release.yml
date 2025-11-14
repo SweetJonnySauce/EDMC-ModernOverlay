@@ -27,7 +27,6 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/windows_powershell dist/windows_powershell/EDMC-ModernOverlay
-          mkdir -p dist/windows_exe dist/windows_exe/EDMC-ModernOverlay
           mkdir -p dist/linux dist/linux/EDMC-ModernOverlay
 
           EXCLUDES=(
@@ -48,12 +47,10 @@ jobs:
           # Copy plugin code into EDMC-ModernOverlay directory for both bundles,
           # excluding CI config and the scripts folder (scripts is included separately).
           rsync -a "${EXCLUDES[@]}" ./ dist/windows_powershell/EDMC-ModernOverlay/
-          rsync -a "${EXCLUDES[@]}" ./ dist/windows_exe/EDMC-ModernOverlay/
           rsync -a "${EXCLUDES[@]}" ./ dist/linux/EDMC-ModernOverlay/
 
           # Windows helper scripts at archive root
           cp scripts/install_windows.ps1 dist/windows_powershell/
-          cp scripts/install_windows.exe dist/windows_exe/
 
           # Linux helper script + manifest at archive root
           cp scripts/install_linux.sh scripts/install_matrix.json dist/linux/
@@ -72,8 +69,6 @@ jobs:
           fi
           # Windows PowerShell zip
           (cd dist/windows_powershell && zip -r "../EDMC-ModernOverlay-windows_powershell-${VER}.zip" EDMC-ModernOverlay install_windows.ps1)
-          # Windows EXE zip
-          (cd dist/windows_exe && zip -r "../EDMC-ModernOverlay-windows_exe-${VER}.zip" EDMC-ModernOverlay install_windows.exe)
           # Linux tar.gz
           (cd dist/linux && tar -czf "../EDMC-ModernOverlay-linux-${VER}.tar.gz" EDMC-ModernOverlay install_linux.sh install_matrix.json)
           ls -al dist
@@ -84,7 +79,6 @@ jobs:
           name: release-bundles
           path: |
             dist/EDMC-ModernOverlay-windows_powershell-*.zip
-            dist/EDMC-ModernOverlay-windows_exe-*.zip
             dist/EDMC-ModernOverlay-linux-*.tar.gz
           if-no-files-found: error
 
@@ -95,6 +89,5 @@ jobs:
           tag_name: ${{ github.event.release.tag_name || github.ref_name }}
           files: |
             dist/EDMC-ModernOverlay-windows_powershell-*.zip
-            dist/EDMC-ModernOverlay-windows_exe-*.zip
             dist/EDMC-ModernOverlay-linux-*.tar.gz
 
