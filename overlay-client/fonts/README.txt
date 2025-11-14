@@ -3,7 +3,9 @@ Fonts
 
 The overlay bundles Source Sans 3 (Google Fonts) under the SIL Open Font
 License 1.1 via `SourceSans3-Regular.ttf`. The license text is provided in
-`SourceSans3-OFL.txt`.
+`SourceSans3-OFL.txt`. It also ships Google’s Noto Color Emoji under the same
+license (`NotoColorEmoji.ttf` + `NotoColorEmoji-OFL.txt`) so emoji glyphs are
+available out of the box.
 
 If you prefer to override the HUD font, drop alternative font files in this
 directory. For example, you can download the Elite: Dangerous cockpit font from
