@@ -33,26 +33,24 @@ EDMC Modern Overlay is a cross-platform (Windows, Linux X11 on Gnome), two-part 
 - Start EDMarketConnector; the overlay client launches automatically.
 
 ### Linux
-- Close EDMarketConnector before installing.
-- From the extracted folder, run the installer:
-  - `./install_linux.sh` (ensure it’s executable) or `bash ./install_linux.sh`
-- Optional flags:
-  - `-y/--yes/--assume-yes` to auto-confirm prompts.
-  - `--profile <id>` to force a distro profile from `scripts/install_matrix.json` (e.g. `debian`, `fedora`, `arch`, `opensuse`, `skip`).
-  - `--dry-run` to see what would happen without modifying your system.
-  - A single positional path argument overrides the plugin directory detection.
-- Follow the on-screen prompts; the installer handles the rest (except installation of the Euroscripts font).
-  - The installer will:
-  - Detect (or prompt for) the EDMC plugins directory (XDG defaults plus Flatpak’s `~/.var/app/io.edcd.EDMarketConnector/...`). When both base and Flatpak installs are present, the script asks which one to target.
-    - Determine your distro family via `scripts/install_matrix.json` and install required packages with the correct package manager (apt, dnf, zypper, pacman). Use `--profile skip` if you prefer to handle dependencies yourself.
-    - Offer to install optional Wayland helper packages defined in the manifest.
-    - Offer to download the Eurocaps cockpit font after deployment (only proceed if you already have a license for the font via your Elite: Dangerous purchase).
-    - Disable legacy `EDMCOverlay*` plugins if found.
-    - Copy `EDMC-ModernOverlay/` into the plugins directory.
-    - Create `overlay-client/.venv` and install `overlay-client/requirements.txt` into it.
-- Start EDMarketConnector; the overlay client launches automatically.
+- Close EDMarketConnector.
+- From the extracted folder run `./install_linux.sh [options] [</path/to/plugins>]` (or `bash ./install_linux.sh` if it is not executable).
 
-`scripts/install_matrix.json` lists the distro profiles and package sets. To support another distribution, add a new entry (or adjust the package lists) and rerun the installer.
+Options:
+- `-y`, `--yes`, `--assume-yes` – auto-confirm prompts.
+- `--dry-run` – show the actions without touching your system.
+- `--profile <id>` – force a distro profile from `scripts/install_matrix.json` (`debian`, `fedora`, `arch`, `opensuse`, `skip`, etc.).
+- A single positional path overrides the auto-detected plugin directory.
+
+What the helper does today:
+- Finds the EDMC plugins directory (XDG defaults + Flatpak) or prompts so you can create/select one.
+- Ensures EDMC is not running, then disables legacy `EDMCOverlay*` plugins that would conflict.
+- Loads `scripts/install_matrix.json`, picks the right package manager (apt/dnf/zypper/pacman, etc.), and installs the required packages. When running on Wayland the Wayland helper packages from the manifest are added automatically. Use `--profile skip` if you want to install dependencies yourself.
+- Copies `EDMC-ModernOverlay/` into the plugin directory, updates existing installs with `rsync`, and recreates/repairs `overlay-client/.venv` before installing `overlay-client/requirements.txt`.
+- Offers to download the Eurocaps cockpit font (you must already own a license) and can re-run later if you change your mind.
+- Supports `--dry-run` for change previews and can be re-run any time to update to a new release using the same workflow.
+
+`scripts/install_matrix.json` lists every distro profile and its packages. Adjust or add a profile, then rerun `install_linux.sh` to pick up the new definition.
 
 #### Flatpak manual install helper
 > **Caution:** Enabling the host launch runs the overlay client outside the Flatpak sandbox, so it inherits the host user’s privileges. Only do this if you trust the plugin code and the system where it runs.
