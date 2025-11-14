@@ -33,7 +33,7 @@ EDMC Modern Overlay is a cross-platform (Windows and Linux), two-part implementa
 ## Installation Notes
 - **Python Environment:** All installations require the overlay-client to have its own python environment. This is required for PyQt support. The installations will automatically build the environment for you. In the case of upgrades, you can chose rebuild the python environment or skip it.
 
-- **EUROCAPS.ttf:** The install asks you to confirm you have a license to install EUROCAPS.ttf. [Why do I need a license for EUROCAPS.ttf?](FAQ.md#why-do-i-need-a-license-for-eurocapsttf)
+- **EUROCAPS.ttf:** The install asks you to confirm you have a license to install EUROCAPS.ttf. [Why do I need a license for EUROCAPS.ttf?](docs/FAQ.md#why-do-i-need-a-license-for-eurocapsttf)
 
 - **Linux Dependency Packages:** `install_linux.sh` reads `install_matrix.json` and installs the distro-specific prerequisites for the overlay client. The manifest currently checks for and pulls in if necessary:
   - Debian / Ubuntu: `python3`, `python3-venv`, `python3-pip`, `rsync`, `curl`, plus Qt helpers `libxcb-cursor0`, `libxkbcommon-x11-0`, and Wayland helpers `wmctrl`, `x11-utils`

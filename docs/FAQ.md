@@ -5,8 +5,12 @@
 ```
 EDMC-ModernOverlay/
 ├── README.md                       # Install & usage guide
-├── FAQ.md                          # Expanded setup and troubleshooting notes
-├── DEV.md                          # Development tips and versioning details
+├── docs/
+│   ├── FAQ.md                      # Expanded setup and troubleshooting notes
+│   ├── build.md                    # Build helpers and packaging notes
+│   ├── developer.md                # Development tips and versioning details
+│   └── (more renderer/layout docs)
+├── DEV.md                          # Historical root copy (kept for compatibility)
 ├── LICENSE                         # Project licensing
 ├── .gitignore                      # Ignore rules (see note on respecting them)
 ├── EDMC-ModernOverlay.code-workspace  # Optional VS Code workspace definition
