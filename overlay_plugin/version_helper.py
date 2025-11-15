@@ -6,11 +6,9 @@ import re
 import time
 from dataclasses import dataclass
 from typing import Optional
-from urllib.error import URLError, HTTPError
-from urllib.request import Request, urlopen
 
 LATEST_RELEASE_API = "https://api.github.com/repos/SweetJonnySauce/EDMC-ModernOverlay/releases/latest"
-_USER_AGENT = "EDMC-ModernOverlay/version-check"
+_DEFAULT_USER_AGENT = "EDMC-ModernOverlay/version-check"
 _TOKEN_SPLIT = re.compile(r"[.\-+_]")
 
 try:  # Optional dependency; fall back to lightweight comparator when unavailable.
@@ -19,6 +17,25 @@ try:  # Optional dependency; fall back to lightweight comparator when unavailabl
 except Exception:  # pragma: no cover - packaging not installed
     _PkgVersion = None  # type: ignore
     _PkgInvalidVersion = Exception  # type: ignore
+
+try:  # Prefer EDMC's helper to inherit certifi/timeouts.
+    from timeout_session import new_session as _edmc_new_session  # type: ignore
+except Exception:  # pragma: no cover - fallback when unavailable
+    _edmc_new_session = None  # type: ignore
+
+try:
+    from config import user_agent as _edmc_user_agent  # type: ignore
+except Exception:  # pragma: no cover - running outside EDMC
+    _edmc_user_agent = None  # type: ignore
+
+try:
+    import requests
+    from requests import Response
+    from requests import exceptions as requests_exceptions
+except Exception:  # pragma: no cover - requests not available
+    requests = None  # type: ignore
+    Response = None  # type: ignore
+    requests_exceptions = None  # type: ignore
 
 
 @dataclass(frozen=True)
@@ -59,22 +76,72 @@ def evaluate_version_status(current_version: str, timeout: float = 2.0) -> Versi
 
 
 def _fetch_latest_release_version(timeout: float = 2.0) -> Optional[str]:
-    request = Request(
-        LATEST_RELEASE_API,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": _USER_AGENT,
-        },
-    )
-    try:
-        with urlopen(request, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except (HTTPError, URLError, TimeoutError) as exc:
-        raise RuntimeError(f"GitHub request failed: {exc}") from exc
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Unable to parse GitHub response: {exc}") from exc
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": _build_user_agent(),
+    }
+    payload = _request_latest_release(headers=headers, timeout=timeout)
     latest = (payload.get("tag_name") or payload.get("name") or "").strip()
     return latest or None
+
+
+def _request_latest_release(*, headers: dict[str, str], timeout: float) -> dict[str, object]:
+    if requests is None:
+        raise RuntimeError("requests library is unavailable; cannot check latest release")
+
+    session_timeout = max(int(timeout), 1)
+    session = _create_http_session(session_timeout)
+    if session is None:
+        raise RuntimeError("Failed to initialise HTTP session for release check")
+
+    response: Optional[Response] = None
+    try:
+        response = session.get(LATEST_RELEASE_API, headers=headers, timeout=timeout)
+        response.raise_for_status()
+    except Exception as exc:
+        # If requests raised a specific exception, transparently wrap it.
+        if requests_exceptions and isinstance(exc, requests_exceptions.RequestException):
+            raise RuntimeError(f"GitHub request failed: {exc}") from exc
+        raise RuntimeError(f"Unable to fetch latest release: {exc}") from exc
+
+    try:
+        return response.json()
+    except ValueError as exc:  # pragma: no cover - invalid JSON
+        raise RuntimeError(f"Unable to parse GitHub response: {exc}") from exc
+    finally:
+        response.close()
+        session.close()
+
+
+def _create_http_session(timeout: int):
+    if _edmc_new_session is not None:
+        try:
+            session = _edmc_new_session(timeout=timeout)
+            session.headers.setdefault("User-Agent", _build_user_agent())
+            return session
+        except Exception:
+            pass
+    if requests is not None:
+        session = requests.Session()
+        session.headers.setdefault("User-Agent", _build_user_agent())
+        return session
+    return None
+
+
+def _build_user_agent() -> str:
+    base = _resolve_edmc_user_agent()
+    if base:
+        return f"{base} {_DEFAULT_USER_AGENT}"
+    return _DEFAULT_USER_AGENT
+
+
+def _resolve_edmc_user_agent() -> Optional[str]:
+    if _edmc_user_agent is None:
+        return None
+    try:
+        return _edmc_user_agent() if callable(_edmc_user_agent) else str(_edmc_user_agent)
+    except Exception:
+        return None
 
 
 def _compare_versions(current: str, latest: str) -> int:
