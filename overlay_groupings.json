@@ -20,7 +20,7 @@
           "bgstally-msg-tickwarn-",
           "bgstally-frame-tickwarn"
         ],
-        "idPrefixGroupAnchor": "sw"
+        "idPrefixGroupAnchor": "nw"
       },
       "BGS-Tally System Info": {
         "idPrefixes": [
@@ -102,7 +102,7 @@
           "edr-docking-",
           "edr-docking-station-"
         ],
-        "idPrefixGroupAnchor": "top"
+        "idPrefixGroupAnchor": "nw"
       },
       "bounty": {
         "idPrefixes": [
@@ -113,7 +113,7 @@
         "idPrefixes": [
           "edr-intel"
         ],
-        "idPrefixGroupAnchor": "top"
+        "idPrefixGroupAnchor": "nw"
       },
       "target": {
         "idPrefixes": [

@@ -142,12 +142,19 @@ def compute_proportional_translation(
     fill: FillViewport,
     group_transform: Optional[GroupTransform],
     anchor_point: Optional[Tuple[float, float]],
+    anchor_norm_override: Optional[Tuple[float, float]] = None,
 ) -> Tuple[float, float]:
     if group_transform is None or anchor_point is None:
         return 0.0, 0.0
     anchor_x, anchor_y = anchor_point
     if not (math.isfinite(anchor_x) and math.isfinite(anchor_y)):
         return 0.0, 0.0
+    if anchor_norm_override is not None:
+        anchor_norm_x = _safe_float(anchor_norm_override[0], 0.0)
+        anchor_norm_y = _safe_float(anchor_norm_override[1], 0.0)
+    else:
+        anchor_norm_x = _safe_float(group_transform.band_anchor_x, 0.0)
+        anchor_norm_y = _safe_float(group_transform.band_anchor_y, 0.0)
     scale_value = fill.scale
     if not math.isfinite(scale_value) or math.isclose(scale_value, 0.0, rel_tol=1e-9, abs_tol=1e-9):
         return 0.0, 0.0
@@ -159,13 +166,13 @@ def compute_proportional_translation(
 
     if fill.overflow_x and visible_width > 0.0:
         span_x = visible_width / scale_value
-        anchor_norm_x = max(0.0, min(1.0, _safe_float(group_transform.band_anchor_x, 0.0)))
+        anchor_norm_x = max(0.0, min(1.0, anchor_norm_x))
         target_x = anchor_norm_x * span_x
         dx = target_x - anchor_x
 
     if fill.overflow_y and visible_height > 0.0:
         span_y = visible_height / scale_value
-        anchor_norm_y = max(0.0, min(1.0, _safe_float(group_transform.band_anchor_y, 0.0)))
+        anchor_norm_y = max(0.0, min(1.0, anchor_norm_y))
         target_y = anchor_norm_y * span_y
         dy = target_y - anchor_y
 
