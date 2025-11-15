@@ -2940,13 +2940,17 @@ class OverlayWindow(QWidget):
         for key in bounds_by_group:
             translation_overlay_x: Optional[float]
             translation_overlay_y: Optional[float]
+            bounds = overlay_bounds_by_group.get(key)
+            token = None
             transform = transform_by_group.get(key)
+            if transform is not None:
+                token = getattr(transform, "anchor_token", None)
             translation_overlay_x = translation_overlay_y = None
-            if transform is not None and mapper.transform.mode is ScaleMode.FILL:
-                overlay_hint = overlay_bounds_by_group.get(key)
-                computed = self._compute_group_anchor_vector(mapper, transform, overlay_hint)
-                if computed is not None:
-                    translation_overlay_x, translation_overlay_y = computed
+            if bounds is not None and bounds.is_valid() and token:
+                user_anchor = self._anchor_from_overlay_bounds(bounds, token)
+                if user_anchor is not None:
+                    translation_overlay_x = bounds.min_x - user_anchor[0]
+                    translation_overlay_y = bounds.min_y - user_anchor[1]
             if translation_overlay_x is None or translation_overlay_y is None:
                 delta = anchor_offset_by_group.get(key)
                 if delta is None:
@@ -2963,46 +2967,33 @@ class OverlayWindow(QWidget):
                 clone.translate(translation_px_x, translation_px_y)
         return translations, cloned_bounds
 
-    def _compute_group_anchor_vector(
-        self,
-        mapper: LegacyMapper,
-        transform: GroupTransform,
-        overlay_bounds: Optional[_OverlayBounds],
-    ) -> Optional[Tuple[float, float]]:
-        if mapper.transform.mode is not ScaleMode.FILL:
+    @staticmethod
+    def _anchor_from_overlay_bounds(bounds: _OverlayBounds, token: Optional[str]) -> Optional[Tuple[float, float]]:
+        if bounds is None or not bounds.is_valid():
             return None
-        fill = self._build_fill_viewport(mapper, transform)
-        transform_context = build_payload_transform_context(fill)
-        use_overlay_bounds_x = overlay_bounds is not None and overlay_bounds.is_valid() and not fill.overflow_x
-        base_anchor = self._group_base_point(transform, transform_context, overlay_bounds, use_overlay_bounds_x=use_overlay_bounds_x)
-        selected_anchor = self._group_anchor_point(transform, transform_context, overlay_bounds, use_overlay_bounds_x=use_overlay_bounds_x)
-        anchor_for_transform = base_anchor or selected_anchor
-        if anchor_for_transform is None:
-            return None
-        base_translation_dx, base_translation_dy = compute_proportional_translation(
-            fill,
-            transform,
-            anchor_for_transform,
-            anchor_norm_override=(transform.band_min_x, transform.band_min_y),
-        )
-
-        def _effective(point: Optional[Tuple[float, float]]) -> Optional[Tuple[float, float]]:
-            if point is None:
-                return None
-            px, py = self._apply_inverse_group_scale(
-                point[0],
-                point[1],
-                anchor_for_transform,
-                base_anchor or anchor_for_transform,
-                fill,
-            )
-            return px + base_translation_dx, py + base_translation_dy
-
-        base_effective = _effective(base_anchor)
-        user_effective = _effective(selected_anchor)
-        if base_effective is None or user_effective is None:
-            return None
-        return base_effective[0] - user_effective[0], base_effective[1] - user_effective[1]
+        token = (token or "nw").strip().lower()
+        min_x = bounds.min_x
+        max_x = bounds.max_x
+        min_y = bounds.min_y
+        max_y = bounds.max_y
+        mid_x = (min_x + max_x) / 2.0
+        mid_y = (min_y + max_y) / 2.0
+        if token in {"nw", "left", "west"}:
+            return min_x, min_y
+        if token in {"ne", "right", "east"}:
+            return max_x, min_y
+        if token in {"sw"}:
+            return min_x, max_y
+        if token in {"se"}:
+            return max_x, max_y
+        if token == "top":
+            return mid_x, min_y
+        if token == "bottom":
+            return mid_x, max_y
+        if token == "center":
+            return mid_x, mid_y
+        # fallback to base (nw)
+        return min_x, min_y
 
     def _legacy_preset_point_size(self, preset: str, state: ViewportState, mapper: LegacyMapper) -> float:
         """Return the scaled font size for a legacy preset relative to normal."""
