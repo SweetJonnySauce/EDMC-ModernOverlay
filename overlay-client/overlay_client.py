@@ -2978,10 +2978,14 @@ class OverlayWindow(QWidget):
         max_y = bounds.max_y
         mid_x = (min_x + max_x) / 2.0
         mid_y = (min_y + max_y) / 2.0
-        if token in {"nw", "left", "west"}:
+        if token in {"nw"}:
             return min_x, min_y
-        if token in {"ne", "right", "east"}:
+        if token in {"ne"}:
             return max_x, min_y
+        if token in {"left", "west"}:
+            return min_x, mid_y
+        if token in {"right", "east"}:
+            return max_x, mid_y
         if token in {"sw"}:
             return min_x, max_y
         if token in {"se"}:

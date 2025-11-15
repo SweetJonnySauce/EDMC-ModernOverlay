@@ -113,7 +113,7 @@
         "idPrefixes": [
           "edr-intel"
         ],
-        "idPrefixGroupAnchor": "right"
+        "idPrefixGroupAnchor": "ne"
       },
       "target": {
         "idPrefixes": [
