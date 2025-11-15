@@ -9,7 +9,7 @@
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "bottom"
       },
       "BGS-Tally Tick Notifications": {
         "idPrefixes": [
@@ -20,7 +20,7 @@
           "bgstally-msg-tickwarn-",
           "bgstally-frame-tickwarn"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "bottom"
       },
       "BGS-Tally System Info": {
         "idPrefixes": [
@@ -102,7 +102,7 @@
           "edr-docking-",
           "edr-docking-station-"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "top"
       },
       "bounty": {
         "idPrefixes": [
@@ -159,7 +159,7 @@
           "pad-",
           "station-"
         ],
-        "idPrefixGroupAnchor": "top"
+        "idPrefixGroupAnchor": "bottom"
       }
     }
   },
