@@ -721,12 +721,15 @@ class OverlayWindow(QWidget):
     ) -> Optional[Tuple[float, float]]:
         if transform is None or context is None:
             return None
-        if overlay_bounds is not None and overlay_bounds.is_valid():
-            return cls._map_anchor_to_overlay_bounds(transform, overlay_bounds)
+        anchor_override = overlay_bounds if (overlay_bounds is not None and overlay_bounds.is_valid()) else None
         anchor_x = transform.band_anchor_x * BASE_WIDTH
         anchor_y = transform.band_anchor_y * BASE_HEIGHT
         anchor_x = remap_axis_value(anchor_x, context.axis_x)
         anchor_y = remap_axis_value(anchor_y, context.axis_y)
+        if anchor_override is not None:
+            mapped = cls._map_anchor_to_overlay_bounds(transform, anchor_override)
+            if mapped is not None:
+                anchor_x = mapped[0]
         if not (math.isfinite(anchor_x) and math.isfinite(anchor_y)):
             return None
         return anchor_x, anchor_y
@@ -742,10 +745,9 @@ class OverlayWindow(QWidget):
             return None
         if overlay_bounds is not None and overlay_bounds.is_valid():
             base_x = overlay_bounds.min_x
-            base_y = overlay_bounds.min_y
         else:
             base_x = remap_axis_value(transform.bounds_min_x, context.axis_x)
-            base_y = remap_axis_value(transform.bounds_min_y, context.axis_y)
+        base_y = remap_axis_value(transform.bounds_min_y, context.axis_y)
         if not (math.isfinite(base_x) and math.isfinite(base_y)):
             return None
         return base_x, base_y
@@ -768,17 +770,9 @@ class OverlayWindow(QWidget):
                 anchor_token=getattr(transform, "anchor_token", None),
                 axis="x",
             )
-            anchor_y = map_anchor_axis(
-                transform.band_anchor_y,
-                transform.band_min_y,
-                transform.band_max_y,
-                bounds.min_y,
-                bounds.max_y,
-                anchor_token=getattr(transform, "anchor_token", None),
-                axis="y",
-            )
         except Exception:
             return None
+        anchor_y = transform.band_anchor_y * BASE_HEIGHT
         if not (math.isfinite(anchor_x) and math.isfinite(anchor_y)):
             return None
         return anchor_x, anchor_y
