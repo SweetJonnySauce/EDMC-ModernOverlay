@@ -41,6 +41,8 @@ EDMC Modern Overlay is a cross-platform (Windows and Linux), two-part implementa
   - openSUSE / SLE: `python3`, `python3-pip`, `python3-virtualenv`, `rsync`, `curl`, plus Qt helpers `libxcb-cursor0`, `libxkbcommon-x11-0`, and Wayland helpers `wmctrl`, `xprop`
   - Arch / Manjaro / SteamOS: `python`, `python-pip`, `rsync`, `curl`, plus Qt helpers `libxcb`, `xcb-util-cursor`, `libxkbcommon`, and Wayland helpers `wmctrl`, `xorg-xprop`
 
+- **Installation dependency for x11 tools isn't found** If you do a Linux install and you get an error that the x11 dependency can't be found or installed, you may be hitting this [bug](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/issues/15). There isn't a fix for this yet but you may be able to work around this. You specifically need `xwininfo` and `xprop`. If you have those installed, or can install them manually, then you should be able to install without the needed dependency.
+
 - **Flatpack Sandboxing:** The Flatpak version of EDMC runs in a sandboxed environment. The sandboxed environment does not include the packages needed to run the overlay-client. Because of this, the client will be launched outide of the sandboxed environment. You should only run this plugin if you trust the plugin code and the system where it runs.
 
   > **Caution:** Enabling the host launch runs the overlay client outside the Flatpak sandbox, so it inherits the host user’s privileges. Only do this if you trust the plugin code and the system where it runs.
