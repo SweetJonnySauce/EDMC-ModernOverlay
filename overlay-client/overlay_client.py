@@ -708,6 +708,19 @@ class OverlayWindow(QWidget):
         return anchor_x, anchor_y
 
     @staticmethod
+    def _group_base_point(
+        transform: Optional[GroupTransform],
+        context: Optional[PayloadTransformContext],
+    ) -> Optional[Tuple[float, float]]:
+        if transform is None or context is None:
+            return None
+        base_x = remap_axis_value(transform.bounds_min_x, context.axis_x)
+        base_y = remap_axis_value(transform.bounds_min_y, context.axis_y)
+        if not (math.isfinite(base_x) and math.isfinite(base_y)):
+            return None
+        return base_x, base_y
+
+    @staticmethod
     def _apply_inverse_group_scale(
         value_x: float,
         value_y: float,
@@ -3177,17 +3190,34 @@ class OverlayWindow(QWidget):
         if not all(math.isfinite(value) for value in (min_x, max_x, min_y, max_y)):
             return
         anchor_point: Optional[Tuple[float, float]] = None
+        base_anchor_point: Optional[Tuple[float, float]] = self._group_base_point(transform, transform_context)
+        base_anchor_overlay: Optional[Tuple[float, float]] = base_anchor_point
+        raw_base_anchor_qt: Optional[QPoint] = None
+        if base_anchor_point is not None:
+            raw_base_x = fill.screen_x(base_anchor_point[0])
+            raw_base_y = fill.screen_y(base_anchor_point[1])
+            if math.isfinite(raw_base_x) and math.isfinite(raw_base_y):
+                raw_base_anchor_qt = QPoint(int(round(raw_base_x)), int(round(raw_base_y)))
         translation_dx = 0.0
         translation_dy = 0.0
         if mapper.transform.mode is ScaleMode.FILL:
             anchor_point = self._group_anchor_point(transform, transform_context)
             min_x, min_y = self._apply_inverse_group_scale(min_x, min_y, anchor_point, fill.scale)
             max_x, max_y = self._apply_inverse_group_scale(max_x, max_y, anchor_point, fill.scale)
+            if base_anchor_overlay is not None:
+                base_anchor_overlay = self._apply_inverse_group_scale(
+                    base_anchor_overlay[0],
+                    base_anchor_overlay[1],
+                    anchor_point,
+                    fill.scale,
+                )
             translation_dx, translation_dy = compute_proportional_translation(fill, transform, anchor_point)
             min_x += translation_dx
             max_x += translation_dx
             min_y += translation_dy
             max_y += translation_dy
+            if base_anchor_overlay is not None:
+                base_anchor_overlay = (base_anchor_overlay[0] + translation_dx, base_anchor_overlay[1] + translation_dy)
         left_px = fill.screen_x(min_x)
         right_px = fill.screen_x(max_x)
         top_px = fill.screen_y(min_y)
@@ -3208,6 +3238,12 @@ class OverlayWindow(QWidget):
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(rect_left, rect_top, rect_width, rect_height)
+        base_anchor_qt: Optional[QPoint] = None
+        if base_anchor_overlay is not None:
+            base_px = fill.screen_x(base_anchor_overlay[0])
+            base_py = fill.screen_y(base_anchor_overlay[1])
+            if math.isfinite(base_px) and math.isfinite(base_py):
+                base_anchor_qt = QPoint(int(round(base_px)), int(round(base_py)))
         anchor_overlay = anchor_point
         if anchor_overlay is not None and mapper.transform.mode is ScaleMode.FILL:
             anchor_overlay = self._apply_inverse_group_scale(anchor_overlay[0], anchor_overlay[1], anchor_overlay, fill.scale)
@@ -3249,6 +3285,39 @@ class OverlayWindow(QWidget):
                 if label_y - text_rect.height() < 0:
                     label_y = anchor_point_qt.y() + offset_y + text_rect.height()
                 painter.drawText(label_x, label_y, text)
+        if raw_base_anchor_qt is not None:
+            raw_pen = QPen(QColor(0, 180, 255))
+            raw_pen.setWidth(max(1, self._line_width("group_outline")))
+            painter.setPen(raw_pen)
+            painter.drawLine(
+                raw_base_anchor_qt.x() - 5,
+                raw_base_anchor_qt.y(),
+                raw_base_anchor_qt.x() + 5,
+                raw_base_anchor_qt.y(),
+            )
+            painter.drawLine(
+                raw_base_anchor_qt.x(),
+                raw_base_anchor_qt.y() - 5,
+                raw_base_anchor_qt.x(),
+                raw_base_anchor_qt.y() + 5,
+            )
+        if base_anchor_qt is not None:
+            marker_pen = QPen(QColor(255, 102, 0))
+            marker_pen.setWidth(max(1, self._line_width("group_outline")))
+            painter.setPen(marker_pen)
+            half = 6
+            painter.drawLine(
+                base_anchor_qt.x() - half,
+                base_anchor_qt.y() - half,
+                base_anchor_qt.x() + half,
+                base_anchor_qt.y() + half,
+            )
+            painter.drawLine(
+                base_anchor_qt.x() - half,
+                base_anchor_qt.y() + half,
+                base_anchor_qt.x() + half,
+                base_anchor_qt.y() - half,
+            )
         painter.restore()
 
     def _draw_item_bounds_outline(

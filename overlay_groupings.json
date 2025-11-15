@@ -1,5 +1,4 @@
 {
-  "$schema": "./schemas/overlay_groupings.schema.json",
   "BGS-Tally": {
     "matchingPrefixes": [
       "bgstally-"
@@ -110,7 +109,8 @@
       "intel": {
         "idPrefixes": [
           "edr-intel"
-        ]
+        ],
+        "idPrefixGroupAnchor": "ne"
       },
       "target": {
         "idPrefixes": [

@@ -185,6 +185,22 @@ def test_group_anchor_selection(override_file: Path) -> None:
                             "idPrefixes": ["example.metric."],
                             "idPrefixGroupAnchor": "center"
                         },
+                        "edge_top": {
+                            "idPrefixes": ["example.top."],
+                            "idPrefixGroupAnchor": "top"
+                        },
+                        "edge_bottom": {
+                            "idPrefixes": ["example.bottom."],
+                            "idPrefixGroupAnchor": "bottom"
+                        },
+                        "edge_left": {
+                            "idPrefixes": ["example.left."],
+                            "idPrefixGroupAnchor": "left"
+                        },
+                        "edge_right": {
+                            "idPrefixes": ["example.right."],
+                            "idPrefixGroupAnchor": "right"
+                        },
                         "default": {
                             "idPrefixes": ["example.default."],
                             "idPrefixGroupAnchor": "invalid"
@@ -198,6 +214,10 @@ def test_group_anchor_selection(override_file: Path) -> None:
     manager = _make_manager(override_file)
     assert manager.group_preserve_fill_aspect("Example", "alerts") == (True, "se")
     assert manager.group_preserve_fill_aspect("Example", "metrics") == (True, "center")
+    assert manager.group_preserve_fill_aspect("Example", "edge_top") == (True, "top")
+    assert manager.group_preserve_fill_aspect("Example", "edge_bottom") == (True, "bottom")
+    assert manager.group_preserve_fill_aspect("Example", "edge_left") == (True, "left")
+    assert manager.group_preserve_fill_aspect("Example", "edge_right") == (True, "right")
     # invalid anchor falls back to nw
     assert manager.group_preserve_fill_aspect("Example", "default") == (True, "nw")
     # unknown suffix also falls back to nw
