@@ -335,7 +335,10 @@ run_package_install() {
         if [[ "$DRY_RUN" == true ]]; then
             echo "📝 [dry-run] $(format_command "${PKG_UPDATE_CMD[@]}")"
         else
-            "${PKG_UPDATE_CMD[@]}"
+            if ! "${PKG_UPDATE_CMD[@]}"; then
+                local update_status=$?
+                handle_dependency_install_failure "refresh the package index" "$update_status" "${packages[@]}"
+            fi
         fi
         PKG_UPDATE_COMPLETED=1
     fi
@@ -343,7 +346,10 @@ run_package_install() {
     if [[ "$DRY_RUN" == true ]]; then
         echo "📝 [dry-run] $(format_command "${PKG_INSTALL_CMD[@]}" "${packages[@]}")"
     else
-        "${PKG_INSTALL_CMD[@]}" "${packages[@]}"
+        if ! "${PKG_INSTALL_CMD[@]}" "${packages[@]}"; then
+            local install_status=$?
+            handle_dependency_install_failure "install ${label}" "$install_status" "${packages[@]}"
+        fi
     fi
 }
 
@@ -677,6 +683,27 @@ prompt_yes_no() {
             *) echo "Please answer yes or no." ;;
         esac
     done
+}
+
+handle_dependency_install_failure() {
+    local action="$1"
+    local exit_code="$2"
+    shift 2
+    local -a packages=("$@")
+    echo "⚠️  Unable to ${action}; the package manager exited with status ${exit_code}." >&2
+    if ((${#packages[@]} > 0)); then
+        echo "    Affected packages:"
+        local pkg
+        for pkg in "${packages[@]}"; do
+            echo "      - $pkg"
+        done
+    fi
+    if prompt_yes_no "Continue without ensuring these dependencies?"; then
+        echo "⚠️  Continuing without verifying ${action}. You may need to install the missing packages manually."
+    else
+        echo "❌ Installation aborted due to unresolved dependencies." >&2
+        exit 1
+    fi
 }
 
 require_command() {
