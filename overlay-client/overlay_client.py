@@ -720,10 +720,13 @@ class OverlayWindow(QWidget):
         context: Optional[PayloadTransformContext],
         overlay_bounds: Optional[_OverlayBounds] = None,
         use_overlay_bounds_x: bool = False,
+        use_overlay_bounds_y: bool = False,
     ) -> Optional[Tuple[float, float]]:
         if transform is None or context is None:
             return None
-        anchor_override = overlay_bounds if (use_overlay_bounds_x and overlay_bounds is not None and overlay_bounds.is_valid()) else None
+        anchor_override = None
+        if overlay_bounds is not None and overlay_bounds.is_valid() and (use_overlay_bounds_x or use_overlay_bounds_y):
+            anchor_override = overlay_bounds
         anchor_x = transform.band_anchor_x * BASE_WIDTH
         anchor_y = transform.band_anchor_y * BASE_HEIGHT
         anchor_x = remap_axis_value(anchor_x, context.axis_x)
@@ -731,7 +734,10 @@ class OverlayWindow(QWidget):
         if anchor_override is not None:
             mapped = cls._map_anchor_to_overlay_bounds(transform, anchor_override)
             if mapped is not None:
-                anchor_x = mapped[0]
+                if use_overlay_bounds_x:
+                    anchor_x = mapped[0]
+                if use_overlay_bounds_y:
+                    anchor_y = mapped[1]
         if not (math.isfinite(anchor_x) and math.isfinite(anchor_y)):
             return None
         return anchor_x, anchor_y
@@ -743,6 +749,7 @@ class OverlayWindow(QWidget):
         context: Optional[PayloadTransformContext],
         overlay_bounds: Optional[_OverlayBounds] = None,
         use_overlay_bounds_x: bool = False,
+        use_overlay_bounds_y: bool = False,
     ) -> Optional[Tuple[float, float]]:
         if transform is None or context is None:
             return None
@@ -750,7 +757,10 @@ class OverlayWindow(QWidget):
             base_x = overlay_bounds.min_x
         else:
             base_x = remap_axis_value(transform.bounds_min_x, context.axis_x)
-        base_y = remap_axis_value(transform.bounds_min_y, context.axis_y)
+        if use_overlay_bounds_y and overlay_bounds is not None and overlay_bounds.is_valid():
+            base_y = overlay_bounds.min_y
+        else:
+            base_y = remap_axis_value(transform.bounds_min_y, context.axis_y)
         if not (math.isfinite(base_x) and math.isfinite(base_y)):
             return None
         return base_x, base_y
@@ -2928,17 +2938,24 @@ class OverlayWindow(QWidget):
                 and overlay_bounds_hint.is_valid()
                 and not fill.overflow_x
             )
+            use_overlay_bounds_y = (
+                overlay_bounds_hint is not None
+                and overlay_bounds_hint.is_valid()
+                and fill.overflow_y
+            )
             anchor_point = self._group_anchor_point(
                 group_transform,
                 transform_context,
                 overlay_bounds_hint,
                 use_overlay_bounds_x=use_overlay_bounds_x,
+                use_overlay_bounds_y=use_overlay_bounds_y,
             )
             base_anchor_point = self._group_base_point(
                 group_transform,
                 transform_context,
                 overlay_bounds_hint,
                 use_overlay_bounds_x=use_overlay_bounds_x,
+                use_overlay_bounds_y=use_overlay_bounds_y,
             )
             proportional_dx, proportional_dy = compute_proportional_translation(fill, group_transform, anchor_point)
         transform_meta = item.get("__mo_transform__")
@@ -3091,17 +3108,24 @@ class OverlayWindow(QWidget):
                 and overlay_bounds_hint.is_valid()
                 and not fill.overflow_x
             )
+            use_overlay_bounds_y = (
+                overlay_bounds_hint is not None
+                and overlay_bounds_hint.is_valid()
+                and fill.overflow_y
+            )
             anchor_point = self._group_anchor_point(
                 group_transform,
                 transform_context,
                 overlay_bounds_hint,
                 use_overlay_bounds_x=use_overlay_bounds_x,
+                use_overlay_bounds_y=use_overlay_bounds_y,
             )
             base_anchor_point = self._group_base_point(
                 group_transform,
                 transform_context,
                 overlay_bounds_hint,
                 use_overlay_bounds_x=use_overlay_bounds_x,
+                use_overlay_bounds_y=use_overlay_bounds_y,
             )
             proportional_dx, proportional_dy = compute_proportional_translation(fill, group_transform, anchor_point)
         base_offset_x = fill.base_offset_x
@@ -3227,17 +3251,24 @@ class OverlayWindow(QWidget):
                 and overlay_bounds_hint.is_valid()
                 and not fill.overflow_x
             )
+            use_overlay_bounds_y = (
+                overlay_bounds_hint is not None
+                and overlay_bounds_hint.is_valid()
+                and fill.overflow_y
+            )
             anchor_point = self._group_anchor_point(
                 group_transform,
                 transform_context,
                 overlay_bounds_hint,
                 use_overlay_bounds_x=use_overlay_bounds_x,
+                use_overlay_bounds_y=use_overlay_bounds_y,
             )
             base_anchor_point = self._group_base_point(
                 group_transform,
                 transform_context,
                 overlay_bounds_hint,
                 use_overlay_bounds_x=use_overlay_bounds_x,
+                use_overlay_bounds_y=use_overlay_bounds_y,
             )
             proportional_dx, proportional_dy = compute_proportional_translation(fill, group_transform, anchor_point)
         base_offset_x = fill.base_offset_x
