@@ -114,9 +114,9 @@ except PluginGroupingError as exc:
 
 The helper enforces the schema, lowercases prefixes, ensures per-plugin uniqueness, and writes the JSON back to disk so the overlay client reloads it instantly.
 
-### CLI helper (`scripts/plugin_group_cli.py`)
+### CLI helper (`utils/plugin_group_cli.py`)
 
-Run `scripts/plugin_group_cli.py --plugin-group Example --id-prefix-group alerts --id-prefixes example-alert- --write` to edit the file from the terminal. Without `--write` the script operates in a dry-run mode, printing the resulting JSON block so you can review it before committing.
+Run `utils/plugin_group_cli.py --plugin-group Example --id-prefix-group alerts --id-prefixes example-alert- --write` to edit the file from the terminal. Without `--write` the script operates in a dry-run mode, printing the resulting JSON block so you can review it before committing.
 
 ### GUI helper (`utils/plugin_group_tester.py`)
 
@@ -146,4 +146,3 @@ The full Plugin Group Manager remains available for exploratory work:
 | Manual sanity | `python3 utils/plugin_group_manager.py` | Exercise the UI, verify anchors/bounds, and ensure new groups behave correctly with live payloads. |
 
 Before shipping new prefixes, capture representative payloads (in DEV MODE from the EDMC Logs directory `cat ./EDMC-ModernOverlay/overlay-payloads.log | grep 'mypluginspec' > mypluginspec.log` and test with `tests/send_overlay_from_log.py`) to verify that Fill mode keeps the new groups rigid. 
-
