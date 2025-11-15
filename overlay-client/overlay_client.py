@@ -3000,13 +3000,11 @@ class OverlayWindow(QWidget):
                     transformed_anchor[0] + base_translation_dx,
                     transformed_anchor[1] + base_translation_dy,
                 )
-                if group_transform is not None:
-                    user_dx, user_dy = compute_proportional_translation(
-                        fill,
-                        group_transform,
-                        selected_anchor,
-                    )
-                    anchor_offset = (user_dx - base_translation_dx, user_dy - base_translation_dy)
+            if base_anchor_point is not None and selected_anchor is not None:
+                anchor_offset = (
+                    selected_anchor[0] - base_anchor_point[0],
+                    selected_anchor[1] - base_anchor_point[1],
+                )
         text = str(item.get("text", ""))
         metrics_font = QFont(self._font_family)
         self._apply_font_fallbacks(metrics_font)
@@ -3187,13 +3185,11 @@ class OverlayWindow(QWidget):
                     transformed_anchor[0] + base_translation_dx,
                     transformed_anchor[1] + base_translation_dy,
                 )
-                if group_transform is not None:
-                    user_dx, user_dy = compute_proportional_translation(
-                        fill,
-                        group_transform,
-                        selected_anchor,
-                    )
-                    anchor_offset = (user_dx - base_translation_dx, user_dy - base_translation_dy)
+            if base_anchor_point is not None and selected_anchor is not None:
+                anchor_offset = (
+                    selected_anchor[0] - base_anchor_point[0],
+                    selected_anchor[1] - base_anchor_point[1],
+                )
         xs_overlay = [pt[0] for pt in transformed_overlay]
         ys_overlay = [pt[1] for pt in transformed_overlay]
         min_x_overlay = min(xs_overlay)
@@ -3351,13 +3347,11 @@ class OverlayWindow(QWidget):
                 transformed_anchor[0] + base_translation_dx,
                 transformed_anchor[1] + base_translation_dy,
             )
-            if group_transform is not None:
-                user_dx, user_dy = compute_proportional_translation(
-                    fill,
-                    group_transform,
-                    selected_anchor,
-                )
-                anchor_offset = (user_dx - base_translation_dx, user_dy - base_translation_dy)
+        if base_anchor_point is not None and selected_anchor is not None:
+            anchor_offset = (
+                selected_anchor[0] - base_anchor_point[0],
+                selected_anchor[1] - base_anchor_point[1],
+            )
         if len(transformed_points) < 2:
             return None, None
         vector_payload = {
