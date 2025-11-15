@@ -3731,7 +3731,9 @@ class OverlayWindow(QWidget):
             base_py = fill.screen_y(base_anchor_overlay[1])
             if math.isfinite(base_px) and math.isfinite(base_py):
                 base_anchor_qt = QPoint(int(round(base_px)), int(round(base_py)))
-        if explicit_anchor is not None:
+        if base_anchor_overlay is not None:
+            anchor_overlay_x, anchor_overlay_y = base_anchor_overlay
+        elif explicit_anchor is not None:
             anchor_overlay_x, anchor_overlay_y = explicit_anchor
         else:
             anchor_overlay = bounds_anchor_override or anchor_point
