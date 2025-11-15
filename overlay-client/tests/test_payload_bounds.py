@@ -14,6 +14,7 @@ pytest.importorskip("PyQt6")
 from group_transform import GroupBounds  # noqa: E402
 from legacy_store import LegacyItem  # noqa: E402
 import payload_transform  # noqa: E402
+from overlay_client import _OverlayBounds  # type: ignore  # noqa: E402
 
 
 def _make_message(text: str, scale: float) -> LegacyItem:
@@ -80,3 +81,15 @@ def test_message_bounds_fill_mode_uses_text_measurements(monkeypatch) -> None:
     assert bounds.is_valid()
     assert (bounds.max_x - bounds.min_x) == pytest.approx(fake_width)
     assert (bounds.max_y - bounds.min_y) == pytest.approx(fake_height)
+
+
+def test_overlay_bounds_dataclass_tracks_min_max() -> None:
+    bounds = _OverlayBounds()
+    bounds.include_rect(10.0, 20.0, 30.0, 60.0)
+    bounds.include_rect(15.0, 10.0, 25.0, 55.0)
+
+    assert bounds.is_valid()
+    assert bounds.min_x == pytest.approx(10.0)
+    assert bounds.max_x == pytest.approx(30.0)
+    assert bounds.min_y == pytest.approx(10.0)
+    assert bounds.max_y == pytest.approx(60.0)

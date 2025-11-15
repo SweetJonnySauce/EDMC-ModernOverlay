@@ -18,6 +18,7 @@ from viewport_transform import (  # noqa: E402
     build_viewport,
     compute_proportional_translation,
     inverse_group_axis,
+    map_anchor_axis,
     remap_anchor_value,
     legacy_scale_components,
     scaled_point_size,
@@ -207,3 +208,39 @@ def test_remap_anchor_value_matches_actual_bounds() -> None:
 def test_remap_anchor_value_handles_degenerate_span() -> None:
     mapped = remap_anchor_value(0.5, 0.5, 0.5, 42.0, 84.0)
     assert mapped == pytest.approx(42.0)
+
+
+def test_map_anchor_axis_preserves_center_with_adjusted_bounds() -> None:
+    actual = map_anchor_axis(
+        anchor_norm=0.6,
+        min_norm=0.2,
+        max_norm=1.0,
+        actual_min=100.0,
+        actual_max=200.0,
+        anchor_token="center",
+        axis="x",
+    )
+
+    assert actual == pytest.approx(150.0)
+
+
+def test_map_anchor_axis_clamps_to_edges() -> None:
+    left = map_anchor_axis(0.2, 0.2, 0.8, 10.0, 50.0, axis="x")
+    right = map_anchor_axis(0.8, 0.2, 0.8, 10.0, 50.0, axis="x")
+
+    assert left == pytest.approx(10.0)
+    assert right == pytest.approx(50.0)
+
+
+def test_map_anchor_axis_forces_midpoint_for_top_bottom_tokens() -> None:
+    value = map_anchor_axis(
+        anchor_norm=0.7,
+        min_norm=0.3,
+        max_norm=0.9,
+        actual_min=20.0,
+        actual_max=80.0,
+        anchor_token="top",
+        axis="x",
+    )
+
+    assert value == pytest.approx(50.0)

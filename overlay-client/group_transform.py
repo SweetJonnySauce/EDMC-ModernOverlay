@@ -28,6 +28,7 @@ class GroupTransform:
     bounds_min_y: float = 0.0
     bounds_max_x: float = 0.0
     bounds_max_y: float = 0.0
+    anchor_token: str = "nw"
 
 
 @dataclass

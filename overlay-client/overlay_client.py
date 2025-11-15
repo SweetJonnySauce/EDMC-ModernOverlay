@@ -85,7 +85,7 @@ from viewport_transform import (  # type: ignore  # noqa: E402
     build_viewport,
     compute_proportional_translation,
     inverse_group_axis,
-    remap_anchor_value,
+    map_anchor_axis,
     legacy_scale_components,
     scaled_point_size as viewport_scaled_point_size,
 )
@@ -712,13 +712,17 @@ class OverlayWindow(QWidget):
         state = self._viewport_state()
         return build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
 
-    @staticmethod
+    @classmethod
     def _group_anchor_point(
+        cls,
         transform: Optional[GroupTransform],
         context: Optional[PayloadTransformContext],
+        overlay_bounds: Optional[_OverlayBounds] = None,
     ) -> Optional[Tuple[float, float]]:
         if transform is None or context is None:
             return None
+        if overlay_bounds is not None and overlay_bounds.is_valid():
+            return cls._map_anchor_to_overlay_bounds(transform, overlay_bounds)
         anchor_x = transform.band_anchor_x * BASE_WIDTH
         anchor_y = transform.band_anchor_y * BASE_HEIGHT
         anchor_x = remap_axis_value(anchor_x, context.axis_x)
@@ -727,15 +731,21 @@ class OverlayWindow(QWidget):
             return None
         return anchor_x, anchor_y
 
-    @staticmethod
+    @classmethod
     def _group_base_point(
+        cls,
         transform: Optional[GroupTransform],
         context: Optional[PayloadTransformContext],
+        overlay_bounds: Optional[_OverlayBounds] = None,
     ) -> Optional[Tuple[float, float]]:
         if transform is None or context is None:
             return None
-        base_x = remap_axis_value(transform.bounds_min_x, context.axis_x)
-        base_y = remap_axis_value(transform.bounds_min_y, context.axis_y)
+        if overlay_bounds is not None and overlay_bounds.is_valid():
+            base_x = overlay_bounds.min_x
+            base_y = overlay_bounds.min_y
+        else:
+            base_x = remap_axis_value(transform.bounds_min_x, context.axis_x)
+            base_y = remap_axis_value(transform.bounds_min_y, context.axis_y)
         if not (math.isfinite(base_x) and math.isfinite(base_y)):
             return None
         return base_x, base_y
@@ -749,25 +759,30 @@ class OverlayWindow(QWidget):
         if not bounds.is_valid():
             return None
         try:
-            anchor_x = remap_anchor_value(
+            anchor_x = map_anchor_axis(
                 transform.band_anchor_x,
                 transform.band_min_x,
                 transform.band_max_x,
                 bounds.min_x,
                 bounds.max_x,
+                anchor_token=getattr(transform, "anchor_token", None),
+                axis="x",
             )
-            anchor_y = remap_anchor_value(
+            anchor_y = map_anchor_axis(
                 transform.band_anchor_y,
                 transform.band_min_y,
                 transform.band_max_y,
                 bounds.min_y,
                 bounds.max_y,
+                anchor_token=getattr(transform, "anchor_token", None),
+                axis="y",
             )
         except Exception:
             return None
         if not (math.isfinite(anchor_x) and math.isfinite(anchor_y)):
             return None
         return anchor_x, anchor_y
+
 
     @staticmethod
     def _apply_inverse_group_scale(
@@ -2755,29 +2770,20 @@ class OverlayWindow(QWidget):
         else:
             self._grouping_helper.reset()
         draw_group_bounds = self._debug_config.group_bounds_outline
+        overlay_bounds_hint: Optional[Dict[Tuple[str, Optional[str]], _OverlayBounds]] = None
         commands: List[_LegacyPaintCommand] = []
         bounds_by_group: Dict[Tuple[str, Optional[str]], _ScreenBounds] = {}
         overlay_bounds_by_group: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
-        for item_id, legacy_item in self._legacy_items.items():
-            group_key = self._grouping_helper.group_key_for(item_id, legacy_item.plugin)
-            group_transform = self._grouping_helper.get_transform(group_key)
-            if legacy_item.kind == "message":
-                command = self._build_message_command(legacy_item, mapper, group_key, group_transform)
-            elif legacy_item.kind == "rect":
-                command = self._build_rect_command(legacy_item, mapper, group_key, group_transform)
-            elif legacy_item.kind == "vector":
-                command = self._build_vector_command(legacy_item, mapper, group_key, group_transform)
-            else:
-                command = None
-            if command is None:
-                continue
-            commands.append(command)
-            if command.bounds:
-                bounds = bounds_by_group.setdefault(command.group_key.as_tuple(), _ScreenBounds())
-                bounds.include_rect(*command.bounds)
-            if command.overlay_bounds:
-                overlay_bounds = overlay_bounds_by_group.setdefault(command.group_key.as_tuple(), _OverlayBounds())
-                overlay_bounds.include_rect(*command.overlay_bounds)
+        passes = 2 if self._legacy_items else 1
+        for pass_index in range(passes):
+            commands, bounds_by_group, overlay_bounds_by_group = self._build_legacy_commands_for_pass(
+                mapper,
+                overlay_bounds_hint,
+                collect_only=(pass_index == 0 and passes > 1),
+            )
+            overlay_bounds_hint = overlay_bounds_by_group
+            if not self._legacy_items:
+                break
 
         translations = self._compute_group_nudges(bounds_by_group)
         drawn_groups: Set[Tuple[str, Optional[str]]] = set()
@@ -2806,6 +2812,66 @@ class OverlayWindow(QWidget):
                         offset_y,
                     )
 
+    def _build_legacy_commands_for_pass(
+        self,
+        mapper: LegacyMapper,
+        overlay_bounds_hint: Optional[Dict[Tuple[str, Optional[str]], _OverlayBounds]],
+        collect_only: bool = False,
+    ) -> Tuple[
+        List[_LegacyPaintCommand],
+        Dict[Tuple[str, Optional[str]], _ScreenBounds],
+        Dict[Tuple[str, Optional[str]], _OverlayBounds],
+    ]:
+        commands: List[_LegacyPaintCommand] = []
+        bounds_by_group: Dict[Tuple[str, Optional[str]], _ScreenBounds] = {}
+        overlay_bounds_by_group: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
+        for item_id, legacy_item in self._legacy_items.items():
+            group_key = self._grouping_helper.group_key_for(item_id, legacy_item.plugin)
+            group_transform = self._grouping_helper.get_transform(group_key)
+            overlay_hint = overlay_bounds_hint.get(group_key.as_tuple()) if overlay_bounds_hint else None
+            if legacy_item.kind == "message":
+                command = self._build_message_command(
+                    legacy_item,
+                    mapper,
+                    group_key,
+                    group_transform,
+                    overlay_hint,
+                    collect_only=collect_only,
+                )
+            elif legacy_item.kind == "rect":
+                command = self._build_rect_command(
+                    legacy_item,
+                    mapper,
+                    group_key,
+                    group_transform,
+                    overlay_hint,
+                    collect_only=collect_only,
+                )
+            elif legacy_item.kind == "vector":
+                command = self._build_vector_command(
+                    legacy_item,
+                    mapper,
+                    group_key,
+                    group_transform,
+                    overlay_hint,
+                    collect_only=collect_only,
+                )
+            else:
+                command = None
+            if command is None:
+                continue
+            if not collect_only:
+                commands.append(command)
+                if command.bounds:
+                    bounds = bounds_by_group.setdefault(command.group_key.as_tuple(), _ScreenBounds())
+                    bounds.include_rect(*command.bounds)
+            if command.overlay_bounds:
+                overlay_bounds = overlay_bounds_by_group.setdefault(command.group_key.as_tuple(), _OverlayBounds())
+                overlay_bounds.include_rect(*command.overlay_bounds)
+            if collect_only:
+                continue
+        return commands, bounds_by_group, overlay_bounds_by_group
+
     def _legacy_preset_point_size(self, preset: str, state: ViewportState, mapper: LegacyMapper) -> float:
         """Return the scaled font size for a legacy preset relative to normal."""
         normal_point = viewport_scaled_point_size(
@@ -2832,6 +2898,8 @@ class OverlayWindow(QWidget):
         mapper: LegacyMapper,
         group_key: GroupKey,
         group_transform: Optional[GroupTransform],
+        overlay_bounds_hint: Optional[_OverlayBounds],
+        collect_only: bool = False,
     ) -> Optional[_MessagePaintCommand]:
         item = legacy_item.data
         item_id = legacy_item.item_id
@@ -2851,14 +2919,14 @@ class OverlayWindow(QWidget):
         proportional_dx = 0.0
         proportional_dy = 0.0
         if mapper.transform.mode is ScaleMode.FILL:
-            anchor_point = self._group_anchor_point(group_transform, transform_context)
-            base_anchor_point = self._group_base_point(group_transform, transform_context)
+            anchor_point = self._group_anchor_point(group_transform, transform_context, overlay_bounds_hint)
+            base_anchor_point = self._group_base_point(group_transform, transform_context, overlay_bounds_hint)
             proportional_dx, proportional_dy = compute_proportional_translation(fill, group_transform, anchor_point)
         transform_meta = item.get("__mo_transform__")
         self._debug_legacy_point_size = scaled_point_size
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
-        if trace_enabled:
+        if trace_enabled and not collect_only:
             self._log_legacy_trace(
                 plugin_name,
                 item_id,
@@ -2905,7 +2973,7 @@ class OverlayWindow(QWidget):
             overlay_right = (bounds[2] - base_offset_x) / scale
             overlay_bottom = (bounds[3] - base_offset_y) / scale
             overlay_bounds = (overlay_left, overlay_top, overlay_right, overlay_bottom)
-        if trace_enabled:
+        if trace_enabled and not collect_only:
             self._log_legacy_trace(
                 plugin_name,
                 item_id,
@@ -2921,7 +2989,7 @@ class OverlayWindow(QWidget):
                 },
             )
         trace_fn = None
-        if trace_enabled:
+        if trace_enabled and not collect_only:
             def trace_fn(stage: str, details: Mapping[str, Any]) -> None:
                 self._log_legacy_trace(plugin_name, item_id, stage, details)
         command = _MessagePaintCommand(
@@ -2950,6 +3018,8 @@ class OverlayWindow(QWidget):
         mapper: LegacyMapper,
         group_key: GroupKey,
         group_transform: Optional[GroupTransform],
+        overlay_bounds_hint: Optional[_OverlayBounds],
+        collect_only: bool = False,
     ) -> Optional[_RectPaintCommand]:
         item = legacy_item.data
         item_id = legacy_item.item_id
@@ -2983,8 +3053,8 @@ class OverlayWindow(QWidget):
         proportional_dx = 0.0
         proportional_dy = 0.0
         if mapper.transform.mode is ScaleMode.FILL:
-            anchor_point = self._group_anchor_point(group_transform, transform_context)
-            base_anchor_point = self._group_base_point(group_transform, transform_context)
+            anchor_point = self._group_anchor_point(group_transform, transform_context, overlay_bounds_hint)
+            base_anchor_point = self._group_base_point(group_transform, transform_context, overlay_bounds_hint)
             proportional_dx, proportional_dy = compute_proportional_translation(fill, group_transform, anchor_point)
         base_offset_x = fill.base_offset_x
         base_offset_y = fill.base_offset_y
@@ -2994,7 +3064,7 @@ class OverlayWindow(QWidget):
         raw_y = float(item.get("y", 0))
         raw_w = float(item.get("w", 0))
         raw_h = float(item.get("h", 0))
-        if trace_enabled:
+        if trace_enabled and not collect_only:
             self._log_legacy_trace(
                 plugin_name,
                 item_id,
@@ -3049,7 +3119,7 @@ class OverlayWindow(QWidget):
             height=h,
             cycle_anchor=(center_x, center_y),
         )
-        if trace_enabled:
+        if trace_enabled and not collect_only:
             self._log_legacy_trace(
                 plugin_name,
                 item_id,
@@ -3074,6 +3144,8 @@ class OverlayWindow(QWidget):
         mapper: LegacyMapper,
         group_key: GroupKey,
         group_transform: Optional[GroupTransform],
+        overlay_bounds_hint: Optional[_OverlayBounds],
+        collect_only: bool = False,
     ) -> Optional[_VectorPaintCommand]:
         item_id = legacy_item.item_id
         item = legacy_item.data
@@ -3088,13 +3160,13 @@ class OverlayWindow(QWidget):
         proportional_dx = 0.0
         proportional_dy = 0.0
         if mapper.transform.mode is ScaleMode.FILL:
-            anchor_point = self._group_anchor_point(group_transform, transform_context)
-            base_anchor_point = self._group_base_point(group_transform, transform_context)
+            anchor_point = self._group_anchor_point(group_transform, transform_context, overlay_bounds_hint)
+            base_anchor_point = self._group_base_point(group_transform, transform_context, overlay_bounds_hint)
             proportional_dx, proportional_dy = compute_proportional_translation(fill, group_transform, anchor_point)
         base_offset_x = fill.base_offset_x
         base_offset_y = fill.base_offset_y
         transform_meta = item.get("__mo_transform__")
-        if trace_enabled:
+        if trace_enabled and not collect_only:
             self._log_legacy_trace(
                 plugin_name,
                 item_id,

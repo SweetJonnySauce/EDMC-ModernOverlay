@@ -216,6 +216,38 @@ def remap_anchor_value(
     return actual_min + ratio * (actual_max - actual_min)
 
 
+def normalised_anchor_ratio(anchor_norm: float, min_norm: float, max_norm: float) -> float:
+    denom = max_norm - min_norm
+    if math.isclose(denom, 0.0, rel_tol=1e-9, abs_tol=1e-9):
+        return 0.0
+    return (anchor_norm - min_norm) / denom
+
+
+def map_anchor_axis(
+    anchor_norm: float,
+    min_norm: float,
+    max_norm: float,
+    actual_min: float,
+    actual_max: float,
+    *,
+    anchor_token: Optional[str] = None,
+    axis: str = "x",
+) -> float:
+    anchor_token = (anchor_token or "").strip().lower()
+    if axis == "x" and anchor_token in {"top", "bottom", "center"}:
+        return (actual_min + actual_max) / 2.0
+    ratio = max(0.0, min(1.0, normalised_anchor_ratio(anchor_norm, min_norm, max_norm)))
+    if math.isclose(actual_max, actual_min, rel_tol=1e-9, abs_tol=1e-9):
+        return actual_min
+    if math.isclose(ratio, 0.5, rel_tol=1e-6, abs_tol=1e-6):
+        return (actual_min + actual_max) / 2.0
+    if math.isclose(ratio, 0.0, rel_tol=1e-6, abs_tol=1e-6):
+        return actual_min
+    if math.isclose(ratio, 1.0, rel_tol=1e-6, abs_tol=1e-6):
+        return actual_max
+    return remap_anchor_value(anchor_norm, min_norm, max_norm, actual_min, actual_max)
+
+
 def legacy_scale_components(mapper: LegacyMapper, state: ViewportState) -> Tuple[float, float]:
     scale_x = mapper.scale_x
     scale_y = mapper.scale_y

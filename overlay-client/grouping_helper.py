@@ -95,6 +95,7 @@ class FillGroupingHelper:
                     bounds_min_y=bounds.min_y,
                     bounds_max_x=bounds.max_x,
                     bounds_max_y=bounds.max_y,
+                    anchor_token=(anchor_token or "nw").lower(),
                 ),
             )
     def group_key_for(self, item_id: str, plugin_name: Optional[str]) -> GroupKey:
