@@ -169,7 +169,6 @@ class _LegacyPaintCommand:
     overlay_bounds: Optional[Tuple[float, float, float, float]] = None
     effective_anchor: Optional[Tuple[float, float]] = None
     anchor_offset: Optional[Tuple[float, float]] = None
-    base_anchor_effective: Optional[Tuple[float, float]] = None
     debug_log: Optional[str] = None
 
     def paint(self, window: "OverlayWindow", painter: QPainter, offset_x: int, offset_y: int) -> None:
@@ -2790,12 +2789,12 @@ class OverlayWindow(QWidget):
         bounds_by_group: Dict[Tuple[str, Optional[str]], _ScreenBounds] = {}
         overlay_bounds_by_group: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
         effective_anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
-        base_anchor_effective_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         transform_by_group: Dict[Tuple[str, Optional[str]], Optional[GroupTransform]] = {}
+        effective_anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         anchor_offset_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         passes = 2 if self._legacy_items else 1
         for pass_index in range(passes):
-            commands, bounds_by_group, overlay_bounds_by_group, effective_anchor_by_group, base_anchor_effective_by_group, transform_by_group, anchor_offset_by_group = self._build_legacy_commands_for_pass(
+            commands, bounds_by_group, overlay_bounds_by_group, effective_anchor_by_group, transform_by_group, anchor_offset_by_group = self._build_legacy_commands_for_pass(
                 mapper,
                 overlay_bounds_hint,
                 collect_only=(pass_index == 0 and passes > 1),
@@ -2809,7 +2808,6 @@ class OverlayWindow(QWidget):
             bounds_by_group,
             overlay_bounds_by_group,
             effective_anchor_by_group,
-            base_anchor_effective_by_group,
             transform_by_group,
             anchor_offset_by_group,
         )
@@ -2855,15 +2853,13 @@ class OverlayWindow(QWidget):
         Dict[Tuple[str, Optional[str]], _ScreenBounds],
         Dict[Tuple[str, Optional[str]], _OverlayBounds],
         Dict[Tuple[str, Optional[str]], Tuple[float, float]],
-        Dict[Tuple[str, Optional[str]], Tuple[float, float]],
         Dict[Tuple[str, Optional[str]], Optional[GroupTransform]],
         Dict[Tuple[str, Optional[str]], Tuple[float, float]],
     ]:
         commands: List[_LegacyPaintCommand] = []
         bounds_by_group: Dict[Tuple[str, Optional[str]], _ScreenBounds] = {}
         overlay_bounds_by_group: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
-        anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
-        base_anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
+        effective_anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         anchor_offset_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         transform_by_group: Dict[Tuple[str, Optional[str]], Optional[GroupTransform]] = {}
         for item_id, legacy_item in self._legacy_items.items():
@@ -2908,9 +2904,7 @@ class OverlayWindow(QWidget):
                     bounds = bounds_by_group.setdefault(command.group_key.as_tuple(), _ScreenBounds())
                     bounds.include_rect(*command.bounds)
                 if command.effective_anchor is not None:
-                    anchor_by_group[command.group_key.as_tuple()] = command.effective_anchor
-                if command.base_anchor_effective is not None:
-                    base_anchor_by_group[command.group_key.as_tuple()] = command.base_anchor_effective
+                    effective_anchor_by_group[command.group_key.as_tuple()] = command.effective_anchor
                 if command.anchor_offset is not None:
                     anchor_offset_by_group[command.group_key.as_tuple()] = command.anchor_offset
             if command.overlay_bounds:
@@ -2918,7 +2912,7 @@ class OverlayWindow(QWidget):
                 overlay_bounds.include_rect(*command.overlay_bounds)
             if collect_only:
                 continue
-        return commands, bounds_by_group, overlay_bounds_by_group, anchor_by_group, base_anchor_by_group, transform_by_group, anchor_offset_by_group
+        return commands, bounds_by_group, overlay_bounds_by_group, effective_anchor_by_group, transform_by_group, anchor_offset_by_group
 
     def _prepare_anchor_translations(
         self,
@@ -2926,7 +2920,6 @@ class OverlayWindow(QWidget):
         bounds_by_group: Mapping[Tuple[str, Optional[str]], _ScreenBounds],
         overlay_bounds_by_group: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
         effective_anchor_by_group: Mapping[Tuple[str, Optional[str]], Tuple[float, float]],
-        base_anchor_by_group: Mapping[Tuple[str, Optional[str]], Tuple[float, float]],
         transform_by_group: Mapping[Tuple[str, Optional[str]], Optional[GroupTransform]],
         anchor_offset_by_group: Mapping[Tuple[str, Optional[str]], Tuple[float, float]],
     ) -> Tuple[Dict[Tuple[str, Optional[str]], Tuple[float, float]], Dict[Tuple[str, Optional[str]], _ScreenBounds]]:
@@ -2945,30 +2938,21 @@ class OverlayWindow(QWidget):
         if not math.isfinite(base_scale) or math.isclose(base_scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
             base_scale = 1.0
         for key in bounds_by_group:
-            base_anchor = base_anchor_by_group.get(key)
-            user_anchor = effective_anchor_by_group.get(key)
             translation_overlay_x: Optional[float]
             translation_overlay_y: Optional[float]
-            if base_anchor is not None and user_anchor is not None:
-                translation_overlay_x = base_anchor[0] - user_anchor[0]
-                translation_overlay_y = base_anchor[1] - user_anchor[1]
-            else:
-                transform = transform_by_group.get(key)
-                if transform is not None and mapper.transform.mode is ScaleMode.FILL:
-                    overlay_hint = overlay_bounds_by_group.get(key)
-                    computed = self._compute_group_anchor_vector(mapper, transform, overlay_hint)
-                    if computed is not None:
-                        translation_overlay_x, translation_overlay_y = computed
-                    else:
-                        translation_overlay_x = translation_overlay_y = None
-                else:
-                    translation_overlay_x = translation_overlay_y = None
-                if translation_overlay_x is None or translation_overlay_y is None:
-                    delta = anchor_offset_by_group.get(key)
-                    if delta is None:
-                        continue
-                    translation_overlay_x = -delta[0]
-                    translation_overlay_y = -delta[1]
+            transform = transform_by_group.get(key)
+            translation_overlay_x = translation_overlay_y = None
+            if transform is not None and mapper.transform.mode is ScaleMode.FILL:
+                overlay_hint = overlay_bounds_by_group.get(key)
+                computed = self._compute_group_anchor_vector(mapper, transform, overlay_hint)
+                if computed is not None:
+                    translation_overlay_x, translation_overlay_y = computed
+            if translation_overlay_x is None or translation_overlay_y is None:
+                delta = anchor_offset_by_group.get(key)
+                if delta is None:
+                    continue
+                translation_overlay_x = -delta[0]
+                translation_overlay_y = -delta[1]
             if not (math.isfinite(translation_overlay_x) and math.isfinite(translation_overlay_y)):
                 continue
             translation_px_x = translation_overlay_x * base_scale
@@ -2977,9 +2961,6 @@ class OverlayWindow(QWidget):
             clone = cloned_bounds.get(key)
             if clone is not None:
                 clone.translate(translation_px_x, translation_px_y)
-            overlay_bounds = overlay_bounds_by_group.get(key)
-            if overlay_bounds is not None and overlay_bounds.is_valid():
-                overlay_bounds.translate(translation_overlay_x, translation_overlay_y)
         return translations, cloned_bounds
 
     def _compute_group_anchor_vector(
@@ -3071,7 +3052,6 @@ class OverlayWindow(QWidget):
         base_translation_dx = 0.0
         base_translation_dy = 0.0
         effective_anchor: Optional[Tuple[float, float]] = None
-        base_anchor_effective: Optional[Tuple[float, float]] = base_anchor_point
         anchor_offset: Optional[Tuple[float, float]] = None
         if mapper.transform.mode is ScaleMode.FILL:
             use_overlay_bounds_x = (
@@ -3142,18 +3122,6 @@ class OverlayWindow(QWidget):
                     transformed_anchor[0] + base_translation_dx,
                     transformed_anchor[1] + base_translation_dy,
                 )
-            if base_anchor_point is not None:
-                base_x, base_y = self._apply_inverse_group_scale(
-                    base_anchor_point[0],
-                    base_anchor_point[1],
-                    anchor_for_transform,
-                    base_anchor_point,
-                    fill,
-                )
-                base_anchor_effective = (
-                    base_x + base_translation_dx,
-                    base_y + base_translation_dy,
-                )
             if base_anchor_point is not None and selected_anchor is not None:
                 anchor_offset = (
                     selected_anchor[0] - base_anchor_point[0],
@@ -3209,7 +3177,6 @@ class OverlayWindow(QWidget):
             overlay_bounds=overlay_bounds,
             effective_anchor=effective_anchor,
             anchor_offset=anchor_offset,
-            base_anchor_effective=base_anchor_effective,
             debug_log=None,
             text=text,
             color=color,
@@ -3267,7 +3234,6 @@ class OverlayWindow(QWidget):
         base_translation_dx = 0.0
         base_translation_dy = 0.0
         effective_anchor: Optional[Tuple[float, float]] = None
-        base_anchor_effective: Optional[Tuple[float, float]] = base_anchor_point
         anchor_offset: Optional[Tuple[float, float]] = None
         if mapper.transform.mode is ScaleMode.FILL:
             use_overlay_bounds_x = (
@@ -3343,18 +3309,6 @@ class OverlayWindow(QWidget):
                     transformed_anchor[0] + base_translation_dx,
                     transformed_anchor[1] + base_translation_dy,
                 )
-            if base_anchor_point is not None:
-                base_x, base_y = self._apply_inverse_group_scale(
-                    base_anchor_point[0],
-                    base_anchor_point[1],
-                    anchor_for_transform,
-                    base_anchor_point,
-                    fill,
-                )
-                base_anchor_effective = (
-                    base_x + base_translation_dx,
-                    base_y + base_translation_dy,
-                )
             if base_anchor_point is not None and selected_anchor is not None:
                 anchor_offset = (
                     selected_anchor[0] - base_anchor_point[0],
@@ -3384,7 +3338,6 @@ class OverlayWindow(QWidget):
             overlay_bounds=overlay_bounds,
             effective_anchor=effective_anchor,
             anchor_offset=anchor_offset,
-            base_anchor_effective=base_anchor_effective,
             debug_log=None,
             pen=pen,
             brush=brush,
@@ -3436,7 +3389,6 @@ class OverlayWindow(QWidget):
         base_translation_dx = 0.0
         base_translation_dy = 0.0
         effective_anchor: Optional[Tuple[float, float]] = None
-        base_anchor_effective: Optional[Tuple[float, float]] = None
         anchor_offset: Optional[Tuple[float, float]] = None
         if mapper.transform.mode is ScaleMode.FILL:
             use_overlay_bounds_x = (
@@ -3456,7 +3408,6 @@ class OverlayWindow(QWidget):
                 overlay_bounds_hint,
                 use_overlay_bounds_x=use_overlay_bounds_x,
             )
-            base_anchor_effective = base_anchor_point
             base_anchor_effective = base_anchor_point
             anchor_for_transform = base_anchor_point or selected_anchor
             if group_transform is not None and anchor_for_transform is not None:
@@ -3523,20 +3474,6 @@ class OverlayWindow(QWidget):
                 transformed_anchor[0] + base_translation_dx,
                 transformed_anchor[1] + base_translation_dy,
             )
-        if mapper.transform.mode is ScaleMode.FILL and base_anchor_point is not None:
-            base_x, base_y = self._apply_inverse_group_scale(
-                base_anchor_point[0],
-                base_anchor_point[1],
-                anchor_for_transform,
-                base_anchor_point,
-                fill,
-            )
-            base_anchor_effective = (
-                base_x + base_translation_dx,
-                base_y + base_translation_dy,
-            )
-        elif mapper.transform.mode is not ScaleMode.FILL:
-            base_anchor_effective = base_anchor_point
         if base_anchor_point is not None and selected_anchor is not None:
             anchor_offset = (
                 selected_anchor[0] - base_anchor_point[0],
@@ -3597,7 +3534,6 @@ class OverlayWindow(QWidget):
             overlay_bounds=overlay_bounds,
             effective_anchor=effective_anchor,
             anchor_offset=anchor_offset,
-            base_anchor_effective=base_anchor_effective,
             debug_log=None,
             vector_payload=vector_payload,
             scale=scale,
