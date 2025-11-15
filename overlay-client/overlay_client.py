@@ -743,14 +743,14 @@ class OverlayWindow(QWidget):
             scale,
             getattr(fill, "overflow_x", False),
             anchor_x,
-            base_x,
+            base_x if (base_x is not None and not getattr(fill, "overflow_x", False)) else anchor_x,
         )
         adjusted_y = inverse_group_axis(
             value_y,
             scale,
             getattr(fill, "overflow_y", False),
             anchor_y,
-            base_y,
+            base_y if (base_y is not None and not getattr(fill, "overflow_y", False)) else anchor_y,
         )
         return adjusted_x, adjusted_y
 

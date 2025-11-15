@@ -20,7 +20,7 @@
           "bgstally-msg-tickwarn-",
           "bgstally-frame-tickwarn"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "se"
       },
       "BGS-Tally System Info": {
         "idPrefixes": [
@@ -158,7 +158,7 @@
           "pad-",
           "station-"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "se"
       }
     }
   },
