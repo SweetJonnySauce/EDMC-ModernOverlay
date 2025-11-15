@@ -3671,6 +3671,28 @@ class OverlayWindow(QWidget):
                 if label_y - text_rect.height() < 0:
                     label_y = anchor_point_qt.y() + offset_y + text_rect.height()
                 painter.drawText(label_x, label_y, text)
+        if anchor_point_qt is not None and base_anchor_qt is not None:
+            painter.save()
+            arrow_pen = QPen(QColor(0, 255, 128))
+            arrow_pen.setWidth(max(1, self._line_width("vector_marker")))
+            painter.setPen(arrow_pen)
+            painter.drawLine(anchor_point_qt, base_anchor_qt)
+            dx_arrow = anchor_point_qt.x() - base_anchor_qt.x()
+            dy_arrow = anchor_point_qt.y() - base_anchor_qt.y()
+            angle = math.atan2(dy_arrow, dx_arrow)
+            arrow_size = 10
+            tip = base_anchor_qt
+            left = QPoint(
+                int(round(tip.x() + arrow_size * math.cos(angle + math.pi / 6))),
+                int(round(tip.y() + arrow_size * math.sin(angle + math.pi / 6))),
+            )
+            right = QPoint(
+                int(round(tip.x() + arrow_size * math.cos(angle - math.pi / 6))),
+                int(round(tip.y() + arrow_size * math.sin(angle - math.pi / 6))),
+            )
+            painter.drawLine(tip, left)
+            painter.drawLine(tip, right)
+            painter.restore()
         if raw_base_anchor_qt is not None:
             raw_pen = QPen(QColor(0, 180, 255))
             raw_pen.setWidth(max(1, self._line_width("group_outline")))
