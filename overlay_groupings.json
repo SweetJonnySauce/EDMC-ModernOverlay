@@ -113,7 +113,7 @@
         "idPrefixes": [
           "edr-intel"
         ],
-        "idPrefixGroupAnchor": "top"
+        "idPrefixGroupAnchor": "se"
       },
       "target": {
         "idPrefixes": [
@@ -125,7 +125,7 @@
         "idPrefixes": [
           "edr-notice-"
         ],
-        "idPrefixGroupAnchor": "top"
+        "idPrefixGroupAnchor": "nw"
       },
       "Edr Navroute": {
         "idPrefixes": [
@@ -159,7 +159,7 @@
           "pad-",
           "station-"
         ],
-        "idPrefixGroupAnchor": "center"
+        "idPrefixGroupAnchor": "nw"
       }
     }
   },
