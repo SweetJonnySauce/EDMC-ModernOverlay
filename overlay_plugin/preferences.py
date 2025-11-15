@@ -499,6 +499,17 @@ class PreferencesPanel:
             self._restart_button = restart_btn
             dev_row += 1
 
+            force_checkbox = nb.Checkbutton(
+                dev_frame,
+                text="Keep overlay visible when Elite Dangerous is not the foreground window",
+                variable=self._var_force_render,
+                onvalue=True,
+                offvalue=False,
+                command=self._on_force_render_toggle,
+            )
+            force_checkbox.grid(row=dev_row, column=0, sticky="w", pady=(12, 0))
+            dev_row += 1
+
             opacity_label = nb.Label(
                 dev_frame,
                 text="Overlay background opacity (0.0 transparent – 1.0 opaque).",
@@ -519,17 +530,6 @@ class PreferencesPanel:
             )
             opacity_scale.pack(side="left", fill="x")
             opacity_row.grid(row=dev_row, column=0, sticky="we")
-            dev_row += 1
-
-            force_checkbox = nb.Checkbutton(
-                dev_frame,
-                text="Keep overlay visible when Elite Dangerous is not the foreground window",
-                variable=self._var_force_render,
-                onvalue=True,
-                offvalue=False,
-                command=self._on_force_render_toggle,
-            )
-            force_checkbox.grid(row=dev_row, column=0, sticky="w", pady=(12, 0))
             dev_row += 1
 
             grid_checkbox = nb.Checkbutton(

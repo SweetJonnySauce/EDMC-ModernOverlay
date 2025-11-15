@@ -7,7 +7,7 @@ EDMC Modern Overlay is a cross-platform (Windows and Linux), two-part implementa
 - Backwards compatibility with [EDMCOverlay](https://github.com/inorton/EDMCOverlay)
 - Works in borderless or windowed mode on any display size
 - Cross platform for Windows and Linux
-- Support 4 distributions for Linux (Debian, Fedora, OpenSuse, Arch) and can be extended
+- Support 4 distributions for Linux (Debian, Fedora, OpenSUSE, Arch) and can be extended
 - Supports host and Flatpak installs of EDMC on Linux
 - Code is 100% Python
 - Numerous development features for EDMC Plugin Developers
