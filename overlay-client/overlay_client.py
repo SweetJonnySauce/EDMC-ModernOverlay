@@ -2791,10 +2791,11 @@ class OverlayWindow(QWidget):
         overlay_bounds_by_group: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
         effective_anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         base_anchor_effective_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
+        transform_by_group: Dict[Tuple[str, Optional[str]], Optional[GroupTransform]] = {}
         anchor_offset_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         passes = 2 if self._legacy_items else 1
         for pass_index in range(passes):
-            commands, bounds_by_group, overlay_bounds_by_group, effective_anchor_by_group, base_anchor_effective_by_group, anchor_offset_by_group = self._build_legacy_commands_for_pass(
+            commands, bounds_by_group, overlay_bounds_by_group, effective_anchor_by_group, base_anchor_effective_by_group, transform_by_group, anchor_offset_by_group = self._build_legacy_commands_for_pass(
                 mapper,
                 overlay_bounds_hint,
                 collect_only=(pass_index == 0 and passes > 1),
@@ -2809,6 +2810,7 @@ class OverlayWindow(QWidget):
             overlay_bounds_by_group,
             effective_anchor_by_group,
             base_anchor_effective_by_group,
+            transform_by_group,
             anchor_offset_by_group,
         )
         translations = self._compute_group_nudges(translated_bounds_by_group)
@@ -2854,6 +2856,7 @@ class OverlayWindow(QWidget):
         Dict[Tuple[str, Optional[str]], _OverlayBounds],
         Dict[Tuple[str, Optional[str]], Tuple[float, float]],
         Dict[Tuple[str, Optional[str]], Tuple[float, float]],
+        Dict[Tuple[str, Optional[str]], Optional[GroupTransform]],
         Dict[Tuple[str, Optional[str]], Tuple[float, float]],
     ]:
         commands: List[_LegacyPaintCommand] = []
@@ -2862,9 +2865,11 @@ class OverlayWindow(QWidget):
         anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         base_anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         anchor_offset_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
+        transform_by_group: Dict[Tuple[str, Optional[str]], Optional[GroupTransform]] = {}
         for item_id, legacy_item in self._legacy_items.items():
             group_key = self._grouping_helper.group_key_for(item_id, legacy_item.plugin)
             group_transform = self._grouping_helper.get_transform(group_key)
+            transform_by_group[group_key.as_tuple()] = group_transform
             overlay_hint = overlay_bounds_hint.get(group_key.as_tuple()) if overlay_bounds_hint else None
             if legacy_item.kind == "message":
                 command = self._build_message_command(
@@ -2913,7 +2918,7 @@ class OverlayWindow(QWidget):
                 overlay_bounds.include_rect(*command.overlay_bounds)
             if collect_only:
                 continue
-        return commands, bounds_by_group, overlay_bounds_by_group, anchor_by_group, base_anchor_by_group, anchor_offset_by_group
+        return commands, bounds_by_group, overlay_bounds_by_group, anchor_by_group, base_anchor_by_group, transform_by_group, anchor_offset_by_group
 
     def _prepare_anchor_translations(
         self,
@@ -2922,6 +2927,7 @@ class OverlayWindow(QWidget):
         overlay_bounds_by_group: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
         effective_anchor_by_group: Mapping[Tuple[str, Optional[str]], Tuple[float, float]],
         base_anchor_by_group: Mapping[Tuple[str, Optional[str]], Tuple[float, float]],
+        transform_by_group: Mapping[Tuple[str, Optional[str]], Optional[GroupTransform]],
         anchor_offset_by_group: Mapping[Tuple[str, Optional[str]], Tuple[float, float]],
     ) -> Tuple[Dict[Tuple[str, Optional[str]], Tuple[float, float]], Dict[Tuple[str, Optional[str]], _ScreenBounds]]:
         cloned_bounds: Dict[Tuple[str, Optional[str]], _ScreenBounds] = {}
@@ -2941,15 +2947,28 @@ class OverlayWindow(QWidget):
         for key in bounds_by_group:
             base_anchor = base_anchor_by_group.get(key)
             user_anchor = effective_anchor_by_group.get(key)
+            translation_overlay_x: Optional[float]
+            translation_overlay_y: Optional[float]
             if base_anchor is not None and user_anchor is not None:
                 translation_overlay_x = base_anchor[0] - user_anchor[0]
                 translation_overlay_y = base_anchor[1] - user_anchor[1]
             else:
-                delta = anchor_offset_by_group.get(key)
-                if delta is None:
-                    continue
-                translation_overlay_x = -delta[0]
-                translation_overlay_y = -delta[1]
+                transform = transform_by_group.get(key)
+                if transform is not None and mapper.transform.mode is ScaleMode.FILL:
+                    overlay_hint = overlay_bounds_by_group.get(key)
+                    computed = self._compute_group_anchor_vector(mapper, transform, overlay_hint)
+                    if computed is not None:
+                        translation_overlay_x, translation_overlay_y = computed
+                    else:
+                        translation_overlay_x = translation_overlay_y = None
+                else:
+                    translation_overlay_x = translation_overlay_y = None
+                if translation_overlay_x is None or translation_overlay_y is None:
+                    delta = anchor_offset_by_group.get(key)
+                    if delta is None:
+                        continue
+                    translation_overlay_x = -delta[0]
+                    translation_overlay_y = -delta[1]
             if not (math.isfinite(translation_overlay_x) and math.isfinite(translation_overlay_y)):
                 continue
             translation_px_x = translation_overlay_x * base_scale
@@ -2962,6 +2981,47 @@ class OverlayWindow(QWidget):
             if overlay_bounds is not None and overlay_bounds.is_valid():
                 overlay_bounds.translate(translation_overlay_x, translation_overlay_y)
         return translations, cloned_bounds
+
+    def _compute_group_anchor_vector(
+        self,
+        mapper: LegacyMapper,
+        transform: GroupTransform,
+        overlay_bounds: Optional[_OverlayBounds],
+    ) -> Optional[Tuple[float, float]]:
+        if mapper.transform.mode is not ScaleMode.FILL:
+            return None
+        fill = self._build_fill_viewport(mapper, transform)
+        transform_context = build_payload_transform_context(fill)
+        use_overlay_bounds_x = overlay_bounds is not None and overlay_bounds.is_valid() and not fill.overflow_x
+        base_anchor = self._group_base_point(transform, transform_context, overlay_bounds, use_overlay_bounds_x=use_overlay_bounds_x)
+        selected_anchor = self._group_anchor_point(transform, transform_context, overlay_bounds, use_overlay_bounds_x=use_overlay_bounds_x)
+        anchor_for_transform = base_anchor or selected_anchor
+        if anchor_for_transform is None:
+            return None
+        base_translation_dx, base_translation_dy = compute_proportional_translation(
+            fill,
+            transform,
+            anchor_for_transform,
+            anchor_norm_override=(transform.band_min_x, transform.band_min_y),
+        )
+
+        def _effective(point: Optional[Tuple[float, float]]) -> Optional[Tuple[float, float]]:
+            if point is None:
+                return None
+            px, py = self._apply_inverse_group_scale(
+                point[0],
+                point[1],
+                anchor_for_transform,
+                base_anchor or anchor_for_transform,
+                fill,
+            )
+            return px + base_translation_dx, py + base_translation_dy
+
+        base_effective = _effective(base_anchor)
+        user_effective = _effective(selected_anchor)
+        if base_effective is None or user_effective is None:
+            return None
+        return base_effective[0] - user_effective[0], base_effective[1] - user_effective[1]
 
     def _legacy_preset_point_size(self, preset: str, state: ViewportState, mapper: LegacyMapper) -> float:
         """Return the scaled font size for a legacy preset relative to normal."""
