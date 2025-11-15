@@ -76,7 +76,7 @@ overlay.send_message(
 - **Squares instead of emoji:** confirm `overlay-client/fonts/NotoColorEmoji.ttf` exists and
   isn’t corrupted. If you replaced `emoji_fallbacks.txt`, make sure at least one entry resolves
   to a font on the current machine. The client logs its discovered fallback list at startup.
-- **NB:** Qt renders emoji using whatever color-font support the host build provides. PyQt6
+- **Emoji Colors:** Qt renders emoji using whatever color-font support the host build provides. PyQt6
   wheels on Linux (and some Windows/macOS builds) often lack COLR/CBDT support, so emoji
   appear in monochrome even though the bundled Noto Color Emoji font contains color layers.
   This is a limitation of the underlying Qt/FreeType build rather than the overlay. When
@@ -88,11 +88,3 @@ overlay.send_message(
 - **Missing glyph in legacy mode:** same root cause; the legacy TCP path is Unicode-aware, but
   only if the payload already contains the emoji character.
 
-## CLI helper
-
-`utils/emoji_sender.py` now ships as a tiny Tk-based control panel that uses the
-`EDMCOverlay.edmcoverlay` shim. Launch `python utils/emoji_sender.py` to open a window with
-an emoji list, preview panel (glyph, codepoint, Python escape), and inputs for text, color,
-TTL, size, and coordinates. Hit **Send** to push the payload to the overlay immediately.
-For quick command-line introspection (no GUI), run `python utils/emoji_sender.py --list`
-to dump the palette and exit.
