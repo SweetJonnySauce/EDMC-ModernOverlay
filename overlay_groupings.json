@@ -9,7 +9,7 @@
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
         ],
-        "idPrefixGroupAnchor": "top"
+        "idPrefixGroupAnchor": "center"
       },
       "BGS-Tally Tick Notifications": {
         "idPrefixes": [
