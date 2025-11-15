@@ -3444,18 +3444,7 @@ class OverlayWindow(QWidget):
             base_py = fill.screen_y(base_anchor_overlay[1])
             if math.isfinite(base_px) and math.isfinite(base_py):
                 base_anchor_qt = QPoint(int(round(base_px)), int(round(base_py)))
-        anchor_overlay = anchor_override
-        if anchor_overlay is None:
-            anchor_overlay = anchor_point
-            if anchor_overlay is not None and mapper.transform.mode is ScaleMode.FILL:
-                anchor_overlay = self._apply_inverse_group_scale(
-                    anchor_overlay[0],
-                    anchor_overlay[1],
-                    anchor_overlay,
-                    base_anchor_point,
-                    fill,
-                )
-                anchor_overlay = (anchor_overlay[0] + translation_dx, anchor_overlay[1] + translation_dy)
+        anchor_overlay = anchor_override or anchor_point
         if anchor_overlay is None:
             anchor_overlay_x = transform.band_anchor_x * BASE_WIDTH
             anchor_overlay_y = transform.band_anchor_y * BASE_HEIGHT
@@ -3463,12 +3452,31 @@ class OverlayWindow(QWidget):
             anchor_overlay_y = remap_axis_value(anchor_overlay_y, transform_context.axis_y)
         else:
             anchor_overlay_x, anchor_overlay_y = anchor_overlay
+            if mapper.transform.mode is ScaleMode.FILL:
+                anchor_overlay_x, anchor_overlay_y = self._apply_inverse_group_scale(
+                    anchor_overlay_x,
+                    anchor_overlay_y,
+                    anchor_point,
+                    base_anchor_point,
+                    fill,
+                )
+                anchor_overlay_x += translation_dx
+                anchor_overlay_y += translation_dy
+        anchor_token = getattr(transform, "anchor_token", "") or ""
         if (
             math.isfinite(anchor_overlay_x)
             and math.isfinite(anchor_overlay_y)
         ):
             anchor_px = fill.screen_x(anchor_overlay_x)
             anchor_py = fill.screen_y(anchor_overlay_y)
+            if not fill.overflow_x:
+                width = rect_width
+                if anchor_token in {"top", "center", "bottom"}:
+                    anchor_px = rect_left + width / 2.0
+                elif anchor_token in {"left", "west", "nw", "sw"}:
+                    anchor_px = rect_left
+                elif anchor_token in {"right", "east", "ne", "se"}:
+                    anchor_px = rect_left + width
             if math.isfinite(anchor_px) and math.isfinite(anchor_py):
                 dot_radius = max(4, self._line_width("group_outline") * 2)
                 painter.setBrush(QColor(255, 255, 255))
