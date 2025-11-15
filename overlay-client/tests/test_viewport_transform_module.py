@@ -17,6 +17,7 @@ from viewport_transform import (  # noqa: E402
     ViewportState,
     build_viewport,
     compute_proportional_translation,
+    inverse_group_axis,
     legacy_scale_components,
     scaled_point_size,
 )
@@ -158,3 +159,31 @@ def test_compute_proportional_translation_overflow_y_axis() -> None:
     expected_target = group.band_anchor_y * expected_visible
     assert dx == pytest.approx(0.0)
     assert dy == pytest.approx(expected_target - anchor_point[1])
+
+
+def test_inverse_group_axis_overflow_uses_anchor() -> None:
+    value = 600.0
+    anchor = 640.0
+    scale = 1.5
+
+    adjusted = inverse_group_axis(value, scale, overflow_active=True, anchor=anchor, base_reference=None)
+
+    assert adjusted == pytest.approx(anchor + (value - anchor) / scale)
+
+
+def test_inverse_group_axis_fitted_axis_uses_base_reference_even_if_zero() -> None:
+    value = 322.0
+    scale = 0.75
+
+    adjusted = inverse_group_axis(value, scale, overflow_active=False, anchor=640.0, base_reference=0.0)
+
+    assert adjusted == pytest.approx(value / scale)
+
+
+def test_inverse_group_axis_falls_back_to_origin_when_no_reference() -> None:
+    value = 600.0
+    scale = 1.5
+
+    adjusted = inverse_group_axis(value, scale, overflow_active=False, anchor=None, base_reference=None)
+
+    assert adjusted == pytest.approx(value / scale)

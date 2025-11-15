@@ -8,7 +8,8 @@
         "idPrefixes": [
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
-        ]
+        ],
+        "idPrefixGroupAnchor": "nw"
       },
       "BGS-Tally Tick Notifications": {
         "idPrefixes": [
@@ -18,7 +19,8 @@
           "bgstally-msg-system_tick-",
           "bgstally-msg-tickwarn-",
           "bgstally-frame-tickwarn"
-        ]
+        ],
+        "idPrefixGroupAnchor": "nw"
       },
       "BGS-Tally System Info": {
         "idPrefixes": [
@@ -99,7 +101,8 @@
         "idPrefixes": [
           "edr-docking-",
           "edr-docking-station-"
-        ]
+        ],
+        "idPrefixGroupAnchor": "ne"
       },
       "bounty": {
         "idPrefixes": [
@@ -110,7 +113,7 @@
         "idPrefixes": [
           "edr-intel"
         ],
-        "idPrefixGroupAnchor": "ne"
+        "idPrefixGroupAnchor": "nw"
       },
       "target": {
         "idPrefixes": [
@@ -120,7 +123,8 @@
       "notice": {
         "idPrefixes": [
           "edr-notice-"
-        ]
+        ],
+        "idPrefixGroupAnchor": "nw"
       },
       "Edr Navroute": {
         "idPrefixes": [

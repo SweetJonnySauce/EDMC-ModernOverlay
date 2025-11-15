@@ -84,6 +84,7 @@ from viewport_transform import (  # type: ignore  # noqa: E402
     ViewportState,
     build_viewport,
     compute_proportional_translation,
+    inverse_group_axis,
     legacy_scale_components,
     scaled_point_size as viewport_scaled_point_size,
 )
@@ -725,19 +726,33 @@ class OverlayWindow(QWidget):
         value_x: float,
         value_y: float,
         anchor: Optional[Tuple[float, float]],
-        scale: float,
+        base_anchor: Optional[Tuple[float, float]],
+        fill: FillViewport,
     ) -> Tuple[float, float]:
-        if anchor is None:
-            return value_x, value_y
+        scale = getattr(fill, "scale", 0.0)
         if not math.isfinite(scale) or math.isclose(scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
             return value_x, value_y
         if math.isclose(scale, 1.0, rel_tol=1e-9, abs_tol=1e-9):
             return value_x, value_y
-        anchor_x, anchor_y = anchor
-        return (
-            anchor_x + (value_x - anchor_x) / scale,
-            anchor_y + (value_y - anchor_y) / scale,
+        anchor_x = anchor[0] if anchor is not None else None
+        anchor_y = anchor[1] if anchor is not None else None
+        base_x = base_anchor[0] if base_anchor is not None else None
+        base_y = base_anchor[1] if base_anchor is not None else None
+        adjusted_x = inverse_group_axis(
+            value_x,
+            scale,
+            getattr(fill, "overflow_x", False),
+            anchor_x,
+            base_x,
         )
+        adjusted_y = inverse_group_axis(
+            value_y,
+            scale,
+            getattr(fill, "overflow_y", False),
+            anchor_y,
+            base_y,
+        )
+        return adjusted_x, adjusted_y
 
     def _update_message_font(self) -> None:
         mapper = self._compute_legacy_mapper()
@@ -2779,10 +2794,12 @@ class OverlayWindow(QWidget):
         base_offset_x = fill.base_offset_x
         base_offset_y = fill.base_offset_y
         anchor_point: Optional[Tuple[float, float]] = None
+        base_anchor_point: Optional[Tuple[float, float]] = None
         proportional_dx = 0.0
         proportional_dy = 0.0
         if mapper.transform.mode is ScaleMode.FILL:
             anchor_point = self._group_anchor_point(group_transform, transform_context)
+            base_anchor_point = self._group_base_point(group_transform, transform_context)
             proportional_dx, proportional_dy = compute_proportional_translation(fill, group_transform, anchor_point)
         transform_meta = item.get("__mo_transform__")
         self._debug_legacy_point_size = scaled_point_size
@@ -2805,7 +2822,13 @@ class OverlayWindow(QWidget):
             )
         adjusted_left, adjusted_top = remap_point(fill, transform_meta, raw_left, raw_top, context=transform_context)
         if mapper.transform.mode is ScaleMode.FILL:
-            adjusted_left, adjusted_top = self._apply_inverse_group_scale(adjusted_left, adjusted_top, anchor_point, scale)
+            adjusted_left, adjusted_top = self._apply_inverse_group_scale(
+                adjusted_left,
+                adjusted_top,
+                anchor_point,
+                base_anchor_point,
+                fill,
+            )
             adjusted_left += proportional_dx
             adjusted_top += proportional_dy
         text = str(item.get("text", ""))
@@ -2895,10 +2918,12 @@ class OverlayWindow(QWidget):
         transform_context = build_payload_transform_context(fill)
         scale = fill.scale
         anchor_point: Optional[Tuple[float, float]] = None
+        base_anchor_point: Optional[Tuple[float, float]] = None
         proportional_dx = 0.0
         proportional_dy = 0.0
         if mapper.transform.mode is ScaleMode.FILL:
             anchor_point = self._group_anchor_point(group_transform, transform_context)
+            base_anchor_point = self._group_base_point(group_transform, transform_context)
             proportional_dx, proportional_dy = compute_proportional_translation(fill, group_transform, anchor_point)
         base_offset_x = fill.base_offset_x
         base_offset_y = fill.base_offset_y
@@ -2927,7 +2952,7 @@ class OverlayWindow(QWidget):
         transformed_overlay = remap_rect_points(fill, transform_meta, raw_x, raw_y, raw_w, raw_h, context=transform_context)
         if mapper.transform.mode is ScaleMode.FILL:
             transformed_overlay = [
-                self._apply_inverse_group_scale(px, py, anchor_point, scale)
+                self._apply_inverse_group_scale(px, py, anchor_point, base_anchor_point, fill)
                 for px, py in transformed_overlay
             ]
             transformed_overlay = [
@@ -2996,10 +3021,12 @@ class OverlayWindow(QWidget):
         transform_context = build_payload_transform_context(fill)
         scale = fill.scale
         anchor_point: Optional[Tuple[float, float]] = None
+        base_anchor_point: Optional[Tuple[float, float]] = None
         proportional_dx = 0.0
         proportional_dy = 0.0
         if mapper.transform.mode is ScaleMode.FILL:
             anchor_point = self._group_anchor_point(group_transform, transform_context)
+            base_anchor_point = self._group_base_point(group_transform, transform_context)
             proportional_dx, proportional_dy = compute_proportional_translation(fill, group_transform, anchor_point)
         base_offset_x = fill.base_offset_x
         base_offset_y = fill.base_offset_y
@@ -3027,7 +3054,7 @@ class OverlayWindow(QWidget):
         remapped = remap_vector_points(fill, transform_meta, raw_points, context=transform_context)
         for ox, oy, original_point in remapped:
             if mapper.transform.mode is ScaleMode.FILL:
-                ox, oy = self._apply_inverse_group_scale(ox, oy, anchor_point, scale)
+                ox, oy = self._apply_inverse_group_scale(ox, oy, anchor_point, base_anchor_point, fill)
                 ox += proportional_dx
                 oy += proportional_dy
             new_point = dict(original_point)
@@ -3202,14 +3229,15 @@ class OverlayWindow(QWidget):
         translation_dy = 0.0
         if mapper.transform.mode is ScaleMode.FILL:
             anchor_point = self._group_anchor_point(transform, transform_context)
-            min_x, min_y = self._apply_inverse_group_scale(min_x, min_y, anchor_point, fill.scale)
-            max_x, max_y = self._apply_inverse_group_scale(max_x, max_y, anchor_point, fill.scale)
+            min_x, min_y = self._apply_inverse_group_scale(min_x, min_y, anchor_point, base_anchor_point, fill)
+            max_x, max_y = self._apply_inverse_group_scale(max_x, max_y, anchor_point, base_anchor_point, fill)
             if base_anchor_overlay is not None:
                 base_anchor_overlay = self._apply_inverse_group_scale(
                     base_anchor_overlay[0],
                     base_anchor_overlay[1],
                     anchor_point,
-                    fill.scale,
+                    base_anchor_point,
+                    fill,
                 )
             translation_dx, translation_dy = compute_proportional_translation(fill, transform, anchor_point)
             min_x += translation_dx
@@ -3246,7 +3274,13 @@ class OverlayWindow(QWidget):
                 base_anchor_qt = QPoint(int(round(base_px)), int(round(base_py)))
         anchor_overlay = anchor_point
         if anchor_overlay is not None and mapper.transform.mode is ScaleMode.FILL:
-            anchor_overlay = self._apply_inverse_group_scale(anchor_overlay[0], anchor_overlay[1], anchor_overlay, fill.scale)
+            anchor_overlay = self._apply_inverse_group_scale(
+                anchor_overlay[0],
+                anchor_overlay[1],
+                anchor_overlay,
+                base_anchor_point,
+                fill,
+            )
             anchor_overlay = (anchor_overlay[0] + translation_dx, anchor_overlay[1] + translation_dy)
         if anchor_overlay is None:
             anchor_overlay_x = transform.band_anchor_x * BASE_WIDTH

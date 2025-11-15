@@ -172,6 +172,30 @@ def compute_proportional_translation(
     return dx, dy
 
 
+def inverse_group_axis(
+    value: float,
+    scale: float,
+    overflow_active: bool,
+    anchor: Optional[float],
+    base_reference: Optional[float],
+) -> float:
+    """Inverse-scale a coordinate while respecting overflow behaviour.
+
+    Overflow axes keep the payload rigid around the declared anchor; fitted axes
+    should stay pinned to their cached bounds, so we pivot around the base
+    reference instead and avoid shifting when the anchor changes.
+    """
+    if not math.isfinite(scale) or math.isclose(scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
+        return value
+    if overflow_active:
+        reference = anchor
+    else:
+        reference = base_reference if base_reference is not None else anchor
+    if reference is None or not math.isfinite(reference):
+        return value / scale
+    return reference + (value - reference) / scale
+
+
 def legacy_scale_components(mapper: LegacyMapper, state: ViewportState) -> Tuple[float, float]:
     scale_x = mapper.scale_x
     scale_y = mapper.scale_y
