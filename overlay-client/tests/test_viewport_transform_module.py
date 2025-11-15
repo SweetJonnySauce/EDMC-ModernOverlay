@@ -18,6 +18,7 @@ from viewport_transform import (  # noqa: E402
     build_viewport,
     compute_proportional_translation,
     inverse_group_axis,
+    remap_anchor_value,
     legacy_scale_components,
     scaled_point_size,
 )
@@ -187,3 +188,22 @@ def test_inverse_group_axis_falls_back_to_origin_when_no_reference() -> None:
     adjusted = inverse_group_axis(value, scale, overflow_active=False, anchor=None, base_reference=None)
 
     assert adjusted == pytest.approx(value / scale)
+
+
+def test_remap_anchor_value_matches_actual_bounds() -> None:
+    anchor_norm = 0.8
+    min_norm = 0.5
+    max_norm = 0.9
+    actual_min = 100.0
+    actual_max = 200.0
+
+    mapped = remap_anchor_value(anchor_norm, min_norm, max_norm, actual_min, actual_max)
+
+    ratio = (anchor_norm - min_norm) / (max_norm - min_norm)
+    expected = actual_min + ratio * (actual_max - actual_min)
+    assert mapped == pytest.approx(expected)
+
+
+def test_remap_anchor_value_handles_degenerate_span() -> None:
+    mapped = remap_anchor_value(0.5, 0.5, 0.5, 42.0, 84.0)
+    assert mapped == pytest.approx(42.0)

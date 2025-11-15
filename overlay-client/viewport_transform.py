@@ -196,6 +196,26 @@ def inverse_group_axis(
     return reference + (value - reference) / scale
 
 
+def remap_anchor_value(
+    anchor_norm: float,
+    min_norm: float,
+    max_norm: float,
+    actual_min: float,
+    actual_max: float,
+) -> float:
+    """Map a normalised anchor coordinate onto concrete bounds."""
+    if not all(
+        math.isfinite(value)
+        for value in (anchor_norm, min_norm, max_norm, actual_min, actual_max)
+    ):
+        return actual_min
+    denom = max_norm - min_norm
+    if math.isclose(denom, 0.0, rel_tol=1e-9, abs_tol=1e-9):
+        return actual_min
+    ratio = (anchor_norm - min_norm) / denom
+    return actual_min + ratio * (actual_max - actual_min)
+
+
 def legacy_scale_components(mapper: LegacyMapper, state: ViewportState) -> Tuple[float, float]:
     scale_x = mapper.scale_x
     scale_y = mapper.scale_y
