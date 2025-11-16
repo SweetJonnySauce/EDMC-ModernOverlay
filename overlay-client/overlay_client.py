@@ -317,7 +317,6 @@ class OverlayDataClient(QObject):
         self._thread: Optional[threading.Thread] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._stop_event = threading.Event()
-        self._last_metadata: Dict[str, Any] = {}
         self._outgoing: Optional[asyncio.Queue[Optional[Dict[str, Any]]]] = None
         self._pending: "queue.Queue[Dict[str, Any]]" = queue.Queue(maxsize=32)
 
@@ -478,7 +477,6 @@ class OverlayDataClient(QObject):
         port = data.get("port")
         if isinstance(port, int) and port > 0:
             data["port"] = port
-            self._last_metadata = data
             return data
         return None
 
@@ -510,8 +508,6 @@ class OverlayWindow(QWidget):
         self._saved_cursor: QCursor = self.cursor()
         self._transparent_input_supported = hasattr(Qt.WindowType, "WindowTransparentForInput")
         self._show_status: bool = False
-        self._base_height: int = DEFAULT_WINDOW_BASE_HEIGHT
-        self._base_width: int = DEFAULT_WINDOW_BASE_WIDTH
         self._log_retention: int = max(1, int(initial.client_log_retention))
         self._force_render: bool = bool(getattr(initial, "force_render", False))
         self._window_tracker: Optional[WindowTracker] = None
@@ -533,7 +529,6 @@ class OverlayWindow(QWidget):
         self._wm_authoritative_rect: Optional[Tuple[int, int, int, int]] = None
         self._wm_override_tracker: Optional[Tuple[int, int, int, int]] = None
         self._wm_override_timestamp: float = 0.0
-        self._wm_override_reason: Optional[str] = None
         self._wm_override_classification: Optional[str] = None
         self._enforcing_follow_size: bool = False
         self._transient_parent_id: Optional[str] = None
@@ -1992,7 +1987,6 @@ class OverlayWindow(QWidget):
         self._wm_authoritative_rect = rect
         self._wm_override_tracker = tracker_tuple
         self._wm_override_timestamp = time.monotonic()
-        self._wm_override_reason = reason
         self._wm_override_classification = classification
         _CLIENT_LOGGER.debug(
             "Recorded WM authoritative rect (%s, classification=%s): actual=%s tracker=%s; %s",
@@ -2014,7 +2008,6 @@ class OverlayWindow(QWidget):
         self._wm_authoritative_rect = None
         self._wm_override_tracker = None
         self._wm_override_timestamp = 0.0
-        self._wm_override_reason = None
         self._wm_override_classification = None
 
     def _suspend_follow(self, delay: float = 0.75) -> None:
@@ -2225,7 +2218,6 @@ class OverlayWindow(QWidget):
             self._move_to_screen(target_rect)
             self._last_set_geometry = target_tuple
             self.setGeometry(target_rect)
-            self._sync_base_dimensions_to_widget()
             self.raise_()
             current_rect = self.frameGeometry()
             actual_tuple = (
@@ -2236,7 +2228,6 @@ class OverlayWindow(QWidget):
             )
         else:
             self._last_set_geometry = target_tuple
-            self._sync_base_dimensions_to_widget()
 
         if actual_tuple != target_tuple:
             _CLIENT_LOGGER.debug(
@@ -2553,11 +2544,6 @@ class OverlayWindow(QWidget):
             return f"{screen.name()} {geometry.width()}x{geometry.height()}@({geometry.x()},{geometry.y()})"
         except Exception:
             return str(screen)
-
-    def _sync_base_dimensions_to_widget(self) -> None:
-        width_px, height_px = self._current_physical_size()
-        self._base_width = max(int(round(width_px)), 1)
-        self._base_height = max(int(round(height_px)), 1)
 
     def _classify_geometry_override(
         self,
