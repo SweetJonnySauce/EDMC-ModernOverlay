@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import os
 import queue
 import re
@@ -610,6 +611,38 @@ class GroupConfigStore:
             return token
         return None
 
+    @staticmethod
+    def _clean_offset_value(value: Any) -> Optional[float]:
+        numeric: Optional[float]
+        if isinstance(value, (int, float)):
+            numeric = float(value)
+        elif isinstance(value, str):
+            token = value.strip()
+            if not token:
+                return None
+            try:
+                numeric = float(token)
+            except ValueError:
+                return None
+        else:
+            return None
+        if not math.isfinite(numeric):
+            return None
+        if numeric.is_integer():
+            return int(numeric)
+        return numeric
+
+    @classmethod
+    def _coerce_offset_value(cls, value: Any, label: str) -> Optional[float]:
+        if value is None:
+            return None
+        if isinstance(value, str) and not value.strip():
+            return None
+        cleaned = cls._clean_offset_value(value)
+        if cleaned is None:
+            raise ValueError(f"{label} must be a number.")
+        return cleaned
+
     def _normalise_group_spec(self, spec: MutableMapping[str, object]) -> Dict[str, object]:
         prefixes = self._normalise_prefix_list(
             spec.get("idPrefixes")
@@ -624,6 +657,12 @@ class GroupConfigStore:
         anchor_token = self._normalise_anchor(spec.get("idPrefixGroupAnchor") or spec.get("anchor"))
         if anchor_token:
             cleaned["idPrefixGroupAnchor"] = anchor_token
+        offset_x = self._clean_offset_value(spec.get("offsetX") or spec.get("offset_x"))
+        if offset_x is not None:
+            cleaned["offsetX"] = offset_x
+        offset_y = self._clean_offset_value(spec.get("offsetY") or spec.get("offset_y"))
+        if offset_y is not None:
+            cleaned["offsetY"] = offset_y
         notes_value = spec.get("notes")
         if isinstance(notes_value, str) and notes_value.strip():
             cleaned["notes"] = notes_value.strip()
@@ -684,6 +723,8 @@ class GroupConfigStore:
                                 "label": label,
                                 "prefixes": list(prefixes),
                                 "anchor": anchor,
+                                "offsetX": spec.get("offsetX"),
+                                "offsetY": spec.get("offsetY"),
                                 "notes": notes,
                             }
                         )
@@ -799,6 +840,8 @@ class GroupConfigStore:
         prefixes: Sequence[str],
         anchor: Optional[str],
         notes: Optional[str],
+        offset_x: Optional[object] = None,
+        offset_y: Optional[object] = None,
     ) -> None:
         if not prefixes:
             raise ValueError("At least one ID prefix is required.")
@@ -808,6 +851,8 @@ class GroupConfigStore:
         anchor_token = anchor.strip().lower() if isinstance(anchor, str) else None
         if anchor_token and anchor_token not in ANCHOR_CHOICES:
             raise ValueError(f"Anchor must be one of {', '.join(ANCHOR_CHOICES)}.")
+        offset_x_value = self._coerce_offset_value(offset_x, "Offset X") if offset_x is not None else None
+        offset_y_value = self._coerce_offset_value(offset_y, "Offset Y") if offset_y is not None else None
         with self._lock:
             entry = self._data.get(group_name)
             if not entry:
@@ -819,12 +864,17 @@ class GroupConfigStore:
             if cleaned_label in groups:
                 raise ValueError(f"Grouping '{cleaned_label}' already exists for '{group_name}'.")
             cleaned_notes = notes.strip() if isinstance(notes, str) else None
+            spec_payload: Dict[str, object] = {
+                "idPrefixes": list(prefixes),
+                "idPrefixGroupAnchor": anchor_token,
+                "notes": cleaned_notes,
+            }
+            if offset_x_value is not None:
+                spec_payload["offsetX"] = offset_x_value
+            if offset_y_value is not None:
+                spec_payload["offsetY"] = offset_y_value
             groups[cleaned_label] = self._normalise_group_spec(
-                {
-                    "idPrefixes": list(prefixes),
-                    "idPrefixGroupAnchor": anchor_token,
-                    "notes": cleaned_notes,
-                }
+                spec_payload
             )
             self.save()
 
@@ -837,6 +887,8 @@ class GroupConfigStore:
         prefixes: Optional[Sequence[str]] = None,
         anchor: Optional[str] = None,
         notes: Optional[str] = None,
+        offset_x: Optional[object] = None,
+        offset_y: Optional[object] = None,
     ) -> None:
         original_label = label.strip()
         if not original_label:
@@ -872,6 +924,18 @@ class GroupConfigStore:
                     target_spec["notes"] = cleaned_notes
                 else:
                     target_spec.pop("notes", None)
+            if offset_x is not None:
+                offset_value = self._coerce_offset_value(offset_x, "Offset X")
+                if offset_value is not None:
+                    target_spec["offsetX"] = offset_value
+                else:
+                    target_spec.pop("offsetX", None)
+            if offset_y is not None:
+                offset_value = self._coerce_offset_value(offset_y, "Offset Y")
+                if offset_value is not None:
+                    target_spec["offsetY"] = offset_value
+                else:
+                    target_spec.pop("offsetY", None)
             if replacement_label != original_label:
                 if replacement_label in groups and replacement_label != original_label:
                     raise ValueError(f"Grouping '{replacement_label}' already exists for '{group_name}'.")
@@ -1035,9 +1099,17 @@ class NewGroupingDialog(simpledialog.Dialog):
             row=3, column=1, sticky="w"
         )
 
-        ttk.Label(master, text="Notes").grid(row=4, column=0, sticky="w")
+        ttk.Label(master, text="Offset X (px)").grid(row=4, column=0, sticky="w")
+        self.offset_x_var = tk.StringVar(value=self._format_initial_offset(self._suggestion.get("offsetX")))
+        ttk.Entry(master, textvariable=self.offset_x_var, width=40).grid(row=4, column=1, sticky="ew")
+
+        ttk.Label(master, text="Offset Y (px)").grid(row=5, column=0, sticky="w")
+        self.offset_y_var = tk.StringVar(value=self._format_initial_offset(self._suggestion.get("offsetY")))
+        ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=5, column=1, sticky="ew")
+
+        ttk.Label(master, text="Notes").grid(row=6, column=0, sticky="w")
         self.notes_var = tk.StringVar(value=str(self._suggestion.get("notes") or ""))
-        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=4, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=6, column=1, sticky="ew")
         return master
 
     def validate(self) -> bool:  # type: ignore[override]
@@ -1051,11 +1123,25 @@ class NewGroupingDialog(simpledialog.Dialog):
             return False
         return True
 
+    @staticmethod
+    def _format_initial_offset(value: Any) -> str:
+        if isinstance(value, int):
+            return str(value)
+        if isinstance(value, float):
+            if value.is_integer():
+                return str(int(value))
+            return f"{value:g}"
+        if isinstance(value, str):
+            return value.strip()
+        return ""
+
     def result_data(self) -> Dict[str, object]:
         return {
             "label": self.label_var.get().strip(),
             "prefixes": _clean_prefixes(self.prefix_var.get()),
             "anchor": self.anchor_var.get().strip(),
+            "offset_x": self.offset_x_var.get().strip(),
+            "offset_y": self.offset_y_var.get().strip(),
             "notes": self.notes_var.get().strip(),
         }
 
@@ -1091,9 +1177,17 @@ class EditGroupingDialog(simpledialog.Dialog):
             row=3, column=1, sticky="w"
         )
 
-        ttk.Label(master, text="Notes").grid(row=4, column=0, sticky="w")
+        ttk.Label(master, text="Offset X (px)").grid(row=4, column=0, sticky="w")
+        self.offset_x_var = tk.StringVar(value=self._format_initial_offset(self._entry.get("offsetX")))
+        ttk.Entry(master, textvariable=self.offset_x_var, width=40).grid(row=4, column=1, sticky="ew")
+
+        ttk.Label(master, text="Offset Y (px)").grid(row=5, column=0, sticky="w")
+        self.offset_y_var = tk.StringVar(value=self._format_initial_offset(self._entry.get("offsetY")))
+        ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=5, column=1, sticky="ew")
+
+        ttk.Label(master, text="Notes").grid(row=6, column=0, sticky="w")
         self.notes_var = tk.StringVar(value=str(self._entry.get("notes") or ""))
-        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=4, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=6, column=1, sticky="ew")
         return master
 
     def validate(self) -> bool:  # type: ignore[override]
@@ -1113,11 +1207,25 @@ class EditGroupingDialog(simpledialog.Dialog):
             "label": self.label_var.get().strip(),
             "prefixes": _clean_prefixes(self.prefix_var.get()),
             "anchor": self.anchor_var.get().strip(),
+            "offset_x": self.offset_x_var.get().strip(),
+            "offset_y": self.offset_y_var.get().strip(),
             "notes": self.notes_var.get().strip(),
         }
 
     def apply(self) -> None:  # type: ignore[override]
         self.result = self.result_data()
+
+    @staticmethod
+    def _format_initial_offset(value: Any) -> str:
+        if isinstance(value, int):
+            return str(value)
+        if isinstance(value, float):
+            if value.is_integer():
+                return str(int(value))
+            return f"{value:g}"
+        if isinstance(value, str):
+            return value.strip()
+        return ""
 
 
 class AddPrefixDialog(simpledialog.Dialog):
@@ -1858,6 +1966,11 @@ class PluginGroupManagerApp:
             left_cell.grid(row=1, column=0, sticky="nw", pady=(2, 0))
             left_cell.grid_propagate(False)
             ttk.Label(left_cell, text=f"Anchor: {anchor_value}").pack(anchor="w")
+            offset_label = (
+                f"Offset: x={self._format_offset_value(entry.get('offsetX'))}, "
+                f"y={self._format_offset_value(entry.get('offsetY'))}"
+            )
+            ttk.Label(left_cell, text=offset_label).pack(anchor="w", pady=(2, 0))
             notes_label = ttk.Label(left_cell, text=f"Notes: {notes_text}", wraplength=LEFT_COLUMN_WIDTH, justify="left")
             notes_label.pack(anchor="w", pady=(2, 0))
 
@@ -1887,6 +2000,16 @@ class PluginGroupManagerApp:
         if self.grouping_canvas is None:
             return
         self.grouping_canvas.yview_moveto(0.0)
+
+    @staticmethod
+    def _format_offset_value(value: Optional[object]) -> str:
+        if isinstance(value, int):
+            return str(value)
+        if isinstance(value, float):
+            if value.is_integer():
+                return str(int(value))
+            return f"{value:g}"
+        return "0"
 
     def _on_group_selected(self) -> None:
         name = self.selected_group_var.get()
@@ -2158,6 +2281,8 @@ class PluginGroupManagerApp:
                 prefixes=data["prefixes"],
                 anchor=data["anchor"],
                 notes=data["notes"],
+                offset_x=data.get("offset_x"),
+                offset_y=data.get("offset_y"),
             )
         except ValueError as exc:
             messagebox.showerror("Failed to add grouping", str(exc))
@@ -2186,6 +2311,8 @@ class PluginGroupManagerApp:
                 prefixes=data.get("prefixes"),
                 anchor=data.get("anchor"),
                 notes=data.get("notes"),
+                offset_x=data.get("offset_x"),
+                offset_y=data.get("offset_y"),
             )
         except ValueError as exc:
             messagebox.showerror("Failed to edit grouping", str(exc))
