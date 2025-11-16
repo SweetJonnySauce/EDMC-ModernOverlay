@@ -20,7 +20,7 @@
           "bgstally-msg-tickwarn-",
           "bgstally-frame-tickwarn"
         ],
-        "idPrefixGroupAnchor": "ne"
+        "idPrefixGroupAnchor": "nw"
       },
       "BGS-Tally System Info": {
         "idPrefixes": [
@@ -113,7 +113,7 @@
         "idPrefixes": [
           "edr-intel"
         ],
-        "idPrefixGroupAnchor": "right"
+        "idPrefixGroupAnchor": "nw"
       },
       "target": {
         "idPrefixes": [

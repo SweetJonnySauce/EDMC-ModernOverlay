@@ -3735,10 +3735,11 @@ class OverlayWindow(QWidget):
             base_py = fill.screen_y(base_anchor_overlay[1])
             if math.isfinite(base_px) and math.isfinite(base_py):
                 base_anchor_qt = QPoint(int(round(base_px)), int(round(base_py)))
+        display_overlay = base_anchor_overlay if base_anchor_overlay is not None else None
         if explicit_anchor is not None:
             anchor_overlay_x, anchor_overlay_y = explicit_anchor
-        elif base_anchor_overlay is not None:
-            anchor_overlay_x, anchor_overlay_y = base_anchor_overlay
+        elif display_overlay is not None:
+            anchor_overlay_x, anchor_overlay_y = display_overlay
         else:
             anchor_overlay = bounds_anchor_override or anchor_point
             if anchor_overlay is None:
@@ -3760,6 +3761,7 @@ class OverlayWindow(QWidget):
                     anchor_overlay_y += base_translation_dy
         anchor_token = getattr(transform, "anchor_token", "") or ""
         anchor_point_qt: Optional[QPoint] = None
+        display_anchor_qt: Optional[QPoint] = base_anchor_qt
         anchor_visual_dx = float(anchor_visual_offset[0]) if anchor_visual_offset else 0.0
         anchor_visual_dy = float(anchor_visual_offset[1]) if anchor_visual_offset else 0.0
         anchor_visual_applied = bool(anchor_visual_dx or anchor_visual_dy)
@@ -3782,42 +3784,54 @@ class OverlayWindow(QWidget):
                     elif anchor_token in {"right", "east", "ne", "se"}:
                         anchor_px = rect_left + width
                 if math.isfinite(anchor_px) and math.isfinite(anchor_py):
-                    dot_radius = max(4, self._line_width("group_outline") * 2)
-                    painter.setBrush(QColor(255, 255, 255))
-                    painter.setPen(Qt.PenStyle.NoPen)
                     anchor_point_qt = QPoint(int(round(anchor_px)), int(round(anchor_py)))
-                    painter.drawEllipse(
-                        anchor_point_qt,
-                        dot_radius,
-                        dot_radius,
-                    )
-                    painter.setPen(QColor(255, 255, 255))
-                    painter.setBrush(Qt.BrushStyle.NoBrush)
-                    text = "({:.1f}, {:.1f})".format(anchor_overlay_x, anchor_overlay_y)
-                    if anchor_offset is not None:
-                        text += " Δ=({:.1f}, {:.1f})".format(anchor_offset[0], anchor_offset[1])
-                    metrics = painter.fontMetrics()
-                    text_rect = metrics.boundingRect(text)
-                    offset_x = dot_radius + 6
-                    offset_y = -dot_radius - 6
-                    label_x = anchor_point_qt.x() + offset_x
-                    label_y = anchor_point_qt.y() + offset_y
-                    if label_x + text_rect.width() > fill.visible_width:
-                        label_x = anchor_point_qt.x() - offset_x - text_rect.width()
-                    if label_y - text_rect.height() < 0:
-                        label_y = anchor_point_qt.y() + offset_y + text_rect.height()
-                    painter.drawText(label_x, label_y, text)
-            if anchor_point_qt is not None and base_anchor_qt is not None:
+            if display_anchor_qt is None and display_overlay is not None:
+                disp_x, disp_y = display_overlay
+                if math.isfinite(disp_x) and math.isfinite(disp_y):
+                    disp_px = fill.screen_x(disp_x)
+                    disp_py = fill.screen_y(disp_y)
+                    if math.isfinite(disp_px) and math.isfinite(disp_py):
+                        display_anchor_qt = QPoint(int(round(disp_px)), int(round(disp_py)))
+            if display_anchor_qt is not None:
+                dot_radius = max(4, self._line_width("group_outline") * 2)
+                painter.setBrush(QColor(255, 255, 255))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawEllipse(display_anchor_qt, dot_radius, dot_radius)
+                painter.setPen(QColor(255, 255, 255))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                label_overlay = display_overlay
+                if label_overlay is None:
+                    label_overlay = (anchor_overlay_x, anchor_overlay_y) if (
+                        math.isfinite(anchor_overlay_x) and math.isfinite(anchor_overlay_y)
+                    ) else None
+                if label_overlay is not None:
+                    text = "({:.1f}, {:.1f})".format(label_overlay[0], label_overlay[1])
+                else:
+                    text = "(n/a)"
+                if anchor_offset is not None:
+                    text += " Δ=({:.1f}, {:.1f})".format(anchor_offset[0], anchor_offset[1])
+                metrics = painter.fontMetrics()
+                text_rect = metrics.boundingRect(text)
+                offset_x = dot_radius + 6
+                offset_y = -dot_radius - 6
+                label_x = display_anchor_qt.x() + offset_x
+                label_y = display_anchor_qt.y() + offset_y
+                if label_x + text_rect.width() > fill.visible_width:
+                    label_x = display_anchor_qt.x() - offset_x - text_rect.width()
+                if label_y - text_rect.height() < 0:
+                    label_y = display_anchor_qt.y() + offset_y + text_rect.height()
+                painter.drawText(label_x, label_y, text)
+            if anchor_point_qt is not None and display_anchor_qt is not None:
                 painter.save()
                 arrow_pen = QPen(QColor(0, 255, 128))
                 arrow_pen.setWidth(max(1, self._line_width("vector_marker")))
                 painter.setPen(arrow_pen)
-                painter.drawLine(anchor_point_qt, base_anchor_qt)
-                dx_arrow = anchor_point_qt.x() - base_anchor_qt.x()
-                dy_arrow = anchor_point_qt.y() - base_anchor_qt.y()
+                painter.drawLine(display_anchor_qt, anchor_point_qt)
+                dx_arrow = anchor_point_qt.x() - display_anchor_qt.x()
+                dy_arrow = anchor_point_qt.y() - display_anchor_qt.y()
                 angle = math.atan2(dy_arrow, dx_arrow)
                 arrow_size = 10
-                tip = base_anchor_qt
+                tip = anchor_point_qt
                 left = QPoint(
                     int(round(tip.x() + arrow_size * math.cos(angle + math.pi / 6))),
                     int(round(tip.y() + arrow_size * math.sin(angle + math.pi / 6))),
