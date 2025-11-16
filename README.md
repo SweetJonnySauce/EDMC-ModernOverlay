@@ -3,6 +3,8 @@
 
 EDMC Modern Overlay is a cross-platform (Windows and Linux), two-part implementation (plugin and overlay-client) for Elite Dangerous Market Connector ([EDMC](https://github.com/EDCD/EDMarketConnector)). It streams data from EDMC plugins over a lightweight TCP socket and displays a transparent, click-through PyQt6 heads-up display on the Elite Dangrous game. It runs in both borderless and windowed mode.
 
+<img width="1957" height="1260" alt="image" src="https://github.com/user-attachments/assets/f17a2a83-1e5c-4556-af65-1053dba38cff" />
+
 # Key Features
 - Backwards compatibility with [EDMCOverlay](https://github.com/inorton/EDMCOverlay)
 - Works in borderless or windowed mode on any display size
