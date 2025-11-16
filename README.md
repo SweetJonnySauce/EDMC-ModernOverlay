@@ -128,4 +128,4 @@ Special thanks to [inorton](https://github.com/inorton) for the original [EDMCOv
 
 # Blame
 
-This EDMC plugin is a learning experiment in using AI for ground up development. My goal was to avoid touching code and only use AI. It was developed on VSCode using Codex (gpt-5-codex) for 99.999% of the code.
+First and foremost, this EDMC plugin is a learning experiment in using AI for ground up development. The intent was never to get it to this point, but here we are. My goal was to avoid touching code and only use AI, and I've been very successful in reaching that goal. It was developed on VSCode using Codex (gpt-5-codex) for 99.999% of the code.
