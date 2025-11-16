@@ -83,8 +83,8 @@ EDMC Modern Overlay is a cross-platform (Windows and Linux), two-part implementa
 
 ## Programmatic API
 
-> **Caution:** Here Be Dragons
-> The `send_overlay_message` API will most likely be changed or deprecated in the future. It has not been fully developed or tested in order to priotitize work on the backwards compatibility with the very capable `edmcoverlay` legacy API (described below). Use this at your own risk.
+> **Caution: Here Be Dragons!**
+> The `send_overlay_message` API will most likely be changed or deprecated in the future. It has not been fully developed or tested in order to priotitize work on backwards compatibility with the very capable `edmcoverlay` legacy API (described below). Use this at your own risk.
 
 Other plugins within EDMC can publish overlay updates without depending on socket details by using the bundled helper:
 
@@ -117,6 +117,10 @@ overlay.send_shape("demo-frame", "rect", "#ffffff", "#40000000", 80, 120, 420, 1
 ```
 
 Under the hood the compatibility layer forwards payloads through `send_overlay_message`, so no socket management or process monitoring is required. The overlay client understands the legacy message/rectangle schema, making migration from the original EDMCOverlay plugin largely turnkey.
+
+# Support
+
+Best way to get support for this plugin is to create a github issue in this repo. This is a side project for me. As such, support is best effort only and there is no guarantee I'll be able to fix or fully address your issue/request. You can occassionally find me on [EDCD Discord](https://edcd.github.io/) in the `#edmc-plugins` channel.
 
 # Thanks
 
