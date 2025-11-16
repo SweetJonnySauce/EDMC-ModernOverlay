@@ -218,6 +218,36 @@ def test_group_anchor_selection(override_file: Path) -> None:
     assert manager.group_preserve_fill_aspect("Example", "edge_bottom") == (True, "bottom")
     assert manager.group_preserve_fill_aspect("Example", "edge_left") == (True, "left")
     assert manager.group_preserve_fill_aspect("Example", "edge_right") == (True, "right")
+
+
+def test_group_payload_justification_lookup(override_file: Path) -> None:
+    override_file.write_text(
+        json.dumps(
+            {
+                "Example": {
+                    "idPrefixGroups": {
+                        "alerts": {
+                            "idPrefixes": ["example.alert."],
+                            "payloadJustification": "right"
+                        },
+                        "metrics": {
+                            "idPrefixes": ["example.metric."],
+                            "payloadJustification": "center"
+                        },
+                        "default": {
+                            "idPrefixes": ["example.default."]
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = _make_manager(override_file)
+    assert manager.group_payload_justification("Example", "alerts") == "right"
+    assert manager.group_payload_justification("Example", "metrics") == "center"
+    assert manager.group_payload_justification("Example", "default") == "left"
+    assert manager.group_payload_justification("Example", "missing") == "left"
     # invalid anchor falls back to nw
     assert manager.group_preserve_fill_aspect("Example", "default") == (True, "nw")
     # unknown suffix also falls back to nw

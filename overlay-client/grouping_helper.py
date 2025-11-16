@@ -74,6 +74,7 @@ class FillGroupingHelper:
             plugin_label, suffix = key_tuple
             _, anchor_token = self._group_preserve_fill_aspect(plugin_label, suffix)
             offset_x, offset_y = self._group_offsets(plugin_label, suffix)
+            justification = self._group_payload_justification(plugin_label, suffix)
             anchor_x, anchor_y = self._anchor_from_bounds(bounds, anchor_token)
             band_min_x = _normalise(bounds.min_x, base_width)
             band_max_x = _normalise(bounds.max_x, base_width)
@@ -97,6 +98,7 @@ class FillGroupingHelper:
                     bounds_max_x=bounds.max_x,
                     bounds_max_y=bounds.max_y,
                     anchor_token=(anchor_token or "nw").lower(),
+                    payload_justification=justification,
                 ),
             )
     def group_key_for(self, item_id: str, plugin_name: Optional[str]) -> GroupKey:
@@ -132,6 +134,11 @@ class FillGroupingHelper:
         if self._override_manager is None:
             return (0.0, 0.0)
         return self._override_manager.group_offsets(plugin_label, suffix)
+
+    def _group_payload_justification(self, plugin_label: Optional[str], suffix: Optional[str]) -> str:
+        if self._override_manager is None:
+            return "left"
+        return self._override_manager.group_payload_justification(plugin_label, suffix)
 
     @staticmethod
     def _anchor_from_bounds(bounds: GroupBounds, token: Optional[str]) -> Tuple[float, float]:

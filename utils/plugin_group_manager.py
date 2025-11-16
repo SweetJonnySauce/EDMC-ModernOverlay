@@ -42,6 +42,8 @@ TRACE_LOG_PATH = Path(__file__).resolve().with_name("plugin_group_manager_contex
 PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
 PAYLOAD_LOG_BASENAMES = ("overlay-payloads.log", "overlay_payloads.log")
 ANCHOR_CHOICES = ("nw", "ne", "sw", "se", "center", "top", "bottom", "left", "right")
+PAYLOAD_JUSTIFICATION_CHOICES = ("left", "center", "right")
+DEFAULT_PAYLOAD_JUSTIFICATION = "left"
 GENERIC_PAYLOAD_TOKENS = {"vect", "shape", "text"}
 GROUP_SELECTOR_STYLE = "ModernOverlayGroupSelect.TCombobox"
 LEFT_COLUMN_WIDTH = 180
@@ -613,6 +615,17 @@ class GroupConfigStore:
         return None
 
     @staticmethod
+    def _normalise_justification(value: Any) -> Optional[str]:
+        if not isinstance(value, str):
+            return None
+        token = value.strip().lower()
+        if not token:
+            return None
+        if token in PAYLOAD_JUSTIFICATION_CHOICES:
+            return token
+        return None
+
+    @staticmethod
     def _clean_offset_value(value: Any) -> Optional[float]:
         numeric: Optional[float]
         if isinstance(value, (int, float)):
@@ -664,6 +677,11 @@ class GroupConfigStore:
         offset_y = self._clean_offset_value(spec.get("offsetY") or spec.get("offset_y"))
         if offset_y is not None:
             cleaned["offsetY"] = offset_y
+        justification = self._normalise_justification(
+            spec.get("payloadJustification") or spec.get("payload_justification") or spec.get("justification")
+        )
+        if justification:
+            cleaned["payloadJustification"] = justification
         notes_value = spec.get("notes")
         if isinstance(notes_value, str) and notes_value.strip():
             cleaned["notes"] = notes_value.strip()
@@ -719,6 +737,13 @@ class GroupConfigStore:
                         ]
                         anchor = spec.get("idPrefixGroupAnchor") or spec.get("anchor") or ""
                         notes = spec.get("notes") or ""
+                        raw_justification = spec.get("payloadJustification")
+                        if isinstance(raw_justification, str) and raw_justification.strip():
+                            justification = raw_justification.strip().lower()
+                        else:
+                            justification = DEFAULT_PAYLOAD_JUSTIFICATION
+                        if justification not in PAYLOAD_JUSTIFICATION_CHOICES:
+                            justification = DEFAULT_PAYLOAD_JUSTIFICATION
                         view_entries.append(
                             {
                                 "label": label,
@@ -726,6 +751,7 @@ class GroupConfigStore:
                                 "anchor": anchor,
                                 "offsetX": spec.get("offsetX"),
                                 "offsetY": spec.get("offsetY"),
+                                "payloadJustification": justification,
                                 "notes": notes,
                             }
                         )
@@ -843,6 +869,7 @@ class GroupConfigStore:
         notes: Optional[str],
         offset_x: Optional[object] = None,
         offset_y: Optional[object] = None,
+        payload_justification: Optional[str] = None,
     ) -> None:
         if not prefixes:
             raise ValueError("At least one ID prefix is required.")
@@ -854,6 +881,11 @@ class GroupConfigStore:
             raise ValueError(f"Anchor must be one of {', '.join(ANCHOR_CHOICES)}.")
         offset_x_value = self._coerce_offset_value(offset_x, "Offset X") if offset_x is not None else None
         offset_y_value = self._coerce_offset_value(offset_y, "Offset Y") if offset_y is not None else None
+        justification_token = (
+            self._normalise_justification(payload_justification) if payload_justification is not None else None
+        )
+        if not justification_token:
+            justification_token = DEFAULT_PAYLOAD_JUSTIFICATION
         with self._lock:
             entry = self._data.get(group_name)
             if not entry:
@@ -874,6 +906,7 @@ class GroupConfigStore:
                 spec_payload["offsetX"] = offset_x_value
             if offset_y_value is not None:
                 spec_payload["offsetY"] = offset_y_value
+            spec_payload["payloadJustification"] = justification_token
             groups[cleaned_label] = self._normalise_group_spec(
                 spec_payload
             )
@@ -890,6 +923,7 @@ class GroupConfigStore:
         notes: Optional[str] = None,
         offset_x: Optional[object] = None,
         offset_y: Optional[object] = None,
+        payload_justification: Optional[object] = None,
     ) -> None:
         original_label = label.strip()
         if not original_label:
@@ -937,6 +971,12 @@ class GroupConfigStore:
                     target_spec["offsetY"] = offset_value
                 else:
                     target_spec.pop("offsetY", None)
+            if payload_justification is not None:
+                justification_token = self._normalise_justification(payload_justification)
+                if justification_token:
+                    target_spec["payloadJustification"] = justification_token
+                else:
+                    target_spec.pop("payloadJustification", None)
             if replacement_label != original_label:
                 if replacement_label in groups and replacement_label != original_label:
                     raise ValueError(f"Grouping '{replacement_label}' already exists for '{group_name}'.")
@@ -1100,17 +1140,31 @@ class NewGroupingDialog(simpledialog.Dialog):
             row=3, column=1, sticky="w"
         )
 
-        ttk.Label(master, text="Offset X (px)").grid(row=4, column=0, sticky="w")
+        ttk.Label(master, text="Payload justification").grid(row=4, column=0, sticky="w")
+        suggestion_just = str(
+            self._suggestion.get("payloadJustification") or DEFAULT_PAYLOAD_JUSTIFICATION
+        ).strip().lower()
+        if suggestion_just not in PAYLOAD_JUSTIFICATION_CHOICES:
+            suggestion_just = DEFAULT_PAYLOAD_JUSTIFICATION
+        self.justification_var = tk.StringVar(value=suggestion_just)
+        ttk.Combobox(
+            master,
+            values=PAYLOAD_JUSTIFICATION_CHOICES,
+            textvariable=self.justification_var,
+            state="readonly",
+        ).grid(row=4, column=1, sticky="w")
+
+        ttk.Label(master, text="Offset X (px)").grid(row=5, column=0, sticky="w")
         self.offset_x_var = tk.StringVar(value=self._format_initial_offset(self._suggestion.get("offsetX")))
-        ttk.Entry(master, textvariable=self.offset_x_var, width=40).grid(row=4, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.offset_x_var, width=40).grid(row=5, column=1, sticky="ew")
 
-        ttk.Label(master, text="Offset Y (px)").grid(row=5, column=0, sticky="w")
+        ttk.Label(master, text="Offset Y (px)").grid(row=6, column=0, sticky="w")
         self.offset_y_var = tk.StringVar(value=self._format_initial_offset(self._suggestion.get("offsetY")))
-        ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=5, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=6, column=1, sticky="ew")
 
-        ttk.Label(master, text="Notes").grid(row=6, column=0, sticky="w")
+        ttk.Label(master, text="Notes").grid(row=7, column=0, sticky="w")
         self.notes_var = tk.StringVar(value=str(self._suggestion.get("notes") or ""))
-        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=6, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=7, column=1, sticky="ew")
         return master
 
     def validate(self) -> bool:  # type: ignore[override]
@@ -1141,6 +1195,7 @@ class NewGroupingDialog(simpledialog.Dialog):
             "label": self.label_var.get().strip(),
             "prefixes": _clean_prefixes(self.prefix_var.get()),
             "anchor": self.anchor_var.get().strip(),
+            "payload_justification": self.justification_var.get().strip(),
             "offset_x": self.offset_x_var.get().strip(),
             "offset_y": self.offset_y_var.get().strip(),
             "notes": self.notes_var.get().strip(),
@@ -1178,17 +1233,31 @@ class EditGroupingDialog(simpledialog.Dialog):
             row=3, column=1, sticky="w"
         )
 
-        ttk.Label(master, text="Offset X (px)").grid(row=4, column=0, sticky="w")
+        ttk.Label(master, text="Payload justification").grid(row=4, column=0, sticky="w")
+        justification_value = str(
+            self._entry.get("payloadJustification") or DEFAULT_PAYLOAD_JUSTIFICATION
+        ).strip().lower()
+        if justification_value not in PAYLOAD_JUSTIFICATION_CHOICES:
+            justification_value = DEFAULT_PAYLOAD_JUSTIFICATION
+        self.justification_var = tk.StringVar(value=justification_value)
+        ttk.Combobox(
+            master,
+            values=PAYLOAD_JUSTIFICATION_CHOICES,
+            textvariable=self.justification_var,
+            state="readonly",
+        ).grid(row=4, column=1, sticky="w")
+
+        ttk.Label(master, text="Offset X (px)").grid(row=5, column=0, sticky="w")
         self.offset_x_var = tk.StringVar(value=self._format_initial_offset(self._entry.get("offsetX")))
-        ttk.Entry(master, textvariable=self.offset_x_var, width=40).grid(row=4, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.offset_x_var, width=40).grid(row=5, column=1, sticky="ew")
 
-        ttk.Label(master, text="Offset Y (px)").grid(row=5, column=0, sticky="w")
+        ttk.Label(master, text="Offset Y (px)").grid(row=6, column=0, sticky="w")
         self.offset_y_var = tk.StringVar(value=self._format_initial_offset(self._entry.get("offsetY")))
-        ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=5, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=6, column=1, sticky="ew")
 
-        ttk.Label(master, text="Notes").grid(row=6, column=0, sticky="w")
+        ttk.Label(master, text="Notes").grid(row=7, column=0, sticky="w")
         self.notes_var = tk.StringVar(value=str(self._entry.get("notes") or ""))
-        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=6, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=7, column=1, sticky="ew")
         return master
 
     def validate(self) -> bool:  # type: ignore[override]
@@ -1208,6 +1277,7 @@ class EditGroupingDialog(simpledialog.Dialog):
             "label": self.label_var.get().strip(),
             "prefixes": _clean_prefixes(self.prefix_var.get()),
             "anchor": self.anchor_var.get().strip(),
+            "payload_justification": self.justification_var.get().strip(),
             "offset_x": self.offset_x_var.get().strip(),
             "offset_y": self.offset_y_var.get().strip(),
             "notes": self.notes_var.get().strip(),
@@ -1962,11 +2032,19 @@ class PluginGroupManagerApp:
             label_text = entry.get("label") or "- unnamed -"
             ttk.Label(entry_frame, text=label_text, font=self._grouping_label_font).grid(row=0, column=0, columnspan=3, sticky="w")
             anchor_value = entry.get("anchor") or "- default -"
+            justification_value = entry.get("payloadJustification") or DEFAULT_PAYLOAD_JUSTIFICATION
+            if isinstance(justification_value, str):
+                justification_value = justification_value.strip().lower() or DEFAULT_PAYLOAD_JUSTIFICATION
+            else:
+                justification_value = DEFAULT_PAYLOAD_JUSTIFICATION
+            if justification_value not in PAYLOAD_JUSTIFICATION_CHOICES:
+                justification_value = DEFAULT_PAYLOAD_JUSTIFICATION
             notes_text = entry.get("notes") or "- none -"
             left_cell = ttk.Frame(entry_frame, width=LEFT_COLUMN_WIDTH)
             left_cell.grid(row=1, column=0, sticky="nw", pady=(2, 0))
             left_cell.grid_propagate(False)
             ttk.Label(left_cell, text=f"Anchor: {anchor_value}").pack(anchor="w")
+            ttk.Label(left_cell, text=f"Justification: {justification_value}").pack(anchor="w", pady=(2, 0))
             offset_label = (
                 f"Offset: x={self._format_offset_value(entry.get('offsetX'))}, "
                 f"y={self._format_offset_value(entry.get('offsetY'))}"
@@ -2300,6 +2378,7 @@ class PluginGroupManagerApp:
                 notes=data["notes"],
                 offset_x=data.get("offset_x"),
                 offset_y=data.get("offset_y"),
+                payload_justification=data.get("payload_justification"),
             )
         except ValueError as exc:
             messagebox.showerror("Failed to add grouping", str(exc))
@@ -2330,6 +2409,7 @@ class PluginGroupManagerApp:
                 notes=data.get("notes"),
                 offset_x=data.get("offset_x"),
                 offset_y=data.get("offset_y"),
+                payload_justification=data.get("payload_justification"),
             )
         except ValueError as exc:
             messagebox.showerror("Failed to edit grouping", str(exc))

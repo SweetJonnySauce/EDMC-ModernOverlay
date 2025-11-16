@@ -41,6 +41,11 @@
         },
         "offsetY": {
           "type": "number"
+        },
+        "payloadJustification": {
+          "type": "string",
+          "enum": ["left", "center", "right"],
+          "default": "left"
         }
       },
       "required": ["idPrefixes"],

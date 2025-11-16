@@ -9,8 +9,10 @@
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
         ],
-        "idPrefixGroupAnchor": "nw",
-        "offsetY": 50
+        "idPrefixGroupAnchor": "ne",
+        "offsetY": -150,
+        "payloadJustification": "right",
+        "offsetX": 1275
       },
       "BGS-Tally Tick Notifications": {
         "idPrefixes": [
@@ -22,7 +24,8 @@
           "bgstally-frame-tickwarn"
         ],
         "idPrefixGroupAnchor": "ne",
-        "offsetX": 195
+        "offsetX": 195,
+        "payloadJustification": "right"
       },
       "BGS-Tally System Info": {
         "idPrefixes": [
@@ -30,14 +33,16 @@
           "bgstally-frame-indicator",
           "bgstally-frame-system_info"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left"
       },
       "BGS-Tally Ready": {
         "idPrefixes": [
           "bgstally-frame-info",
           "bgstally-msg-info-"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left"
       }
     }
   },
@@ -51,27 +56,29 @@
           "bioscan_radar_"
         ],
         "idPrefixGroupAnchor": "nw",
-        "offsetX": -220,
-        "offsetY": -50
+        "payloadJustification": "left"
       },
       "Bioscan Details": {
         "idPrefixes": [
           "bioscan_details_"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left"
       },
       "Bioscan Summary": {
         "idPrefixes": [
           "bioscan_summary_"
         ],
         "idPrefixGroupAnchor": "top",
-        "offsetX": 240
+        "offsetX": 240,
+        "payloadJustification": "center"
       },
       "Bioscan Title": {
         "idPrefixes": [
           "bioscan_title_"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left"
       }
     }
   },
@@ -80,7 +87,8 @@
       "All-edmca-prefixes": {
         "idPrefixes": [
           "edmcma"
-        ]
+        ],
+        "payloadJustification": "left"
       }
     }
   },
@@ -93,7 +101,8 @@
         "idPrefixes": [
           "modernoverlay-test"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left"
       }
     }
   },
@@ -102,52 +111,61 @@
       "edr-"
     ],
     "idPrefixGroups": {
+      "target": {
+        "idPrefixes": [
+          "edr-target"
+        ],
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left"
+      },
       "Edr Navroute": {
         "idPrefixes": [
           "edr-navroute-"
-        ]
+        ],
+        "payloadJustification": "left"
       },
       "Edr Navigation": {
         "idPrefixes": [
           "edr-navigation-"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left"
       },
       "Edr Sitrep": {
         "idPrefixes": [
           "edr-sitrep-"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left"
       },
       "EDR Bounty": {
         "idPrefixes": [
           "edr-bounty"
-        ]
+        ],
+        "payloadJustification": "left"
       },
       "EDR Docking": {
         "idPrefixes": [
           "edr-docking-",
           "edr-docking-station-"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "nw",
+        "offsetX": 0,
+        "payloadJustification": "left"
       },
       "EDR Intel": {
         "idPrefixes": [
           "edr-intel"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left"
       },
       "EDR Notice": {
         "idPrefixes": [
           "edr-notice-"
         ],
-        "idPrefixGroupAnchor": "nw"
-      },
-      "EDR Target": {
-        "idPrefixes": [
-          "edr-target"
-        ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left"
       }
     }
   },
@@ -163,13 +181,15 @@
           "example-",
           "example-alert-"
         ],
-        "idPrefixGroupAnchor": "ne"
+        "idPrefixGroupAnchor": "ne",
+        "payloadJustification": "left"
       },
       "test": {
         "idPrefixes": [
           "example-bob"
         ],
-        "idPrefixGroupAnchor": "top"
+        "idPrefixGroupAnchor": "top",
+        "payloadJustification": "left"
       }
     }
   },
@@ -192,7 +212,8 @@
           "pad-",
           "station-"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left"
       }
     }
   },
@@ -205,7 +226,8 @@
         "idPrefixes": [
           "navroute_display_"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left"
       }
     }
   }
