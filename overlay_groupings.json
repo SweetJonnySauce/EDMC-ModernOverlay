@@ -20,7 +20,9 @@
           "bgstally-msg-tickwarn-",
           "bgstally-frame-tickwarn"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "nw",
+        "offsetX": 190,
+        "offsetY": 10
       },
       "BGS-Tally System Info": {
         "idPrefixes": [
