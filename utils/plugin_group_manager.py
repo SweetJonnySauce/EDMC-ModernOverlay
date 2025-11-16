@@ -37,6 +37,7 @@ LOG.addHandler(logging.NullHandler())
 
 GROUPINGS_PATH = ROOT_DIR / "overlay_groupings.json"
 DEBUG_CONFIG_PATH = ROOT_DIR / "debug.json"
+SETTINGS_PATH = ROOT_DIR / "overlay_settings.json"
 TRACE_LOG_PATH = Path(__file__).resolve().with_name("plugin_group_manager_context.log")
 PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
 PAYLOAD_LOG_BASENAMES = ("overlay-payloads.log", "overlay_payloads.log")
@@ -2067,22 +2068,38 @@ class PluginGroupManagerApp:
             self._stop_watcher()
 
     def _ensure_payload_logging_enabled(self) -> bool:
-        try:
-            data = json.loads(DEBUG_CONFIG_PATH.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            messagebox.showerror("Watcher unavailable", f"{DEBUG_CONFIG_PATH} not found.")
-            return False
-        except (OSError, json.JSONDecodeError) as exc:
-            messagebox.showerror("Watcher unavailable", f"Failed to read {DEBUG_CONFIG_PATH}: {exc}")
-            return False
-        payload_logging = data.get("payload_logging")
         enabled = False
-        if isinstance(payload_logging, Mapping):
-            enabled = bool(payload_logging.get("overlay_payload_log_enabled"))
+        try:
+            settings_data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            settings_data = {}
+        except (OSError, json.JSONDecodeError):
+            settings_data = {}
+        if isinstance(settings_data, Mapping):
+            flag = settings_data.get("log_payloads")
+            if isinstance(flag, bool):
+                enabled = flag
+            elif flag is not None:
+                enabled = bool(flag)
+        if not enabled:
+            try:
+                data = json.loads(DEBUG_CONFIG_PATH.read_text(encoding="utf-8"))
+            except FileNotFoundError:
+                data = {}
+            except (OSError, json.JSONDecodeError):
+                data = {}
+            if isinstance(data, Mapping):
+                payload_logging = data.get("payload_logging")
+                if isinstance(payload_logging, Mapping):
+                    flag = payload_logging.get("overlay_payload_log_enabled")
+                    if isinstance(flag, bool):
+                        enabled = flag
+                    elif flag is not None:
+                        enabled = bool(flag)
         if not enabled:
             messagebox.showerror(
                 "Watcher unavailable",
-                "Enable payload_logging.overlay_payload_log_enabled in debug.json to mirror payloads.",
+                "Enable payload logging from the Modern Overlay preferences before starting the watcher.",
             )
             return False
         return True

@@ -655,22 +655,7 @@ class _PluginRuntime:
         self._apply_capture_override(False)
 
     def _load_payload_debug_config(self, *, force: bool = False) -> None:
-        if not DEV_BUILD:
-            retention_cleared = self._set_log_retention_override(None)
-            if force or self._payload_filter_excludes or self._payload_logging_enabled or self._payload_filter_mtime is not None:
-                self._payload_filter_excludes = set()
-                self._payload_logging_enabled = False
-                self._payload_filter_mtime = None
-                self._reset_trace_config()
-            if retention_cleared:
-                self._on_log_retention_changed()
-            if force and not self._debug_config_notice_logged:
-                LOGGER.debug(
-                    "Ignoring debug.json overrides because dev mode is disabled. Set %s=1 or use a -dev build to enable developer payload logging.",
-                    DEV_MODE_ENV_VAR,
-                )
-                self._debug_config_notice_logged = True
-            return
+        pref_logging_enabled = bool(getattr(self._preferences, "log_payloads", False)) if self._preferences else False
         stat: Optional[os.stat_result]
         try:
             stat = self._payload_filter_path.stat()
@@ -687,13 +672,20 @@ class _PluginRuntime:
                 retention_cleared = self._set_log_retention_override(None)
                 if force or self._payload_filter_excludes or self._payload_logging_enabled:
                     self._payload_filter_excludes = set()
-                    self._payload_logging_enabled = False
+                    self._payload_logging_enabled = pref_logging_enabled
                     self._payload_filter_mtime = None
                     self._reset_trace_config()
                 if retention_cleared:
                     self._on_log_retention_changed()
                 return
         if stat is None:
+            self._payload_filter_excludes = set()
+            self._payload_logging_enabled = pref_logging_enabled
+            self._payload_filter_mtime = None
+            self._reset_trace_config()
+            retention_cleared = self._set_log_retention_override(None)
+            if retention_cleared:
+                self._on_log_retention_changed()
             return
         if not force and self._payload_filter_mtime is not None and stat.st_mtime <= self._payload_filter_mtime:
             return
@@ -702,7 +694,7 @@ class _PluginRuntime:
             data = json.loads(raw_text)
         except (OSError, json.JSONDecodeError):
             self._payload_filter_excludes = set()
-            self._payload_logging_enabled = False
+            self._payload_logging_enabled = pref_logging_enabled
             self._reset_trace_config()
             retention_cleared = self._set_log_retention_override(None)
             if retention_cleared:
@@ -794,7 +786,7 @@ class _PluginRuntime:
         else:
             log_retention_override = None
         self._payload_filter_excludes = excludes
-        self._payload_logging_enabled = enabled
+        self._payload_logging_enabled = pref_logging_enabled
         self._trace_enabled = trace_enabled
         self._trace_payload_prefixes = trace_payload_ids
         self._apply_capture_override(capture_client_stderrout)
@@ -1090,6 +1082,18 @@ class _PluginRuntime:
         self._preferences.show_debug_overlay = bool(value)
         LOGGER.debug("Overlay debug overlay %s", "enabled" if self._preferences.show_debug_overlay else "disabled")
         self._send_overlay_config()
+
+    def set_payload_logging_preference(self, value: bool) -> None:
+        flag = bool(value)
+        if flag == getattr(self._preferences, "log_payloads", False):
+            return
+        self._preferences.log_payloads = flag
+        try:
+            self._preferences.save()
+        except Exception as exc:
+            LOGGER.warning("Failed to persist payload logging preference: %s", exc)
+        self._payload_logging_enabled = flag
+        LOGGER.info("Overlay payload logging %s via preferences", "enabled" if flag else "disabled")
 
     def set_cycle_payload_preference(self, value: bool) -> None:
         flag = bool(value)
@@ -1891,6 +1895,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         force_render_callback = _plugin.set_force_render_preference if _plugin else None
         title_bar_config_callback = _plugin.set_title_bar_compensation_preference if _plugin else None
         debug_overlay_callback = _plugin.set_debug_overlay_preference if _plugin else None
+        payload_logging_callback = _plugin.set_payload_logging_preference if _plugin else None
         font_min_callback = _plugin.set_min_font_preference if _plugin else None
         font_max_callback = _plugin.set_max_font_preference if _plugin else None
         cycle_toggle_callback = _plugin.set_cycle_payload_preference if _plugin else None
@@ -1914,6 +1919,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             force_render_callback,
             title_bar_config_callback,
             debug_overlay_callback,
+            payload_logging_callback,
             font_min_callback,
             font_max_callback,
             cycle_toggle_callback,
@@ -1994,4 +2000,3 @@ def journal_entry(
 name = PLUGIN_NAME
 version = PLUGIN_VERSION
 cmdr = ""
-

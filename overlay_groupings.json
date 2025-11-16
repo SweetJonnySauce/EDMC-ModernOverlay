@@ -9,7 +9,8 @@
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "nw",
+        "offsetY": 50
       },
       "BGS-Tally Tick Notifications": {
         "idPrefixes": [
@@ -21,8 +22,8 @@
           "bgstally-frame-tickwarn"
         ],
         "idPrefixGroupAnchor": "ne",
-        "offsetX": 190,
-        "offsetY": 10
+        "offsetX": 200,
+        "offsetY": 0
       },
       "BGS-Tally System Info": {
         "idPrefixes": [
@@ -62,7 +63,8 @@
         "idPrefixes": [
           "bioscan_summary_"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "top",
+        "offsetX": 240
       },
       "Bioscan Title": {
         "idPrefixes": [
@@ -99,33 +101,9 @@
       "edr-"
     ],
     "idPrefixGroups": {
-      "docking": {
-        "idPrefixes": [
-          "edr-docking-",
-          "edr-docking-station-"
-        ],
-        "idPrefixGroupAnchor": "nw"
-      },
-      "bounty": {
-        "idPrefixes": [
-          "edr-bounty"
-        ]
-      },
-      "intel": {
-        "idPrefixes": [
-          "edr-intel"
-        ],
-        "idPrefixGroupAnchor": "nw"
-      },
       "target": {
         "idPrefixes": [
           "edr-target"
-        ],
-        "idPrefixGroupAnchor": "nw"
-      },
-      "notice": {
-        "idPrefixes": [
-          "edr-notice-"
         ],
         "idPrefixGroupAnchor": "nw"
       },
@@ -139,6 +117,58 @@
           "edr-navigation-"
         ],
         "idPrefixGroupAnchor": "nw"
+      },
+      "Edr Sitrep": {
+        "idPrefixes": [
+          "edr-sitrep-"
+        ],
+        "idPrefixGroupAnchor": "nw"
+      },
+      "EDR Bounty": {
+        "idPrefixes": [
+          "edr-bounty"
+        ]
+      },
+      "EDR Docking": {
+        "idPrefixes": [
+          "edr-docking-",
+          "edr-docking-station-"
+        ],
+        "idPrefixGroupAnchor": "nw"
+      },
+      "EDR Intel": {
+        "idPrefixes": [
+          "edr-intel"
+        ],
+        "idPrefixGroupAnchor": "nw"
+      },
+      "EDR Notice": {
+        "idPrefixes": [
+          "edr-notice-"
+        ],
+        "idPrefixGroupAnchor": "nw"
+      }
+    }
+  },
+  "Example Plugin": {
+    "matchingPrefixes": [
+      "example-",
+      "example-alt-",
+      "test-1"
+    ],
+    "idPrefixGroups": {
+      "status": {
+        "idPrefixes": [
+          "example-status-",
+          "example-alert-"
+        ],
+        "idPrefixGroupAnchor": "ne"
+      },
+      "test": {
+        "idPrefixes": [
+          "example-bob"
+        ],
+        "idPrefixGroupAnchor": "top"
       }
     }
   },
@@ -175,28 +205,6 @@
           "navroute_display_"
         ],
         "idPrefixGroupAnchor": "nw"
-      }
-    }
-  },
-  "Example Plugin": {
-    "matchingPrefixes": [
-      "example-",
-      "example-alt-",
-      "test-1"
-    ],
-    "idPrefixGroups": {
-      "status": {
-        "idPrefixes": [
-          "example-status-",
-          "example-alert-"
-        ],
-        "idPrefixGroupAnchor": "ne"
-      },
-      "test": {
-        "idPrefixes": [
-          "example-bob"
-        ],
-        "idPrefixGroupAnchor": "top"
       }
     }
   }

@@ -44,6 +44,7 @@ class Preferences:
     nudge_overflow_payloads: bool = False
     payload_nudge_gutter: int = 30
     status_message_gutter: int = STATUS_GUTTER_DEFAULT
+    log_payloads: bool = False
 
     def __post_init__(self) -> None:
         self.plugin_dir = Path(self.plugin_dir)
@@ -114,6 +115,7 @@ class Preferences:
             legacy_slots = int(bool(data.get("show_ed_bandwidth"))) + int(bool(data.get("show_ed_fps")))
             status_gutter = max(status_gutter, LEGACY_STATUS_SLOT_MARGIN * legacy_slots)
         self.status_message_gutter = max(0, min(status_gutter, STATUS_GUTTER_MAX))
+        self.log_payloads = bool(data.get("log_payloads", self.log_payloads))
 
     def save(self) -> None:
         payload: Dict[str, Any] = {
@@ -137,6 +139,7 @@ class Preferences:
             "nudge_overflow_payloads": bool(self.nudge_overflow_payloads),
             "payload_nudge_gutter": int(self.payload_nudge_gutter),
             "status_message_gutter": int(self.status_message_gutter),
+            "log_payloads": bool(self.log_payloads),
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -184,6 +187,7 @@ class PreferencesPanel:
         set_force_render_callback: Optional[Callable[[bool], None]] = None,
         set_title_bar_config_callback: Optional[Callable[[bool, int], None]] = None,
         set_debug_overlay_callback: Optional[Callable[[bool], None]] = None,
+        set_payload_logging_callback: Optional[Callable[[bool], None]] = None,
         set_font_min_callback: Optional[Callable[[float], None]] = None,
         set_font_max_callback: Optional[Callable[[float], None]] = None,
         set_cycle_payload_callback: Optional[Callable[[bool], None]] = None,
@@ -216,6 +220,7 @@ class PreferencesPanel:
         self._var_title_bar_enabled = tk.BooleanVar(value=preferences.title_bar_enabled)
         self._var_title_bar_height = tk.IntVar(value=int(preferences.title_bar_height))
         self._var_debug_overlay = tk.BooleanVar(value=preferences.show_debug_overlay)
+        self._var_payload_logging = tk.BooleanVar(value=preferences.log_payloads)
         self._var_min_font = tk.DoubleVar(value=float(preferences.min_font_point))
         self._var_max_font = tk.DoubleVar(value=float(preferences.max_font_point))
         self._var_cycle_payload = tk.BooleanVar(value=preferences.cycle_payload_ids)
@@ -238,6 +243,7 @@ class PreferencesPanel:
         self._set_force_render = set_force_render_callback
         self._set_title_bar_config = set_title_bar_config_callback
         self._set_debug_overlay = set_debug_overlay_callback
+        self._set_payload_logging = set_payload_logging_callback
         self._set_font_min = set_font_min_callback
         self._set_font_max = set_font_max_callback
         self._set_cycle_payload = set_cycle_payload_callback
@@ -377,6 +383,17 @@ class PreferencesPanel:
             )
             rb.pack(side="left", padx=(6, 0))
         corner_row.grid(row=user_row, column=0, sticky="w", pady=(4, 0))
+        user_row += 1
+
+        payload_logging_checkbox = nb.Checkbutton(
+            user_section,
+            text="Log incoming payloads to overlay-payloads.log (required for Payload Inspector)",
+            variable=self._var_payload_logging,
+            onvalue=True,
+            offvalue=False,
+            command=self._on_payload_logging_toggle,
+        )
+        payload_logging_checkbox.grid(row=user_row, column=0, sticky="w", pady=(8, 0))
         user_row += 1
 
         font_row = ttk.Frame(user_section, style=self._frame_style)
@@ -751,6 +768,22 @@ class PreferencesPanel:
             except Exception as exc:
                 self._status_var.set(f"Failed to update debug overlay corner: {exc}")
                 return
+        self._preferences.save()
+
+    def _on_payload_logging_toggle(self) -> None:
+        value = bool(self._var_payload_logging.get())
+        try:
+            if self._set_payload_logging:
+                self._set_payload_logging(value)
+            else:
+                self._preferences.log_payloads = value
+                self._preferences.save()
+        except Exception as exc:
+            self._status_var.set(f"Failed to update payload logging: {exc}")
+            self._var_payload_logging.set(not value)
+            self._preferences.log_payloads = bool(self._var_payload_logging.get())
+            return
+        self._preferences.log_payloads = value
         self._preferences.save()
 
     def _update_cycle_button_state(self) -> None:

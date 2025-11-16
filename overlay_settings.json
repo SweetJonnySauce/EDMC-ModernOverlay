@@ -5,7 +5,7 @@
   "client_log_retention": 5,
   "gridlines_enabled": true,
   "gridline_spacing": 100,
-  "force_render": true,
+  "force_render": false,
   "force_xwayland": false,
   "show_debug_overlay": false,
   "min_font_point": 6.0,
@@ -18,5 +18,6 @@
   "scale_mode": "fill",
   "nudge_overflow_payloads": false,
   "payload_nudge_gutter": 30,
-  "status_message_gutter": 0
+  "status_message_gutter": 0,
+  "log_payloads": true
 }

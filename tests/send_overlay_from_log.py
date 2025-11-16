@@ -35,7 +35,22 @@ def _load_json(path: Path) -> Dict[str, Any]:
         _fail(f"Failed to parse {path}: {exc}")
 
 
-def _is_payload_logging_enabled() -> bool:
+def _settings_payload_logging() -> Optional[bool]:
+    try:
+        config = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except json.JSONDecodeError:
+        return None
+    flag = config.get("log_payloads")
+    if isinstance(flag, bool):
+        return flag
+    if flag is not None:
+        return bool(flag)
+    return None
+
+
+def _debug_payload_logging() -> bool:
     try:
         config = json.loads(DEBUG_CONFIG_PATH.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -60,13 +75,20 @@ def _is_payload_logging_enabled() -> bool:
     return False
 
 
+def _is_payload_logging_enabled() -> bool:
+    pref_flag = _settings_payload_logging()
+    if pref_flag is not None:
+        return pref_flag
+    return _debug_payload_logging()
+
+
 def _warn_payload_logging() -> None:
     if _is_payload_logging_enabled():
         _print_step("Detected overlay payload logging enabled (overlay-payloads.log).")
     else:
         _print_step(
-            "WARNING: overlay payload logging is disabled. Set 'payload_logging.overlay_payload_log_enabled'"
-            " to true in debug.json to mirror payloads to overlay-payloads.log."
+            "WARNING: overlay payload logging is disabled. Enable \"Log incoming payloads\" in the Modern Overlay"
+            " preferences to mirror payloads to overlay-payloads.log."
         )
 
 

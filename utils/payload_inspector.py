@@ -398,7 +398,7 @@ class PayloadInspectorApp:
         self.tip_var = tk.StringVar()
         ttk.Label(tips_row, textvariable=self.tip_var, justify="left").pack(side="left", fill="x", expand=True)
         self._tips = [
-            "You will need to be in DEV MODE with overlay_payload_log_enabled set to true to see payloads",
+            "Enable \"Log incoming payloads\" in the Modern Overlay preferences to mirror payloads",
             "Right click on a payload to suppress it",
             "Use tests/send_overlay_from_log.py with the --log-file parameter to replay a captured payload for testing.",
             "Right click on a payload to draw the ID Prefix Group in the preview.",
