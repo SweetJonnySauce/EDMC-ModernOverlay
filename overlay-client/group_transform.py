@@ -29,6 +29,7 @@ class GroupTransform:
     bounds_max_x: float = 0.0
     bounds_max_y: float = 0.0
     anchor_token: str = "nw"
+    payload_justification: str = "left"
 
 
 @dataclass

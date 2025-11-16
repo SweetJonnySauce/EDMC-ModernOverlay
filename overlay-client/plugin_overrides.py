@@ -14,6 +14,8 @@ from debug_config import DebugConfig
 JsonDict = Dict[str, Any]
 
 _ANCHOR_OPTIONS = {"nw", "ne", "sw", "se", "center", "top", "bottom", "left", "right"}
+_PAYLOAD_JUSTIFICATION_CHOICES = {"left", "center", "right"}
+_DEFAULT_PAYLOAD_JUSTIFICATION = "left"
 
 
 @dataclass
@@ -24,6 +26,7 @@ class _GroupSpec:
     anchor: Optional[str] = None
     offset_x: float = 0.0
     offset_y: float = 0.0
+    payload_justification: str = _DEFAULT_PAYLOAD_JUSTIFICATION
 
 
 @dataclass
@@ -263,12 +266,21 @@ class PluginOverrideManager:
                 dy = _parse_offset_value(source.get("offsetY") or source.get("offset_y"))
                 return (dx if dx is not None else 0.0, dy if dy is not None else 0.0)
 
+            def _parse_payload_justification(source: Mapping[str, Any]) -> str:
+                raw_value = source.get("payloadJustification") or source.get("payload_justification")
+                if isinstance(raw_value, str):
+                    token = raw_value.strip().lower()
+                    if token in _PAYLOAD_JUSTIFICATION_CHOICES:
+                        return token
+                return _DEFAULT_PAYLOAD_JUSTIFICATION
+
             def _append_group_spec(
                 label: Optional[str],
                 prefixes: Tuple[str, ...],
                 anchor: Optional[str],
                 offset_x: float,
                 offset_y: float,
+                payload_justification: str,
             ) -> None:
                 if not prefixes:
                     return
@@ -280,6 +292,7 @@ class PluginOverrideManager:
                         anchor=anchor,
                         offset_x=offset_x,
                         offset_y=offset_y,
+                        payload_justification=payload_justification,
                     )
                 )
                 for prefix in prefixes:
@@ -297,7 +310,8 @@ class PluginOverrideManager:
                     anchor_token = _parse_anchor(group_value)
                     label_value = str(label).strip() if isinstance(label, str) and label else None
                     offset_x, offset_y = _parse_offsets(group_value)
-                    _append_group_spec(label_value, cleaned_prefixes, anchor_token, offset_x, offset_y)
+                    justification_token = _parse_payload_justification(group_value)
+                    _append_group_spec(label_value, cleaned_prefixes, anchor_token, offset_x, offset_y, justification_token)
 
             grouping_section = plugin_payload.get("grouping")
             if isinstance(grouping_section, Mapping):
@@ -312,7 +326,8 @@ class PluginOverrideManager:
                         anchor_token = _parse_anchor(group_value)
                         label_value = str(label).strip() if isinstance(label, str) and label else None
                         offset_x, offset_y = _parse_offsets(group_value)
-                        _append_group_spec(label_value, cleaned_prefixes, anchor_token, offset_x, offset_y)
+                        justification_token = _parse_payload_justification(group_value)
+                        _append_group_spec(label_value, cleaned_prefixes, anchor_token, offset_x, offset_y, justification_token)
 
                 prefixes_spec = grouping_section.get("prefixes")
                 if isinstance(prefixes_spec, Mapping):
@@ -325,17 +340,21 @@ class PluginOverrideManager:
                         if isinstance(prefix_value, str):
                             prefixes = _clean_group_prefixes(prefix_value)
                             label_value = str(label).strip() if isinstance(label, str) and label else prefix_value
+                            justification_token = _DEFAULT_PAYLOAD_JUSTIFICATION
                         elif isinstance(prefix_value, Mapping):
                             prefixes = _clean_group_prefixes(prefix_value.get("prefix"))
                             label_value = str(label).strip() if isinstance(label, str) and label else None
                             anchor_token = _parse_anchor(prefix_value)
                             offset_x, offset_y = _parse_offsets(prefix_value)
-                        _append_group_spec(label_value, prefixes, anchor_token, offset_x, offset_y)
+                            justification_token = _parse_payload_justification(prefix_value)
+                        else:
+                            justification_token = _DEFAULT_PAYLOAD_JUSTIFICATION
+                        _append_group_spec(label_value, prefixes, anchor_token, offset_x, offset_y, justification_token)
                 elif isinstance(prefixes_spec, Iterable):
                     for entry in prefixes_spec:
                         if isinstance(entry, str) and entry:
                             cleaned_entry = entry.casefold()
-                            _append_group_spec(entry, (cleaned_entry,), None, 0.0, 0.0)
+                            _append_group_spec(entry, (cleaned_entry,), None, 0.0, 0.0, _DEFAULT_PAYLOAD_JUSTIFICATION)
 
             if group_prefix_hints:
                 for prefix in group_prefix_hints:
@@ -522,6 +541,23 @@ class PluginOverrideManager:
             if label_value == suffix:
                 return spec.offset_x, spec.offset_y
         return 0.0, 0.0
+
+    def group_payload_justification(self, plugin: Optional[str], suffix: Optional[str]) -> str:
+        self._reload_if_needed()
+        canonical = self._canonical_plugin_name(plugin)
+        if canonical is None:
+            return _DEFAULT_PAYLOAD_JUSTIFICATION
+        config = self._plugins.get(canonical)
+        if config is None or not config.group_specs or suffix is None:
+            return _DEFAULT_PAYLOAD_JUSTIFICATION
+        for spec in config.group_specs:
+            label_value = spec.label or (spec.prefixes[0] if spec.prefixes else None)
+            if label_value == suffix:
+                token = spec.payload_justification or _DEFAULT_PAYLOAD_JUSTIFICATION
+                if token not in _PAYLOAD_JUSTIFICATION_CHOICES:
+                    return _DEFAULT_PAYLOAD_JUSTIFICATION
+                return token
+        return _DEFAULT_PAYLOAD_JUSTIFICATION
 
     def group_preserve_fill_aspect(self, plugin: Optional[str], suffix: Optional[str]) -> Tuple[bool, str]:
         """Fill-mode preservation is always enabled; anchor selection is derived from overrides."""

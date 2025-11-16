@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from fractions import Fraction
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, Set
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Set
 
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect, QSize
 from PyQt6.QtGui import (
@@ -68,6 +68,7 @@ from viewport_helper import (
 )  # type: ignore  # noqa: E402
 from grouping_helper import FillGroupingHelper  # type: ignore  # noqa: E402
 from group_transform import GroupBounds  # type: ignore  # noqa: E402
+from payload_justifier import JustificationRequest, calculate_offsets  # type: ignore  # noqa: E402
 from payload_transform import (
     accumulate_group_bounds,
     build_payload_transform_context,
@@ -169,6 +170,7 @@ class _LegacyPaintCommand:
     overlay_bounds: Optional[Tuple[float, float, float, float]] = None
     effective_anchor: Optional[Tuple[float, float]] = None
     debug_log: Optional[str] = None
+    justification_dx: float = 0.0
 
     def paint(self, window: "OverlayWindow", painter: QPainter, offset_x: int, offset_y: int) -> None:
         raise NotImplementedError
@@ -2809,6 +2811,12 @@ class OverlayWindow(QWidget):
             effective_anchor_by_group,
             transform_by_group,
         )
+        translated_bounds_by_group = self._apply_payload_justification(
+            commands,
+            transform_by_group,
+            anchor_translation_by_group,
+            translated_bounds_by_group,
+        )
         translations = self._compute_group_nudges(translated_bounds_by_group)
         drawn_groups: Set[Tuple[str, Optional[str]]] = set()
         window_width = max(self.width(), 0)
@@ -2817,7 +2825,8 @@ class OverlayWindow(QWidget):
             key_tuple = command.group_key.as_tuple()
             translation_x, translation_y = anchor_translation_by_group.get(key_tuple, (0.0, 0.0))
             nudge_x, nudge_y = translations.get(key_tuple, (0, 0))
-            offset_x = translation_x + nudge_x
+            justification_dx = getattr(command, "justification_dx", 0.0)
+            offset_x = translation_x + justification_dx + nudge_x
             offset_y = translation_y + nudge_y
             self._log_offscreen_payload(command, offset_x, offset_y, window_width, window_height)
             command.paint(self, painter, offset_x, offset_y)
@@ -2964,6 +2973,79 @@ class OverlayWindow(QWidget):
             if clone is not None:
                 clone.translate(translation_px_x, translation_px_y)
         return translations, cloned_bounds
+
+    def _apply_payload_justification(
+        self,
+        commands: Sequence[_LegacyPaintCommand],
+        transform_by_group: Mapping[Tuple[str, Optional[str]], Optional[GroupTransform]],
+        anchor_translation_by_group: Mapping[Tuple[str, Optional[str]], Tuple[float, float]],
+        translated_bounds_by_group: Dict[Tuple[str, Optional[str]], _ScreenBounds],
+    ) -> Dict[Tuple[str, Optional[str]], _ScreenBounds]:
+        requests: List[JustificationRequest] = []
+        for command in commands:
+            command.justification_dx = 0.0
+            bounds = command.bounds
+            if not bounds:
+                continue
+            key = command.group_key.as_tuple()
+            transform = transform_by_group.get(key)
+            justification = getattr(transform, "payload_justification", "left") if transform else "left"
+            suffix = command.group_key.suffix
+            if suffix is None:
+                continue
+            if justification not in {"center", "right"}:
+                continue
+            width = float(bounds[2]) - float(bounds[0])
+            requests.append(
+                JustificationRequest(
+                    identifier=id(command),
+                    key=key,
+                    suffix=suffix,
+                    justification=justification,
+                    width=width,
+                )
+            )
+        if not requests:
+            return translated_bounds_by_group
+        offset_map = calculate_offsets(requests)
+        if not offset_map:
+            return translated_bounds_by_group
+        for command in commands:
+            command.justification_dx = offset_map.get(id(command), 0.0)
+        return self._rebuild_translated_bounds(commands, anchor_translation_by_group, translated_bounds_by_group)
+
+    def _rebuild_translated_bounds(
+        self,
+        commands: Sequence[_LegacyPaintCommand],
+        anchor_translation_by_group: Mapping[Tuple[str, Optional[str]], Tuple[float, float]],
+        baseline_bounds: Mapping[Tuple[str, Optional[str]], _ScreenBounds],
+    ) -> Dict[Tuple[str, Optional[str]], _ScreenBounds]:
+        updated: Dict[Tuple[str, Optional[str]], _ScreenBounds] = {}
+        for command in commands:
+            bounds = command.bounds
+            if not bounds:
+                continue
+            key = command.group_key.as_tuple()
+            translation_x, translation_y = anchor_translation_by_group.get(key, (0.0, 0.0))
+            offset_x = translation_x + command.justification_dx
+            offset_y = translation_y
+            clone = updated.setdefault(key, _ScreenBounds())
+            clone.include_rect(
+                float(bounds[0]) + offset_x,
+                float(bounds[1]) + offset_y,
+                float(bounds[2]) + offset_x,
+                float(bounds[3]) + offset_y,
+            )
+        for key, original in baseline_bounds.items():
+            if key in updated:
+                continue
+            clone = _ScreenBounds()
+            clone.min_x = original.min_x
+            clone.max_x = original.max_x
+            clone.min_y = original.min_y
+            clone.max_y = original.max_y
+            updated[key] = clone
+        return updated
 
     @staticmethod
     def _anchor_from_overlay_bounds(bounds: _OverlayBounds, token: Optional[str]) -> Optional[Tuple[float, float]]:
