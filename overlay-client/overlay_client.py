@@ -31,7 +31,7 @@ from PyQt6.QtGui import (
     QScreen,
     QWindow,
 )
-from PyQt6.QtWidgets import QApplication, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 
 CLIENT_DIR = Path(__file__).resolve().parent
@@ -4663,8 +4663,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     _CLIENT_LOGGER.info("Overlay client exiting with code %s", exit_code)
     return int(exit_code)
 
-
-OverlayClient = OverlayWindow
 
 if __name__ == "__main__":
     raise SystemExit(main())

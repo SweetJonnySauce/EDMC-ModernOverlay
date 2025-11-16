@@ -165,6 +165,13 @@
         ],
         "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left"
+      },
+      "EDR Warning": {
+        "idPrefixes": [
+          "edr-warning-"
+        ],
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left"
       }
     }
   },
