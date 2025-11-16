@@ -15,37 +15,42 @@
   "payloads": [
     {
       "name": "landingpad",
-      "source": "payload_store/\1",
+      "source": "payload_store/landingpad.log",
+      "ttl": 1000
+    },
+    {
+      "name": "Bioscan",
+      "source": "payload_store/bioscan_radar.log",
       "ttl": 1000
     },
     {
       "name": "Galaxy/System Tick",
-      "source": "payload_store/\1",
+      "source": "payload_store/bgstally-tick.log",
       "ttl": 1000
     },
     {
       "name": "BGSTally Colonisation",
-      "source": "payload_store/\1",
+      "source": "payload_store/bgstally-colonisation.log",
       "ttl": 1000
     },
     {
       "name": "edr-docking",
-      "source": "payload_store/\1",
+      "source": "payload_store/edr-docking.log",
       "ttl": 1000
     },
     {
       "name": "edr-target",
-      "source": "payload_store/\1",
+      "source": "payload_store/edr-target.log",
       "ttl": 1000
     },
     {
       "name": "edr-intel",
-      "source": "payload_store/\1",
+      "source": "payload_store/edr-intel.log",
       "ttl": 1000
     },
     {
       "name": "edr-notice",
-      "source": "payload_store/\1",
+      "source": "payload_store/edr-notice.log",
       "ttl": 1000
     }
   ]

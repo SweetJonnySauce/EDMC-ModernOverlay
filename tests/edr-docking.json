@@ -15,7 +15,7 @@
     "payloads": [
         {
             "name": "edr-docking",
-            "source": "payload_store/\1",
+            "source": "payload_store/edr-docking.log",
             "ttl": 1000
         }
     ]

@@ -48,4 +48,4 @@ When investigating a Fill regression:
 
 1. Ensure the plugin override declares the expected grouping mode/prefixes.
 2. Enable `group_bounds_outline` and confirm each group renders a single dashed rectangle with a stable anchor dot; duplicates imply overrides didn’t match.
-3. Use `tests/send_overlay_from_log.py --log payload_store/\1` to replay real payloads while watching the debug overlay. The outlines should remain rigid even as the window size changes.
+3. Use `tests/send_overlay_from_log.py --log payload_store/landingpad.log` to replay real payloads while watching the debug overlay. The outlines should remain rigid even as the window size changes.
