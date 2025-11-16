@@ -3,8 +3,8 @@
         "window_wait_seconds": 2,
         "wait_between_payload_tests": 1000,
         "wait_to_finish_seconds": 1,
-        "crosshair_x_percent": 71.875,
-        "crosshair_y_percent": 34.375
+        "crosshair_x_percent": 26.71875,
+        "crosshair_y_percent": 14.58333
     },
     "resolutions": [
         {

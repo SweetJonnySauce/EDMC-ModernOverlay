@@ -3610,9 +3610,18 @@ class OverlayWindow(QWidget):
         offset_y: int,
     ) -> None:
         if offset_x or offset_y:
+            anchor_visual_offset = (float(offset_x), float(offset_y))
             painter.save()
             painter.translate(offset_x, offset_y)
-            self._draw_group_bounds_outline(painter, mapper, transform, overlay_bounds, explicit_anchor, anchor_offset)
+            self._draw_group_bounds_outline(
+                painter,
+                mapper,
+                transform,
+                overlay_bounds,
+                explicit_anchor,
+                anchor_offset,
+                anchor_visual_offset=anchor_visual_offset,
+            )
             painter.restore()
             return
         self._draw_group_bounds_outline(painter, mapper, transform, overlay_bounds, explicit_anchor, anchor_offset)
@@ -3641,6 +3650,7 @@ class OverlayWindow(QWidget):
         overlay_bounds: Optional[_OverlayBounds],
         explicit_anchor: Optional[Tuple[float, float]] = None,
         anchor_offset: Optional[Tuple[float, float]] = None,
+        anchor_visual_offset: Optional[Tuple[float, float]] = None,
     ) -> None:
         state = self._viewport_state()
         fill = build_viewport(mapper, state, transform, BASE_WIDTH, BASE_HEIGHT)
@@ -3664,12 +3674,6 @@ class OverlayWindow(QWidget):
             base_anchor_overlay: Optional[Tuple[float, float]] = base_anchor_point
         if not all(math.isfinite(value) for value in (min_x, max_x, min_y, max_y)):
             return
-        raw_base_anchor_qt: Optional[QPoint] = None
-        if base_anchor_point is not None:
-            raw_base_x = fill.screen_x(base_anchor_point[0])
-            raw_base_y = fill.screen_y(base_anchor_point[1])
-            if math.isfinite(raw_base_x) and math.isfinite(raw_base_y):
-                raw_base_anchor_qt = QPoint(int(round(raw_base_x)), int(round(raw_base_y)))
         base_translation_dx = 0.0
         base_translation_dy = 0.0
         if mapper.transform.mode is ScaleMode.FILL:
@@ -3731,10 +3735,10 @@ class OverlayWindow(QWidget):
             base_py = fill.screen_y(base_anchor_overlay[1])
             if math.isfinite(base_px) and math.isfinite(base_py):
                 base_anchor_qt = QPoint(int(round(base_px)), int(round(base_py)))
-        if base_anchor_overlay is not None:
-            anchor_overlay_x, anchor_overlay_y = base_anchor_overlay
-        elif explicit_anchor is not None:
+        if explicit_anchor is not None:
             anchor_overlay_x, anchor_overlay_y = explicit_anchor
+        elif base_anchor_overlay is not None:
+            anchor_overlay_x, anchor_overlay_y = base_anchor_overlay
         else:
             anchor_overlay = bounds_anchor_override or anchor_point
             if anchor_overlay is None:
@@ -3755,101 +3759,80 @@ class OverlayWindow(QWidget):
                     anchor_overlay_x += base_translation_dx
                     anchor_overlay_y += base_translation_dy
         anchor_token = getattr(transform, "anchor_token", "") or ""
-        if (
-            math.isfinite(anchor_overlay_x)
-            and math.isfinite(anchor_overlay_y)
-        ):
-            anchor_px = fill.screen_x(anchor_overlay_x)
-            anchor_py = fill.screen_y(anchor_overlay_y)
-            if not fill.overflow_x:
-                width = rect_width
-                if anchor_token in {"top", "center", "bottom"}:
-                    anchor_px = rect_left + width / 2.0
-                elif anchor_token in {"left", "west", "nw", "sw"}:
-                    anchor_px = rect_left
-                elif anchor_token in {"right", "east", "ne", "se"}:
-                    anchor_px = rect_left + width
-            if math.isfinite(anchor_px) and math.isfinite(anchor_py):
-                dot_radius = max(4, self._line_width("group_outline") * 2)
-                painter.setBrush(QColor(255, 255, 255))
-                painter.setPen(Qt.PenStyle.NoPen)
-                anchor_point_qt = QPoint(int(round(anchor_px)), int(round(anchor_py)))
-                painter.drawEllipse(
-                    anchor_point_qt,
-                    dot_radius,
-                    dot_radius,
-                )
-                painter.setPen(QColor(255, 255, 255))
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                text = "({:.1f}, {:.1f})".format(anchor_overlay_x, anchor_overlay_y)
-                if anchor_offset is not None:
-                    text += " Δ=({:.1f}, {:.1f})".format(anchor_offset[0], anchor_offset[1])
-                metrics = painter.fontMetrics()
-                text_rect = metrics.boundingRect(text)
-                offset_x = dot_radius + 6
-                offset_y = -dot_radius - 6
-                label_x = anchor_point_qt.x() + offset_x
-                label_y = anchor_point_qt.y() + offset_y
-                if label_x + text_rect.width() > fill.visible_width:
-                    label_x = anchor_point_qt.x() - offset_x - text_rect.width()
-                if label_y - text_rect.height() < 0:
-                    label_y = anchor_point_qt.y() + offset_y + text_rect.height()
-                painter.drawText(label_x, label_y, text)
-        if anchor_point_qt is not None and base_anchor_qt is not None:
+        anchor_point_qt: Optional[QPoint] = None
+        anchor_visual_dx = float(anchor_visual_offset[0]) if anchor_visual_offset else 0.0
+        anchor_visual_dy = float(anchor_visual_offset[1]) if anchor_visual_offset else 0.0
+        anchor_visual_applied = bool(anchor_visual_dx or anchor_visual_dy)
+        if anchor_visual_applied:
             painter.save()
-            arrow_pen = QPen(QColor(0, 255, 128))
-            arrow_pen.setWidth(max(1, self._line_width("vector_marker")))
-            painter.setPen(arrow_pen)
-            painter.drawLine(anchor_point_qt, base_anchor_qt)
-            dx_arrow = anchor_point_qt.x() - base_anchor_qt.x()
-            dy_arrow = anchor_point_qt.y() - base_anchor_qt.y()
-            angle = math.atan2(dy_arrow, dx_arrow)
-            arrow_size = 10
-            tip = base_anchor_qt
-            left = QPoint(
-                int(round(tip.x() + arrow_size * math.cos(angle + math.pi / 6))),
-                int(round(tip.y() + arrow_size * math.sin(angle + math.pi / 6))),
-            )
-            right = QPoint(
-                int(round(tip.x() + arrow_size * math.cos(angle - math.pi / 6))),
-                int(round(tip.y() + arrow_size * math.sin(angle - math.pi / 6))),
-            )
-            painter.drawLine(tip, left)
-            painter.drawLine(tip, right)
-            painter.restore()
-        if raw_base_anchor_qt is not None:
-            raw_pen = QPen(QColor(0, 180, 255))
-            raw_pen.setWidth(max(1, self._line_width("group_outline")))
-            painter.setPen(raw_pen)
-            painter.drawLine(
-                raw_base_anchor_qt.x() - 5,
-                raw_base_anchor_qt.y(),
-                raw_base_anchor_qt.x() + 5,
-                raw_base_anchor_qt.y(),
-            )
-            painter.drawLine(
-                raw_base_anchor_qt.x(),
-                raw_base_anchor_qt.y() - 5,
-                raw_base_anchor_qt.x(),
-                raw_base_anchor_qt.y() + 5,
-            )
-        if base_anchor_qt is not None:
-            marker_pen = QPen(QColor(255, 102, 0))
-            marker_pen.setWidth(max(1, self._line_width("group_outline")))
-            painter.setPen(marker_pen)
-            half = 6
-            painter.drawLine(
-                base_anchor_qt.x() - half,
-                base_anchor_qt.y() - half,
-                base_anchor_qt.x() + half,
-                base_anchor_qt.y() + half,
-            )
-            painter.drawLine(
-                base_anchor_qt.x() - half,
-                base_anchor_qt.y() + half,
-                base_anchor_qt.x() + half,
-                base_anchor_qt.y() - half,
-            )
+            painter.translate(-anchor_visual_dx, -anchor_visual_dy)
+        try:
+            if (
+                math.isfinite(anchor_overlay_x)
+                and math.isfinite(anchor_overlay_y)
+            ):
+                anchor_px = fill.screen_x(anchor_overlay_x)
+                anchor_py = fill.screen_y(anchor_overlay_y)
+                if not fill.overflow_x:
+                    width = rect_width
+                    if anchor_token in {"top", "center", "bottom"}:
+                        anchor_px = rect_left + width / 2.0
+                    elif anchor_token in {"left", "west", "nw", "sw"}:
+                        anchor_px = rect_left
+                    elif anchor_token in {"right", "east", "ne", "se"}:
+                        anchor_px = rect_left + width
+                if math.isfinite(anchor_px) and math.isfinite(anchor_py):
+                    dot_radius = max(4, self._line_width("group_outline") * 2)
+                    painter.setBrush(QColor(255, 255, 255))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    anchor_point_qt = QPoint(int(round(anchor_px)), int(round(anchor_py)))
+                    painter.drawEllipse(
+                        anchor_point_qt,
+                        dot_radius,
+                        dot_radius,
+                    )
+                    painter.setPen(QColor(255, 255, 255))
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    text = "({:.1f}, {:.1f})".format(anchor_overlay_x, anchor_overlay_y)
+                    if anchor_offset is not None:
+                        text += " Δ=({:.1f}, {:.1f})".format(anchor_offset[0], anchor_offset[1])
+                    metrics = painter.fontMetrics()
+                    text_rect = metrics.boundingRect(text)
+                    offset_x = dot_radius + 6
+                    offset_y = -dot_radius - 6
+                    label_x = anchor_point_qt.x() + offset_x
+                    label_y = anchor_point_qt.y() + offset_y
+                    if label_x + text_rect.width() > fill.visible_width:
+                        label_x = anchor_point_qt.x() - offset_x - text_rect.width()
+                    if label_y - text_rect.height() < 0:
+                        label_y = anchor_point_qt.y() + offset_y + text_rect.height()
+                    painter.drawText(label_x, label_y, text)
+            if anchor_point_qt is not None and base_anchor_qt is not None:
+                painter.save()
+                arrow_pen = QPen(QColor(0, 255, 128))
+                arrow_pen.setWidth(max(1, self._line_width("vector_marker")))
+                painter.setPen(arrow_pen)
+                painter.drawLine(anchor_point_qt, base_anchor_qt)
+                dx_arrow = anchor_point_qt.x() - base_anchor_qt.x()
+                dy_arrow = anchor_point_qt.y() - base_anchor_qt.y()
+                angle = math.atan2(dy_arrow, dx_arrow)
+                arrow_size = 10
+                tip = base_anchor_qt
+                left = QPoint(
+                    int(round(tip.x() + arrow_size * math.cos(angle + math.pi / 6))),
+                    int(round(tip.y() + arrow_size * math.sin(angle + math.pi / 6))),
+                )
+                right = QPoint(
+                    int(round(tip.x() + arrow_size * math.cos(angle - math.pi / 6))),
+                    int(round(tip.y() + arrow_size * math.sin(angle - math.pi / 6))),
+                )
+                painter.drawLine(tip, left)
+                painter.drawLine(tip, right)
+                painter.restore()
+            # no longer draw extra base anchor markers; the anchor dot already reflects the base anchor
+        finally:
+            if anchor_visual_applied:
+                painter.restore()
         painter.restore()
 
     def _draw_item_bounds_outline(
