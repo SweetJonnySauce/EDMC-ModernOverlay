@@ -40,7 +40,7 @@
       "packages": {
         "core": ["python3", "python3-pip", "python3-virtualenv", "rsync", "curl"],
         "qt": ["libxkbcommon", "libxkbcommon-x11", "xcb-util-cursor"],
-        "wayland": ["wmctrl", "xorg-x11-utils"]
+        "wayland": ["wmctrl", "xwininfo", "xprop"]
       }
     },
     {
