@@ -20,7 +20,7 @@
           "bgstally-msg-tickwarn-",
           "bgstally-frame-tickwarn"
         ],
-        "idPrefixGroupAnchor": "nw",
+        "idPrefixGroupAnchor": "ne",
         "offsetX": 190,
         "offsetY": 10
       },
