@@ -84,7 +84,7 @@ EDMC Modern Overlay is a cross-platform (Windows and Linux), two-part implementa
 ## Programmatic API
 
 > **Caution:** Here Be Dragons
-> The send_overlay_message API may be changed or deprecated in the future. It has not been fully developed or tested in order to priotitize work on the backwards compatibility with the 
+> The `send_overlay_message` API will most likely be changed or deprecated in the future. It has not been fully developed or tested in order to priotitize work on the backwards compatibility with the very capable `edmcoverlay` legacy API (described below). Use this at your own risk.
 
 Other plugins within EDMC can publish overlay updates without depending on socket details by using the bundled helper:
 
