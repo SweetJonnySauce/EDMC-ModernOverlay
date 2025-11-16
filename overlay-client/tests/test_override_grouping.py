@@ -224,6 +224,32 @@ def test_group_anchor_selection(override_file: Path) -> None:
     assert manager.group_preserve_fill_aspect("Example", "other") == (True, "nw")
 
 
+def test_group_offsets(override_file: Path) -> None:
+    override_file.write_text(
+        json.dumps(
+            {
+                "Example": {
+                    "idPrefixGroups": {
+                        "alerts": {
+                            "idPrefixes": ["example.alert."],
+                            "offsetX": 25,
+                            "offsetY": -40
+                        },
+                        "metrics": {"idPrefixes": ["example.metric."]}
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = _make_manager(override_file)
+    assert manager.group_offsets("Example", "alerts") == (25.0, -40.0)
+    assert manager.group_offsets("Example", "metrics") == (0.0, 0.0)
+    # unknown plugin / suffix fall back to zero
+    assert manager.group_offsets("Other", "alerts") == (0.0, 0.0)
+    assert manager.group_offsets("Example", "missing") == (0.0, 0.0)
+
+
 def test_legacy_preserve_anchor_mapping(override_file: Path) -> None:
     override_file.write_text(
         json.dumps(

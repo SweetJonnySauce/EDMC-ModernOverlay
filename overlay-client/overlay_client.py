@@ -562,6 +562,7 @@ class OverlayWindow(QWidget):
         self._line_widths: Dict[str, int] = _load_line_width_config()
         self._payload_nudge_enabled: bool = False
         self._payload_nudge_gutter: int = 30
+        self._offscreen_payloads: Set[str] = set()
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -2813,12 +2814,15 @@ class OverlayWindow(QWidget):
         )
         translations = self._compute_group_nudges(translated_bounds_by_group)
         drawn_groups: Set[Tuple[str, Optional[str]]] = set()
+        window_width = max(self.width(), 0)
+        window_height = max(self.height(), 0)
         for command in commands:
             key_tuple = command.group_key.as_tuple()
             translation_x, translation_y = anchor_translation_by_group.get(key_tuple, (0.0, 0.0))
             nudge_x, nudge_y = translations.get(key_tuple, (0, 0))
             offset_x = translation_x + nudge_x
             offset_y = translation_y + nudge_y
+            self._log_offscreen_payload(command, offset_x, offset_y, window_width, window_height)
             command.paint(self, painter, offset_x, offset_y)
             if draw_group_bounds:
                 if command.group_transform is not None:
@@ -2999,6 +3003,18 @@ class OverlayWindow(QWidget):
         # fallback to base (nw)
         return min_x, min_y
 
+    @staticmethod
+    def _group_offset_for_transform(transform: Optional[GroupTransform]) -> Tuple[float, float]:
+        if transform is None:
+            return 0.0, 0.0
+        dx = getattr(transform, "dx", 0.0)
+        dy = getattr(transform, "dy", 0.0)
+        if not isinstance(dx, (int, float)) or not math.isfinite(dx):
+            dx = 0.0
+        if not isinstance(dy, (int, float)) or not math.isfinite(dy):
+            dy = 0.0
+        return float(dx), float(dy)
+
     def _legacy_preset_point_size(self, preset: str, state: ViewportState, mapper: LegacyMapper) -> float:
         """Return the scaled font size for a legacy preset relative to normal."""
         normal_point = viewport_scaled_point_size(
@@ -3048,6 +3064,7 @@ class OverlayWindow(QWidget):
         base_translation_dy = 0.0
         effective_anchor: Optional[Tuple[float, float]] = None
         anchor_offset: Optional[Tuple[float, float]] = None
+        group_offset_dx, group_offset_dy = self._group_offset_for_transform(group_transform)
         if mapper.transform.mode is ScaleMode.FILL:
             use_overlay_bounds_x = (
                 overlay_bounds_hint is not None
@@ -3075,6 +3092,8 @@ class OverlayWindow(QWidget):
                     anchor_for_transform,
                     anchor_norm_override=(group_transform.band_min_x, group_transform.band_min_y),
                 )
+            base_translation_dx += group_offset_dx
+            base_translation_dy += group_offset_dy
         transform_meta = item.get("__mo_transform__")
         self._debug_legacy_point_size = scaled_point_size
         raw_left = float(item.get("x", 0))
@@ -3230,6 +3249,7 @@ class OverlayWindow(QWidget):
         base_translation_dy = 0.0
         effective_anchor: Optional[Tuple[float, float]] = None
         anchor_offset: Optional[Tuple[float, float]] = None
+        group_offset_dx, group_offset_dy = self._group_offset_for_transform(group_transform)
         if mapper.transform.mode is ScaleMode.FILL:
             use_overlay_bounds_x = (
                 overlay_bounds_hint is not None
@@ -3257,6 +3277,8 @@ class OverlayWindow(QWidget):
                     anchor_for_transform,
                     anchor_norm_override=(group_transform.band_min_x, group_transform.band_min_y),
                 )
+            base_translation_dx += group_offset_dx
+            base_translation_dy += group_offset_dy
         base_offset_x = fill.base_offset_x
         base_offset_y = fill.base_offset_y
         transform_meta = item.get("__mo_transform__")
@@ -3385,6 +3407,7 @@ class OverlayWindow(QWidget):
         base_translation_dy = 0.0
         effective_anchor: Optional[Tuple[float, float]] = None
         anchor_offset: Optional[Tuple[float, float]] = None
+        group_offset_dx, group_offset_dy = self._group_offset_for_transform(group_transform)
         if mapper.transform.mode is ScaleMode.FILL:
             use_overlay_bounds_x = (
                 overlay_bounds_hint is not None
@@ -3412,6 +3435,8 @@ class OverlayWindow(QWidget):
                     anchor_for_transform,
                     anchor_norm_override=(group_transform.band_min_x, group_transform.band_min_y),
                 )
+            base_translation_dx += group_offset_dx
+            base_translation_dy += group_offset_dy
         base_offset_x = fill.base_offset_x
         base_offset_y = fill.base_offset_y
         transform_meta = item.get("__mo_transform__")
@@ -3557,6 +3582,49 @@ class OverlayWindow(QWidget):
             if dx or dy:
                 translations[key] = (dx, dy)
         return translations
+
+    def _log_offscreen_payload(
+        self,
+        command: _LegacyPaintCommand,
+        offset_x: float,
+        offset_y: float,
+        window_width: int,
+        window_height: int,
+    ) -> None:
+        bounds = command.bounds
+        payload_id = command.legacy_item.item_id or ""
+        if not bounds or not payload_id:
+            if payload_id:
+                self._offscreen_payloads.discard(payload_id)
+            return
+        left = float(bounds[0]) + float(offset_x)
+        top = float(bounds[1]) + float(offset_y)
+        right = float(bounds[2]) + float(offset_x)
+        bottom = float(bounds[3]) + float(offset_y)
+        offscreen = (
+            right < 0.0
+            or bottom < 0.0
+            or left >= float(window_width)
+            or top >= float(window_height)
+        )
+        if offscreen:
+            if payload_id not in self._offscreen_payloads:
+                plugin_name = command.legacy_item.plugin or "unknown"
+                self._offscreen_payloads.add(payload_id)
+                _CLIENT_LOGGER.warning(
+                    "Payload '%s' from plugin '%s' rendered completely outside the overlay window "
+                    "(bounds=(%.1f, %.1f)-(%.1f, %.1f), window=%dx%d)",
+                    payload_id,
+                    plugin_name,
+                    left,
+                    top,
+                    right,
+                    bottom,
+                    window_width,
+                    window_height,
+                )
+        else:
+            self._offscreen_payloads.discard(payload_id)
 
     @staticmethod
     def _compute_axis_nudge(min_coord: float, max_coord: float, window_span: int, gutter: int) -> int:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -21,6 +22,8 @@ class _GroupSpec:
     prefixes: Tuple[str, ...]
     defaults: Optional[JsonDict]
     anchor: Optional[str] = None
+    offset_x: float = 0.0
+    offset_y: float = 0.0
 
 
 @dataclass
@@ -248,7 +251,25 @@ class PluginOverrideManager:
                         return legacy_anchor.strip()
                 return None
 
-            def _append_group_spec(label: Optional[str], prefixes: Tuple[str, ...], anchor: Optional[str]) -> None:
+            def _parse_offset_value(value: Any) -> Optional[float]:
+                if isinstance(value, (int, float)):
+                    numeric = float(value)
+                    if math.isfinite(numeric):
+                        return numeric
+                return None
+
+            def _parse_offsets(source: Mapping[str, Any]) -> Tuple[float, float]:
+                dx = _parse_offset_value(source.get("offsetX") or source.get("offset_x"))
+                dy = _parse_offset_value(source.get("offsetY") or source.get("offset_y"))
+                return (dx if dx is not None else 0.0, dy if dy is not None else 0.0)
+
+            def _append_group_spec(
+                label: Optional[str],
+                prefixes: Tuple[str, ...],
+                anchor: Optional[str],
+                offset_x: float,
+                offset_y: float,
+            ) -> None:
                 if not prefixes:
                     return
                 grouping_specs.append(
@@ -257,6 +278,8 @@ class PluginOverrideManager:
                         prefixes=prefixes,
                         defaults=None,
                         anchor=anchor,
+                        offset_x=offset_x,
+                        offset_y=offset_y,
                     )
                 )
                 for prefix in prefixes:
@@ -273,7 +296,8 @@ class PluginOverrideManager:
                     )
                     anchor_token = _parse_anchor(group_value)
                     label_value = str(label).strip() if isinstance(label, str) and label else None
-                    _append_group_spec(label_value, cleaned_prefixes, anchor_token)
+                    offset_x, offset_y = _parse_offsets(group_value)
+                    _append_group_spec(label_value, cleaned_prefixes, anchor_token, offset_x, offset_y)
 
             grouping_section = plugin_payload.get("grouping")
             if isinstance(grouping_section, Mapping):
@@ -287,7 +311,8 @@ class PluginOverrideManager:
                             cleaned_prefixes = _clean_group_prefixes(group_value.get("prefix"))
                         anchor_token = _parse_anchor(group_value)
                         label_value = str(label).strip() if isinstance(label, str) and label else None
-                        _append_group_spec(label_value, cleaned_prefixes, anchor_token)
+                        offset_x, offset_y = _parse_offsets(group_value)
+                        _append_group_spec(label_value, cleaned_prefixes, anchor_token, offset_x, offset_y)
 
                 prefixes_spec = grouping_section.get("prefixes")
                 if isinstance(prefixes_spec, Mapping):
@@ -295,6 +320,8 @@ class PluginOverrideManager:
                         prefixes: Tuple[str, ...] = ()
                         anchor_token: Optional[str] = None
                         label_value: Optional[str] = None
+                        offset_x = 0.0
+                        offset_y = 0.0
                         if isinstance(prefix_value, str):
                             prefixes = _clean_group_prefixes(prefix_value)
                             label_value = str(label).strip() if isinstance(label, str) and label else prefix_value
@@ -302,12 +329,13 @@ class PluginOverrideManager:
                             prefixes = _clean_group_prefixes(prefix_value.get("prefix"))
                             label_value = str(label).strip() if isinstance(label, str) and label else None
                             anchor_token = _parse_anchor(prefix_value)
-                        _append_group_spec(label_value, prefixes, anchor_token)
+                            offset_x, offset_y = _parse_offsets(prefix_value)
+                        _append_group_spec(label_value, prefixes, anchor_token, offset_x, offset_y)
                 elif isinstance(prefixes_spec, Iterable):
                     for entry in prefixes_spec:
                         if isinstance(entry, str) and entry:
                             cleaned_entry = entry.casefold()
-                            _append_group_spec(entry, (cleaned_entry,), None)
+                            _append_group_spec(entry, (cleaned_entry,), None, 0.0, 0.0)
 
             if group_prefix_hints:
                 for prefix in group_prefix_hints:
@@ -480,6 +508,20 @@ class PluginOverrideManager:
             if label_value == suffix:
                 return True
         return False
+
+    def group_offsets(self, plugin: Optional[str], suffix: Optional[str]) -> Tuple[float, float]:
+        self._reload_if_needed()
+        canonical = self._canonical_plugin_name(plugin)
+        if canonical is None:
+            return 0.0, 0.0
+        config = self._plugins.get(canonical)
+        if config is None or not config.group_specs or suffix is None:
+            return 0.0, 0.0
+        for spec in config.group_specs:
+            label_value = spec.label or (spec.prefixes[0] if spec.prefixes else None)
+            if label_value == suffix:
+                return spec.offset_x, spec.offset_y
+        return 0.0, 0.0
 
     def group_preserve_fill_aspect(self, plugin: Optional[str], suffix: Optional[str]) -> Tuple[bool, str]:
         """Fill-mode preservation is always enabled; anchor selection is derived from overrides."""

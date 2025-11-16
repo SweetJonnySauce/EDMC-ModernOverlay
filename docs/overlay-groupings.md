@@ -32,8 +32,11 @@ The JSON root is an object keyed by the display name you want shown in the overl
 | `idPrefixGroups` | object | Optional, but any entry here must contain at least one group. Each property name is the label shown in tooling (e.g., “Bioscan Details”). |
 | `idPrefixGroups.<name>.idPrefixes` | array of non-empty strings | Required whenever a group is created. Prefixes are lowercased, deduplicated, and unique per plugin group—if you reassign a prefix, it is removed from all other groups automatically. In general, the `idPrefixes` provided should be lower level and more narrow scoped (but still a prefix). Think `bgstally-msg-info-` more than `bgstally-msg-info-0`.|
 | `idPrefixGroups.<name>.idPrefixGroupAnchor` | enum | Optional. One of `nw`, `ne`, `sw`, `se`, `center`, `top`, `bottom`, `left`, or `right`. Defaults to `nw` when omitted. `top`/`bottom` keep the midpoint of the vertical edges anchored, while `left`/`right` do the same for the horizontal edges—useful when plugins want edges to stay aligned against the overlay boundary. |
+| `idPrefixGroups.<name>.offsetX` / `offsetY` | number | Optional. Translates the whole group in the legacy 1280 × 960 canvas before Fill-mode scaling applies. Positive values move right/down; negative values move left/up. |
 
 Additional metadata (`notes`, legacy `grouping.*`, etc.) is ignored by the current engine but preserved so you can document intent for reviewers.
+
+Offsets run right after the overlay client collects a group’s payloads, so they are independent of the current window size. Scaling, proportional Fill translations, and overflow nudging all build on top of the translated group, keeping the shift consistent everywhere.
 
 ### Reference schema
 

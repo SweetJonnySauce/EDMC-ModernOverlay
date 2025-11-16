@@ -35,6 +35,12 @@
         "idPrefixGroupAnchor": {
           "type": "string",
           "enum": ["nw", "ne", "sw", "se", "center", "top", "bottom", "left", "right"]
+        },
+        "offsetX": {
+          "type": "number"
+        },
+        "offsetY": {
+          "type": "number"
         }
       },
       "required": ["idPrefixes"],

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -107,6 +108,8 @@ def define_plugin_group(
     id_prefix_group: Optional[str] = None,
     id_prefixes: Optional[Sequence[str]] = None,
     id_prefix_group_anchor: Optional[str] = None,
+    id_prefix_offset_x: Optional[Union[int, float]] = None,
+    id_prefix_offset_y: Optional[Union[int, float]] = None,
 ) -> bool:
     """Create or replace grouping metadata for a plugin.
 
@@ -123,7 +126,14 @@ def define_plugin_group(
         raise PluginGroupingError("Modern Overlay plugin is unavailable; cannot define plugin groups")
 
     plugin_label = _normalise_label(plugin_group, "pluginGroup")
-    if matching_prefixes is None and id_prefix_group is None and id_prefixes is None and id_prefix_group_anchor is None:
+    if (
+        matching_prefixes is None
+        and id_prefix_group is None
+        and id_prefixes is None
+        and id_prefix_group_anchor is None
+        and id_prefix_offset_x is None
+        and id_prefix_offset_y is None
+    ):
         raise PluginGroupingError("Provide matchingPrefixes, idPrefixGroup, idPrefixes, or idPrefixGroupAnchor")
 
     match_list = _normalise_prefixes(matching_prefixes, "matchingPrefixes") if matching_prefixes is not None else None
@@ -134,6 +144,10 @@ def define_plugin_group(
     anchor_token = _normalise_anchor(id_prefix_group_anchor) if id_prefix_group_anchor is not None else None
     if anchor_token is not None and id_group_label is None:
         raise PluginGroupingError("idPrefixGroup is required when specifying idPrefixGroupAnchor")
+    offset_x = _normalise_offset(id_prefix_offset_x, "idPrefixGroup offsetX") if id_prefix_offset_x is not None else None
+    offset_y = _normalise_offset(id_prefix_offset_y, "idPrefixGroup offsetY") if id_prefix_offset_y is not None else None
+    if id_group_label is None and (offset_x is not None or offset_y is not None):
+        raise PluginGroupingError("idPrefixGroup is required when specifying offsets")
 
     update = _GroupingUpdate(
         plugin_group=plugin_label,
@@ -141,6 +155,8 @@ def define_plugin_group(
         id_prefix_group=id_group_label,
         id_prefixes=id_prefix_list,
         id_prefix_group_anchor=anchor_token,
+        offset_x=offset_x,
+        offset_y=offset_y,
     )
     return store.apply(update)
 
@@ -211,6 +227,15 @@ def _normalise_anchor(value: Optional[str]) -> str:
     return token
 
 
+def _normalise_offset(value: Union[int, float], field: str) -> float:
+    if not isinstance(value, (int, float)):
+        raise PluginGroupingError(f"{field} must be a number")
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        raise PluginGroupingError(f"{field} must be a finite number")
+    return numeric
+
+
 def _matches_contains_prefix(matches: Sequence[Any], prefix: str) -> bool:
     candidate = prefix.strip().lower()
     if not candidate:
@@ -261,6 +286,8 @@ class _GroupingUpdate:
     id_prefix_group: Optional[str]
     id_prefixes: Optional[Tuple[str, ...]]
     id_prefix_group_anchor: Optional[str]
+    offset_x: Optional[float]
+    offset_y: Optional[float]
 
 
 class _PluginGroupingStore:
@@ -337,14 +364,29 @@ class _PluginGroupingStore:
                     if group_entry.get("idPrefixGroupAnchor") != update.id_prefix_group_anchor:
                         group_entry["idPrefixGroupAnchor"] = update.id_prefix_group_anchor
                         mutated = True
+                if update.offset_x is not None:
+                    if group_entry.get("offsetX") != update.offset_x:
+                        group_entry["offsetX"] = update.offset_x
+                        mutated = True
+                if update.offset_y is not None:
+                    if group_entry.get("offsetY") != update.offset_y:
+                        group_entry["offsetY"] = update.offset_y
+                        mutated = True
 
                 if group_missing or groups_missing:
                     mutated = True
                 groups[update.id_prefix_group] = group_entry
                 plugin_block["idPrefixGroups"] = groups
             else:
-                if update.id_prefixes is not None or update.id_prefix_group_anchor is not None:
-                    raise PluginGroupingError("idPrefixGroup is required when specifying idPrefixes or idPrefixGroupAnchor")
+                if (
+                    update.id_prefixes is not None
+                    or update.id_prefix_group_anchor is not None
+                    or update.offset_x is not None
+                    or update.offset_y is not None
+                ):
+                    raise PluginGroupingError(
+                        "idPrefixGroup is required when specifying idPrefixes, idPrefixGroupAnchor, or offsets"
+                    )
 
         if mutated:
             if attach_plugin_block:

@@ -73,6 +73,7 @@ class FillGroupingHelper:
                 continue
             plugin_label, suffix = key_tuple
             _, anchor_token = self._group_preserve_fill_aspect(plugin_label, suffix)
+            offset_x, offset_y = self._group_offsets(plugin_label, suffix)
             anchor_x, anchor_y = self._anchor_from_bounds(bounds, anchor_token)
             band_min_x = _normalise(bounds.min_x, base_width)
             band_max_x = _normalise(bounds.max_x, base_width)
@@ -83,8 +84,8 @@ class FillGroupingHelper:
             self._cache.set(
                 GroupKey(*key_tuple),
                 GroupTransform(
-                    dx=0.0,
-                    dy=0.0,
+                    dx=offset_x,
+                    dy=offset_y,
                     band_min_x=band_min_x,
                     band_max_x=band_max_x,
                     band_min_y=band_min_y,
@@ -126,6 +127,11 @@ class FillGroupingHelper:
         if self._override_manager is None:
             return True, "first"
         return self._override_manager.group_preserve_fill_aspect(plugin_label, suffix)
+
+    def _group_offsets(self, plugin_label: Optional[str], suffix: Optional[str]) -> Tuple[float, float]:
+        if self._override_manager is None:
+            return (0.0, 0.0)
+        return self._override_manager.group_offsets(plugin_label, suffix)
 
     @staticmethod
     def _anchor_from_bounds(bounds: GroupBounds, token: Optional[str]) -> Tuple[float, float]:
