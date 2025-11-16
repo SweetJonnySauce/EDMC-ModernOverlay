@@ -12,7 +12,7 @@
         "idPrefixGroupAnchor": "ne",
         "offsetY": -150,
         "payloadJustification": "right",
-        "offsetX": 1250
+        "offsetX": 1275
       },
       "BGS-Tally Tick Notifications": {
         "idPrefixes": [
@@ -24,7 +24,7 @@
           "bgstally-frame-tickwarn"
         ],
         "idPrefixGroupAnchor": "ne",
-        "offsetX": 200,
+        "offsetX": 195,
         "payloadJustification": "right"
       },
       "BGS-Tally System Info": {

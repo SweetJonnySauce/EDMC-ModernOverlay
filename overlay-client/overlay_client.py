@@ -2826,10 +2826,12 @@ class OverlayWindow(QWidget):
             translation_x, translation_y = anchor_translation_by_group.get(key_tuple, (0.0, 0.0))
             nudge_x, nudge_y = translations.get(key_tuple, (0, 0))
             justification_dx = getattr(command, "justification_dx", 0.0)
-            offset_x = translation_x + justification_dx + nudge_x
-            offset_y = translation_y + nudge_y
-            self._log_offscreen_payload(command, offset_x, offset_y, window_width, window_height)
-            command.paint(self, painter, offset_x, offset_y)
+            payload_offset_x = translation_x + justification_dx + nudge_x
+            payload_offset_y = translation_y + nudge_y
+            outline_offset_x = translation_x + nudge_x
+            outline_offset_y = translation_y + nudge_y
+            self._log_offscreen_payload(command, payload_offset_x, payload_offset_y, window_width, window_height)
+            command.paint(self, painter, payload_offset_x, payload_offset_y)
             if draw_group_bounds:
                 if command.group_transform is not None:
                     if key_tuple not in drawn_groups:
@@ -2840,16 +2842,16 @@ class OverlayWindow(QWidget):
                             command.group_transform,
                             overlay_bounds_by_group.get(key_tuple),
                             effective_anchor_by_group.get(key_tuple),
-                            offset_x,
-                            offset_y,
+                            outline_offset_x,
+                            outline_offset_y,
                         )
                 else:
                     self._draw_item_bounds_outline_with_offset(
                         painter,
                         mapper,
                         command.legacy_item,
-                        offset_x,
-                        offset_y,
+                        payload_offset_x,
+                        payload_offset_y,
                     )
 
     def _build_legacy_commands_for_pass(
