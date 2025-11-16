@@ -2864,7 +2864,14 @@ class OverlayWindow(QWidget):
             group_key = self._grouping_helper.group_key_for(item_id, legacy_item.plugin)
             group_transform = self._grouping_helper.get_transform(group_key)
             transform_by_group[group_key.as_tuple()] = group_transform
-            overlay_hint = overlay_bounds_hint.get(group_key.as_tuple()) if overlay_bounds_hint else None
+            has_explicit_offset = False
+            if group_transform is not None:
+                dx = getattr(group_transform, "dx", 0.0)
+                dy = getattr(group_transform, "dy", 0.0)
+                has_explicit_offset = bool(dx) or bool(dy)
+            overlay_hint = None
+            if overlay_bounds_hint and not has_explicit_offset:
+                overlay_hint = overlay_bounds_hint.get(group_key.as_tuple())
             if legacy_item.kind == "message":
                 command = self._build_message_command(
                     legacy_item,
