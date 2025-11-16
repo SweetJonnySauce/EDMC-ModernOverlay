@@ -258,7 +258,6 @@ class PreferencesPanel:
         self._cycle_prev_btn = None
         self._cycle_next_btn = None
         self._cycle_copy_checkbox = None
-        self._restart_button = None
         self._managed_fonts = []
         self._status_gutter_apply_in_progress = False
         self._var_status_gutter.trace_add("write", self._on_status_gutter_trace)
@@ -513,7 +512,6 @@ class PreferencesPanel:
                 restart_btn.configure(state="disabled")
             restart_btn.pack(side="left")
             restart_row.grid(row=dev_row, column=0, sticky="w")
-            self._restart_button = restart_btn
             dev_row += 1
 
             force_checkbox = nb.Checkbutton(

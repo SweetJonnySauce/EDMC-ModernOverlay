@@ -279,7 +279,6 @@ class _PluginRuntime:
         self._legacy_tcp_server: Optional[LegacyOverlayTCPServer] = None
         self._lock = threading.Lock()
         self._running = False
-        self._legacy_conflict = False
         self._capture_active = False
         self._state: Dict[str, Any] = {
             "cmdr": "",
@@ -297,7 +296,6 @@ class _PluginRuntime:
         self._payload_logger.setLevel(logging.DEBUG)
         self._payload_logger.propagate = False
         self._payload_log_handler: Optional[logging.Handler] = None
-        self._payload_log_path: Optional[Path] = None
         self._log_retention_override: Optional[int] = None
         self._plugin_prefix_map: Dict[str, str] = self._load_plugin_prefix_map()
         self._payload_filter_path = self.plugin_dir / "debug.json"
@@ -307,7 +305,6 @@ class _PluginRuntime:
         self._trace_enabled: bool = False
         self._trace_payload_prefixes: Tuple[str, ...] = ()
         self._capture_client_stderrout: bool = False
-        self._debug_config_notice_logged = False
         self._flatpak_context = self._detect_flatpak_context()
         self._flatpak_spawn_warning_emitted = False
         self._flatpak_host_warning_emitted = False
@@ -334,7 +331,6 @@ class _PluginRuntime:
                 return PLUGIN_NAME
             _ensure_plugin_logger_level()
             if self._legacy_overlay_active():
-                self._legacy_conflict = True
                 self._delete_port_file()
                 LOGGER.error("Legacy edmcoverlay overlay detected; Modern Overlay will remain inactive.")
                 return PLUGIN_NAME
@@ -583,7 +579,6 @@ class _PluginRuntime:
 
         self._payload_logger.addHandler(handler)
         self._payload_log_handler = handler
-        self._payload_log_path = log_path
         LOGGER.debug(
             "Payload logging initialised: path=%s retention=%d max_bytes=%d backup_count=%d",
             log_path,
