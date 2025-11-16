@@ -1179,16 +1179,6 @@ class _PluginRuntime:
             LOGGER.debug("Overlay maximum font point set to %.1f", maximum)
             self._send_overlay_config()
 
-    def set_force_xwayland_preference(self, value: bool) -> None:
-        desired = self._desired_force_xwayland()
-        if bool(value) != desired:
-            LOGGER.debug(
-                "Ignoring manual XWayland toggle request (%s); environment requires %s",
-                value,
-                "XWayland" if desired else "native",
-            )
-        self._enforce_force_xwayland(persist=True, update_watchdog=True, emit_config=True)
-
     def _publish_external(self, payload: Mapping[str, Any]) -> bool:
         if not self._running:
             return False
