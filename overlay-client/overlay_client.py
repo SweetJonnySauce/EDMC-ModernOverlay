@@ -719,14 +719,6 @@ class OverlayWindow(QWidget):
             ratio = 1.0
         return ViewportState(width=width, height=height, device_ratio=ratio)
 
-    def _build_fill_viewport(
-        self,
-        mapper: LegacyMapper,
-        group_transform: Optional[GroupTransform],
-    ) -> FillViewport:
-        state = self._viewport_state()
-        return build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
-
     @classmethod
     def _group_anchor_point(
         cls,
@@ -1134,19 +1126,6 @@ class OverlayWindow(QWidget):
         self._suspend_follow(0.5)
         self._start_tracking()
         self._update_follow_visibility(True)
-
-    def set_origin(self, origin_x: int, origin_y: int) -> None:
-        _CLIENT_LOGGER.debug(
-            "Ignoring origin request (%s,%s); overlay position follows game window.",
-            origin_x,
-            origin_y,
-        )
-
-    def get_origin(self) -> Tuple[int, int]:
-        return 0, 0
-
-    def _apply_origin_position(self) -> None:
-        return
 
     def monitor_snapshots(self) -> List[MonitorSnapshot]:
         return self._platform_controller.monitors()
@@ -1777,12 +1756,6 @@ class OverlayWindow(QWidget):
             )
             self._apply_drag_state()
 
-    def set_legacy_scale_y(self, scale: float, *, auto: bool = False) -> None:
-        _CLIENT_LOGGER.debug("Legacy scale control ignored (requested scale_y=%s)", scale)
-
-    def set_legacy_scale_x(self, scale: float, *, auto: bool = False) -> None:
-        _CLIENT_LOGGER.debug("Legacy scale control ignored (requested scale_x=%s)", scale)
-
     def set_gridlines(self, *, enabled: bool, spacing: Optional[int] = None) -> None:
         self._gridlines_enabled = bool(enabled)
         if spacing is not None:
@@ -1824,13 +1797,6 @@ class OverlayWindow(QWidget):
                 self._apply_follow_state(self._last_follow_state)
             else:
                 self.update()
-
-    def set_window_dimensions(self, width: Optional[int], height: Optional[int]) -> None:
-        _CLIENT_LOGGER.debug(
-            "Ignoring explicit window size request (%s x %s); overlay follows game window geometry.",
-            width,
-            height,
-        )
 
     def set_log_retention(self, retention: int) -> None:
         try:
@@ -4280,9 +4246,6 @@ class OverlayWindow(QWidget):
 
     def _apply_legacy_scale(self) -> None:
         self.update()
-
-    def _apply_window_dimensions(self, *, force: bool = False) -> None:
-        return
 
     def _resolve_font_family(self) -> str:
         fonts_dir = Path(__file__).resolve().parent / "fonts"
