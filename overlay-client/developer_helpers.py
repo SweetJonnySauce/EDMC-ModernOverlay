@@ -24,15 +24,10 @@ class DeveloperHelperController:
         self._logger = logger
         self._client_root = client_root
         self._log_handler: Optional[logging.Handler] = None
-        self._log_path: Optional[Path] = None
         self._current_log_retention = max(1, initial.client_log_retention)
         self._configure_client_logging(self._current_log_retention)
 
     # Public API -----------------------------------------------------------
-
-    @property
-    def log_retention(self) -> int:
-        return self._current_log_retention
 
     def apply_initial_window_state(self, window: "OverlayWindow", initial: InitialClientSettings) -> None:
         window.set_log_retention(self._current_log_retention)
@@ -129,13 +124,11 @@ class DeveloperHelperController:
             stream_handler.setFormatter(formatter)
             self._replace_handler(stream_handler)
             self._logger.warning("Failed to initialise file logging at %s: %s", log_path, exc)
-            self._log_path = None
             self._current_log_retention = retention
             return
 
         handler.setFormatter(formatter)
         self._replace_handler(handler)
-        self._log_path = log_path
         self._current_log_retention = retention
         self._logger.debug(
             "Client logging initialised: path=%s retention=%d max_bytes=%d backup_count=%d",

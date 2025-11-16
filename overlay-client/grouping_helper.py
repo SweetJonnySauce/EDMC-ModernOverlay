@@ -120,11 +120,6 @@ class FillGroupingHelper:
         group_key = self.group_key_for(item_id, plugin_name)
         return self._cache.get(group_key)
 
-    def _group_has_override(self, plugin_label: Optional[str], suffix: Optional[str]) -> bool:
-        if self._override_manager is None:
-            return False
-        return self._override_manager.group_is_configured(plugin_label, suffix)
-
     def _group_preserve_fill_aspect(self, plugin_label: Optional[str], suffix: Optional[str]) -> Tuple[bool, str]:
         if self._override_manager is None:
             return True, "first"

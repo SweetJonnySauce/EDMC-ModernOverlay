@@ -10,9 +10,9 @@
           "bgstally-frame-colonisation"
         ],
         "idPrefixGroupAnchor": "ne",
+        "offsetX": 1275,
         "offsetY": -150,
-        "payloadJustification": "right",
-        "offsetX": 1275
+        "payloadJustification": "right"
       },
       "BGS-Tally Tick Notifications": {
         "idPrefixes": [
@@ -150,7 +150,6 @@
           "edr-docking-station-"
         ],
         "idPrefixGroupAnchor": "nw",
-        "offsetX": 0,
         "payloadJustification": "left"
       },
       "EDR Intel": {

@@ -19,7 +19,6 @@ class InitialClientSettings:
     max_font_point: float = 24.0
     status_bottom_margin: int = 20
     debug_overlay_corner: str = "NW"
-    status_corner: str = "SW"
     title_bar_enabled: bool = False
     title_bar_height: int = 0
     cycle_payload_ids: bool = False
@@ -46,7 +45,6 @@ class DeveloperHelperConfig:
     max_font_point: Optional[float] = None
     status_bottom_margin: Optional[int] = None
     debug_overlay_corner: Optional[str] = None
-    status_corner: Optional[str] = None
     title_bar_enabled: Optional[bool] = None
     title_bar_height: Optional[int] = None
     cycle_payload_ids: Optional[bool] = None
