@@ -15,7 +15,7 @@
     "payloads": [
         {
             "name": "edr-bounty",
-            "source": "tests/edr-bounty.log",
+            "source": "payload_store/edr-bounty.log",
             "ttl": 1000
         }
     ]

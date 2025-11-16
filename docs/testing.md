@@ -43,7 +43,7 @@ Automated tests cannot replace eyeballing the overlay, especially when dealing w
 
 1. **4:3 Fit baseline**  
    - Resize the overlay window to 1920×1440 and select **Fit** in preferences.  
-   - Replay the LandingPad log: `python3 tests/send_overlay_from_log.py --log tests/landingpad.log`.  
+   - Replay the LandingPad log: `python3 tests/send_overlay_from_log.py --log payload_store/landingpad.log`.  
    - Use the developer overlay to confirm `scale.mode = fit`, `scale_x = scale_y`, and radial lines meet the dodecagon.
 
 2. **21:9 Fit vs Fill**  
@@ -57,7 +57,7 @@ Automated tests cannot replace eyeballing the overlay, especially when dealing w
 
 4. **Prefix-based grouping**  
    - Ensure `overlay_groupings.json` declares `grouping.mode = "id_prefix"` for Mining Analytics (or another multi-widget plugin).  
-   - Replay `tests/edr-docking.log` or your plugin’s log via `tests/send_overlay_from_log.py`.  
+   - Replay `payload_store/edr-docking.log` or your plugin’s log via `tests/send_overlay_from_log.py`.  
    - With `group_bounds_outline` enabled, Fill mode should render distinct dashed rectangles (and anchor dots) for each configured prefix while keeping them rigid relative to one another.
 
 5. **Ad-hoc payloads**  

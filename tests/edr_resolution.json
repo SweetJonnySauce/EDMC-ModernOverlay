@@ -47,32 +47,32 @@
   "payloads": [
     {
       "name": "landingpad",
-      "source": "tests/landingpad.log",
+      "source": "payload_store/landingpad.log",
       "ttl": 6
     },
     {
       "name": "edr-bounty",
-      "source": "tests/edr-bounty.log",
+      "source": "payload_store/edr-bounty.log",
       "ttl": 6
     },
     {
       "name": "edr-target",
-      "source": "tests/edr-target.log",
+      "source": "payload_store/edr-target.log",
       "ttl": 8
     },
     {
       "name": "edr-intel",
-      "source": "tests/edr-intel.log",
+      "source": "payload_store/edr-intel.log",
       "ttl": 6
     },
     {
       "name": "edr-docking",
-      "source": "tests/edr-docking.log",
+      "source": "payload_store/edr-docking.log",
       "ttl": 4
     },
     {
       "name": "edr-notice",
-      "source": "tests/edr-notice.log",
+      "source": "payload_store/edr-notice.log",
       "ttl": 2
     }
   ]

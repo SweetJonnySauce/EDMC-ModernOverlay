@@ -15,7 +15,7 @@
     "payloads": [
         {
             "name": "landingpad",
-            "source": "tests/landingpad.log",
+            "source": "payload_store/landingpad.log",
             "ttl": 1000
         }
     ]

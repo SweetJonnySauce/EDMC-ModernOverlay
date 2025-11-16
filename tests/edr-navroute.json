@@ -15,7 +15,7 @@
     "payloads": [
         {
             "name": "edr-navroute",
-            "source": "tests/edr-navroute.log",
+            "source": "payload_store/edr-navroute.log",
             "ttl": 15
         }
     ]

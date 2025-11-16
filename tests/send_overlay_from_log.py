@@ -181,6 +181,13 @@ def _extract_payload(
     payload = dict(payload_obj)
     if ttl_override is not None:
         payload["ttl"] = ttl_override
+    payload_type = payload.get("type")
+    if isinstance(payload_type, str) and payload_type.lower() == "legacy_clear":
+        payload_id = payload.get("id")
+        _print_step(
+            f"Skipping line {line_no}: legacy_clear payload{f' ({payload_id})' if payload_id else ''}."
+        )
+        return None
     ttl_value = payload.get("ttl")
     if isinstance(ttl_value, (int, float)) and ttl_value <= 0:
         _print_step(f"Skipping line {line_no}: ttl <= 0 ({ttl_value}).")

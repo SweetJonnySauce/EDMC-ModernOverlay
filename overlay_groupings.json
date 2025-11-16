@@ -22,7 +22,7 @@
           "bgstally-frame-tickwarn"
         ],
         "idPrefixGroupAnchor": "ne",
-        "offsetX": 200
+        "offsetX": 195
       },
       "BGS-Tally System Info": {
         "idPrefixes": [
@@ -50,7 +50,9 @@
         "idPrefixes": [
           "bioscan_radar_"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "nw",
+        "offsetX": -220,
+        "offsetY": -50
       },
       "Bioscan Details": {
         "idPrefixes": [
@@ -100,12 +102,6 @@
       "edr-"
     ],
     "idPrefixGroups": {
-      "target": {
-        "idPrefixes": [
-          "edr-target"
-        ],
-        "idPrefixGroupAnchor": "nw"
-      },
       "Edr Navroute": {
         "idPrefixes": [
           "edr-navroute-"
@@ -133,8 +129,7 @@
           "edr-docking-",
           "edr-docking-station-"
         ],
-        "idPrefixGroupAnchor": "nw",
-        "offsetX": 150
+        "idPrefixGroupAnchor": "nw"
       },
       "EDR Intel": {
         "idPrefixes": [
@@ -145,6 +140,12 @@
       "EDR Notice": {
         "idPrefixes": [
           "edr-notice-"
+        ],
+        "idPrefixGroupAnchor": "nw"
+      },
+      "EDR Target": {
+        "idPrefixes": [
+          "edr-target"
         ],
         "idPrefixGroupAnchor": "nw"
       }
@@ -159,7 +160,7 @@
     "idPrefixGroups": {
       "status": {
         "idPrefixes": [
-          "example-status-",
+          "example-",
           "example-alert-"
         ],
         "idPrefixGroupAnchor": "ne"

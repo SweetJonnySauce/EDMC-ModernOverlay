@@ -83,7 +83,7 @@ This is particularly useful when capturing coordinates or validating grouping be
   1. **Fill scale** shows the raw X/Y proportions computed for Fill mode along with the effective values after aspect preservation (`raw → applied`). Fill mode scales by the larger of the window’s horizontal/vertical ratios so the 1280×960 legacy canvas covers the window completely; one axis therefore overflows and requires proportional remapping. (Fit mode, by contrast, uses the smaller ratio so the entire canvas remains inside the window.)
   2. **Fill preserve shift** appears when a group is preserving aspect; it reports the group-wide translation we inject to avoid squashing.
   3. **Fill translation** is the per-group dx/dy derived from bounds that keeps the payload inside the window (assertion #7).
-  All values are in overlay coordinates to make it easy to compare against raw payload dumps (e.g. `tests/edr-docking.log`) when tuning Fill behaviour.
+  All values are in overlay coordinates to make it easy to compare against raw payload dumps (e.g. `payload_store/edr-docking.log`) when tuning Fill behaviour.
 - The payload finder’s callout line is configurable. See **Line width overrides** below if you need a thicker/thinner connector.
 
 ### Line width overrides

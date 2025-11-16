@@ -15,7 +15,7 @@
     "payloads": [
         {
             "name": "edr-intel",
-            "source": "tests/edr-intel.log",
+            "source": "payload_store/edr-intel.log",
             "ttl": 1000
         }
     ]
