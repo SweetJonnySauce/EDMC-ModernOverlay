@@ -22,8 +22,7 @@
           "bgstally-frame-tickwarn"
         ],
         "idPrefixGroupAnchor": "ne",
-        "offsetX": 200,
-        "offsetY": 0
+        "offsetX": 200
       },
       "BGS-Tally System Info": {
         "idPrefixes": [
@@ -134,7 +133,8 @@
           "edr-docking-",
           "edr-docking-station-"
         ],
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "nw",
+        "offsetX": 150
       },
       "EDR Intel": {
         "idPrefixes": [

@@ -14,6 +14,8 @@ readonly EUROCAPS_FONT_NAME="Eurocaps.ttf"
 ASSUME_YES=false
 DRY_RUN=false
 PLUGIN_DIR_OVERRIDE=""
+LOG_ENABLED=false
+LOG_FILE=""
 
 declare -a POSITIONAL_ARGS=()
 declare -a MATRIX_STANDARD_PATHS=()
@@ -47,6 +49,8 @@ Options:
   -y, --yes, --assume-yes   Automatically answer "yes" to prompts.
       --dry-run             Show the actions that would be taken without making changes.
       --profile <id>        Force a distro profile from scripts/install_matrix.json (e.g. debian, fedora).
+      --log[=<path>]        Write verbose installer output to a log file (default path if omitted).
+      --log-file <path>     Alternate way to specify the log file path.
       --help                Show this message.
 
 You may optionally supply a single positional argument that points at the EDMC plugins directory.
@@ -66,6 +70,29 @@ parse_args() {
             --profile)
                 shift || { echo "❌ --profile requires an argument." >&2; exit 1; }
                 PROFILE_OVERRIDE="${1,,}"
+                ;;
+            --log)
+                LOG_ENABLED=true
+                if [[ $# -gt 1 ]]; then
+                    local maybe_log_path="${2:-}"
+                    if [[ -n "$maybe_log_path" && "${maybe_log_path:0:1}" != "-" ]]; then
+                        LOG_FILE="$maybe_log_path"
+                        shift
+                    fi
+                fi
+                ;;
+            --log=*)
+                LOG_ENABLED=true
+                LOG_FILE="${1#*=}"
+                ;;
+            --log-file)
+                shift || { echo "❌ --log-file requires an argument." >&2; exit 1; }
+                LOG_ENABLED=true
+                LOG_FILE="$1"
+                ;;
+            --log-file=*)
+                LOG_ENABLED=true
+                LOG_FILE="${1#*=}"
                 ;;
             -h|--help)
                 print_usage
@@ -106,6 +133,15 @@ format_command() {
         formatted+=" $(printf '%q' "$part")"
     done
     printf '%s' "${formatted# }"
+}
+
+format_list_or_none() {
+    if (($# == 0)); then
+        printf 'none'
+        return
+    fi
+    local IFS=' '
+    printf '%s' "$*"
 }
 
 matrix_helper() {
@@ -345,11 +381,14 @@ run_package_install() {
     echo "ℹ️  Installing ${label} via ${PKG_INSTALL_CMD[1]:-package manager}..."
     if [[ "$DRY_RUN" == true ]]; then
         echo "📝 [dry-run] $(format_command "${PKG_INSTALL_CMD[@]}" "${packages[@]}")"
+        log_verbose "[dry-run] Would execute: $(format_command "${PKG_INSTALL_CMD[@]}" "${packages[@]}") for ${label}"
     else
+        log_verbose "Executing command: $(format_command "${PKG_INSTALL_CMD[@]}" "${packages[@]}") for ${label}"
         if ! "${PKG_INSTALL_CMD[@]}" "${packages[@]}"; then
             local install_status=$?
             handle_dependency_install_failure "install ${label}" "$install_status" "${packages[@]}"
         fi
+        log_verbose "Package installation command completed for ${label}"
     fi
 }
 
@@ -375,6 +414,7 @@ get_pkg_manager_binary() {
 
 detect_package_manager_kind() {
     if [[ -n "$PACKAGE_MANAGER_KIND" ]]; then
+        log_verbose "Package manager kind already determined: ${PACKAGE_MANAGER_KIND}"
         printf '%s' "$PACKAGE_MANAGER_KIND"
         return
     fi
@@ -387,33 +427,50 @@ detect_package_manager_kind() {
         pacman) PACKAGE_MANAGER_KIND="pacman" ;;
         *) PACKAGE_MANAGER_KIND="" ;;
     esac
+    log_verbose "Package manager binary '${binary:-unknown}' resolved to kind '${PACKAGE_MANAGER_KIND:-unknown}'"
     printf '%s' "$PACKAGE_MANAGER_KIND"
 }
 
 classify_packages_for_apt() {
-    local pkg status_line status installed_version candidate
+    local pkg status_line status installed_version candidate policy_output policy_status
+    local package_list
+    package_list="$(format_list_or_none "$@")"
+    log_verbose "Running apt package classification for: ${package_list}"
     for pkg in "$@"; do
         if ! status_line="$(dpkg-query -W -f='${db:Status-Abbrev}\t${Version}\n' "$pkg" 2>/dev/null)"; then
             PACKAGES_TO_INSTALL+=("$pkg")
             PACKAGE_STATUS_DETAILS["$pkg"]="not installed"
+            log_verbose "dpkg-query did not find '$pkg'; marking for installation."
             continue
         fi
         IFS=$'\t' read -r status installed_version <<<"$status_line"
         if [[ "${status}" != ii* || -z "$installed_version" ]]; then
             PACKAGES_TO_INSTALL+=("$pkg")
             PACKAGE_STATUS_DETAILS["$pkg"]="not installed"
+            log_verbose "Package '$pkg' reported status '${status:-unknown}' (version='${installed_version:-n/a}') - scheduling install."
             continue
         fi
-        candidate="$(apt-cache policy "$pkg" 2>/dev/null | awk '/Candidate:/ {print $2; exit}')"
+        policy_status=0
+        policy_output="$(apt-cache policy "$pkg" 2>/dev/null)" || policy_status=$?
+        if (( policy_status != 0 )); then
+            echo "⚠️  Unable to query candidate version for '$pkg' (apt-cache exit ${policy_status}); requesting installation."
+            PACKAGES_TO_INSTALL+=("$pkg")
+            PACKAGE_STATUS_DETAILS["$pkg"]="status check failed (apt-cache exit ${policy_status})"
+            log_verbose "apt-cache policy failed for '$pkg' (exit ${policy_status})."
+            continue
+        fi
+        candidate="$(awk '/Candidate:/ {print $2; exit}' <<<"$policy_output")"
         if [[ -z "$candidate" || "$candidate" == "(none)" ]]; then
             candidate="$installed_version"
         fi
         if [[ -n "$candidate" && -n "$installed_version" ]] && dpkg --compare-versions "$candidate" gt "$installed_version"; then
             PACKAGES_TO_UPGRADE+=("$pkg")
             PACKAGE_STATUS_DETAILS["$pkg"]="installed ${installed_version} → candidate ${candidate}"
+            log_verbose "Package '$pkg' upgrade required (${installed_version} → ${candidate})."
         else
             PACKAGES_ALREADY_OK+=("$pkg")
             PACKAGE_STATUS_DETAILS["$pkg"]="installed ${installed_version}"
+            log_verbose "Package '$pkg' already satisfied (version ${installed_version})."
         fi
     done
 }
@@ -422,6 +479,9 @@ classify_package_statuses() {
     reset_package_status_tracking
     local manager_kind
     manager_kind="$(detect_package_manager_kind)"
+    local package_list
+    package_list="$(format_list_or_none "$@")"
+    log_verbose "Classifying package statuses via manager '${manager_kind:-unknown}' for packages: ${package_list}"
     if [[ -z "$manager_kind" ]]; then
         PACKAGE_STATUS_CHECK_SUPPORTED=0
         PACKAGES_TO_INSTALL=("$@")
@@ -444,6 +504,11 @@ classify_package_statuses() {
             done
             ;;
     esac
+    local install_list upgrade_list ok_list
+    install_list="$(format_list_or_none "${PACKAGES_TO_INSTALL[@]}")"
+    upgrade_list="$(format_list_or_none "${PACKAGES_TO_UPGRADE[@]}")"
+    ok_list="$(format_list_or_none "${PACKAGES_ALREADY_OK[@]}")"
+    log_verbose "Package status summary: install=(${install_list}), upgrade=(${upgrade_list}), ok=(${ok_list})"
 }
 
 detect_display_stack() {
@@ -530,6 +595,45 @@ raw_value = sys.argv[1]
 expanded = os.path.expanduser(os.path.expandvars(raw_value))
 print(expanded)
 PY
+}
+
+log_verbose() {
+    if [[ "$LOG_ENABLED" != true || -z "${LOG_FILE:-}" ]]; then
+        return
+    fi
+    local timestamp message
+    timestamp="$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || printf 'unknown-time')"
+    message="$*"
+    printf '[%s] %s\n' "$timestamp" "$message" >>"$LOG_FILE" 2>/dev/null || true
+}
+
+init_logging() {
+    if [[ "$LOG_ENABLED" != true ]]; then
+        return
+    fi
+    local target="$LOG_FILE"
+    if [[ -n "$target" ]]; then
+        target="$(expand_user_path "$target")"
+    fi
+    if [[ -z "$target" ]]; then
+        local timestamp
+        timestamp="$(date +%Y%m%d-%H%M%S)"
+        target="${SCRIPT_DIR}/install_linux_${timestamp}.log"
+    fi
+    local log_dir
+    log_dir="$(dirname "$target")"
+    if [[ ! -d "$log_dir" ]]; then
+        mkdir -p "$log_dir"
+    fi
+    LOG_FILE="$(canonicalize_path "$target")"
+    if command -v tee >/dev/null 2>&1; then
+        exec > >(tee -a "$LOG_FILE") 2>&1
+    else
+        echo "⚠️  'tee' command not found; install output will be written only to $LOG_FILE."
+        exec >"$LOG_FILE" 2>&1
+    fi
+    echo "ℹ️  Logging installation details to $LOG_FILE"
+    log_verbose "Verbose logging initialised (pid=$$)"
 }
 
 prompt_for_manual_plugin_dir() {
@@ -690,6 +794,9 @@ handle_dependency_install_failure() {
     local exit_code="$2"
     shift 2
     local -a packages=("$@")
+    local package_detail
+    package_detail="$(format_list_or_none "${packages[@]}")"
+    log_verbose "Dependency action '${action}' failed with status ${exit_code} for packages: ${package_detail}"
     echo "⚠️  Unable to ${action}; the package manager exited with status ${exit_code}." >&2
     if ((${#packages[@]} > 0)); then
         echo "    Affected packages:"
@@ -873,6 +980,7 @@ detect_plugins_dir() {
 ensure_edmc_not_running() {
     if command -v pgrep >/dev/null 2>&1 && pgrep -f "EDMarketConnector" >/dev/null 2>&1; then
         echo "⚠️  EDMarketConnector appears to be running."
+        log_verbose "EDMarketConnector process detected via pgrep."
         if [[ "$ASSUME_YES" == true ]]; then
             echo "❌ Cannot continue in non-interactive mode while EDMarketConnector is running." >&2
             exit 1
@@ -882,10 +990,12 @@ ensure_edmc_not_running() {
             read -r _
             if pgrep -f "EDMarketConnector" >/dev/null 2>&1; then
                 echo "❌ EDMarketConnector is still running. Aborting." >&2
+                log_verbose "Installation aborted because EDMC continued running."
                 exit 1
             fi
         else
             echo "❌ Installation requires EDMarketConnector to be closed. Aborting." >&2
+            log_verbose "User declined to close EDMarketConnector."
             exit 1
         fi
     elif ! command -v pgrep >/dev/null 2>&1; then
@@ -897,6 +1007,7 @@ ensure_edmc_not_running() {
         fi
         if ! prompt_yes_no "Continue with installation?"; then
             echo "❌ Installation aborted by user." >&2
+            log_verbose "User aborted due to unknown EDMC status."
             exit 1
         fi
     fi
@@ -957,6 +1068,11 @@ ensure_system_packages() {
     ensure_distro_profile
     local session_stack
     session_stack="$(detect_display_stack)"
+    log_verbose "Using distro profile '${PROFILE_LABEL:-unknown}' (id='${PROFILE_ID:-unknown}', source='${PROFILE_SOURCE:-unknown}'). Session stack: ${session_stack:-unknown}"
+    local update_cmd install_cmd
+    update_cmd="$(format_list_or_none "${PKG_UPDATE_CMD[@]}")"
+    install_cmd="$(format_list_or_none "${PKG_INSTALL_CMD[@]}")"
+    log_verbose "Package commands: update=(${update_cmd}), install=(${install_cmd})"
     local packages=("${PROFILE_PACKAGES_CORE[@]}" "${PROFILE_PACKAGES_QT[@]}")
     local fallback_notice="python3 python3-venv python3-pip rsync libxcb-cursor0 libxkbcommon-x11-0"
     if [[ "$session_stack" == "wayland" && ${#PROFILE_PACKAGES_WAYLAND[@]} > 0 ]]; then
@@ -968,6 +1084,7 @@ ensure_system_packages() {
     if ((${#packages[@]} == 0)); then
         echo "⚠️  Automatic dependency installation is disabled for profile '$PROFILE_LABEL'."
         echo "    Ensure these packages (or their equivalents) are installed manually: ${fallback_notice}"
+        log_verbose "Automatic dependency installation disabled; fallback packages: ${fallback_notice}"
         return
     fi
 
@@ -981,6 +1098,9 @@ ensure_system_packages() {
 
     echo "📦 Modern Overlay requires the following packages on '$PROFILE_LABEL':"
     printf '    %s\n' "${packages[@]}"
+    local package_list
+    package_list="$(format_list_or_none "${packages[@]}")"
+    log_verbose "Packages to evaluate: ${package_list}"
 
     classify_package_statuses "${packages[@]}"
 
@@ -1011,12 +1131,16 @@ ensure_system_packages() {
     local -a action_packages=("${PACKAGES_TO_INSTALL[@]}" "${PACKAGES_TO_UPGRADE[@]}")
     if ((${#action_packages[@]} == 0)); then
         echo "✅ All required packages are already present for '$PROFILE_LABEL'."
+        log_verbose "All required packages satisfied for profile '${PROFILE_LABEL}'."
         return
     fi
 
     local prompt_message="Install / upgrade ${#action_packages[@]} package(s) now?"
     if ! prompt_yes_no "$prompt_message"; then
         echo "❌ Installation cannot continue without required system packages." >&2
+        local declined_list
+        declined_list="$(format_list_or_none "${action_packages[@]}")"
+        log_verbose "User declined package installation for: ${declined_list}"
         exit 1
     fi
 
@@ -1026,6 +1150,7 @@ ensure_system_packages() {
 
 create_venv_and_install() {
     local target="$1"
+    log_verbose "Ensuring overlay-client virtualenv inside '$target' (dry-run=${DRY_RUN})."
     if [[ "$DRY_RUN" == true ]]; then
         echo "📝 [dry-run] Would ensure Python virtual environment at '$target/overlay-client/.venv' and install overlay-client requirements."
         return
@@ -1067,12 +1192,14 @@ create_venv_and_install() {
     deactivate
 
     popd >/dev/null
+    log_verbose "overlay-client virtualenv ready at '$target/overlay-client/.venv'."
 }
 
 copy_initial_install() {
     local src="$1"
     local plugin_root="$2"
     echo "📁 Copying Modern Overlay into plugins directory..."
+    log_verbose "Copying initial install from '$src' to '$plugin_root' (dry-run=${DRY_RUN})."
     if [[ "$DRY_RUN" == true ]]; then
         echo "📝 [dry-run] Would copy '$(basename "$src")' into '$plugin_root' and set up overlay-client/.venv."
         return
@@ -1085,6 +1212,7 @@ copy_initial_install() {
 rsync_update_plugin() {
     local src="$1"
     local dest="$2"
+    log_verbose "Updating existing installation at '$dest' from '$src' (dry-run=${DRY_RUN})."
     if [[ "$DRY_RUN" == true ]]; then
         echo "📝 [dry-run] Would update existing installation in '$dest' using rsync while preserving overlay-client/.venv."
         return
@@ -1101,10 +1229,12 @@ rsync_update_plugin() {
 
     echo "🔄 Updating existing Modern Overlay installation..."
     rsync -av --delete "${excludes[@]}" "$src"/ "$dest"/
+    log_verbose "rsync update completed for '$dest'."
 }
 
 ensure_existing_install() {
     local dest="$1"
+    log_verbose "Ensuring existing install at '$dest' has up-to-date dependencies."
     create_venv_and_install "$dest"
 }
 
@@ -1121,15 +1251,25 @@ EOF
 }
 
 main() {
+    local -a ORIGINAL_ARGS=("$@")
     parse_args "$@"
     find_release_root
     require_command python3 "python3"
+    init_logging
+    if ((${#ORIGINAL_ARGS[@]} > 0)); then
+        log_verbose "Command-line arguments: $(format_list_or_none "${ORIGINAL_ARGS[@]}")"
+    else
+        log_verbose "Command-line arguments: <none>"
+    fi
+    log_verbose "Release root resolved to: ${RELEASE_ROOT:-unknown}"
     if [[ ! -f "$MATRIX_FILE" ]]; then
         echo "❌ Matrix manifest '$MATRIX_FILE' is missing. Re-download the release archive." >&2
         exit 1
     fi
     detect_plugins_dir
+    log_verbose "Plugin directory resolved to: ${PLUGIN_DIR:-unset}"
     ensure_edmc_not_running
+    log_verbose "Confirmed EDMarketConnector is not running."
     ensure_system_packages
     disable_conflicting_plugins
 
