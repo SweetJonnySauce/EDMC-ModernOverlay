@@ -106,7 +106,7 @@ if not send_overlay_message(payload):
 
 ## `edmcoverlay` Compatibility Layer
 
-Modern Overlay ships with a drop-in replacement for the legacy `edmcoverlay` module. Once this plugin is installed, other plugins can simply:
+Modern Overlay ships with a drop-in replacement for the legacy `edmcoverlay` module. Even though it says "legacy" this is still the preferred method of sending payloads to the Modern Overlay since it helps ensure your plugin will work with `edmcoverlay` as well. Once this plugin is installed, other plugins can simply:
 
 ```python
 from EDMCOverlay import edmcoverlay
