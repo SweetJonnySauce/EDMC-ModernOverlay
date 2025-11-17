@@ -23,6 +23,12 @@
         ],
         "widget_move_right": [
           "<Right>"
+        ],
+        "enter_focus": [
+          "<space>"
+        ],
+        "exit_focus": [
+          "<Control-w>"
         ]
       }
     }

@@ -5,6 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 
 from input_bindings import BindingConfig, BindingManager
+from selection_overlay import SelectionOverlay
 
 
 class OverlayConfigApp(tk.Tk):
@@ -16,7 +17,7 @@ class OverlayConfigApp(tk.Tk):
         self.geometry("960x600")
         self.minsize(640, 420)
 
-        self._placement_open = True
+        self._placement_open = False
         self._open_width = 960
         self.sidebar_width = 260
         self.sidebar_pad = 12
@@ -65,6 +66,8 @@ class OverlayConfigApp(tk.Tk):
             "widget_move_right",
             self.move_widget_focus_right,
         )
+        self._binding_manager.register_action("enter_focus", self.enter_focus_mode)
+        self._binding_manager.register_action("exit_focus", self.exit_focus_mode)
         self._binding_manager.register_action("close_app", self.close_application)
         self._binding_manager.activate()
         self.bind("<Configure>", self._handle_configure)
@@ -135,7 +138,16 @@ class OverlayConfigApp(tk.Tk):
         )
         self.indicator_canvas.pack(expand=True)
 
-        self._create_selection_overlays()
+        self.sidebar_overlay = SelectionOverlay(
+            parent=self.sidebar,
+            padding=self.overlay_padding,
+            border_width=self.overlay_border_width,
+        )
+        self.placement_overlay = SelectionOverlay(
+            parent=self.container,
+            padding=self.overlay_padding,
+            border_width=self.overlay_border_width,
+        )
         self._apply_placement_state()
         self._refresh_widget_focus()
         self._current_direction = "left"
@@ -182,27 +194,6 @@ class OverlayConfigApp(tk.Tk):
 
         self.sidebar.grid_columnconfigure(0, weight=1)
 
-    def _create_selection_overlays(self) -> None:
-        """Create reusable overlay canvases for selection highlights."""
-
-        sidebar_bg = self.sidebar.cget("background")
-        self.sidebar_overlay = tk.Frame(
-            self.sidebar,
-            bd=0,
-            highlightthickness=0,
-            background=sidebar_bg,
-        )
-        self.sidebar_overlay.place_forget()
-
-        placement_bg = self.container.cget("background")
-        self.placement_overlay = tk.Frame(
-            self.container,
-            bd=0,
-            highlightthickness=0,
-            background=placement_bg,
-        )
-        self.placement_overlay.place_forget()
-
     def toggle_placement_window(self) -> None:
         """Switch between the open and closed placement window layouts."""
 
@@ -215,6 +206,8 @@ class OverlayConfigApp(tk.Tk):
     def focus_sidebar_up(self) -> None:
         """Move sidebar focus upward."""
 
+        if not self.widget_select_mode:
+            return
         if not getattr(self, "sidebar_cells", None):
             return
         new_index = max(0, self._sidebar_focus_index - 1)
@@ -224,6 +217,8 @@ class OverlayConfigApp(tk.Tk):
     def focus_sidebar_down(self) -> None:
         """Move sidebar focus downward."""
 
+        if not self.widget_select_mode:
+            return
         if not getattr(self, "sidebar_cells", None):
             return
         new_index = min(len(self.sidebar_cells) - 1, self._sidebar_focus_index + 1)
@@ -267,61 +262,24 @@ class OverlayConfigApp(tk.Tk):
 
     def _update_sidebar_highlight(self) -> None:
         if not self.sidebar_cells:
-            self.sidebar_overlay.place_forget()
+            self.sidebar_overlay.hide()
             return
         if self.widget_focus_area != "sidebar":
-            self.sidebar_overlay.place_forget()
+            self.sidebar_overlay.hide()
             return
 
         frame = self.sidebar_cells[self._sidebar_focus_index]
-        frame.update_idletasks()
-        width = frame.winfo_width()
-        height = frame.winfo_height()
-        x = frame.winfo_x()
-        y = frame.winfo_y()
-        pad = self.overlay_padding
-        overlay_width = max(width + (pad * 2), self.overlay_border_width * 2)
-        overlay_height = max(height + (pad * 2), self.overlay_border_width * 2)
-        self.sidebar_overlay.place(x=x - pad, y=y - pad, width=overlay_width, height=overlay_height)
         color = "#888888" if self.widget_select_mode else "#000000"
-        self.sidebar_overlay.configure(
-            highlightthickness=self.overlay_border_width,
-            highlightbackground=color,
-            highlightcolor=color,
-            bd=0,
-        )
-        self.sidebar_overlay.tkraise()
-        frame.tkraise(self.sidebar_overlay)
+        self.sidebar_overlay.show(frame, color)
 
     def _update_placement_focus_highlight(self) -> None:
         is_active = self.widget_focus_area == "placement" and self._placement_open
         if not is_active:
-            self.placement_overlay.place_forget()
+            self.placement_overlay.hide()
             return
 
-        self.placement_frame.update_idletasks()
-        width = self.placement_frame.winfo_width()
-        height = self.placement_frame.winfo_height()
-        x = self.placement_frame.winfo_x()
-        y = self.placement_frame.winfo_y()
-        pad = self.overlay_padding
-        overlay_width = max(width + (pad * 2), self.overlay_border_width * 2)
-        overlay_height = max(height + (pad * 2), self.overlay_border_width * 2)
-        self.placement_overlay.place(
-            x=x - pad,
-            y=y - pad,
-            width=overlay_width,
-            height=overlay_height,
-        )
         color = "#888888" if self.widget_select_mode else "#000000"
-        self.placement_overlay.configure(
-            highlightthickness=self.overlay_border_width,
-            highlightbackground=color,
-            highlightcolor=color,
-            bd=0,
-        )
-        self.placement_overlay.tkraise()
-        self.placement_frame.tkraise(self.placement_overlay)
+        self.placement_overlay.show(self.placement_frame, color)
 
     def _refresh_widget_focus(self) -> None:
         if hasattr(self, "sidebar_cells"):
@@ -331,8 +289,26 @@ class OverlayConfigApp(tk.Tk):
     def close_application(self) -> None:
         """Close the Overlay Config window."""
 
-        if getattr(self, "widget_select_mode", True):
-            self.destroy()
+        if not getattr(self, "widget_select_mode", True):
+            self.exit_focus_mode()
+            return
+        self.destroy()
+
+    def enter_focus_mode(self) -> None:
+        """Lock the current selection so arrows no longer move it."""
+
+        if not self.widget_select_mode:
+            return
+        self.widget_select_mode = False
+        self._refresh_widget_focus()
+
+    def exit_focus_mode(self) -> None:
+        """Return to selection mode so the highlight can move again."""
+
+        if self.widget_select_mode:
+            return
+        self.widget_select_mode = True
+        self._refresh_widget_focus()
 
     def _apply_placement_state(self) -> None:
         """Show the correct placement frame for the current state."""
@@ -355,6 +331,8 @@ class OverlayConfigApp(tk.Tk):
                 row=0,
                 column=1,
                 sticky="nsew",
+                padx=(0, self.overlay_padding),
+                pady=(self.overlay_padding, self.overlay_padding),
             )
             self.container.grid_columnconfigure(1, weight=1, minsize=self.placement_min_width)
             self.update_idletasks()

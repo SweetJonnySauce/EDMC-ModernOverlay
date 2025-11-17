@@ -27,6 +27,8 @@ DEFAULT_CONFIG = {
                 "sidebar_focus_down": ["<Down>"],
                 "widget_move_left": ["<Left>"],
                 "widget_move_right": ["<Right>"],
+                "enter_focus": ["<space>"],
+                "exit_focus": ["<Control-w>"],
             },
         }
     },
