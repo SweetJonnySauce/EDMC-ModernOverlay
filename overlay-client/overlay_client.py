@@ -3963,6 +3963,7 @@ class OverlayWindow(QWidget):
                 continue
             rect = self._overlay_bounds_to_rect(bounds, mapper)
             painter.setPen(outline_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(rect)
             anchor_point = debug_state.anchor_point
             if anchor_point is None:
@@ -3982,6 +3983,8 @@ class OverlayWindow(QWidget):
                 metrics.horizontalAdvance(label),
                 metrics.ascent(),
                 metrics.descent(),
+                max(self.width(), 0),
+                max(self.height(), 0),
             )
             painter.drawText(label_pos[0], label_pos[1], label)
             painter.setPen(outline_pen)
@@ -4012,6 +4015,8 @@ class OverlayWindow(QWidget):
         label_width: int,
         ascent: int,
         descent: int,
+        canvas_width: int,
+        canvas_height: int,
     ) -> Tuple[int, int]:
         token = (anchor_token or "nw").lower()
         x, y = anchor_px
@@ -4027,6 +4032,23 @@ class OverlayWindow(QWidget):
             draw_y = y + ascent + 6
         else:
             draw_y = y + ascent // 2
+        margin = 8
+        if canvas_width > 0:
+            min_x = margin
+            max_x = max(margin, canvas_width - margin - label_width)
+            draw_x = min(max(draw_x, min_x), max_x)
+        if canvas_height > 0:
+            top = draw_y - ascent
+            bottom = draw_y + descent
+            min_top = margin
+            max_bottom = max(margin, canvas_height - margin)
+            if top < min_top:
+                shift = min_top - top
+                draw_y += shift
+                bottom += shift
+            if bottom > max_bottom:
+                shift = bottom - max_bottom
+                draw_y -= shift
         return draw_x, draw_y
 
     @staticmethod
