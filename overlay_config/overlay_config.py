@@ -87,15 +87,17 @@ class OverlayConfigApp(tk.Tk):
         self.container.grid_columnconfigure(1, weight=1)
 
         # Placement window placeholder (open state)
+        placement_border_color = self.container.cget("background")
         self.placement_frame = tk.Frame(
             self.container,
             bd=0,
             relief="flat",
             background="#f5f5f5",
             highlightthickness=2,
-            highlightbackground=self.container.cget("background"),
-            highlightcolor=self.container.cget("background"),
+            highlightbackground=placement_border_color,
+            highlightcolor=placement_border_color,
         )
+        self._placement_inactive_border_color = placement_border_color
         placement_label = tk.Label(
             self.placement_frame,
             text="placement window (open)",
@@ -138,6 +140,7 @@ class OverlayConfigApp(tk.Tk):
         self.indicator_canvas.pack(expand=True)
 
         self._apply_placement_state()
+        self._refresh_widget_focus()
         self._current_direction = "left"
 
     def _build_sidebar_sections(self) -> None:
@@ -168,22 +171,15 @@ class OverlayConfigApp(tk.Tk):
                 row=index,
                 column=0,
                 sticky="nsew",
+                pady=(1 if index > 0 else 0, 1 if index < len(sections) - 1 else 0),
             )
             frame.grid_propagate(True)
-            frame.configure(
-                highlightthickness=2,
-                highlightbackground=self.sidebar.cget("background"),
-                highlightcolor=self.sidebar.cget("background"),
-            )
             text_label = tk.Label(frame, text=label_text, anchor="center", padx=6, pady=6)
             text_label.pack(fill="both", expand=True)
             self.sidebar.grid_rowconfigure(index, weight=weight)
             self.sidebar_cells.append(frame)
 
         self.sidebar.grid_columnconfigure(0, weight=1)
-        if self.sidebar_cells:
-            self._set_sidebar_focus(0)
-        self._refresh_widget_focus()
 
     def toggle_placement_window(self) -> None:
         """Switch between the open and closed placement window layouts."""
@@ -248,26 +244,36 @@ class OverlayConfigApp(tk.Tk):
             self._refresh_widget_focus()
 
     def _update_sidebar_highlight(self) -> None:
-        default_color = self.sidebar.cget("background")
-        for i, frame in enumerate(self.sidebar_cells):
-            is_active = self.widget_focus_area == "sidebar" and i == self._sidebar_focus_index
-            if self.widget_select_mode and is_active:
-                color = "#888888"
-            elif not self.widget_select_mode and is_active:
-                color = "#000000"
+        if not self.sidebar_cells:
+            return
+        if self.widget_focus_area != "sidebar":
+            for frame in self.sidebar_cells:
+                frame.configure(highlightthickness=0)
+            return
+
+        color = "#888888" if self.widget_select_mode else "#000000"
+        for index, frame in enumerate(self.sidebar_cells):
+            if index == self._sidebar_focus_index:
+                frame.configure(
+                    highlightthickness=2,
+                    highlightbackground=color,
+                    highlightcolor=color,
+                )
             else:
-                color = default_color
-            frame.configure(highlightbackground=color, highlightcolor=color)
+                frame.configure(highlightthickness=0)
 
     def _update_placement_focus_highlight(self) -> None:
         is_active = self.widget_focus_area == "placement" and self._placement_open
-        if self.widget_select_mode and is_active:
-            color = "#888888"
-        elif not self.widget_select_mode and is_active:
-            color = "#000000"
-        else:
-            color = self.container.cget("background")
+        if not is_active:
+            self.placement_frame.configure(
+                highlightbackground=self._placement_inactive_border_color,
+                highlightcolor=self._placement_inactive_border_color,
+            )
+            return
+
+        color = "#888888" if self.widget_select_mode else "#000000"
         self.placement_frame.configure(
+            highlightthickness=2,
             highlightbackground=color,
             highlightcolor=color,
         )
