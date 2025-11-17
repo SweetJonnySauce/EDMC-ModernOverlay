@@ -10,6 +10,7 @@ import math
 import os
 import queue
 import re
+import socket
 import sys
 import threading
 import time
@@ -39,6 +40,8 @@ GROUPINGS_PATH = ROOT_DIR / "overlay_groupings.json"
 DEBUG_CONFIG_PATH = ROOT_DIR / "debug.json"
 SETTINGS_PATH = ROOT_DIR / "overlay_settings.json"
 TRACE_LOG_PATH = Path(__file__).resolve().with_name("plugin_group_manager_context.log")
+PORT_PATH = ROOT_DIR / "port.json"
+PAYLOAD_STORE_DIR = ROOT_DIR / "payload_store"
 PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
 PAYLOAD_LOG_BASENAMES = ("overlay-payloads.log", "overlay_payloads.log")
 ANCHOR_CHOICES = ("nw", "ne", "sw", "se", "center", "top", "bottom", "left", "right")
@@ -2072,6 +2075,13 @@ class PluginGroupManagerApp:
                 text="Delete",
                 command=lambda group=group_name, entry_label=entry.get("label"): self._delete_grouping(group, entry_label),
             ).pack(fill="x", pady=(4, 0))
+            log_path = self._log_path_for_group_label(entry.get("label"))
+            if log_path:
+                ttk.Button(
+                    button_frame,
+                    text="Play",
+                    command=lambda path=log_path: self._play_group_log(path),
+                ).pack(fill="x", pady=(4, 0))
             if index < len(entries) - 1:
                 ttk.Separator(self.grouping_entries_frame, orient="horizontal").pack(fill="x", padx=4, pady=(0, 4))
 
@@ -2089,6 +2099,154 @@ class PluginGroupManagerApp:
                 return str(int(value))
             return f"{value:g}"
         return "0"
+
+    @staticmethod
+    def _log_path_for_group_label(label_value: Optional[object]) -> Optional[Path]:
+        if not isinstance(label_value, str):
+            return None
+        slug = label_value.strip().lower().replace(" ", "_")
+        if not slug:
+            return None
+        candidate = PAYLOAD_STORE_DIR / f"{slug}.log"
+        if candidate.exists():
+            return candidate
+        return None
+
+    def _play_group_log(self, log_path: Path) -> None:
+        title = "Replay payloads"
+        try:
+            port = self._load_overlay_port()
+            messages = self._load_payloads_from_log(log_path)
+        except RuntimeError as exc:
+            self._report_playback_error(title, str(exc))
+            return
+        if not messages:
+            messagebox.showinfo(title, f"No playable payloads were found in {log_path.name}.")
+            return
+        total = len(messages)
+        for seq, payload in enumerate(messages, start=1):
+            meta = payload.setdefault("meta", {})
+            if isinstance(meta, dict):
+                meta.setdefault("sequence", seq)
+                meta.setdefault("count", total)
+            try:
+                response = self._send_payload_to_client(port, payload)
+            except RuntimeError as exc:
+                self._report_playback_error(title, f"Failed to send payload {seq}/{total}: {exc}")
+                return
+            status = response.get("status")
+            if status != "ok":
+                error_msg = response.get("error") or response
+                self._report_playback_error(title, f"Overlay client reported an error for payload {seq}: {error_msg}")
+                return
+        success_msg = f"Sent {total} payload(s) from {log_path.name}."
+        self.status_var.set(success_msg)
+
+    @staticmethod
+    def _report_playback_error(title: str, message: str) -> None:
+        print(f"[plugin-group-manager] {title}: {message}", file=sys.stderr)
+        messagebox.showerror(title, message)
+
+    def _load_overlay_port(self) -> int:
+        try:
+            port_data = json.loads(PORT_PATH.read_text(encoding="utf-8"))
+        except FileNotFoundError as exc:
+            raise RuntimeError(f"port.json was not found at {PORT_PATH}") from exc
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Failed to parse port.json: {exc}") from exc
+        port = port_data.get("port")
+        if not isinstance(port, int) or port <= 0:
+            raise RuntimeError(f"port.json did not contain a valid port number: {port}")
+        return port
+
+    def _load_payloads_from_log(self, log_path: Path) -> List[Dict[str, Any]]:
+        if not log_path.exists():
+            raise RuntimeError(f"Log file not found: {log_path}")
+        messages: List[Dict[str, Any]] = []
+        try:
+            with log_path.open("r", encoding="utf-8") as handle:
+                for line_no, line in enumerate(handle, start=1):
+                    payload = self._extract_payload_from_log_line(line, line_no, log_path)
+                    if payload is None:
+                        continue
+                    messages.append(payload)
+        except OSError as exc:
+            raise RuntimeError(f"Failed to read {log_path}: {exc}") from exc
+        return messages
+
+    @staticmethod
+    def _extract_payload_from_log_line(raw_line: str, line_no: int, log_path: Path) -> Optional[Dict[str, Any]]:
+        record = PluginGroupManagerApp._extract_json_segment(raw_line)
+        if record is None:
+            return None
+        payload_obj = record.get("raw")
+        if not isinstance(payload_obj, dict):
+            payload_obj = record.get("payload")
+        if not isinstance(payload_obj, dict):
+            payload_obj = record
+        if not isinstance(payload_obj, dict):
+            return None
+        payload = dict(payload_obj)
+        payload_type = payload.get("type")
+        if isinstance(payload_type, str):
+            payload_type_cf = payload_type.casefold()
+            if payload_type_cf == "legacy_clear":
+                return None
+        ttl_value = payload.get("ttl")
+        if isinstance(ttl_value, (int, float)) and ttl_value <= 0:
+            return None
+        event = payload.get("event") or record.get("event")
+        if not isinstance(event, str) or not event:
+            return None
+        payload["event"] = event
+        return {
+            "cli": "legacy_overlay",
+            "payload": payload,
+            "meta": {
+                "source": "plugin_group_manager",
+                "logfile": str(log_path),
+                "line": line_no,
+            },
+        }
+
+    @staticmethod
+    def _extract_json_segment(line: str) -> Optional[Dict[str, Any]]:
+        start = line.find("{")
+        if start == -1:
+            return None
+        segment = line[start:]
+        try:
+            return json.loads(segment)
+        except json.JSONDecodeError:
+            return None
+
+    @staticmethod
+    def _send_payload_to_client(port: int, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        message = json.dumps(payload, ensure_ascii=False)
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=5.0) as sock:
+                sock.settimeout(5.0)
+                writer = sock.makefile("w", encoding="utf-8", newline="\n")
+                reader = sock.makefile("r", encoding="utf-8")
+                writer.write(message)
+                writer.write("\n")
+                writer.flush()
+                for _ in range(10):
+                    response_line = reader.readline()
+                    if not response_line:
+                        raise RuntimeError("Connection closed before acknowledgement was received.")
+                    try:
+                        response = json.loads(response_line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(response, Mapping) and "status" in response:
+                        return dict(response)
+                raise RuntimeError("Did not receive an acknowledgement from the overlay client.")
+        except OSError as exc:
+            raise RuntimeError(
+                f"Failed to send payload to the overlay client on port {port}: {exc}. "
+                "Ensure the Modern Overlay window is running."
+            ) from exc
 
     def _on_group_selected(self) -> None:
         name = self.selected_group_var.get()
