@@ -1,0 +1,17 @@
+{
+  "active_scheme": "keyboard_default",
+  "schemes": {
+    "keyboard_default": {
+      "device_type": "keyboard",
+      "display_name": "Keyboard (default)",
+      "bindings": {
+        "toggle_placement": [
+          "<space>"
+        ],
+        "close_app": [
+          "<Escape>"
+        ]
+      }
+    }
+  }
+}

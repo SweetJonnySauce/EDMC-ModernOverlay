@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import tkinter as tk
 
+from input_bindings import BindingConfig, BindingManager
+
 
 class OverlayConfigApp(tk.Tk):
     """Basic UI skeleton that mirrors the design mockups."""
@@ -33,7 +35,11 @@ class OverlayConfigApp(tk.Tk):
         self.indicator_count = 3
 
         self._build_layout()
-        self.bind_all("<space>", self._handle_spacebar)
+        self._binding_config = BindingConfig.load()
+        self._binding_manager = BindingManager(self, self._binding_config)
+        self._binding_manager.register_action("toggle_placement", self.toggle_placement_window)
+        self._binding_manager.register_action("close_app", self.close_application)
+        self._binding_manager.activate()
         self.bind("<Configure>", self._handle_configure)
 
     def _build_layout(self) -> None:
@@ -93,7 +99,7 @@ class OverlayConfigApp(tk.Tk):
 
         info_label = tk.Label(
             self.container,
-            text="Press space to open",
+            text="Press space to open, Esc to close",
             anchor="w",
         )
         info_label.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
@@ -126,17 +132,16 @@ class OverlayConfigApp(tk.Tk):
 
         self.sidebar.grid_columnconfigure(0, weight=1)
 
-    def _handle_spacebar(self, event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]
-        """Toggle the placement window visibility when the spacebar is pressed."""
-
-        if event.keysym == "space":
-            self.toggle_placement_window()
-
     def toggle_placement_window(self) -> None:
         """Switch between the open and closed placement window layouts."""
 
         self._placement_open = not self._placement_open
         self._apply_placement_state()
+
+    def close_application(self) -> None:
+        """Close the Overlay Config window."""
+
+        self.destroy()
 
     def _apply_placement_state(self) -> None:
         """Show the correct placement frame for the current state."""
