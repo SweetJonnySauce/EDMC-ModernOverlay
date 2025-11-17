@@ -2811,13 +2811,26 @@ class OverlayWindow(QWidget):
             effective_anchor_by_group,
             transform_by_group,
         )
+        overlay_bounds_for_draw = self._clone_overlay_bounds_map(overlay_bounds_by_group)
+        overlay_bounds_for_draw = self._apply_anchor_translations_to_overlay_bounds(
+            overlay_bounds_for_draw,
+            anchor_translation_by_group,
+            mapper.transform.scale,
+        )
         translated_bounds_by_group = self._apply_payload_justification(
             commands,
             transform_by_group,
             anchor_translation_by_group,
             translated_bounds_by_group,
+            overlay_bounds_for_draw,
+            mapper.transform.scale,
         )
         translations = self._compute_group_nudges(translated_bounds_by_group)
+        overlay_bounds_for_draw = self._apply_group_nudges_to_overlay_bounds(
+            overlay_bounds_for_draw,
+            translations,
+            mapper.transform.scale,
+        )
         drawn_groups: Set[Tuple[str, Optional[str]]] = set()
         window_width = max(self.width(), 0)
         window_height = max(self.height(), 0)
@@ -2828,8 +2841,8 @@ class OverlayWindow(QWidget):
             justification_dx = getattr(command, "justification_dx", 0.0)
             payload_offset_x = translation_x + justification_dx + nudge_x
             payload_offset_y = translation_y + nudge_y
-            outline_offset_x = translation_x + nudge_x
-            outline_offset_y = translation_y + nudge_y
+            outline_offset_x = payload_offset_x
+            outline_offset_y = payload_offset_y
             self._log_offscreen_payload(command, payload_offset_x, payload_offset_y, window_width, window_height)
             command.paint(self, painter, payload_offset_x, payload_offset_y)
             if draw_group_bounds:
@@ -2840,10 +2853,11 @@ class OverlayWindow(QWidget):
                             painter,
                             mapper,
                             command.group_transform,
-                            overlay_bounds_by_group.get(key_tuple),
+                            overlay_bounds_for_draw.get(key_tuple),
                             effective_anchor_by_group.get(key_tuple),
                             outline_offset_x,
                             outline_offset_y,
+                            nudged=bool(nudge_x or nudge_y),
                         )
                 else:
                     self._draw_item_bounds_outline_with_offset(
@@ -2982,6 +2996,8 @@ class OverlayWindow(QWidget):
         transform_by_group: Mapping[Tuple[str, Optional[str]], Optional[GroupTransform]],
         anchor_translation_by_group: Mapping[Tuple[str, Optional[str]], Tuple[float, float]],
         translated_bounds_by_group: Dict[Tuple[str, Optional[str]], _ScreenBounds],
+        overlay_bounds_by_group: Dict[Tuple[str, Optional[str]], _OverlayBounds],
+        base_scale: float,
     ) -> Dict[Tuple[str, Optional[str]], _ScreenBounds]:
         requests: List[JustificationRequest] = []
         for command in commands:
@@ -3012,8 +3028,15 @@ class OverlayWindow(QWidget):
         offset_map = calculate_offsets(requests)
         if not offset_map:
             return translated_bounds_by_group
+        if not math.isfinite(base_scale) or math.isclose(base_scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
+            base_scale = 1.0
         for command in commands:
             command.justification_dx = offset_map.get(id(command), 0.0)
+            if command.justification_dx:
+                overlay_bounds = overlay_bounds_by_group.get(command.group_key.as_tuple())
+                if overlay_bounds is not None and overlay_bounds.is_valid():
+                    dx_overlay = command.justification_dx / base_scale
+                    overlay_bounds.translate(dx_overlay, 0.0)
         return self._rebuild_translated_bounds(commands, anchor_translation_by_group, translated_bounds_by_group)
 
     def _rebuild_translated_bounds(
@@ -3640,6 +3663,55 @@ class OverlayWindow(QWidget):
                 translations[key] = (dx, dy)
         return translations
 
+    @staticmethod
+    def _clone_overlay_bounds_map(
+        overlay_bounds_by_group: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+    ) -> Dict[Tuple[str, Optional[str]], _OverlayBounds]:
+        cloned: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
+        for key, bounds in overlay_bounds_by_group.items():
+            clone = _OverlayBounds()
+            clone.min_x = bounds.min_x
+            clone.max_x = bounds.max_x
+            clone.min_y = bounds.min_y
+            clone.max_y = bounds.max_y
+            cloned[key] = clone
+        return cloned
+
+    def _apply_anchor_translations_to_overlay_bounds(
+        self,
+        overlay_bounds_by_group: Dict[Tuple[str, Optional[str]], _OverlayBounds],
+        anchor_translations: Mapping[Tuple[str, Optional[str]], Tuple[float, float]],
+        base_scale: float,
+    ) -> Dict[Tuple[str, Optional[str]], _OverlayBounds]:
+        if not anchor_translations:
+            return overlay_bounds_by_group
+        if not math.isfinite(base_scale) or math.isclose(base_scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
+            base_scale = 1.0
+        for key, (dx_px, dy_px) in anchor_translations.items():
+            bounds = overlay_bounds_by_group.get(key)
+            if bounds is None or not bounds.is_valid():
+                continue
+            bounds.translate(dx_px / base_scale, dy_px / base_scale)
+        return overlay_bounds_by_group
+
+    def _apply_group_nudges_to_overlay_bounds(
+        self,
+        overlay_bounds_by_group: Dict[Tuple[str, Optional[str]], _OverlayBounds],
+        translations: Mapping[Tuple[str, Optional[str]], Tuple[int, int]],
+        base_scale: float,
+    ) -> Dict[Tuple[str, Optional[str]], _OverlayBounds]:
+        if not translations:
+            return overlay_bounds_by_group
+        if not math.isfinite(base_scale) or math.isclose(base_scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
+            base_scale = 1.0
+        for key, (dx_px, dy_px) in translations.items():
+            bounds = overlay_bounds_by_group.get(key)
+            if bounds is None:
+                continue
+            bounds.translate(dx_px / base_scale, dy_px / base_scale)
+        return overlay_bounds_by_group
+
+
     def _log_offscreen_payload(
         self,
         command: _LegacyPaintCommand,
@@ -3732,6 +3804,7 @@ class OverlayWindow(QWidget):
         explicit_anchor: Optional[Tuple[float, float]],
         offset_x: int,
         offset_y: int,
+        nudged: bool = False,
     ) -> None:
         if offset_x or offset_y:
             anchor_visual_offset = (float(offset_x), float(offset_y))
@@ -3744,10 +3817,18 @@ class OverlayWindow(QWidget):
                 overlay_bounds,
                 explicit_anchor,
                 anchor_visual_offset=anchor_visual_offset,
+                nudged=nudged,
             )
             painter.restore()
             return
-        self._draw_group_bounds_outline(painter, mapper, transform, overlay_bounds, explicit_anchor)
+        self._draw_group_bounds_outline(
+            painter,
+            mapper,
+            transform,
+            overlay_bounds,
+            explicit_anchor,
+            nudged=nudged,
+        )
 
     def _draw_item_bounds_outline_with_offset(
         self,
@@ -3773,6 +3854,7 @@ class OverlayWindow(QWidget):
         overlay_bounds: Optional[_OverlayBounds],
         explicit_anchor: Optional[Tuple[float, float]] = None,
         anchor_visual_offset: Optional[Tuple[float, float]] = None,
+        nudged: bool = False,
     ) -> None:
         state = self._viewport_state()
         fill = build_viewport(mapper, state, transform, BASE_WIDTH, BASE_HEIGHT)
@@ -3931,6 +4013,8 @@ class OverlayWindow(QWidget):
                     if label_overlay is not None
                     else "(n/a)"
                 )
+                if nudged:
+                    text = f"{text} nudged"
                 metrics = painter.fontMetrics()
                 text_rect = metrics.boundingRect(text)
                 offset_x = dot_radius + 6
