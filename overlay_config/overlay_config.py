@@ -21,9 +21,13 @@ class OverlayConfigApp(tk.Tk):
         self.container_pad = 12
         self.placement_min_width = 450
         self.closed_min_width = 60
+        self.indicator_width = 12
+        self.indicator_height = 36
+        self.indicator_count = 3
 
         self._build_layout()
         self.bind_all("<space>", self._handle_spacebar)
+        self.bind("<Configure>", self._handle_configure)
 
     def _build_layout(self) -> None:
         """Create the split view with placement and sidebar sections."""
@@ -60,6 +64,14 @@ class OverlayConfigApp(tk.Tk):
         self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, self.sidebar_pad))
         self._build_sidebar_sections()
         self.sidebar.grid_propagate(False)
+
+        self.indicator_canvas = tk.Canvas(
+            self.container,
+            width=self.indicator_width,
+            height=self.indicator_height,
+            highlightthickness=0,
+            bg=self.container.cget("background"),
+        )
 
         info_label = tk.Label(
             self.container,
@@ -128,6 +140,7 @@ class OverlayConfigApp(tk.Tk):
             target_width = max(self._open_width, self.winfo_reqwidth(), open_min_width)
             self.minsize(open_min_width, 420)
             self.geometry(f"{int(target_width)}x{int(current_height)}")
+            self._hide_indicator()
         else:
             self._open_width = max(
                 self.winfo_width(),
@@ -140,8 +153,43 @@ class OverlayConfigApp(tk.Tk):
             collapsed_width = max(self.winfo_reqwidth(), outer_padding + sidebar_total)
             self.minsize(outer_padding + sidebar_total, 420)
             self.geometry(f"{int(collapsed_width)}x{int(current_height)}")
+            self._show_indicator()
 
         self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, self.sidebar_pad))
+
+    def _show_indicator(self) -> None:
+        """Display a right-pointing triangle in the sidebar gutter."""
+
+        x = self.container_pad + self.sidebar_width + (self.sidebar_pad - self.indicator_width) / 2
+        y = max(
+            self.container_pad,
+            (self.container.winfo_height() - self.indicator_height) / 2,
+        )
+        self.indicator_canvas.place(x=x, y=y)
+        self.indicator_canvas.delete("all")
+        arrow_height = self.indicator_height / self.indicator_count
+        for i in range(self.indicator_count):
+            top = i * arrow_height
+            self.indicator_canvas.create_polygon(
+                0,
+                top,
+                0,
+                top + arrow_height,
+                self.indicator_width,
+                top + (arrow_height / 2),
+                fill="black",
+            )
+
+    def _hide_indicator(self) -> None:
+        """Hide the collapse indicator."""
+
+        self.indicator_canvas.place_forget()
+
+    def _handle_configure(self, _event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]
+        """Re-center the indicator when the window is resized."""
+
+        if not self._placement_open:
+            self._show_indicator()
 
 
 def launch() -> None:
