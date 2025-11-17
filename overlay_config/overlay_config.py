@@ -18,11 +18,18 @@ class OverlayConfigApp(tk.Tk):
         self._open_width = 960
         self.sidebar_width = 260
         self.sidebar_pad = 12
-        self.container_pad = 12
+        self.sidebar_pad_closed = 0
+        self.container_pad_left = 12
+        self.container_pad_right_open = 12
+        self.container_pad_right_closed = 2
+        self.container_pad_vertical = 12
         self.placement_min_width = 450
-        self.closed_min_width = 60
+        self.closed_min_width = 0
         self.indicator_width = 12
         self.indicator_height = 36
+        self.indicator_gap = 0
+        self._current_right_pad = self.container_pad_right_open
+        self._current_sidebar_pad = self.sidebar_pad
         self.indicator_count = 3
 
         self._build_layout()
@@ -32,8 +39,14 @@ class OverlayConfigApp(tk.Tk):
     def _build_layout(self) -> None:
         """Create the split view with placement and sidebar sections."""
 
-        self.container = tk.Frame(self, padx=self.container_pad, pady=self.container_pad)
-        self.container.grid(row=0, column=0, sticky="nsew")
+        self.container = tk.Frame(self)
+        self.container.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+            padx=(self.container_pad_left, self.container_pad_right_open),
+            pady=self.container_pad_vertical,
+        )
 
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -60,7 +73,12 @@ class OverlayConfigApp(tk.Tk):
         placement_label.pack(fill="both", expand=True)
 
         # Sidebar with individual selector sections
-        self.sidebar = tk.Frame(self.container, width=self.sidebar_width)
+        self.sidebar = tk.Frame(
+            self.container,
+            width=self.sidebar_width,
+            bd=0,
+            highlightthickness=0,
+        )
         self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, self.sidebar_pad))
         self._build_sidebar_sections()
         self.sidebar.grid_propagate(False)
@@ -81,6 +99,7 @@ class OverlayConfigApp(tk.Tk):
         info_label.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
 
         self._apply_placement_state()
+        self._current_direction = "left"
 
     def _build_sidebar_sections(self) -> None:
         """Create labeled boxes that will hold future controls."""
@@ -124,12 +143,18 @@ class OverlayConfigApp(tk.Tk):
 
         self.update_idletasks()
         current_height = max(self.winfo_height(), 420)
-        outer_padding = self.container_pad * 2
-        sidebar_total = self.sidebar_width + self.sidebar_pad
-        open_min_width = outer_padding + sidebar_total + self.placement_min_width
-        closed_min_width = outer_padding + sidebar_total + self.closed_min_width
+        open_outer_padding = self.container_pad_left + self.container_pad_right_open
+        closed_outer_padding = self.container_pad_left + self.container_pad_right_closed
+        sidebar_total_open = self.sidebar_width + self.sidebar_pad
+        sidebar_total_closed = self.sidebar_width
+        open_min_width = open_outer_padding + sidebar_total_open + self.placement_min_width
+        closed_min_width = closed_outer_padding + sidebar_total_closed + self.closed_min_width
 
         if self._placement_open:
+            self.container.grid_configure(
+                padx=(self.container_pad_left, self.container_pad_right_open)
+            )
+            self._current_right_pad = self.container_pad_right_open
             self.placement_frame.grid(
                 row=0,
                 column=1,
@@ -140,8 +165,13 @@ class OverlayConfigApp(tk.Tk):
             target_width = max(self._open_width, self.winfo_reqwidth(), open_min_width)
             self.minsize(open_min_width, 420)
             self.geometry(f"{int(target_width)}x{int(current_height)}")
-            self._hide_indicator()
+            self._current_direction = "left"
+            self._show_indicator(direction="left")
         else:
+            self.container.grid_configure(
+                padx=(self.container_pad_left, self.container_pad_right_closed)
+            )
+            self._current_right_pad = self.container_pad_right_closed
             self._open_width = max(
                 self.winfo_width(),
                 self.winfo_reqwidth(),
@@ -150,35 +180,54 @@ class OverlayConfigApp(tk.Tk):
             self.placement_frame.grid_forget()
             self.container.grid_columnconfigure(1, weight=0, minsize=0)
             self.update_idletasks()
-            collapsed_width = max(self.winfo_reqwidth(), outer_padding + sidebar_total)
-            self.minsize(outer_padding + sidebar_total, 420)
+            collapsed_width = max(self.winfo_reqwidth(), closed_min_width)
+            self.minsize(closed_min_width, 420)
             self.geometry(f"{int(collapsed_width)}x{int(current_height)}")
-            self._show_indicator()
+            self._current_direction = "right"
+            self._show_indicator(direction="right")
 
-        self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, self.sidebar_pad))
+        pad = self.sidebar_pad if self._placement_open else self.sidebar_pad_closed
+        self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, pad))
+        self._current_sidebar_pad = pad
 
-    def _show_indicator(self) -> None:
-        """Display a right-pointing triangle in the sidebar gutter."""
+    def _show_indicator(self, direction: str) -> None:
+        """Display a triangle indicator; direction is 'left' or 'right'."""
 
-        x = self.container_pad + self.sidebar_width + (self.sidebar_pad - self.indicator_width) / 2
+        self.update_idletasks()
+        sidebar_right = self.sidebar.winfo_x() + self.sidebar.winfo_width()
+        pad_between = self._current_sidebar_pad
+        gap_available = max(0, pad_between)
+        indicator_x = sidebar_right
+        if gap_available >= self.indicator_width:
+            indicator_x += (gap_available - self.indicator_width) / 2
         y = max(
-            self.container_pad,
+            self.container_pad_vertical,
             (self.container.winfo_height() - self.indicator_height) / 2,
         )
-        self.indicator_canvas.place(x=x, y=y)
+        self.indicator_canvas.place(x=indicator_x, y=y)
         self.indicator_canvas.delete("all")
         arrow_height = self.indicator_height / self.indicator_count
         for i in range(self.indicator_count):
             top = i * arrow_height
-            self.indicator_canvas.create_polygon(
-                0,
-                top,
-                0,
-                top + arrow_height,
-                self.indicator_width,
-                top + (arrow_height / 2),
-                fill="black",
-            )
+            if direction == "left":
+                points = (
+                    self.indicator_width,
+                    top,
+                    self.indicator_width,
+                    top + arrow_height,
+                    0,
+                    top + (arrow_height / 2),
+                )
+            else:
+                points = (
+                    0,
+                    top,
+                    0,
+                    top + arrow_height,
+                    self.indicator_width,
+                    top + (arrow_height / 2),
+                )
+            self.indicator_canvas.create_polygon(*points, fill="black")
 
     def _hide_indicator(self) -> None:
         """Hide the collapse indicator."""
@@ -189,7 +238,7 @@ class OverlayConfigApp(tk.Tk):
         """Re-center the indicator when the window is resized."""
 
         if not self._placement_open:
-            self._show_indicator()
+            self._show_indicator(direction=self._current_direction)
 
 
 def launch() -> None:
