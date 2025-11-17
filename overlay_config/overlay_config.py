@@ -59,7 +59,7 @@ class OverlayConfigApp(tk.Tk):
             column=0,
             sticky="nsew",
             padx=(self.container_pad_left, self.container_pad_right_open),
-            pady=self.container_pad_vertical,
+            pady=(self.container_pad_vertical, self.container_pad_vertical),
         )
 
         self.grid_rowconfigure(0, weight=1)
@@ -115,13 +115,6 @@ class OverlayConfigApp(tk.Tk):
             bg=indicator_bg,
         )
         self.indicator_canvas.pack(expand=True)
-
-        info_label = tk.Label(
-            self.container,
-            text="Press space to open, Esc to close",
-            anchor="w",
-        )
-        info_label.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
 
         self._apply_placement_state()
         self._current_direction = "left"
