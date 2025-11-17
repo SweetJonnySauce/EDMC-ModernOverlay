@@ -564,6 +564,15 @@ class OverlayWindow(QWidget):
         self._payload_nudge_enabled: bool = False
         self._payload_nudge_gutter: int = 30
         self._offscreen_payloads: Set[str] = set()
+        dev_mode_active = (
+            DEBUG_CONFIG_ENABLED
+            or debug_config.overlay_outline
+            or debug_config.group_bounds_outline
+            or debug_config.trace_enabled
+        )
+        self._pending_group_bounds_dump: bool = False
+        self._pending_group_bounds_filter: Optional[Tuple[Optional[str], Optional[str]]] = None
+        self._dev_mode_enabled: bool = dev_mode_active
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -1295,6 +1304,23 @@ class OverlayWindow(QWidget):
         elif action_lower == "reset":
             self._sync_cycle_items()
             self.update()
+
+    def handle_debug_request(self, payload: Mapping[str, Any]) -> None:
+        action = str(payload.get("action") or "").strip().lower()
+        if action != "dump_group_bounds":
+            _CLIENT_LOGGER.warning("Unknown debug action requested: %s", action or "<none>")
+            return
+        plugin = payload.get("plugin")
+        suffix = payload.get("suffix")
+        plugin_filter = str(plugin).strip() if isinstance(plugin, str) and plugin.strip() else None
+        suffix_filter = str(suffix).strip() if isinstance(suffix, str) and suffix.strip() else None
+        self._pending_group_bounds_dump = True
+        self._pending_group_bounds_filter = (plugin_filter, suffix_filter)
+        _CLIENT_LOGGER.info(
+            "Group bounds dump requested (plugin=%s suffix=%s)",
+            plugin_filter if plugin_filter is not None else "*",
+            suffix_filter if suffix_filter is not None else "*",
+        )
 
     def _sync_cycle_items(self) -> None:
         if not self._cycle_payload_enabled:
@@ -2811,6 +2837,7 @@ class OverlayWindow(QWidget):
             effective_anchor_by_group,
             transform_by_group,
         )
+        overlay_bounds_base = self._clone_overlay_bounds_map(overlay_bounds_by_group)
         overlay_bounds_for_draw = self._clone_overlay_bounds_map(overlay_bounds_by_group)
         overlay_bounds_for_draw = self._apply_anchor_translations_to_overlay_bounds(
             overlay_bounds_for_draw,
@@ -2867,6 +2894,36 @@ class OverlayWindow(QWidget):
                         payload_offset_x,
                         payload_offset_y,
                     )
+        if self._pending_group_bounds_dump or self._dev_mode_enabled:
+            if self._pending_group_bounds_dump:
+                self._pending_group_bounds_dump = False
+            plugin_filter, suffix_filter = self._pending_group_bounds_filter or (None, None)
+            self._pending_group_bounds_filter = None
+            for key, logical_bounds in overlay_bounds_base.items():
+                if logical_bounds is None or not logical_bounds.is_valid():
+                    continue
+                plugin_label, suffix = key
+                if plugin_filter and (plugin_label or "").casefold() != plugin_filter.casefold():
+                    continue
+                if suffix_filter and (suffix or "").casefold() != suffix_filter.casefold():
+                    continue
+                min_x = logical_bounds.min_x
+                min_y = logical_bounds.min_y
+                max_x = logical_bounds.max_x
+                max_y = logical_bounds.max_y
+                width = max_x - min_x
+                height = max_y - min_y
+                _CLIENT_LOGGER.info(
+                    "group-base-values plugin=%s suffix=%s min_x=%.1f min_y=%.1f width=%.1f height=%.1f max_x=%.1f max_y=%.1f",
+                    plugin_label,
+                    suffix or "",
+                    min_x,
+                    min_y,
+                    width,
+                    height,
+                    max_x,
+                    max_y,
+                )
 
     def _build_legacy_commands_for_pass(
         self,
@@ -4727,6 +4784,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             action = payload.get("action")
             if isinstance(action, str):
                 window.handle_cycle_action(action)
+            return
+        if event == "OverlayDebug":
+            window.handle_debug_request(payload)
             return
         message_text = payload.get("message")
         ttl: Optional[float] = None
