@@ -116,6 +116,7 @@ class OverlayConfigApp(tk.Tk):
             highlightthickness=0,
         )
         self.sidebar_default_bg = self.sidebar.cget("background")
+        self._sidebar_inactive_border_color = self.sidebar_default_bg
         self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, self.sidebar_pad))
         self._build_sidebar_sections()
         self.sidebar.grid_propagate(False)
@@ -166,6 +167,9 @@ class OverlayConfigApp(tk.Tk):
                 relief="flat",
                 width=220,
                 height=80,
+                highlightthickness=2,
+                highlightbackground=self._sidebar_inactive_border_color,
+                highlightcolor=self._sidebar_inactive_border_color,
             )
             frame.grid(
                 row=index,
@@ -248,7 +252,11 @@ class OverlayConfigApp(tk.Tk):
             return
         if self.widget_focus_area != "sidebar":
             for frame in self.sidebar_cells:
-                frame.configure(highlightthickness=0)
+                frame.configure(
+                    highlightthickness=2,
+                    highlightbackground=self._sidebar_inactive_border_color,
+                    highlightcolor=self._sidebar_inactive_border_color,
+                )
             return
 
         color = "#888888" if self.widget_select_mode else "#000000"
@@ -260,7 +268,11 @@ class OverlayConfigApp(tk.Tk):
                     highlightcolor=color,
                 )
             else:
-                frame.configure(highlightthickness=0)
+                frame.configure(
+                    highlightthickness=2,
+                    highlightbackground=self._sidebar_inactive_border_color,
+                    highlightcolor=self._sidebar_inactive_border_color,
+                )
 
     def _update_placement_focus_highlight(self) -> None:
         is_active = self.widget_focus_area == "placement" and self._placement_open
