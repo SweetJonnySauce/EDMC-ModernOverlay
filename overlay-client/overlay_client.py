@@ -96,6 +96,23 @@ _CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
 _CLIENT_LOGGER.setLevel(logging.DEBUG)
 _CLIENT_LOGGER.propagate = False
 
+
+class _ReleaseLogLevelFilter(logging.Filter):
+    """Promote debug logs to INFO in release builds so diagnostics stay visible."""
+
+    def __init__(self, release_mode: bool) -> None:
+        super().__init__()
+        self._release_mode = release_mode
+
+    def filter(self, record: logging.LogRecord) -> bool:  # pragma: no cover - logging shim
+        if self._release_mode and record.levelno == logging.DEBUG:
+            record.levelno = logging.INFO
+            record.levelname = "INFO"
+        return True
+
+
+_CLIENT_LOGGER.addFilter(_ReleaseLogLevelFilter(release_mode=not DEBUG_CONFIG_ENABLED))
+
 DEFAULT_WINDOW_BASE_WIDTH = 1280
 DEFAULT_WINDOW_BASE_HEIGHT = 960
 
