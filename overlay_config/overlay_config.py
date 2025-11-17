@@ -36,15 +36,32 @@ class OverlayConfigApp(tk.Tk):
         self._current_right_pad = self.container_pad_right_open
         self._current_sidebar_pad = self.sidebar_pad
         self.indicator_count = 3
+        self.widget_focus_area = "sidebar"
+        self.widget_select_mode = True
 
         self._build_layout()
         self._binding_config = BindingConfig.load()
         self._binding_manager = BindingManager(self, self._binding_config)
-        self._binding_manager.register_action("toggle_placement", self.toggle_placement_window)
         self._binding_manager.register_action(
             "indicator_toggle",
             self.toggle_placement_window,
             widgets=[self.indicator_wrapper, self.indicator_canvas],
+        )
+        self._binding_manager.register_action(
+            "sidebar_focus_up",
+            self.focus_sidebar_up,
+        )
+        self._binding_manager.register_action(
+            "sidebar_focus_down",
+            self.focus_sidebar_down,
+        )
+        self._binding_manager.register_action(
+            "widget_move_left",
+            self.move_widget_focus_left,
+        )
+        self._binding_manager.register_action(
+            "widget_move_right",
+            self.move_widget_focus_right,
         )
         self._binding_manager.register_action("close_app", self.close_application)
         self._binding_manager.activate()
@@ -72,9 +89,12 @@ class OverlayConfigApp(tk.Tk):
         # Placement window placeholder (open state)
         self.placement_frame = tk.Frame(
             self.container,
-            bd=1,
-            relief="solid",
+            bd=0,
+            relief="flat",
             background="#f5f5f5",
+            highlightthickness=0,
+            highlightbackground="#000000",
+            highlightcolor="#000000",
         )
         placement_label = tk.Label(
             self.placement_frame,
@@ -131,8 +151,21 @@ class OverlayConfigApp(tk.Tk):
             ("zoom selector (future implementation)", 1),
         ]
 
+        self.sidebar_cells: list[tk.Frame] = []
+        self._sidebar_focus_index = 0
+        self.widget_select_mode = True
+
         for index, (label_text, weight) in enumerate(sections):
-            frame = tk.Frame(self.sidebar, bd=1, relief="solid", width=220, height=80)
+            frame = tk.Frame(
+                self.sidebar,
+                bd=0,
+                relief="flat",
+                width=220,
+                height=80,
+                highlightthickness=0,
+                highlightbackground="#000000",
+                highlightcolor="#000000",
+            )
             frame.grid(
                 row=index,
                 column=0,
@@ -141,19 +174,102 @@ class OverlayConfigApp(tk.Tk):
             text_label = tk.Label(frame, text=label_text, anchor="center", padx=6, pady=6)
             text_label.pack(fill="both", expand=True)
             self.sidebar.grid_rowconfigure(index, weight=weight)
+            self.sidebar_cells.append(frame)
 
         self.sidebar.grid_columnconfigure(0, weight=1)
+        if self.sidebar_cells:
+            self._set_sidebar_focus(0)
+        self._refresh_widget_focus()
 
     def toggle_placement_window(self) -> None:
         """Switch between the open and closed placement window layouts."""
 
         self._placement_open = not self._placement_open
+        if not self._placement_open and self.widget_focus_area == "placement":
+            self.widget_focus_area = "sidebar"
         self._apply_placement_state()
+        self._refresh_widget_focus()
+
+    def focus_sidebar_up(self) -> None:
+        """Move sidebar focus upward."""
+
+        if not getattr(self, "sidebar_cells", None):
+            return
+        new_index = max(0, self._sidebar_focus_index - 1)
+        self._set_sidebar_focus(new_index)
+        self._refresh_widget_focus()
+
+    def focus_sidebar_down(self) -> None:
+        """Move sidebar focus downward."""
+
+        if not getattr(self, "sidebar_cells", None):
+            return
+        new_index = min(len(self.sidebar_cells) - 1, self._sidebar_focus_index + 1)
+        self._set_sidebar_focus(new_index)
+        self._refresh_widget_focus()
+
+    def _set_sidebar_focus(self, index: int) -> None:
+        if not (0 <= index < len(self.sidebar_cells)):
+            return
+        self._sidebar_focus_index = index
+        self._update_sidebar_highlight()
+
+    def move_widget_focus_left(self) -> None:
+        """Handle left arrow behavior in widget select mode."""
+
+        if not self.widget_select_mode:
+            return
+        if self.widget_focus_area == "placement":
+            self.widget_focus_area = "sidebar"
+            self._refresh_widget_focus()
+        elif self.widget_focus_area == "sidebar" and self._placement_open:
+            self._placement_open = False
+            self._apply_placement_state()
+            self.widget_focus_area = "sidebar"
+            self._refresh_widget_focus()
+
+    def move_widget_focus_right(self) -> None:
+        """Handle right arrow behavior in widget select mode."""
+
+        if not self.widget_select_mode:
+            return
+        if self.widget_focus_area == "sidebar":
+            if not self._placement_open:
+                self._placement_open = True
+                self._apply_placement_state()
+            self.widget_focus_area = "placement"
+            self._refresh_widget_focus()
+        elif self.widget_focus_area == "placement":
+            self.widget_focus_area = "placement"
+            self._refresh_widget_focus()
+
+    def _update_sidebar_highlight(self) -> None:
+        for i, frame in enumerate(self.sidebar_cells):
+            is_active = self.widget_focus_area == "sidebar" and i == self._sidebar_focus_index
+            thickness = 2 if is_active else 0
+            color = "#888888" if self.widget_select_mode else "#000000"
+            frame.configure(highlightthickness=thickness, highlightbackground=color, highlightcolor=color)
+
+    def _update_placement_focus_highlight(self) -> None:
+        is_active = self.widget_focus_area == "placement" and self._placement_open
+        thickness = 2 if is_active else 0
+        color = "#888888" if self.widget_select_mode else "#000000"
+        self.placement_frame.configure(
+            highlightthickness=thickness,
+            highlightbackground=color,
+            highlightcolor=color,
+        )
+
+    def _refresh_widget_focus(self) -> None:
+        if hasattr(self, "sidebar_cells"):
+            self._update_sidebar_highlight()
+        self._update_placement_focus_highlight()
 
     def close_application(self) -> None:
         """Close the Overlay Config window."""
 
-        self.destroy()
+        if getattr(self, "widget_select_mode", True):
+            self.destroy()
 
     def _apply_placement_state(self) -> None:
         """Show the correct placement frame for the current state."""
@@ -206,6 +322,7 @@ class OverlayConfigApp(tk.Tk):
         pad = self.sidebar_pad if self._placement_open else self.sidebar_pad_closed
         self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, pad))
         self._current_sidebar_pad = pad
+        self._refresh_widget_focus()
 
     def _show_indicator(self, direction: str) -> None:
         """Display a triangle indicator; direction is 'left' or 'right'."""

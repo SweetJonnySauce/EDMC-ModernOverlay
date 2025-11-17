@@ -5,15 +5,24 @@
       "device_type": "keyboard",
       "display_name": "Keyboard (default)",
       "bindings": {
-        "toggle_placement": [
-          "<space>"
-        ],
         "close_app": [
           "<Escape>",
           "<FocusOut>"
         ],
         "indicator_toggle": [
           "<Button-1>"
+        ],
+        "sidebar_focus_up": [
+          "<Up>"
+        ],
+        "sidebar_focus_down": [
+          "<Down>"
+        ],
+        "widget_move_left": [
+          "<Left>"
+        ],
+        "widget_move_right": [
+          "<Right>"
         ]
       }
     }
