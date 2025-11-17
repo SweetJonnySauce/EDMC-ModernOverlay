@@ -32,6 +32,7 @@ class OverlayConfigApp(tk.Tk):
         self.indicator_hit_padding = max(4, self.indicator_height // 6)
         self.indicator_hit_width = self.indicator_width + (self.indicator_hit_padding * 2)
         self.indicator_gap = 0
+
         self._current_right_pad = self.container_pad_right_open
         self._current_sidebar_pad = self.sidebar_pad
         self.indicator_count = 3
@@ -58,7 +59,7 @@ class OverlayConfigApp(tk.Tk):
             column=0,
             sticky="nsew",
             padx=(self.container_pad_left, self.container_pad_right_open),
-            pady=(self.container_pad_vertical, self.container_pad_vertical),
+            pady=self.container_pad_vertical,
         )
 
         self.grid_rowconfigure(0, weight=1)
@@ -114,6 +115,13 @@ class OverlayConfigApp(tk.Tk):
             bg=indicator_bg,
         )
         self.indicator_canvas.pack(expand=True)
+
+        info_label = tk.Label(
+            self.container,
+            text="Press space to open, Esc to close",
+            anchor="w",
+        )
+        info_label.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
 
         self._apply_placement_state()
         self._current_direction = "left"
