@@ -28,7 +28,9 @@ class OverlayConfigApp(tk.Tk):
         self.placement_min_width = 450
         self.closed_min_width = 0
         self.indicator_width = 12
-        self.indicator_height = 36
+        self.indicator_height = 72
+        self.indicator_hit_padding = max(4, self.indicator_height // 6)
+        self.indicator_hit_width = self.indicator_width + (self.indicator_hit_padding * 2)
         self.indicator_gap = 0
         self._current_right_pad = self.container_pad_right_open
         self._current_sidebar_pad = self.sidebar_pad
@@ -38,6 +40,11 @@ class OverlayConfigApp(tk.Tk):
         self._binding_config = BindingConfig.load()
         self._binding_manager = BindingManager(self, self._binding_config)
         self._binding_manager.register_action("toggle_placement", self.toggle_placement_window)
+        self._binding_manager.register_action(
+            "indicator_toggle",
+            self.toggle_placement_window,
+            widgets=[self.indicator_wrapper, self.indicator_canvas],
+        )
         self._binding_manager.register_action("close_app", self.close_application)
         self._binding_manager.activate()
         self.bind("<Configure>", self._handle_configure)
@@ -51,7 +58,7 @@ class OverlayConfigApp(tk.Tk):
             column=0,
             sticky="nsew",
             padx=(self.container_pad_left, self.container_pad_right_open),
-            pady=self.container_pad_vertical,
+            pady=(self.container_pad_vertical, self.container_pad_vertical),
         )
 
         self.grid_rowconfigure(0, weight=1)
@@ -89,20 +96,24 @@ class OverlayConfigApp(tk.Tk):
         self._build_sidebar_sections()
         self.sidebar.grid_propagate(False)
 
-        self.indicator_canvas = tk.Canvas(
+        indicator_bg = self.container.cget("background")
+        self.indicator_wrapper = tk.Frame(
             self.container,
+            width=self.indicator_hit_width,
+            height=self.indicator_height,
+            bd=0,
+            highlightthickness=0,
+            bg=indicator_bg,
+        )
+        self.indicator_wrapper.pack_propagate(False)
+        self.indicator_canvas = tk.Canvas(
+            self.indicator_wrapper,
             width=self.indicator_width,
             height=self.indicator_height,
             highlightthickness=0,
-            bg=self.container.cget("background"),
+            bg=indicator_bg,
         )
-
-        info_label = tk.Label(
-            self.container,
-            text="Press space to open, Esc to close",
-            anchor="w",
-        )
-        info_label.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        self.indicator_canvas.pack(expand=True)
 
         self._apply_placement_state()
         self._current_direction = "left"
@@ -202,14 +213,20 @@ class OverlayConfigApp(tk.Tk):
         sidebar_right = self.sidebar.winfo_x() + self.sidebar.winfo_width()
         pad_between = self._current_sidebar_pad
         gap_available = max(0, pad_between)
-        indicator_x = sidebar_right
-        if gap_available >= self.indicator_width:
-            indicator_x += (gap_available - self.indicator_width) / 2
+        hit_width = max(
+            self.indicator_width,
+            min(self.indicator_hit_width, gap_available or self.indicator_width),
+        )
+        self.indicator_wrapper.config(width=hit_width)
+        if gap_available > 0:
+            indicator_x = sidebar_right + (gap_available - hit_width) / 2
+        else:
+            indicator_x = sidebar_right
         y = max(
             self.container_pad_vertical,
             (self.container.winfo_height() - self.indicator_height) / 2,
         )
-        self.indicator_canvas.place(x=indicator_x, y=y)
+        self.indicator_wrapper.place(x=indicator_x, y=y)
         self.indicator_canvas.delete("all")
         arrow_height = self.indicator_height / self.indicator_count
         for i in range(self.indicator_count):

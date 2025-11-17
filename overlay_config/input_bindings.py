@@ -6,7 +6,10 @@ import inspect
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import TYPE_CHECKING, Callable, Dict, Iterable, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    import tkinter as tk
 
 DEFAULT_CONFIG_PATH = Path(__file__).with_name("keybindings.json")
 
@@ -19,7 +22,8 @@ DEFAULT_CONFIG = {
             "display_name": "Keyboard (default)",
             "bindings": {
                 "toggle_placement": ["<space>"],
-                "close_app": ["<Escape>"],
+                "close_app": ["<Escape>", "<FocusOut>"],
+                "indicator_toggle": ["<Button-1>"],
             },
         }
     },
@@ -91,13 +95,30 @@ class BindingManager:
         self.widget = widget
         self.config = config
         self._handlers: Dict[str, Callable] = {}
-        self._bound_sequences: List[str] = []
+        self._action_widgets: Dict[str, List["tk.Misc"]] = {}
+        self._bound_sequences: List[Tuple["tk.Misc", str]] = []
         self._cached_wrappers: Dict[str, Callable] = {}
 
-    def register_action(self, action_name: str, handler: Callable) -> None:
+    def register_action(
+        self,
+        action_name: str,
+        handler: Callable,
+        *,
+        widget: Optional["tk.Misc"] = None,
+        widgets: Optional[Iterable["tk.Misc"]] = None,
+    ) -> None:
         """Associate an action identifier with a callable."""
 
         self._handlers[action_name] = handler
+        targets: List["tk.Misc"] = []
+        if widget is not None:
+            targets.append(widget)
+        if widgets is not None:
+            targets.extend(widgets)
+        if targets:
+            self._action_widgets[action_name] = targets
+        elif action_name in self._action_widgets:
+            del self._action_widgets[action_name]
         # Drop cached wrapper so a future activate() re-evaluates the signature.
         self._cached_wrappers.pop(action_name, None)
 
@@ -111,16 +132,20 @@ class BindingManager:
         for action, sequences in scheme.bindings.items():
             if action not in self._handlers:
                 continue
+            target_widgets = self._action_widgets.get(action)
+            if not target_widgets:
+                target_widgets = [self.widget]
             callback = self._get_wrapped_handler(action)
             for sequence in sequences:
                 normalized = self._normalize_sequence(sequence)
-                self.widget.bind(normalized, callback, add="+")
-                self._bound_sequences.append(normalized)
+                for target_widget in target_widgets:
+                    target_widget.bind(normalized, callback, add="+")
+                    self._bound_sequences.append((target_widget, normalized))
 
     def _unbind_sequences(self, sequences: Iterable[str]) -> None:
-        for sequence in sequences:
+        for widget, sequence in sequences:
             try:
-                self.widget.unbind(sequence)
+                widget.unbind(sequence)
             except Exception:
                 # Some widgets do not implement unbind; ignore in that case.
                 pass

@@ -9,7 +9,11 @@
           "<space>"
         ],
         "close_app": [
-          "<Escape>"
+          "<Escape>",
+          "<FocusOut>"
+        ],
+        "indicator_toggle": [
+          "<Button-1>"
         ]
       }
     }
