@@ -168,7 +168,11 @@ class OverlayConfigApp(tk.Tk):
                 row=index,
                 column=0,
                 sticky="nsew",
-                pady=(1 if index > 0 else 0, 1 if index < len(sections) - 1 else 0),
+                pady=(
+                    self.overlay_padding if index == 0 else 1,
+                    self.overlay_padding if index == len(sections) - 1 else 1,
+                ),
+                padx=(self.overlay_padding, self.overlay_padding),
             )
             frame.grid_propagate(True)
             text_label = tk.Label(frame, text=label_text, anchor="center", padx=6, pady=6)
@@ -287,7 +291,7 @@ class OverlayConfigApp(tk.Tk):
             bd=0,
         )
         self.sidebar_overlay.tkraise()
-        frame.tkraise()
+        frame.tkraise(self.sidebar_overlay)
 
     def _update_placement_focus_highlight(self) -> None:
         is_active = self.widget_focus_area == "placement" and self._placement_open
@@ -317,7 +321,7 @@ class OverlayConfigApp(tk.Tk):
             bd=0,
         )
         self.placement_overlay.tkraise()
-        self.placement_frame.tkraise()
+        self.placement_frame.tkraise(self.placement_overlay)
 
     def _refresh_widget_focus(self) -> None:
         if hasattr(self, "sidebar_cells"):
