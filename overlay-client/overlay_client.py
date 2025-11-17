@@ -2859,6 +2859,12 @@ class OverlayWindow(QWidget):
             translations,
             mapper.transform.scale,
         )
+        transformed_overlay_bounds = self._collect_transformed_overlay_bounds(
+            commands,
+            anchor_translation_by_group,
+            translations,
+            mapper.transform.scale,
+        )
         drawn_groups: Set[Tuple[str, Optional[str]]] = set()
         window_width = max(self.width(), 0)
         window_height = max(self.height(), 0)
@@ -2914,8 +2920,8 @@ class OverlayWindow(QWidget):
                 max_y = logical_bounds.max_y
                 width = max_x - min_x
                 height = max_y - min_y
-                _CLIENT_LOGGER.info(
-                    "group-base-values plugin=%s suffix=%s min_x=%.1f min_y=%.1f width=%.1f height=%.1f max_x=%.1f max_y=%.1f",
+                _CLIENT_LOGGER.debug(
+                    "group-base-values plugin=%s idPrefix_group=%s min_x=%.1f min_y=%.1f width=%.1f height=%.1f max_x=%.1f max_y=%.1f",
                     plugin_label,
                     suffix or "",
                     min_x,
@@ -2924,6 +2930,33 @@ class OverlayWindow(QWidget):
                     height,
                     max_x,
                     max_y,
+                )
+                group_transform = transform_by_group.get(key)
+                if not self._has_user_group_transform(group_transform):
+                    continue
+                transformed_bounds = transformed_overlay_bounds.get(key)
+                if transformed_bounds is None or not transformed_bounds.is_valid():
+                    continue
+                min_x_t = transformed_bounds.min_x
+                min_y_t = transformed_bounds.min_y
+                max_x_t = transformed_bounds.max_x
+                max_y_t = transformed_bounds.max_y
+                width_t = max_x_t - min_x_t
+                height_t = max_y_t - min_y_t
+                anchor_token = (getattr(group_transform, "anchor_token", "") or "").strip().lower()
+                justification_token = (getattr(group_transform, "payload_justification", "") or "").strip().lower()
+                _CLIENT_LOGGER.debug(
+                    "group-transformed-values plugin=%s idPrefix_group=%s anchor=%s justification=%s min_x=%.1f min_y=%.1f width=%.1f height=%.1f max_x=%.1f max_y=%.1f",
+                    plugin_label,
+                    suffix or "",
+                    anchor_token or "nw",
+                    justification_token or "left",
+                    min_x_t,
+                    min_y_t,
+                    width_t,
+                    height_t,
+                    max_x_t,
+                    max_y_t,
                 )
 
     def _build_legacy_commands_for_pass(
@@ -3806,6 +3839,52 @@ class OverlayWindow(QWidget):
                 continue
             bounds = bounds_map.setdefault(command.group_key.as_tuple(), _OverlayBounds())
             bounds.include_rect(*command.base_overlay_bounds)
+        return bounds_map
+
+    def _has_user_group_transform(self, transform: Optional[GroupTransform]) -> bool:
+        if transform is None:
+            return False
+        dx, dy = self._group_offset_for_transform(transform)
+        anchor = (getattr(transform, "anchor_token", "nw") or "nw").strip().lower()
+        justification = (getattr(transform, "payload_justification", "left") or "left").strip().lower()
+        if not math.isclose(dx, 0.0, rel_tol=1e-9, abs_tol=1e-9):
+            return True
+        if not math.isclose(dy, 0.0, rel_tol=1e-9, abs_tol=1e-9):
+            return True
+        if anchor and anchor != "nw":
+            return True
+        if justification and justification not in {"", "left"}:
+            return True
+        return False
+
+    def _collect_transformed_overlay_bounds(
+        self,
+        commands: Sequence[_LegacyPaintCommand],
+        anchor_translation_by_group: Mapping[Tuple[str, Optional[str]], Tuple[float, float]],
+        translations: Mapping[Tuple[str, Optional[str]], Tuple[int, int]],
+        base_scale: float,
+    ) -> Dict[Tuple[str, Optional[str]], _OverlayBounds]:
+        bounds_map: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
+        if not commands:
+            return bounds_map
+        if not math.isfinite(base_scale) or math.isclose(base_scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
+            base_scale = 1.0
+        for command in commands:
+            if not command.overlay_bounds:
+                continue
+            key = command.group_key.as_tuple()
+            translation_x, translation_y = anchor_translation_by_group.get(key, (0.0, 0.0))
+            nudge_x, nudge_y = translations.get(key, (0, 0))
+            justification_dx = getattr(command, "justification_dx", 0.0)
+            offset_x_overlay = (translation_x + justification_dx + nudge_x) / base_scale
+            offset_y_overlay = (translation_y + nudge_y) / base_scale
+            bounds = bounds_map.setdefault(key, _OverlayBounds())
+            bounds.include_rect(
+                command.overlay_bounds[0] + offset_x_overlay,
+                command.overlay_bounds[1] + offset_y_overlay,
+                command.overlay_bounds[2] + offset_x_overlay,
+                command.overlay_bounds[3] + offset_y_overlay,
+            )
         return bounds_map
 
     @staticmethod
