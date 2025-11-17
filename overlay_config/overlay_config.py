@@ -92,9 +92,9 @@ class OverlayConfigApp(tk.Tk):
             bd=0,
             relief="flat",
             background="#f5f5f5",
-            highlightthickness=0,
-            highlightbackground="#000000",
-            highlightcolor="#000000",
+            highlightthickness=2,
+            highlightbackground=self.container.cget("background"),
+            highlightcolor=self.container.cget("background"),
         )
         placement_label = tk.Label(
             self.placement_frame,
@@ -113,6 +113,7 @@ class OverlayConfigApp(tk.Tk):
             bd=0,
             highlightthickness=0,
         )
+        self.sidebar_default_bg = self.sidebar.cget("background")
         self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, self.sidebar_pad))
         self._build_sidebar_sections()
         self.sidebar.grid_propagate(False)
@@ -162,14 +163,17 @@ class OverlayConfigApp(tk.Tk):
                 relief="flat",
                 width=220,
                 height=80,
-                highlightthickness=0,
-                highlightbackground="#000000",
-                highlightcolor="#000000",
             )
             frame.grid(
                 row=index,
                 column=0,
                 sticky="nsew",
+            )
+            frame.grid_propagate(True)
+            frame.configure(
+                highlightthickness=2,
+                highlightbackground=self.sidebar.cget("background"),
+                highlightcolor=self.sidebar.cget("background"),
             )
             text_label = tk.Label(frame, text=label_text, anchor="center", padx=6, pady=6)
             text_label.pack(fill="both", expand=True)
@@ -244,18 +248,26 @@ class OverlayConfigApp(tk.Tk):
             self._refresh_widget_focus()
 
     def _update_sidebar_highlight(self) -> None:
+        default_color = self.sidebar.cget("background")
         for i, frame in enumerate(self.sidebar_cells):
             is_active = self.widget_focus_area == "sidebar" and i == self._sidebar_focus_index
-            thickness = 2 if is_active else 0
-            color = "#888888" if self.widget_select_mode else "#000000"
-            frame.configure(highlightthickness=thickness, highlightbackground=color, highlightcolor=color)
+            if self.widget_select_mode and is_active:
+                color = "#888888"
+            elif not self.widget_select_mode and is_active:
+                color = "#000000"
+            else:
+                color = default_color
+            frame.configure(highlightbackground=color, highlightcolor=color)
 
     def _update_placement_focus_highlight(self) -> None:
         is_active = self.widget_focus_area == "placement" and self._placement_open
-        thickness = 2 if is_active else 0
-        color = "#888888" if self.widget_select_mode else "#000000"
+        if self.widget_select_mode and is_active:
+            color = "#888888"
+        elif not self.widget_select_mode and is_active:
+            color = "#000000"
+        else:
+            color = self.container.cget("background")
         self.placement_frame.configure(
-            highlightthickness=thickness,
             highlightbackground=color,
             highlightcolor=color,
         )
