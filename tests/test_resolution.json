@@ -48,7 +48,7 @@
     },
     {
       "name": "Galaxy/System Tick",
-      "source": "payload_store/bgstally-tick.log",
+      "source": "payload_store/bgstally-tick_wout_frame.log",
       "ttl": 14
     },
     {
