@@ -53,7 +53,7 @@
     },
     {
       "name": "BGSTally Colonisation",
-      "source": "payload_store/bgstally-colonisation.log",
+      "source": "payload_store/bgstally-colonisation_wout_frame.log",
       "ttl": 12
     },
     {
