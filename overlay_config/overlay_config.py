@@ -55,18 +55,6 @@ class OverlayConfigApp(tk.Tk):
         )
         placement_label.pack(fill="both", expand=True)
 
-        # Collapsed placeholder used when the placement region is hidden
-        self.closed_frame = tk.Frame(self.container, bd=1, relief="solid")
-        closed_label = tk.Label(
-            self.closed_frame,
-            text="placement window (closed)",
-            wraplength=22,
-            justify="center",
-            padx=4,
-            pady=12,
-        )
-        closed_label.pack(fill="both", expand=True)
-
         # Sidebar with individual selector sections
         self.sidebar = tk.Frame(self.container, width=self.sidebar_width)
         self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, self.sidebar_pad))
@@ -75,7 +63,7 @@ class OverlayConfigApp(tk.Tk):
 
         info_label = tk.Label(
             self.container,
-            text="Press spacebar to open or close the placement window.",
+            text="Press space to open",
             anchor="w",
         )
         info_label.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
@@ -130,7 +118,6 @@ class OverlayConfigApp(tk.Tk):
         closed_min_width = outer_padding + sidebar_total + self.closed_min_width
 
         if self._placement_open:
-            self.closed_frame.grid_forget()
             self.placement_frame.grid(
                 row=0,
                 column=1,
@@ -148,15 +135,10 @@ class OverlayConfigApp(tk.Tk):
                 open_min_width,
             )
             self.placement_frame.grid_forget()
-            self.closed_frame.grid(
-                row=0,
-                column=1,
-                sticky="nsew",
-            )
-            self.container.grid_columnconfigure(1, weight=0, minsize=self.closed_min_width)
+            self.container.grid_columnconfigure(1, weight=0, minsize=0)
             self.update_idletasks()
-            collapsed_width = max(self.winfo_reqwidth(), closed_min_width)
-            self.minsize(closed_min_width, 420)
+            collapsed_width = max(self.winfo_reqwidth(), outer_padding + sidebar_total)
+            self.minsize(outer_padding + sidebar_total, 420)
             self.geometry(f"{int(collapsed_width)}x{int(current_height)}")
 
         self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, self.sidebar_pad))
