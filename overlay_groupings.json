@@ -8,7 +8,7 @@
         "idPrefixes": [
           "bgstally-msg-colonisation-"
         ],
-        "idPrefixGroupAnchor": "left",
+        "idPrefixGroupAnchor": "ne",
         "offsetX": 910,
         "offsetY": -150,
         "payloadJustification": "right"
