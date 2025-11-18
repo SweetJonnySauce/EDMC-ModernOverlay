@@ -1802,7 +1802,12 @@ class PluginGroupManagerApp:
             except tk.TclError:
                 pass
             self._payload_context_menu = None
-        self._payload_menu_dismiss_bind = None
+        if self._payload_menu_dismiss_bind:
+            try:
+                self.root.unbind("<Button-1>", self._payload_menu_dismiss_bind)
+            except tk.TclError:
+                pass
+            self._payload_menu_dismiss_bind = None
 
     def _queue_add_payload_to_existing_grouping(self, group_name: str, grouping_label: str) -> None:
         """Defer add-prefix flow until after the context menu closes."""
@@ -1913,6 +1918,12 @@ class PluginGroupManagerApp:
         LOG.debug("Posting context menu for payload=%s with %s entries", row_id, menu.index("end") + 1)
         self._payload_context_menu = menu
         menu.bind("<Unmap>", lambda _evt: self._dismiss_payload_context_menu())
+        try:
+            self._payload_menu_dismiss_bind = self.root.bind(
+                "<Button-1>", lambda _evt: self._dismiss_payload_context_menu(), add="+"
+            )
+        except tk.TclError:
+            self._payload_menu_dismiss_bind = None
 
         def _menu_click_handler(evt, menu_ref=menu):
             self._on_payload_context_menu_click(evt, menu_ref)
