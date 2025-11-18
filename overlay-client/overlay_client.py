@@ -2940,6 +2940,7 @@ class OverlayWindow(QWidget):
             anchor_translation_by_group,
             translated_bounds_by_group,
             overlay_bounds_for_draw,
+            overlay_bounds_base,
             mapper.transform.scale,
         )
         translations = self._compute_group_nudges(translated_bounds_by_group)
@@ -3167,6 +3168,7 @@ class OverlayWindow(QWidget):
         anchor_translation_by_group: Mapping[Tuple[str, Optional[str]], Tuple[float, float]],
         translated_bounds_by_group: Dict[Tuple[str, Optional[str]], _ScreenBounds],
         overlay_bounds_by_group: Dict[Tuple[str, Optional[str]], _OverlayBounds],
+        base_overlay_bounds: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
         base_scale: float,
     ) -> Dict[Tuple[str, Optional[str]], _ScreenBounds]:
         requests: List[JustificationRequest] = []
@@ -3184,6 +3186,10 @@ class OverlayWindow(QWidget):
             if justification not in {"center", "right"}:
                 continue
             width = float(bounds[2]) - float(bounds[0])
+            base_bounds = base_overlay_bounds.get(key)
+            baseline_width = None
+            if base_bounds is not None and base_bounds.is_valid():
+                baseline_width = base_bounds.max_x - base_bounds.min_x
             requests.append(
                 JustificationRequest(
                     identifier=id(command),
@@ -3191,6 +3197,7 @@ class OverlayWindow(QWidget):
                     suffix=suffix,
                     justification=justification,
                     width=width,
+                    baseline_width=baseline_width,
                 )
             )
         if not requests:

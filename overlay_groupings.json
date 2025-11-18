@@ -6,10 +6,11 @@
     "idPrefixGroups": {
       "BGS-Tally Colonisation": {
         "idPrefixes": [
-          "bgstally-msg-colonisation-"
+          "bgstally-msg-colonisation-",
+          "bgstally-frame-colonisation"
         ],
-        "idPrefixGroupAnchor": "ne",
-        "offsetX": 1270,
+        "idPrefixGroupAnchor": "nw",
+        "offsetX": 500,
         "payloadJustification": "right"
       },
       "BGS-Tally Tick Notifications": {
