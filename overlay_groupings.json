@@ -140,7 +140,8 @@
         "idPrefixes": [
           "edr-bounty"
         ],
-        "payloadJustification": "left"
+        "payloadJustification": "left",
+        "idPrefixGroupAnchor": "nw"
       },
       "EDR Docking": {
         "idPrefixes": [

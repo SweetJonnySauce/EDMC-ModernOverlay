@@ -604,6 +604,8 @@ class OverlayWindow(QWidget):
         self._debug_group_bounds_base: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
         self._debug_group_bounds_transformed: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
         self._debug_group_state: Dict[Tuple[str, Optional[str]], _GroupDebugState] = {}
+        self._last_logged_group_bounds_base: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
+        self._last_logged_group_bounds_transformed: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -2834,6 +2836,9 @@ class OverlayWindow(QWidget):
             if self._cycle_payload_enabled:
                 self._sync_cycle_items()
             self.update()
+        if not self._legacy_items:
+            self._last_logged_group_bounds_base.clear()
+            self._last_logged_group_bounds_transformed.clear()
 
     def _paint_legacy(self, painter: QPainter) -> None:
         self._cycle_anchor_points = {}
@@ -2938,17 +2943,21 @@ class OverlayWindow(QWidget):
                 max_y = logical_bounds.max_y
                 width = max_x - min_x
                 height = max_y - min_y
-                _CLIENT_LOGGER.debug(
-                    "group-base-values plugin=%s idPrefix_group=%s min_x=%.1f min_y=%.1f width=%.1f height=%.1f max_x=%.1f max_y=%.1f",
-                    plugin_label,
-                    suffix or "",
-                    min_x,
-                    min_y,
-                    width,
-                    height,
-                    max_x,
-                    max_y,
-                )
+                base_entry = (min_x, min_y, width, height)
+                force_log = bool(self._pending_group_bounds_dump)
+                if force_log or self._last_logged_group_bounds_base.get(key) != base_entry:
+                    _CLIENT_LOGGER.debug(
+                        "group-base-values plugin=%s idPrefix_group=%s min_x=%.1f min_y=%.1f width=%.1f height=%.1f max_x=%.1f max_y=%.1f",
+                        plugin_label,
+                        suffix or "",
+                        min_x,
+                        min_y,
+                        width,
+                        height,
+                        max_x,
+                        max_y,
+                    )
+                    self._last_logged_group_bounds_base[key] = base_entry
                 group_transform = transform_by_group.get(key)
                 if not self._has_user_group_transform(group_transform):
                     continue
@@ -2963,19 +2972,22 @@ class OverlayWindow(QWidget):
                 height_t = max_y_t - min_y_t
                 anchor_token = (getattr(group_transform, "anchor_token", "") or "").strip().lower()
                 justification_token = (getattr(group_transform, "payload_justification", "") or "").strip().lower()
-                _CLIENT_LOGGER.debug(
-                    "group-transformed-values plugin=%s idPrefix_group=%s anchor=%s justification=%s min_x=%.1f min_y=%.1f width=%.1f height=%.1f max_x=%.1f max_y=%.1f",
-                    plugin_label,
-                    suffix or "",
-                    anchor_token or "nw",
-                    justification_token or "left",
-                    min_x_t,
-                    min_y_t,
-                    width_t,
-                    height_t,
-                    max_x_t,
-                    max_y_t,
-                )
+                transformed_entry = (min_x_t, min_y_t, width_t, height_t)
+                if force_log or self._last_logged_group_bounds_transformed.get(key) != transformed_entry:
+                    _CLIENT_LOGGER.debug(
+                        "group-transformed-values plugin=%s idPrefix_group=%s anchor=%s justification=%s min_x=%.1f min_y=%.1f width=%.1f height=%.1f max_x=%.1f max_y=%.1f",
+                        plugin_label,
+                        suffix or "",
+                        anchor_token or "nw",
+                        justification_token or "left",
+                        min_x_t,
+                        min_y_t,
+                        width_t,
+                        height_t,
+                        max_x_t,
+                        max_y_t,
+                    )
+                    self._last_logged_group_bounds_transformed[key] = transformed_entry
         if collect_debug_helpers:
             self._draw_group_debug_helpers(painter, mapper)
 
