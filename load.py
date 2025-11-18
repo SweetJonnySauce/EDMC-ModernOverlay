@@ -1305,9 +1305,14 @@ class _PluginRuntime:
                 message.setdefault("timestamp", datetime.now(UTC).isoformat())
                 payload_type = str(message.get("type") or "message").lower()
                 if payload_type == "message":
-                    text = str(message.get("text") or "").strip()
+                    raw_text = message.get("text")
+                    text = str(raw_text or "").strip()
                     if not text:
-                        raise ValueError("LegacyOverlay message text is empty")
+                        LOGGER.debug(
+                            "Ignoring empty LegacyOverlay message text for payload id=%s",
+                            message.get("id"),
+                        )
+                        text = ""
                     message["type"] = "message"
                     message["text"] = text
                 elif payload_type == "shape":
@@ -1364,6 +1369,7 @@ class _PluginRuntime:
             "scale_mode": str(self._preferences.scale_mode or "fit"),
             "nudge_overflow_payloads": bool(self._preferences.nudge_overflow_payloads),
             "payload_nudge_gutter": int(self._preferences.payload_nudge_gutter),
+            "payload_log_delay_seconds": float(getattr(self._preferences, "payload_log_delay_seconds", 0.0)),
             "platform_context": self._platform_context_payload(),
         }
         self._last_config = dict(payload)
@@ -1371,7 +1377,7 @@ class _PluginRuntime:
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s debug_overlay_corner=%s status_bottom_margin=%s client_log_retention=%d gridlines_enabled=%s "
             "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s scale_mode=%s "
-            "nudge_overflow=%s payload_gutter=%d font_min=%.1f font_max=%.1f platform_context=%s",
+            "nudge_overflow=%s payload_gutter=%d payload_log_delay=%.2f font_min=%.1f font_max=%.1f platform_context=%s",
             payload["opacity"],
             payload["show_status"],
             payload["debug_overlay_corner"],
@@ -1388,6 +1394,7 @@ class _PluginRuntime:
             payload["scale_mode"],
             payload["nudge_overflow_payloads"],
             payload["payload_nudge_gutter"],
+            payload["payload_log_delay_seconds"],
             payload["min_font_point"],
             payload["max_font_point"],
             payload["platform_context"],

@@ -6,12 +6,10 @@
     "idPrefixGroups": {
       "BGS-Tally Colonisation": {
         "idPrefixes": [
-          "bgstally-msg-colonisation-"
+          "bgstally-msg-colonisation-",
+          "bgstally-frame-colonisation"
         ],
-        "idPrefixGroupAnchor": "ne",
-        "offsetX": 1260,
-        "offsetY": -150,
-        "payloadJustification": "right"
+        "payloadJustification": "left"
       },
       "BGS-Tally Tick Notifications": {
         "idPrefixes": [
@@ -40,14 +38,6 @@
         ],
         "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left"
-      },
-      "BGS-Tally Ignore list": {
-        "idPrefixes": [
-          "bgstally-frame-system_tick",
-          "bgstally-frame-tick"
-        ],
-        "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
       }
     }
   },
@@ -61,6 +51,7 @@
           "bioscan_radar_"
         ],
         "idPrefixGroupAnchor": "nw",
+        "offsetX": 100,
         "payloadJustification": "left"
       },
       "Bioscan Details": {
@@ -140,8 +131,8 @@
         "idPrefixes": [
           "edr-bounty"
         ],
-        "payloadJustification": "left",
-        "idPrefixGroupAnchor": "nw"
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left"
       },
       "EDR Docking": {
         "idPrefixes": [
@@ -149,7 +140,6 @@
           "edr-docking-station-"
         ],
         "idPrefixGroupAnchor": "nw",
-        "offsetY": 100,
         "payloadJustification": "left"
       },
       "EDR Intel": {

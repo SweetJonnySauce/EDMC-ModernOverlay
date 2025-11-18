@@ -2357,6 +2357,13 @@ class PluginGroupManagerApp:
             payload_type_cf = payload_type.casefold()
             if payload_type_cf == "legacy_clear":
                 return None
+        if str(payload.get("event") or "").strip().lower() == "legacyoverlay":
+            payload.setdefault("event", "LegacyOverlay")
+            payload_type = str(payload.get("type") or "message").lower()
+            if payload_type == "message":
+                text_value = str(payload.get("text") or "").strip()
+                if not text_value:
+                    return None
         ttl_value = payload.get("ttl")
         if isinstance(ttl_value, (int, float)) and ttl_value <= 0:
             return None

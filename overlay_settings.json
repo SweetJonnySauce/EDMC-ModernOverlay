@@ -16,8 +16,9 @@
   "cycle_payload_ids": false,
   "copy_payload_id_on_cycle": true,
   "scale_mode": "fill",
-  "nudge_overflow_payloads": true,
+  "nudge_overflow_payloads": false,
   "payload_nudge_gutter": 30,
   "status_message_gutter": 0,
-  "log_payloads": true
+  "log_payloads": true,
+  "payload_log_delay_seconds": 0.5
 }

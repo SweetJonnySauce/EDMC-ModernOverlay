@@ -45,6 +45,7 @@ class Preferences:
     payload_nudge_gutter: int = 30
     status_message_gutter: int = STATUS_GUTTER_DEFAULT
     log_payloads: bool = False
+    payload_log_delay_seconds: float = 0.5
 
     def __post_init__(self) -> None:
         self.plugin_dir = Path(self.plugin_dir)
@@ -116,6 +117,11 @@ class Preferences:
             status_gutter = max(status_gutter, LEGACY_STATUS_SLOT_MARGIN * legacy_slots)
         self.status_message_gutter = max(0, min(status_gutter, STATUS_GUTTER_MAX))
         self.log_payloads = bool(data.get("log_payloads", self.log_payloads))
+        try:
+            delay_value = float(data.get("payload_log_delay_seconds", self.payload_log_delay_seconds))
+        except (TypeError, ValueError):
+            delay_value = self.payload_log_delay_seconds
+        self.payload_log_delay_seconds = max(0.0, delay_value)
 
     def save(self) -> None:
         payload: Dict[str, Any] = {
@@ -140,6 +146,7 @@ class Preferences:
             "payload_nudge_gutter": int(self.payload_nudge_gutter),
             "status_message_gutter": int(self.status_message_gutter),
             "log_payloads": bool(self.log_payloads),
+            "payload_log_delay_seconds": float(self.payload_log_delay_seconds),
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 

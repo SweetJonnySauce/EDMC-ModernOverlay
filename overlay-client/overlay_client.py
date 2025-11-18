@@ -597,15 +597,17 @@ class OverlayWindow(QWidget):
             or debug_config.group_bounds_outline
             or debug_config.trace_enabled
         )
-        self._pending_group_bounds_dump: bool = False
-        self._pending_group_bounds_filter: Optional[Tuple[Optional[str], Optional[str]]] = None
         self._dev_mode_enabled: bool = dev_mode_active
         self._debug_group_filter: Optional[Tuple[str, Optional[str]]] = None
         self._debug_group_bounds_base: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
         self._debug_group_bounds_transformed: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
         self._debug_group_state: Dict[Tuple[str, Optional[str]], _GroupDebugState] = {}
-        self._last_logged_group_bounds_base: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
-        self._last_logged_group_bounds_transformed: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
+        self._payload_log_delay = max(0.0, float(getattr(initial, "payload_log_delay_seconds", 0.0) or 0.0))
+        self._group_log_pending_base: Dict[Tuple[str, Optional[str]], Dict[str, Any]] = {}
+        self._group_log_pending_transform: Dict[Tuple[str, Optional[str]], Dict[str, Any]] = {}
+        self._group_log_next_allowed: Dict[Tuple[str, Optional[str]], float] = {}
+        self._logged_group_bounds: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
+        self._logged_group_transforms: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -1274,6 +1276,20 @@ class OverlayWindow(QWidget):
             )
             self.update()
 
+    def set_payload_log_delay(self, delay_seconds: Optional[float]) -> None:
+        try:
+            numeric = float(delay_seconds)
+        except (TypeError, ValueError):
+            numeric = self._payload_log_delay
+        numeric = max(0.0, numeric)
+        if math.isclose(numeric, self._payload_log_delay, rel_tol=1e-9, abs_tol=1e-9):
+            return
+        self._payload_log_delay = numeric
+        now = time.monotonic()
+        for key in self._group_log_pending_base.keys():
+            self._group_log_next_allowed[key] = now + self._payload_log_delay
+        _CLIENT_LOGGER.debug("Payload log delay updated to %.2fs", self._payload_log_delay)
+
     def set_cycle_payload_enabled(self, enabled: Optional[bool]) -> None:
         flag = bool(enabled)
         if flag == self._cycle_payload_enabled:
@@ -1337,23 +1353,6 @@ class OverlayWindow(QWidget):
         elif action_lower == "reset":
             self._sync_cycle_items()
             self.update()
-
-    def handle_debug_request(self, payload: Mapping[str, Any]) -> None:
-        action = str(payload.get("action") or "").strip().lower()
-        if action != "dump_group_bounds":
-            _CLIENT_LOGGER.warning("Unknown debug action requested: %s", action or "<none>")
-            return
-        plugin = payload.get("plugin")
-        suffix = payload.get("suffix")
-        plugin_filter = str(plugin).strip() if isinstance(plugin, str) and plugin.strip() else None
-        suffix_filter = str(suffix).strip() if isinstance(suffix, str) and suffix.strip() else None
-        self._pending_group_bounds_dump = True
-        self._pending_group_bounds_filter = (plugin_filter, suffix_filter)
-        _CLIENT_LOGGER.info(
-            "Group bounds dump requested (plugin=%s suffix=%s)",
-            plugin_filter if plugin_filter is not None else "*",
-            suffix_filter if suffix_filter is not None else "*",
-        )
 
     def _sync_cycle_items(self) -> None:
         if not self._cycle_payload_enabled:
@@ -2837,8 +2836,11 @@ class OverlayWindow(QWidget):
                 self._sync_cycle_items()
             self.update()
         if not self._legacy_items:
-            self._last_logged_group_bounds_base.clear()
-            self._last_logged_group_bounds_transformed.clear()
+            self._group_log_pending_base.clear()
+            self._group_log_pending_transform.clear()
+            self._group_log_next_allowed.clear()
+            self._logged_group_bounds.clear()
+            self._logged_group_transforms.clear()
 
     def _paint_legacy(self, painter: QPainter) -> None:
         self._cycle_anchor_points = {}
@@ -2854,6 +2856,7 @@ class OverlayWindow(QWidget):
         effective_anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         transform_by_group: Dict[Tuple[str, Optional[str]], Optional[GroupTransform]] = {}
         effective_anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
+        now_monotonic = time.monotonic()
         passes = 2 if self._legacy_items else 1
         for pass_index in range(passes):
             commands, bounds_by_group, overlay_bounds_by_group, effective_anchor_by_group, transform_by_group = self._build_legacy_commands_for_pass(
@@ -2873,6 +2876,59 @@ class OverlayWindow(QWidget):
             transform_by_group,
         )
         overlay_bounds_base = self._collect_base_overlay_bounds(commands)
+        transform_candidates: Dict[Tuple[str, Optional[str]], Tuple[str, Optional[str]]] = {}
+        latest_base_payload: Dict[Tuple[str, Optional[str]], Dict[str, Any]] = {}
+        active_group_keys: Set[Tuple[str, Optional[str]]] = set()
+        for key, logical_bounds in overlay_bounds_base.items():
+            if logical_bounds is None or not logical_bounds.is_valid():
+                continue
+            active_group_keys.add(key)
+            plugin_label, suffix = key
+            min_x = logical_bounds.min_x
+            min_y = logical_bounds.min_y
+            max_x = logical_bounds.max_x
+            max_y = logical_bounds.max_y
+            width = max_x - min_x
+            height = max_y - min_y
+            group_transform = transform_by_group.get(key)
+            has_transformed = bool(
+                group_transform is not None and self._has_user_group_transform(group_transform)
+            )
+            bounds_tuple = (
+                logical_bounds.min_x,
+                logical_bounds.min_y,
+                logical_bounds.max_x,
+                logical_bounds.max_y,
+            )
+            payload_dict = {
+                "plugin": plugin_label or "",
+                "suffix": suffix or "",
+                "min_x": min_x,
+                "min_y": min_y,
+                "max_x": max_x,
+                "max_y": max_y,
+                "width": width,
+                "height": height,
+                "has_transformed": has_transformed,
+                "bounds_tuple": bounds_tuple,
+            }
+            latest_base_payload[key] = payload_dict
+            pending_payload = self._group_log_pending_base.get(key)
+            pending_tuple = pending_payload.get("bounds_tuple") if pending_payload else None
+            last_logged = self._logged_group_bounds.get(key)
+            should_schedule = pending_payload is not None or last_logged != bounds_tuple
+            if should_schedule:
+                if pending_tuple != bounds_tuple or pending_payload is None:
+                    self._group_log_pending_base[key] = payload_dict
+                    delay_target = now_monotonic if self._payload_log_delay <= 0.0 else now_monotonic + self._payload_log_delay
+                    self._group_log_next_allowed[key] = delay_target
+            else:
+                self._group_log_pending_base.pop(key, None)
+                self._group_log_next_allowed.pop(key, None)
+            if has_transformed:
+                transform_candidates[key] = (plugin_label or "", suffix or "")
+            else:
+                self._group_log_pending_transform.pop(key, None)
         overlay_bounds_for_draw = self._clone_overlay_bounds_map(overlay_bounds_by_group)
         overlay_bounds_for_draw = self._apply_anchor_translations_to_overlay_bounds(
             overlay_bounds_for_draw,
@@ -2899,6 +2955,64 @@ class OverlayWindow(QWidget):
             translations,
             mapper.transform.scale,
         )
+        for key, labels in transform_candidates.items():
+            plugin_label, suffix_label = labels
+            transformed_bounds = transformed_overlay_bounds.get(key)
+            if transformed_bounds is None or not transformed_bounds.is_valid():
+                continue
+            width_t = transformed_bounds.max_x - transformed_bounds.min_x
+            height_t = transformed_bounds.max_y - transformed_bounds.min_y
+            group_transform = transform_by_group.get(key)
+            anchor_token = "nw"
+            justification_token = "left"
+            offset_dx = 0.0
+            offset_dy = 0.0
+            if group_transform is not None:
+                anchor_token = (getattr(group_transform, "anchor_token", "nw") or "nw").strip().lower()
+                raw_just = getattr(group_transform, "payload_justification", "") or "left"
+                justification_token = raw_just.strip().lower() if isinstance(raw_just, str) else "left"
+                offset_dx, offset_dy = self._group_offset_for_transform(group_transform)
+            nudge_x, nudge_y = translations.get(key, (0, 0))
+            nudged = bool(nudge_x or nudge_y)
+            transform_tuple = (
+                transformed_bounds.min_x,
+                transformed_bounds.min_y,
+                transformed_bounds.max_x,
+                transformed_bounds.max_y,
+            )
+            pending_payload = self._group_log_pending_transform.get(key)
+            pending_tuple = pending_payload.get("bounds_tuple") if pending_payload else None
+            last_logged = self._logged_group_transforms.get(key)
+            should_schedule = pending_payload is not None or last_logged != transform_tuple
+            if not should_schedule:
+                self._group_log_pending_transform.pop(key, None)
+                continue
+            if pending_payload is None or pending_tuple != transform_tuple:
+                self._group_log_pending_transform[key] = {
+                    "plugin": plugin_label,
+                    "suffix": suffix_label,
+                    "min_x": transformed_bounds.min_x,
+                    "min_y": transformed_bounds.min_y,
+                    "max_x": transformed_bounds.max_x,
+                    "max_y": transformed_bounds.max_y,
+                    "width": width_t,
+                    "height": height_t,
+                    "anchor": anchor_token,
+                    "justification": justification_token,
+                    "offset_dx": offset_dx,
+                    "offset_dy": offset_dy,
+                    "nudge_dx": nudge_x,
+                    "nudge_dy": nudge_y,
+                    "nudged": nudged,
+                    "bounds_tuple": transform_tuple,
+                }
+                if key not in self._group_log_pending_base:
+                    base_snapshot = latest_base_payload.get(key)
+                    if base_snapshot is not None:
+                        self._group_log_pending_base[key] = base_snapshot
+                    delay_target = now_monotonic if self._payload_log_delay <= 0.0 else now_monotonic + self._payload_log_delay
+                    self._group_log_next_allowed[key] = delay_target
+        self._flush_group_log_entries(active_group_keys)
         collect_debug_helpers = self._dev_mode_enabled and self._debug_config.group_bounds_outline
         if collect_debug_helpers:
             self._debug_group_bounds_base = self._clone_overlay_bounds_map(overlay_bounds_base)
@@ -2924,70 +3038,6 @@ class OverlayWindow(QWidget):
             payload_offset_y = translation_y + nudge_y
             self._log_offscreen_payload(command, payload_offset_x, payload_offset_y, window_width, window_height)
             command.paint(self, painter, payload_offset_x, payload_offset_y)
-        if self._pending_group_bounds_dump or self._dev_mode_enabled:
-            if self._pending_group_bounds_dump:
-                self._pending_group_bounds_dump = False
-            plugin_filter, suffix_filter = self._pending_group_bounds_filter or (None, None)
-            self._pending_group_bounds_filter = None
-            for key, logical_bounds in overlay_bounds_base.items():
-                if logical_bounds is None or not logical_bounds.is_valid():
-                    continue
-                plugin_label, suffix = key
-                if plugin_filter and (plugin_label or "").casefold() != plugin_filter.casefold():
-                    continue
-                if suffix_filter and (suffix or "").casefold() != suffix_filter.casefold():
-                    continue
-                min_x = logical_bounds.min_x
-                min_y = logical_bounds.min_y
-                max_x = logical_bounds.max_x
-                max_y = logical_bounds.max_y
-                width = max_x - min_x
-                height = max_y - min_y
-                base_entry = (min_x, min_y, width, height)
-                force_log = bool(self._pending_group_bounds_dump)
-                if force_log or self._last_logged_group_bounds_base.get(key) != base_entry:
-                    _CLIENT_LOGGER.debug(
-                        "group-base-values plugin=%s idPrefix_group=%s min_x=%.1f min_y=%.1f width=%.1f height=%.1f max_x=%.1f max_y=%.1f",
-                        plugin_label,
-                        suffix or "",
-                        min_x,
-                        min_y,
-                        width,
-                        height,
-                        max_x,
-                        max_y,
-                    )
-                    self._last_logged_group_bounds_base[key] = base_entry
-                group_transform = transform_by_group.get(key)
-                if not self._has_user_group_transform(group_transform):
-                    continue
-                transformed_bounds = transformed_overlay_bounds.get(key)
-                if transformed_bounds is None or not transformed_bounds.is_valid():
-                    continue
-                min_x_t = transformed_bounds.min_x
-                min_y_t = transformed_bounds.min_y
-                max_x_t = transformed_bounds.max_x
-                max_y_t = transformed_bounds.max_y
-                width_t = max_x_t - min_x_t
-                height_t = max_y_t - min_y_t
-                anchor_token = (getattr(group_transform, "anchor_token", "") or "").strip().lower()
-                justification_token = (getattr(group_transform, "payload_justification", "") or "").strip().lower()
-                transformed_entry = (min_x_t, min_y_t, width_t, height_t)
-                if force_log or self._last_logged_group_bounds_transformed.get(key) != transformed_entry:
-                    _CLIENT_LOGGER.debug(
-                        "group-transformed-values plugin=%s idPrefix_group=%s anchor=%s justification=%s min_x=%.1f min_y=%.1f width=%.1f height=%.1f max_x=%.1f max_y=%.1f",
-                        plugin_label,
-                        suffix or "",
-                        anchor_token or "nw",
-                        justification_token or "left",
-                        min_x_t,
-                        min_y_t,
-                        width_t,
-                        height_t,
-                        max_x_t,
-                        max_y_t,
-                    )
-                    self._last_logged_group_bounds_transformed[key] = transformed_entry
         if collect_debug_helpers:
             self._draw_group_debug_helpers(painter, mapper)
 
@@ -4002,6 +4052,69 @@ class OverlayWindow(QWidget):
             painter.setPen(outline_pen)
         painter.restore()
 
+    def _flush_group_log_entries(self, active_keys: Set[Tuple[str, Optional[str]]]) -> None:
+        now = time.monotonic()
+        for key in list(self._group_log_pending_base.keys()):
+            next_allowed = self._group_log_next_allowed.get(key, now)
+            is_active = key in active_keys
+            should_flush = (not is_active) or now >= next_allowed
+            if not should_flush:
+                continue
+            payload = self._group_log_pending_base.pop(key, None)
+            self._group_log_next_allowed.pop(key, None)
+            if payload:
+                bounds_tuple = payload.pop("bounds_tuple", None)
+                if bounds_tuple != self._logged_group_bounds.get(key):
+                    self._emit_group_base_log(payload)
+                    if bounds_tuple is not None:
+                        self._logged_group_bounds[key] = bounds_tuple
+            transform_payload = self._group_log_pending_transform.pop(key, None)
+            if transform_payload:
+                transform_tuple = transform_payload.pop("bounds_tuple", None)
+                if transform_tuple != self._logged_group_transforms.get(key):
+                    self._emit_group_transform_log(transform_payload)
+                    if transform_tuple is not None:
+                        self._logged_group_transforms[key] = transform_tuple
+            if not is_active:
+                self._logged_group_bounds.pop(key, None)
+                self._logged_group_transforms.pop(key, None)
+
+    def _emit_group_base_log(self, payload: Mapping[str, Any]) -> None:
+        log_parts = [
+            "group-base-values",
+            f"plugin={payload.get('plugin', '')}",
+            f"idPrefix_group={payload.get('suffix', '')}",
+            f"base_min_x={float(payload.get('min_x', 0.0)):.1f}",
+            f"base_min_y={float(payload.get('min_y', 0.0)):.1f}",
+            f"base_width={float(payload.get('width', 0.0)):.1f}",
+            f"base_height={float(payload.get('height', 0.0)):.1f}",
+            f"base_max_x={float(payload.get('max_x', 0.0)):.1f}",
+            f"base_max_y={float(payload.get('max_y', 0.0)):.1f}",
+            f"has_transformed={bool(payload.get('has_transformed', False))}",
+        ]
+        _CLIENT_LOGGER.debug(" ".join(log_parts))
+
+    def _emit_group_transform_log(self, payload: Mapping[str, Any]) -> None:
+        log_parts = [
+            "group-transformed-values",
+            f"plugin={payload.get('plugin', '')}",
+            f"idPrefix_group={payload.get('suffix', '')}",
+            f"trans_min_x={float(payload.get('min_x', 0.0)):.1f}",
+            f"trans_min_y={float(payload.get('min_y', 0.0)):.1f}",
+            f"trans_width={float(payload.get('width', 0.0)):.1f}",
+            f"trans_height={float(payload.get('height', 0.0)):.1f}",
+            f"trans_max_x={float(payload.get('max_x', 0.0)):.1f}",
+            f"trans_max_y={float(payload.get('max_y', 0.0)):.1f}",
+            f"anchor={payload.get('anchor', 'nw')}",
+            f"justification={payload.get('justification', 'left')}",
+            f"offset_dx={float(payload.get('offset_dx', 0.0)):.1f}",
+            f"offset_dy={float(payload.get('offset_dy', 0.0)):.1f}",
+            f"nudge_dx={payload.get('nudge_dx', 0)}",
+            f"nudge_dy={payload.get('nudge_dy', 0)}",
+            f"nudged={payload.get('nudged', False)}",
+        ]
+        _CLIENT_LOGGER.debug(" ".join(log_parts))
+
     def _overlay_bounds_to_rect(self, bounds: _OverlayBounds, mapper: LegacyMapper) -> QRect:
         scale = mapper.transform.scale
         if not math.isfinite(scale) or math.isclose(scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
@@ -4834,9 +4947,6 @@ def main(argv: Optional[list[str]] = None) -> int:
             action = payload.get("action")
             if isinstance(action, str):
                 window.handle_cycle_action(action)
-            return
-        if event == "OverlayDebug":
-            window.handle_debug_request(payload)
             return
         message_text = payload.get("message")
         ttl: Optional[float] = None
