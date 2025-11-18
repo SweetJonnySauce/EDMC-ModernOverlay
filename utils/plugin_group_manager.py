@@ -10,7 +10,9 @@ import math
 import os
 import queue
 import re
+import shutil
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -52,6 +54,20 @@ GROUP_SELECTOR_STYLE = "ModernOverlayGroupSelect.TCombobox"
 LEFT_COLUMN_WIDTH = 180
 GROUP_INFO_WRAP = 360
 LEFT_PANEL_WRAP = 520
+DEFAULT_REPLAY_TTL = 1
+REPLAY_WINDOW_WAIT_SECONDS = 2.0
+MOCK_WINDOW_TITLE = "Elite - Dangerous (Stub)"
+MOCK_WINDOW_PATH = ROOT_DIR / "utils" / "mock_elite_window.py"
+REPLAY_RESOLUTIONS = [
+    (1280, 1024),
+    (1024, 768),
+    (1720, 1440),
+    (1920, 800),
+    (1920, 1080),
+    (1440, 900),
+    (1440, 960),
+    (2560, 1080),
+]
 
 
 @dataclass(frozen=True)
@@ -1368,7 +1384,7 @@ class PluginGroupManagerApp:
         self._grouping_label_font = default_font.copy()
         self._grouping_label_font.configure(weight="bold")
         self.root.title("Plugin Group Manager")
-        self.root.geometry("1100x800")
+        self.root.geometry("1350x800")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._style = ttk.Style(self.root)
         self._payload_window_bg = self._resolve_payload_window_background()
@@ -1392,6 +1408,9 @@ class PluginGroupManagerApp:
         self._group_scroll_targets: List[tk.Widget] = []
         self._payload_context_menu: Optional[tk.Menu] = None
         self._payload_menu_dismiss_bind: Optional[str] = None
+        self.replay_ttl_var = tk.StringVar(value=str(DEFAULT_REPLAY_TTL))
+        self.replay_resolution_vars: Dict[Tuple[int, int], tk.BooleanVar] = {}
+        self._active_mock_process: Optional[subprocess.Popen[Any]] = None
 
         self._build_ui()
         self._refresh_group_data()
@@ -1434,6 +1453,7 @@ class PluginGroupManagerApp:
         main.pack(fill="both", expand=True)
         main.columnconfigure(0, weight=1)
         main.columnconfigure(1, weight=1)
+        main.columnconfigure(2, weight=0)
         main.rowconfigure(0, weight=1)
 
         left_panel = ttk.Frame(main)
@@ -1442,6 +1462,9 @@ class PluginGroupManagerApp:
         right_panel = ttk.Frame(main)
         right_panel.grid(row=0, column=1, sticky="nsew")
         right_panel.rowconfigure(2, weight=1)
+        replay_section = self._create_label_frame(main, "Replay Settings")
+        replay_section.grid(row=0, column=2, sticky="ns", padx=(8, 0))
+        self._build_replay_panel(replay_section)
 
         overview_section = self._create_label_frame(left_panel, "Overview & Instructions")
         overview_section.pack(fill="x", expand=False, pady=(0, 12))
@@ -1544,11 +1567,11 @@ class PluginGroupManagerApp:
         )
         ttk.Button(info_grid, text="Delete group", command=self._delete_selected_group).grid(row=0, column=3, sticky="e", padx=(8, 0))
         ttk.Label(info_grid, text="Match prefixes:").grid(row=1, column=0, sticky="nw", pady=(4, 0))
-        ttk.Label(info_grid, textvariable=self.group_match_var, wraplength=500, justify="left").grid(
+        ttk.Label(info_grid, textvariable=self.group_match_var, wraplength=640, justify="left").grid(
             row=1, column=1, columnspan=3, sticky="w", pady=(4, 0)
         )
         ttk.Label(info_grid, text="Notes:").grid(row=2, column=0, sticky="nw", pady=(4, 0))
-        ttk.Label(info_grid, textvariable=self.group_notes_var, wraplength=500, justify="left").grid(
+        ttk.Label(info_grid, textvariable=self.group_notes_var, wraplength=640, justify="left").grid(
             row=2,
             column=1,
             columnspan=3,
@@ -1582,6 +1605,26 @@ class PluginGroupManagerApp:
             self._group_scroll_targets.append(self.grouping_entries_frame)
         self._enable_group_scroll(None)
 
+    def _build_replay_panel(self, parent: ttk.LabelFrame) -> None:
+        container = ttk.Frame(parent)
+        container.pack(fill="y", expand=False, padx=8, pady=8)
+        ttk.Label(container, text="Payload TTL (seconds):").pack(anchor="w")
+        ttk.Entry(container, textvariable=self.replay_ttl_var, width=6).pack(anchor="w", pady=(0, 8))
+        ttk.Label(container, text="Mock window sizes:").pack(anchor="w", pady=(4, 2))
+        note = ttk.Label(
+            container,
+            text="Select the resolutions to test. The mock window is resized via wmctrl before each replay.",
+            wraplength=220,
+            justify="left",
+            foreground="#555555",
+        )
+        note.pack(anchor="w", pady=(0, 6))
+        for width, height in REPLAY_RESOLUTIONS:
+            ratio = self._format_aspect_ratio(width, height)
+            label = f"{width} x {height} ({ratio})"
+            var = tk.BooleanVar(value=False)
+            self.replay_resolution_vars[(width, height)] = var
+            ttk.Checkbutton(container, text=label, variable=var).pack(anchor="w")
 
     def _create_label_frame(self, parent: tk.Widget, text: str) -> ttk.LabelFrame:
         label = ttk.Label(parent, text=text, font=self._group_title_font)
@@ -2061,7 +2104,7 @@ class PluginGroupManagerApp:
             prefix_frame = ttk.Frame(entry_frame)
             prefix_frame.grid(row=1, column=1, sticky="nw", padx=(20, 0))
             ttk.Label(prefix_frame, text="Prefixes", font=("TkDefaultFont", 9, "underline")).pack(anchor="w")
-            tk.Label(prefix_frame, text=prefix_block, justify="left", anchor="w", wraplength=380).pack(anchor="w", pady=(2, 0))
+            tk.Label(prefix_frame, text=prefix_block, justify="left", anchor="w", wraplength=520).pack(anchor="w", pady=(2, 0))
 
             button_frame = ttk.Frame(entry_frame)
             button_frame.grid(row=1, column=2, rowspan=2, padx=(18, 0), pady=(0, 4), sticky="n")
@@ -2101,6 +2144,83 @@ class PluginGroupManagerApp:
         return "0"
 
     @staticmethod
+    def _format_aspect_ratio(width: int, height: int) -> str:
+        try:
+            divisor = math.gcd(int(width), int(height))
+        except (ValueError, TypeError):
+            return "?"
+        if divisor <= 0:
+            return "?"
+        return f"{width // divisor}:{height // divisor}"
+
+    def _selected_replay_resolutions(self) -> List[Tuple[int, int]]:
+        selections: List[Tuple[int, int]] = []
+        for width, height in REPLAY_RESOLUTIONS:
+            var = self.replay_resolution_vars.get((width, height))
+            if var is not None and var.get():
+                selections.append((width, height))
+        return selections
+
+    def _resolve_replay_ttl(self) -> int:
+        raw_value = (self.replay_ttl_var.get() or "").strip()
+        if not raw_value:
+            return DEFAULT_REPLAY_TTL
+        try:
+            numeric = float(raw_value)
+        except ValueError:
+            raise RuntimeError("Replay TTL must be a positive number.")
+        if numeric <= 0:
+            raise RuntimeError("Replay TTL must be a positive number.")
+        ttl = int(round(numeric))
+        return max(1, ttl)
+
+    def _sleep_with_stop_check(self, seconds: float) -> None:
+        time.sleep(max(0.0, seconds))
+
+    def _launch_mock_window(self, width: int, height: int) -> subprocess.Popen[Any]:
+        if not MOCK_WINDOW_PATH.exists():
+            raise RuntimeError(f"Mock window script not found at {MOCK_WINDOW_PATH}.")
+        env = dict(os.environ)
+        env["MOCK_ELITE_WIDTH"] = str(width)
+        env["MOCK_ELITE_HEIGHT"] = str(height)
+        command = [
+            sys.executable,
+            str(MOCK_WINDOW_PATH),
+            "--title",
+            MOCK_WINDOW_TITLE,
+            "--size",
+            f"{width}x{height}",
+        ]
+        try:
+            process = subprocess.Popen(command, cwd=ROOT_DIR, env=env)
+            self._active_mock_process = process
+            return process
+        except OSError as exc:
+            raise RuntimeError(f"Failed to launch mock window: {exc}") from exc
+
+    def _terminate_mock_window(self, process: Optional[subprocess.Popen[Any]]) -> None:
+        if process is None:
+            return
+        if process.poll() is not None:
+            if process is self._active_mock_process:
+                self._active_mock_process = None
+            return
+        try:
+            process.terminate()
+        except Exception:
+            pass
+        try:
+            process.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+                try:
+                    process.kill()
+                    process.wait(timeout=1.0)
+                except Exception:
+                    pass
+        if process is self._active_mock_process:
+            self._active_mock_process = None
+
+    @staticmethod
     def _log_path_for_group_label(label_value: Optional[object]) -> Optional[Path]:
         if not isinstance(label_value, str):
             return None
@@ -2115,7 +2235,9 @@ class PluginGroupManagerApp:
     def _play_group_log(self, log_path: Path) -> None:
         title = "Replay payloads"
         try:
+            ttl_value = self._resolve_replay_ttl()
             port = self._load_overlay_port()
+            self._wait_for_overlay_ready(port)
             messages = self._load_payloads_from_log(log_path)
         except RuntimeError as exc:
             self._report_playback_error(title, str(exc))
@@ -2123,23 +2245,40 @@ class PluginGroupManagerApp:
         if not messages:
             messagebox.showinfo(title, f"No playable payloads were found in {log_path.name}.")
             return
-        total = len(messages)
-        for seq, payload in enumerate(messages, start=1):
-            meta = payload.setdefault("meta", {})
-            if isinstance(meta, dict):
-                meta.setdefault("sequence", seq)
-                meta.setdefault("count", total)
+        resolutions = self._selected_replay_resolutions()
+        if not resolutions:
+            resolutions = [(1280, 960)]
+        total_resolutions = len(resolutions)
+        for idx, resolution in enumerate(resolutions, start=1):
+            label = f"{resolution[0]}x{resolution[1]}"
+            self.status_var.set(f"Replaying {log_path.name} at {label} ({idx}/{total_resolutions})…")
+            self.root.update_idletasks()
+            mock_process = None
             try:
-                response = self._send_payload_to_client(port, payload)
-            except RuntimeError as exc:
-                self._report_playback_error(title, f"Failed to send payload {seq}/{total}: {exc}")
-                return
-            status = response.get("status")
-            if status != "ok":
-                error_msg = response.get("error") or response
-                self._report_playback_error(title, f"Overlay client reported an error for payload {seq}: {error_msg}")
-                return
-        success_msg = f"Sent {total} payload(s) from {log_path.name}."
+                width, height = resolution
+                mock_process = self._launch_mock_window(width, height)
+                self._sleep_with_stop_check(REPLAY_WINDOW_WAIT_SECONDS)
+                total = len(messages)
+                for seq, payload in enumerate(messages, start=1):
+                    payload_copy = json.loads(json.dumps(payload))
+                    payload_body = payload_copy.get("payload")
+                    if isinstance(payload_body, dict):
+                        payload_body["ttl"] = ttl_value
+                    meta = payload_copy.setdefault("meta", {})
+                    if isinstance(meta, dict):
+                        meta.setdefault("sequence", seq)
+                        meta.setdefault("count", total)
+                        if resolution is not None:
+                            meta["resolution"] = label
+                    response = self._send_payload_to_client(port, payload_copy)
+                    if response.get("status") != "ok":
+                        error_msg = response.get("error") or response
+                        self._report_playback_error(title, f"Overlay client reported an error for payload {seq}: {error_msg}")
+                        return
+                self._sleep_with_stop_check(ttl_value + 2.0)
+            finally:
+                self._terminate_mock_window(mock_process)
+        success_msg = f"Sent {len(messages)} payload(s) from {log_path.name}."
         self.status_var.set(success_msg)
 
     @staticmethod
@@ -2158,6 +2297,21 @@ class PluginGroupManagerApp:
         if not isinstance(port, int) or port <= 0:
             raise RuntimeError(f"port.json did not contain a valid port number: {port}")
         return port
+
+    def _wait_for_overlay_ready(self, port: int, timeout: float = 30.0) -> None:
+        deadline = time.monotonic() + timeout
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=2.0):
+                    return
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(
+                        f"Timed out waiting for the overlay broadcaster on port {port}: {exc}"
+                    ) from exc
+                time.sleep(0.5)
 
     def _load_payloads_from_log(self, log_path: Path) -> List[Dict[str, Any]]:
         if not log_path.exists():

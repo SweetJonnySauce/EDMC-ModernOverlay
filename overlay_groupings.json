@@ -21,8 +21,8 @@
         ],
         "idPrefixGroupAnchor": "ne",
         "offsetX": 180,
-        "payloadJustification": "right",
-        "offsetY": 10
+        "offsetY": 10,
+        "payloadJustification": "right"
       },
       "BGS-Tally System Info": {
         "idPrefixes": [
@@ -37,6 +37,14 @@
         "idPrefixes": [
           "bgstally-frame-info",
           "bgstally-msg-info-"
+        ],
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left"
+      },
+      "BGS-Tally Ignore list": {
+        "idPrefixes": [
+          "bgstally-frame-system_tick",
+          "bgstally-frame-tick"
         ],
         "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left"
