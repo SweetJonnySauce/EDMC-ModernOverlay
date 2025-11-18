@@ -599,8 +599,7 @@ class OverlayWindow(QWidget):
         )
         self._dev_mode_enabled: bool = dev_mode_active
         self._debug_group_filter: Optional[Tuple[str, Optional[str]]] = None
-        self._debug_group_bounds_base: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
-        self._debug_group_bounds_transformed: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
+        self._debug_group_bounds_final: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
         self._debug_group_state: Dict[Tuple[str, Optional[str]], _GroupDebugState] = {}
         self._payload_log_delay = max(0.0, float(getattr(initial, "payload_log_delay_seconds", 0.0) or 0.0))
         self._group_log_pending_base: Dict[Tuple[str, Optional[str]], Dict[str, Any]] = {}
@@ -3015,17 +3014,15 @@ class OverlayWindow(QWidget):
         self._flush_group_log_entries(active_group_keys)
         collect_debug_helpers = self._dev_mode_enabled and self._debug_config.group_bounds_outline
         if collect_debug_helpers:
-            self._debug_group_bounds_base = self._clone_overlay_bounds_map(overlay_bounds_base)
-            self._debug_group_bounds_transformed = self._clone_overlay_bounds_map(transformed_overlay_bounds)
+            final_bounds_map = transformed_overlay_bounds if transformed_overlay_bounds else overlay_bounds_base
+            self._debug_group_bounds_final = self._clone_overlay_bounds_map(final_bounds_map)
             self._debug_group_state = self._build_group_debug_state(
-                self._debug_group_bounds_base,
-                self._debug_group_bounds_transformed,
+                self._debug_group_bounds_final,
                 transform_by_group,
                 translations,
             )
         else:
-            self._debug_group_bounds_base = {}
-            self._debug_group_bounds_transformed = {}
+            self._debug_group_bounds_final = {}
             self._debug_group_state = {}
         window_width = max(self.width(), 0)
         window_height = max(self.height(), 0)
@@ -3925,20 +3922,16 @@ class OverlayWindow(QWidget):
 
     def _build_group_debug_state(
         self,
-        base_bounds: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
-        transformed_bounds: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+        final_bounds: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
         transform_by_group: Mapping[Tuple[str, Optional[str]], Optional[GroupTransform]],
         translations: Mapping[Tuple[str, Optional[str]], Tuple[int, int]],
     ) -> Dict[Tuple[str, Optional[str]], _GroupDebugState]:
         state: Dict[Tuple[str, Optional[str]], _GroupDebugState] = {}
-        keys: Set[Tuple[str, Optional[str]]] = set(base_bounds.keys()) | set(transformed_bounds.keys())
-        for key in keys:
-            transform = transform_by_group.get(key)
-            use_transformed = self._has_user_group_transform(transform)
-            bounds_map = transformed_bounds if use_transformed else base_bounds
-            bounds = bounds_map.get(key)
+        for key, bounds in final_bounds.items():
             if bounds is None or not bounds.is_valid():
                 continue
+            transform = transform_by_group.get(key)
+            use_transformed = self._has_user_group_transform(transform)
             anchor_token = (getattr(transform, "anchor_token", "nw") or "nw").strip().lower()
             justification = (getattr(transform, "payload_justification", "left") or "left").strip().lower()
             anchor_point = self._anchor_from_overlay_bounds(bounds, anchor_token)
@@ -4015,12 +4008,7 @@ class OverlayWindow(QWidget):
         for key, debug_state in self._debug_group_state.items():
             if self._debug_group_filter and key != self._debug_group_filter:
                 continue
-            bounds_map = (
-                self._debug_group_bounds_transformed
-                if debug_state.use_transformed
-                else self._debug_group_bounds_base
-            )
-            bounds = bounds_map.get(key)
+            bounds = self._debug_group_bounds_final.get(key)
             if bounds is None or not bounds.is_valid():
                 continue
             rect = self._overlay_bounds_to_rect(bounds, mapper)

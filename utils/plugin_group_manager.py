@@ -59,6 +59,7 @@ REPLAY_WINDOW_WAIT_SECONDS = 2.0
 MOCK_WINDOW_TITLE = "Elite - Dangerous (Stub)"
 MOCK_WINDOW_PATH = ROOT_DIR / "utils" / "mock_elite_window.py"
 REPLAY_RESOLUTIONS = [
+    (1280, 960),
     (1280, 1024),
     (1024, 768),
     (1720, 1440),
@@ -68,6 +69,7 @@ REPLAY_RESOLUTIONS = [
     (1440, 960),
     (2560, 1080),
 ]
+BASE_ASPECT_RATIO = 1280 / 960
 
 
 @dataclass(frozen=True)
@@ -1621,7 +1623,13 @@ class PluginGroupManagerApp:
         note.pack(anchor="w", pady=(0, 6))
         for width, height in REPLAY_RESOLUTIONS:
             ratio = self._format_aspect_ratio(width, height)
-            label = f"{width} x {height} ({ratio})"
+            details = ratio
+            if width == 1280 and height == 960:
+                details = f"{ratio}, default"
+            label = f"{width} x {height} ({details})"
+            arrow = self._overflow_indicator(width, height)
+            if arrow:
+                label = f"{label} {arrow}"
             var = tk.BooleanVar(value=False)
             self.replay_resolution_vars[(width, height)] = var
             ttk.Checkbutton(container, text=label, variable=var).pack(anchor="w")
@@ -2163,6 +2171,16 @@ class PluginGroupManagerApp:
         if divisor <= 0:
             return "?"
         return f"{width // divisor}:{height // divisor}"
+
+    @staticmethod
+    def _overflow_indicator(width: int, height: int) -> str:
+        try:
+            ratio = float(width) / float(height)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return ""
+        if math.isclose(ratio, BASE_ASPECT_RATIO, rel_tol=1e-3, abs_tol=1e-3):
+            return ""
+        return "↓" if ratio > BASE_ASPECT_RATIO else "→"
 
     def _selected_replay_resolutions(self) -> List[Tuple[int, int]]:
         selections: List[Tuple[int, int]] = []
