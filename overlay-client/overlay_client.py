@@ -3189,7 +3189,10 @@ class OverlayWindow(QWidget):
             base_bounds = base_overlay_bounds.get(key)
             baseline_width = None
             if base_bounds is not None and base_bounds.is_valid():
-                baseline_width = base_bounds.max_x - base_bounds.min_x
+                scale_value = base_scale
+                if not math.isfinite(scale_value) or math.isclose(scale_value, 0.0, rel_tol=1e-9, abs_tol=1e-9):
+                    scale_value = 1.0
+                baseline_width = (base_bounds.max_x - base_bounds.min_x) * scale_value
             requests.append(
                 JustificationRequest(
                     identifier=id(command),

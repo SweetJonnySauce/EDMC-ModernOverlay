@@ -11,7 +11,7 @@
         ],
         "idPrefixGroupAnchor": "ne",
         "offsetX": 500,
-        "payloadJustification": "right"
+        "payloadJustification": "left"
       },
       "BGS-Tally Tick Notifications": {
         "idPrefixes": [
