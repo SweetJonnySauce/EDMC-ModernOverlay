@@ -1,7 +1,7 @@
 {
   "overlay_opacity": 0.0,
   "show_connection_status": true,
-  "debug_overlay_corner": "NW",
+  "debug_overlay_corner": "SE",
   "client_log_retention": 5,
   "gridlines_enabled": false,
   "gridline_spacing": 120,
@@ -9,7 +9,7 @@
   "force_xwayland": false,
   "show_debug_overlay": false,
   "min_font_point": 6.0,
-  "max_font_point": 24.0,
+  "max_font_point": 11.0,
   "status_bottom_margin": 30,
   "title_bar_enabled": false,
   "title_bar_height": 0,

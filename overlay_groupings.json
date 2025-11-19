@@ -21,10 +21,10 @@
           "bgstally-frame-system_tick",
           "bgstally-frame-tick"
         ],
-        "idPrefixGroupAnchor": "ne",
-        "offsetX": 190,
-        "offsetY": 10,
-        "payloadJustification": "right"
+        "idPrefixGroupAnchor": "nw",
+        "offsetX": -200,
+        "offsetY": 200,
+        "payloadJustification": "left"
       },
       "BGS-Tally System Info": {
         "idPrefixes": [
