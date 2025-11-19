@@ -125,7 +125,7 @@ except PluginGroupingError as exc:
 
 The helper enforces the schema, lowercases prefixes, ensures per-plugin uniqueness, and writes the JSON back to disk so the overlay client reloads it instantly.
 
-#### Example 1: Center a text string at the top center of the screen
+## Example 1: Center a text string at the top center of the screen
 
 Call the grouping helper **once at plugin startup** to keep your group anchored to the top edge while horizontally aligning every payload around its midpoint:
 
@@ -166,7 +166,7 @@ overlay.send_message(
 
 Legacy calls always speak the 1280×960 virtual canvas and Modern Overlay scales from there, so centering a payload is as simple as targeting `x=640`—even on ultrawide monitors.
 
-#### Example 2: Right-justify a banner against the top-right edge
+## Example 2: Right-justify a banner against the top-right edge
 
 Register the grouping **once at startup** so Modern Overlay anchors the block to the north-east corner while right-justifying the payload text:
 
@@ -206,6 +206,8 @@ overlay.send_message(
 ```
 
 Because legacy clients always address the 1280×960 virtual surface, you only need to aim at `x=1280` once—Modern Overlay handles the scaling and offsets for every other resolution.
+
+## Utilities
 
 ### CLI helper (`utils/plugin_group_cli.py`)
 
