@@ -125,6 +125,47 @@ except PluginGroupingError as exc:
 
 The helper enforces the schema, lowercases prefixes, ensures per-plugin uniqueness, and writes the JSON back to disk so the overlay client reloads it instantly.
 
+#### Example 1: Center a text string at the top center of the screen
+
+Call the grouping helper **once at plugin startup** to keep your group anchored to the top edge while horizontally aligning every payload around its midpoint:
+
+```python
+from overlay_plugin.overlay_api import define_plugin_group, PluginGroupingError
+
+def plugin_startup():
+    try:
+        define_plugin_group(
+            plugin_group="Centered Banner",
+            id_prefix_group="status-line",
+            id_prefixes=["centered-banner-"],
+            id_prefix_group_anchor="top",
+            payload_justification="center",
+        )
+    except PluginGroupingError as exc:
+        print(f"Could not register grouping: {exc}")
+```
+
+Once registration succeeds (you do not need to call it again unless you change the prefixes or anchor), any payload whose ID starts with `centered-banner-` will remain pinned to the top-center anchor.
+
+To draw a string in that group, send a legacy message to the `1280×960` coordinate space that Modern Overlay expects and let the Fill transforms scale it for the current window. The midpoint of that width is `x=640`, so `640, 0` produces a top-centered payload on every monitor:
+
+```python
+from EDMCOverlay import edmcoverlay
+
+overlay = edmcoverlay.Overlay()
+overlay.send_message(
+    "centered-banner-welcome",
+    "Safe travels, CMDR o7",
+    "#ffd27f",
+    640,  # 1280px canvas midpoint for centered placements
+    0,    # 0 keeps the anchor flush with the top edge
+    ttl=6,
+    size="large",
+)
+```
+
+Legacy calls always speak the 1280×960 virtual canvas and Modern Overlay scales from there, so centering a payload is as simple as targeting `x=640`—even on ultrawide monitors.
+
 ### CLI helper (`utils/plugin_group_cli.py`)
 
 Run `utils/plugin_group_cli.py --plugin-group Example --id-prefix-group alerts --id-prefixes example-alert- --write` to edit the file from the terminal. Without `--write` the script operates in a dry-run mode, printing the resulting JSON block so you can review it before committing.
