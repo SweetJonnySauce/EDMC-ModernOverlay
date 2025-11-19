@@ -9,7 +9,7 @@
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
         ],
-        "idPrefixGroupAnchor": "nw",
+        "idPrefixGroupAnchor": "ne",
         "offsetX": 500,
         "payloadJustification": "right"
       },
