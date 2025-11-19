@@ -3401,6 +3401,7 @@ class OverlayWindow(QWidget):
         self._debug_legacy_point_size = scaled_point_size
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
+        right_justification_delta = 0.0
         if trace_enabled and not collect_only:
             self._log_legacy_trace(
                 plugin_name,
@@ -3427,10 +3428,9 @@ class OverlayWindow(QWidget):
             )
         base_left_logical = adjusted_left
         base_top_logical = adjusted_top
-        right_justification_delta = 0.0
         if mapper.transform.mode is ScaleMode.FILL:
-            right_justification_delta = self._right_justification_delta(group_transform, base_left_logical)
-            translation_dx = base_translation_dx - (right_justification_delta * 2.0)
+            right_justification_delta = self._right_justification_delta(group_transform, raw_left)
+            translation_dx = base_translation_dx - right_justification_delta
             adjusted_left += translation_dx
             adjusted_top += base_translation_dy
             if selected_anchor is not None:
@@ -3626,14 +3626,12 @@ class OverlayWindow(QWidget):
         transformed_overlay = remap_rect_points(fill, transform_meta, raw_x, raw_y, raw_w, raw_h, context=transform_context)
         base_overlay_points: List[Tuple[float, float]] = []
         if mapper.transform.mode is ScaleMode.FILL:
+            right_justification_delta = self._right_justification_delta(group_transform, raw_x)
             transformed_overlay = [
                 self._apply_inverse_group_scale(px, py, anchor_for_transform, base_anchor_point or anchor_for_transform, fill)
                 for px, py in transformed_overlay
             ]
             base_overlay_points = [tuple(pt) for pt in transformed_overlay]
-            if base_overlay_points:
-                base_payload_min_x = min(pt[0] for pt in base_overlay_points)
-                right_justification_delta = self._right_justification_delta(group_transform, base_payload_min_x)
             translation_dx = base_translation_dx - (right_justification_delta * 2.0)
             if translation_dx or base_translation_dy:
                 transformed_overlay = [
@@ -3738,6 +3736,17 @@ class OverlayWindow(QWidget):
         base_translation_dy = 0.0
         effective_anchor: Optional[Tuple[float, float]] = None
         group_offset_dx, group_offset_dy = self._group_offset_for_transform(group_transform)
+        raw_points = item.get("points") or []
+        raw_min_x: Optional[float] = None
+        for point in raw_points:
+            if not isinstance(point, Mapping):
+                continue
+            try:
+                px = float(point.get("x", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if raw_min_x is None or px < raw_min_x:
+                raw_min_x = px
         if mapper.transform.mode is ScaleMode.FILL:
             use_overlay_bounds_x = (
                 overlay_bounds_hint is not None
@@ -3767,6 +3776,11 @@ class OverlayWindow(QWidget):
                 )
             base_translation_dx += group_offset_dx
             base_translation_dy += group_offset_dy
+        translation_dx = base_translation_dx
+        translation_dy = base_translation_dy
+        if mapper.transform.mode is ScaleMode.FILL and raw_min_x is not None:
+            justification_delta = self._right_justification_delta(group_transform, raw_min_x)
+            translation_dx -= justification_delta * 2.0
         base_offset_x = fill.base_offset_x
         base_offset_y = fill.base_offset_y
         transform_meta = item.get("__mo_transform__")
@@ -3788,7 +3802,6 @@ class OverlayWindow(QWidget):
                 "paint:raw_points",
                 {"points": item.get("points")},
             )
-        raw_points = item.get("points") or []
         transformed_points: List[Mapping[str, Any]] = []
         remapped = remap_vector_points(fill, transform_meta, raw_points, context=transform_context)
         overlay_min_x = float("inf")
@@ -3810,8 +3823,8 @@ class OverlayWindow(QWidget):
                 )
                 base_ox = ox
                 base_oy = oy
-                ox += base_translation_dx
-                oy += base_translation_dy
+                ox += translation_dx
+                oy += translation_dy
             else:
                 base_ox = ox
                 base_oy = oy
@@ -3835,19 +3848,6 @@ class OverlayWindow(QWidget):
             if base_oy > base_overlay_max_y:
                 base_overlay_max_y = base_oy
             transformed_points.append(new_point)
-        if mapper.transform.mode is ScaleMode.FILL and math.isfinite(base_overlay_min_x):
-            right_justification_delta = self._right_justification_delta(group_transform, base_overlay_min_x)
-            if right_justification_delta:
-                adjustment = right_justification_delta * 2.0
-                if math.isfinite(overlay_min_x):
-                    overlay_min_x -= adjustment
-                if math.isfinite(overlay_max_x):
-                    overlay_max_x -= adjustment
-                for point in transformed_points:
-                    try:
-                        point["x"] = float(point.get("x", 0.0)) - adjustment
-                    except (TypeError, ValueError):
-                        point["x"] = -adjustment
         if mapper.transform.mode is ScaleMode.FILL and selected_anchor is not None:
             transformed_anchor = self._apply_inverse_group_scale(
                 selected_anchor[0],
@@ -3857,13 +3857,8 @@ class OverlayWindow(QWidget):
                 fill,
             )
             effective_anchor = (
-                transformed_anchor[0] + base_translation_dx,
-                transformed_anchor[1] + base_translation_dy,
-            )
-        if right_justification_delta and effective_anchor is not None:
-            effective_anchor = (
-                effective_anchor[0] - (right_justification_delta * 2.0),
-                effective_anchor[1],
+                transformed_anchor[0] + translation_dx,
+                transformed_anchor[1] + translation_dy,
             )
         if len(transformed_points) < 2:
             return None, None
