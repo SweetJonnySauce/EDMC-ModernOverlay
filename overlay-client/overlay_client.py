@@ -3430,7 +3430,7 @@ class OverlayWindow(QWidget):
         right_justification_delta = 0.0
         if mapper.transform.mode is ScaleMode.FILL:
             right_justification_delta = self._right_justification_delta(group_transform, base_left_logical)
-            translation_dx = base_translation_dx - right_justification_delta
+            translation_dx = base_translation_dx - (right_justification_delta * 2.0)
             adjusted_left += translation_dx
             adjusted_top += base_translation_dy
             if selected_anchor is not None:
@@ -3634,7 +3634,7 @@ class OverlayWindow(QWidget):
             if base_overlay_points:
                 base_payload_min_x = min(pt[0] for pt in base_overlay_points)
                 right_justification_delta = self._right_justification_delta(group_transform, base_payload_min_x)
-            translation_dx = base_translation_dx - right_justification_delta
+            translation_dx = base_translation_dx - (right_justification_delta * 2.0)
             if translation_dx or base_translation_dy:
                 transformed_overlay = [
                     (px + translation_dx, py + base_translation_dy)
@@ -3838,15 +3838,16 @@ class OverlayWindow(QWidget):
         if mapper.transform.mode is ScaleMode.FILL and math.isfinite(base_overlay_min_x):
             right_justification_delta = self._right_justification_delta(group_transform, base_overlay_min_x)
             if right_justification_delta:
+                adjustment = right_justification_delta * 2.0
                 if math.isfinite(overlay_min_x):
-                    overlay_min_x -= right_justification_delta
+                    overlay_min_x -= adjustment
                 if math.isfinite(overlay_max_x):
-                    overlay_max_x -= right_justification_delta
+                    overlay_max_x -= adjustment
                 for point in transformed_points:
                     try:
-                        point["x"] = float(point.get("x", 0.0)) - right_justification_delta
+                        point["x"] = float(point.get("x", 0.0)) - adjustment
                     except (TypeError, ValueError):
-                        point["x"] = -right_justification_delta
+                        point["x"] = -adjustment
         if mapper.transform.mode is ScaleMode.FILL and selected_anchor is not None:
             transformed_anchor = self._apply_inverse_group_scale(
                 selected_anchor[0],
@@ -3861,7 +3862,7 @@ class OverlayWindow(QWidget):
             )
         if right_justification_delta and effective_anchor is not None:
             effective_anchor = (
-                effective_anchor[0] - right_justification_delta,
+                effective_anchor[0] - (right_justification_delta * 2.0),
                 effective_anchor[1],
             )
         if len(transformed_points) < 2:

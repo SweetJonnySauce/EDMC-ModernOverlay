@@ -11,7 +11,7 @@
         ],
         "idPrefixGroupAnchor": "ne",
         "offsetX": 500,
-        "payloadJustification": "left"
+        "payloadJustification": "right"
       },
       "BGS-Tally Tick Notifications": {
         "idPrefixes": [
@@ -143,8 +143,8 @@
           "edr-docking-",
           "edr-docking-station-"
         ],
-        "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
+        "idPrefixGroupAnchor": "ne",
+        "payloadJustification": "right"
       },
       "EDR Intel": {
         "idPrefixes": [
