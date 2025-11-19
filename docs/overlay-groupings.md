@@ -166,6 +166,47 @@ overlay.send_message(
 
 Legacy calls always speak the 1280×960 virtual canvas and Modern Overlay scales from there, so centering a payload is as simple as targeting `x=640`—even on ultrawide monitors.
 
+#### Example 2: Right-justify a banner against the top-right edge
+
+Register the grouping **once at startup** so Modern Overlay anchors the block to the north-east corner while right-justifying the payload text:
+
+```python
+from overlay_plugin.overlay_api import define_plugin_group, PluginGroupingError
+
+def plugin_startup():
+    try:
+        define_plugin_group(
+            plugin_group="Right Banner",
+            id_prefix_group="alerts",
+            id_prefixes=["right-banner-"],
+            id_prefix_group_anchor="ne",
+            payload_justification="right",
+        )
+    except PluginGroupingError as exc:
+        print(f"Could not register grouping: {exc}")
+```
+
+With that single registration in place, any payload whose ID begins with `right-banner-` is pinned to the top-right corner and its text hugs the right edge of the widest payload in the group.
+
+To render a message there, send legacy coordinates that reference the canonical 1280×960 canvas. The rightmost column is `x=1280`, so targeting that coordinate keeps the banner flush with the edge no matter how large the real overlay window becomes:
+
+```python
+from EDMCOverlay import edmcoverlay
+
+overlay = edmcoverlay.Overlay()
+overlay.send_message(
+    "right-banner-alert",
+    "Reactor at 95%",
+    "#ff9c6b",
+    1280,  # far right of the legacy 1280px canvas
+    40,    # drop the banner slightly below the corner
+    ttl=6,
+    size="normal",
+)
+```
+
+Because legacy clients always address the 1280×960 virtual surface, you only need to aim at `x=1280` once—Modern Overlay handles the scaling and offsets for every other resolution.
+
 ### CLI helper (`utils/plugin_group_cli.py`)
 
 Run `utils/plugin_group_cli.py --plugin-group Example --id-prefix-group alerts --id-prefixes example-alert- --write` to edit the file from the terminal. Without `--write` the script operates in a dry-run mode, printing the resulting JSON block so you can review it before committing.
