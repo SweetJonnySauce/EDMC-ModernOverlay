@@ -8,7 +8,10 @@
     "overlay_payload_log_enabled": true
   },
   "tracing": {
-    "enabled": false,
-    "payload_ids": []
+    "enabled": true,
+    "payload_ids": [
+      "bgstally-frame-colonisation",
+      "bgstally-msg-colonisation-0"
+    ]
   }
 }

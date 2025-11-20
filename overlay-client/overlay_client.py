@@ -3172,6 +3172,7 @@ class OverlayWindow(QWidget):
         base_scale: float,
     ) -> Dict[Tuple[str, Optional[str]], _ScreenBounds]:
         requests: List[JustificationRequest] = []
+        trace_targets: Dict[int, Tuple[Optional[str], str, str, float, Optional[float]]] = {}
         for command in commands:
             command.justification_dx = 0.0
             bounds = command.bounds
@@ -3193,6 +3194,21 @@ class OverlayWindow(QWidget):
                 if not math.isfinite(scale_value) or math.isclose(scale_value, 0.0, rel_tol=1e-9, abs_tol=1e-9):
                     scale_value = 1.0
                 baseline_width = (base_bounds.max_x - base_bounds.min_x) * scale_value
+            plugin = getattr(command.legacy_item, "plugin", None)
+            item_id = command.legacy_item.item_id
+            if self._should_trace_payload(plugin, item_id):
+                self._log_legacy_trace(
+                    plugin,
+                    item_id,
+                    "justify:measure",
+                    {
+                        "width_px": width,
+                        "baseline_px": baseline_width,
+                        "suffix": suffix,
+                        "justification": justification,
+                    },
+                )
+                trace_targets[id(command)] = (plugin, item_id, suffix, width, baseline_width)
             requests.append(
                 JustificationRequest(
                     identifier=id(command),
@@ -3212,6 +3228,20 @@ class OverlayWindow(QWidget):
             base_scale = 1.0
         for command in commands:
             command.justification_dx = offset_map.get(id(command), 0.0)
+            trace_target = trace_targets.get(id(command))
+            if trace_target:
+                plugin, item_id, suffix, width_px, baseline_px = trace_target
+                self._log_legacy_trace(
+                    plugin,
+                    item_id,
+                    "justify:apply",
+                    {
+                        "offset_px": command.justification_dx,
+                        "suffix": suffix,
+                        "width_px": width_px,
+                        "baseline_px": baseline_px,
+                    },
+                )
             if command.justification_dx:
                 overlay_bounds = overlay_bounds_by_group.get(command.group_key.as_tuple())
                 if overlay_bounds is not None and overlay_bounds.is_valid():
@@ -3431,6 +3461,18 @@ class OverlayWindow(QWidget):
         if mapper.transform.mode is ScaleMode.FILL:
             right_justification_delta = self._right_justification_delta(group_transform, raw_left)
             translation_dx = base_translation_dx - right_justification_delta
+            if trace_enabled and not collect_only:
+                self._log_legacy_trace(
+                    plugin_name,
+                    item_id,
+                    "paint:message_translation",
+                    {
+                        "base_translation_dx": base_translation_dx,
+                        "base_translation_dy": base_translation_dy,
+                        "right_justification_delta": right_justification_delta,
+                        "applied_translation_dx": translation_dx,
+                    },
+                )
             adjusted_left += translation_dx
             adjusted_top += base_translation_dy
             if selected_anchor is not None:
@@ -3633,6 +3675,18 @@ class OverlayWindow(QWidget):
             ]
             base_overlay_points = [tuple(pt) for pt in transformed_overlay]
             translation_dx = base_translation_dx - (right_justification_delta * 2.0)
+            if trace_enabled and not collect_only:
+                self._log_legacy_trace(
+                    plugin_name,
+                    item_id,
+                    "paint:rect_translation",
+                    {
+                        "base_translation_dx": base_translation_dx,
+                        "base_translation_dy": base_translation_dy,
+                        "right_justification_delta": right_justification_delta,
+                        "applied_translation_dx": translation_dx,
+                    },
+                )
             if translation_dx or base_translation_dy:
                 transformed_overlay = [
                     (px + translation_dx, py + base_translation_dy)
@@ -3781,6 +3835,19 @@ class OverlayWindow(QWidget):
         if mapper.transform.mode is ScaleMode.FILL and raw_min_x is not None:
             justification_delta = self._right_justification_delta(group_transform, raw_min_x)
             translation_dx -= justification_delta * 2.0
+            if trace_enabled:
+                self._log_legacy_trace(
+                    plugin_name,
+                    item_id,
+                    "paint:vector_translation",
+                    {
+                        "base_translation_dx": base_translation_dx,
+                        "base_translation_dy": base_translation_dy,
+                        "right_justification_delta": justification_delta,
+                        "applied_translation_dx": translation_dx,
+                        "raw_min_x": raw_min_x,
+                    },
+                )
         base_offset_x = fill.base_offset_x
         base_offset_y = fill.base_offset_y
         transform_meta = item.get("__mo_transform__")
@@ -4045,6 +4112,23 @@ class OverlayWindow(QWidget):
                 command.overlay_bounds[2] + offset_x_overlay,
                 command.overlay_bounds[3] + offset_y_overlay,
             )
+            legacy_item = getattr(command, "legacy_item", None)
+            if legacy_item is not None and self._should_trace_payload(legacy_item.plugin, legacy_item.item_id):
+                self._log_legacy_trace(
+                    legacy_item.plugin,
+                    legacy_item.item_id,
+                    "group:collect_bounds",
+                    {
+                        "translation_x": translation_x,
+                        "translation_y": translation_y,
+                        "justification_dx": justification_dx,
+                        "nudge_x": nudge_x,
+                        "nudge_y": nudge_y,
+                        "offset_x_overlay": offset_x_overlay,
+                        "offset_y_overlay": offset_y_overlay,
+                        "overlay_bounds": command.overlay_bounds,
+                    },
+                )
         return bounds_map
 
     def _draw_group_debug_helpers(self, painter: QPainter, mapper: LegacyMapper) -> None:
