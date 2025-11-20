@@ -147,7 +147,6 @@ The helper enforces the schema, lowercases prefixes, ensures per-plugin uniquene
 ## Example 1: Center a text string at the top center of the screen
 
 <img width="1919" height="112" alt="image" src="https://github.com/user-attachments/assets/e57a15cf-2026-4cc6-b2a8-6ed5d57fc936" />
-(screenshot not the same as the example)
 
 Call the grouping helper **once at plugin startup** to keep your group anchored to the top edge while horizontally aligning every payload around its midpoint:
 
@@ -191,6 +190,8 @@ Legacy calls always speak the 1280×960 virtual canvas and Modern Overlay scales
 ## Example 2: Right-justify a banner against the top-right edge
 
 <img width="357" height="215" alt="image" src="https://github.com/user-attachments/assets/dccd499b-904b-4ff1-987b-a6191a2bac85" />
+(screenshot not the same as the example)
+
 
 Register the grouping **once at startup** so Modern Overlay anchors the block to the north-east corner while right-justifying the payload text:
 
