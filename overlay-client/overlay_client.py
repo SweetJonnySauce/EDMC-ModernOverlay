@@ -4123,15 +4123,15 @@ class OverlayWindow(QWidget):
 
     def _emit_group_base_log(self, payload: Mapping[str, Any]) -> None:
         log_parts = [
-            "group-base-values",
+            "normalized-group-base-values",
             f"plugin={payload.get('plugin', '')}",
             f"idPrefix_group={payload.get('suffix', '')}",
-            f"base_min_x={float(payload.get('min_x', 0.0)):.1f}",
-            f"base_min_y={float(payload.get('min_y', 0.0)):.1f}",
-            f"base_width={float(payload.get('width', 0.0)):.1f}",
-            f"base_height={float(payload.get('height', 0.0)):.1f}",
-            f"base_max_x={float(payload.get('max_x', 0.0)):.1f}",
-            f"base_max_y={float(payload.get('max_y', 0.0)):.1f}",
+            f"norm_min_x={float(payload.get('min_x', 0.0)):.1f}",
+            f"norm_min_y={float(payload.get('min_y', 0.0)):.1f}",
+            f"norm_width={float(payload.get('width', 0.0)):.1f}",
+            f"norm_height={float(payload.get('height', 0.0)):.1f}",
+            f"norm_max_x={float(payload.get('max_x', 0.0)):.1f}",
+            f"norm_max_y={float(payload.get('max_y', 0.0)):.1f}",
             f"has_transformed={bool(payload.get('has_transformed', False))}",
         ]
         _CLIENT_LOGGER.debug(" ".join(log_parts))
