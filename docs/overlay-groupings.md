@@ -1,10 +1,11 @@
 # Overlay Groupings Guide
 
-`overlay_groupings.json` is the single source of truth for Modern Overlay’s plugin-specific behaviour. It powers three things:
+`overlay_groupings.json` is the single source of truth for Modern Overlay’s plugin-specific behaviour. It powers four things:
 
 1. **Plugin detection** – payloads without a `plugin` field are mapped to the correct owner via `matchingPrefixes`.
 2. **Grouping** – related payloads stay rigid in Fill mode when they share a named `idPrefixGroup`.
 3. **Anchoring** – each group can declare the anchor point Modern Overlay should keep stationary when nudging windows back on screen.
+4. **Justification** - Payloads within a group can now be centered or right justified.
 
 This document explains the current schema, the helper tooling, and the workflows we now support.
 
@@ -145,6 +146,8 @@ The helper enforces the schema, lowercases prefixes, ensures per-plugin uniquene
 
 ## Example 1: Center a text string at the top center of the screen
 
+<img width="1919" height="112" alt="image" src="https://github.com/user-attachments/assets/e57a15cf-2026-4cc6-b2a8-6ed5d57fc936" />
+
 Call the grouping helper **once at plugin startup** to keep your group anchored to the top edge while horizontally aligning every payload around its midpoint:
 
 ```python
@@ -185,6 +188,8 @@ overlay.send_message(
 Legacy calls always speak the 1280×960 virtual canvas and Modern Overlay scales from there, so centering a payload is as simple as targeting `x=640`—even on ultrawide monitors.
 
 ## Example 2: Right-justify a banner against the top-right edge
+
+<img width="357" height="215" alt="image" src="https://github.com/user-attachments/assets/dccd499b-904b-4ff1-987b-a6191a2bac85" />
 
 Register the grouping **once at startup** so Modern Overlay anchors the block to the north-east corner while right-justifying the payload text:
 
