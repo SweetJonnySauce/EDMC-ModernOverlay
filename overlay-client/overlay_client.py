@@ -5035,30 +5035,27 @@ class OverlayWindow(QWidget):
                 _CLIENT_LOGGER.warning("Failed to read emoji fallback list at %s: %s", fallback_marker, exc)
 
         bundled_candidates = [
-            "NotoColorEmoji.ttf",
-            "NotoColorEmoji-WindowsCompatible.ttf",
-            "NotoColorEmojiCompat.ttf",
-            "NotoEmoji-Regular.ttf",
-            "TwemojiMozilla.ttf",
+            "unifont-17.0.03.otf",
         ]
+        
         for filename in bundled_candidates:
             register_font_file(find_font_case_insensitive(filename), f"emoji fallback '{filename}'")
 
-        installed_candidates = [
-            "Noto Color Emoji",
-            "Noto Emoji",
-            "Noto Emoji Black",
-            "Segoe UI Emoji",
-            "Segoe UI Symbol",
-            "Apple Color Emoji",
-            "Twemoji Mozilla",
-            "JoyPixels",
-            "EmojiOne Color",
-            "OpenMoji Color",
-            "OpenMoji",
-        ]
-        for candidate in installed_candidates:
-            add_if_available(candidate, warn=False)
+        # installed_candidates = [
+        #     "Noto Color Emoji",
+        #     "Noto Emoji",
+        #     "Noto Emoji Black",
+        #     "Segoe UI Emoji",
+        #     "Segoe UI Symbol",
+        #     "Apple Color Emoji",
+        #     "Twemoji Mozilla",
+        #     "JoyPixels",
+        #     "EmojiOne Color",
+        #     "OpenMoji Color",
+        #     "OpenMoji",
+        # ]
+        # for candidate in installed_candidates:
+        #     add_if_available(candidate, warn=False)
 
         if fallback_families:
             _CLIENT_LOGGER.debug("Emoji fallbacks enabled: %s", ", ".join(fallback_families))

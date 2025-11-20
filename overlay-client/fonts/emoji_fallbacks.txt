@@ -3,5 +3,4 @@
 # Example entries:
 # Segoe UI Emoji
 
-#NotoEmoji-Regular.ttf
-#NotoColorEmoji.ttf
+unifont-17.0.03.otf
