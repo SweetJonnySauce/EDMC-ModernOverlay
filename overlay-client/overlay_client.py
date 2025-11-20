@@ -200,6 +200,8 @@ class _LegacyPaintCommand:
     base_overlay_bounds: Optional[Tuple[float, float, float, float]] = None
     reference_overlay_bounds: Optional[Tuple[float, float, float, float]] = None
     debug_vertices: Optional[Sequence[Tuple[int, int]]] = None
+    raw_min_x: Optional[float] = None
+    right_just_multiplier: int = 0
 
     def paint(self, window: "OverlayWindow", painter: QPainter, offset_x: int, offset_y: int) -> None:
         raise NotImplementedError
@@ -3206,7 +3208,7 @@ class OverlayWindow(QWidget):
         base_scale: float,
     ) -> Dict[Tuple[str, Optional[str]], _ScreenBounds]:
         requests: List[JustificationRequest] = []
-        trace_targets: Dict[int, Tuple[Optional[str], str, str, float, Optional[float]]] = {}
+        trace_targets: Dict[int, Tuple[Optional[str], str, str, float, Optional[float], float]] = {}
         for command in commands:
             command.justification_dx = 0.0
             bounds = command.bounds
@@ -3230,7 +3232,8 @@ class OverlayWindow(QWidget):
                 baseline_width = (base_bounds.max_x - base_bounds.min_x) * scale_value
             plugin = getattr(command.legacy_item, "plugin", None)
             item_id = command.legacy_item.item_id
-            if self._should_trace_payload(plugin, item_id):
+            should_trace = self._should_trace_payload(plugin, item_id)
+            if should_trace:
                 self._log_legacy_trace(
                     plugin,
                     item_id,
@@ -3242,7 +3245,14 @@ class OverlayWindow(QWidget):
                         "justification": justification,
                     },
                 )
-                trace_targets[id(command)] = (plugin, item_id, suffix, width, baseline_width)
+            delta = 0.0
+            if justification == "right" and command.raw_min_x is not None:
+                multiplier = getattr(command, "right_just_multiplier", 0) or 0
+                if multiplier and transform is not None:
+                    base_delta = self._right_justification_delta(transform, command.raw_min_x)
+                    delta = base_delta * float(multiplier)
+            if should_trace:
+                trace_targets[id(command)] = (plugin, item_id, suffix, width, baseline_width, delta)
             requests.append(
                 JustificationRequest(
                     identifier=id(command),
@@ -3251,6 +3261,7 @@ class OverlayWindow(QWidget):
                     justification=justification,
                     width=width,
                     baseline_width=baseline_width,
+                    right_justification_delta_px=delta,
                 )
             )
         if not requests:
@@ -3264,7 +3275,7 @@ class OverlayWindow(QWidget):
             command.justification_dx = offset_map.get(id(command), 0.0)
             trace_target = trace_targets.get(id(command))
             if trace_target:
-                plugin, item_id, suffix, width_px, baseline_px = trace_target
+                plugin, item_id, suffix, width_px, baseline_px, delta_px = trace_target
                 self._log_legacy_trace(
                     plugin,
                     item_id,
@@ -3274,6 +3285,7 @@ class OverlayWindow(QWidget):
                         "suffix": suffix,
                         "width_px": width_px,
                         "baseline_px": baseline_px,
+                        "right_justification_delta": delta_px,
                     },
                 )
             if command.justification_dx:
@@ -3493,8 +3505,8 @@ class OverlayWindow(QWidget):
         base_left_logical = adjusted_left
         base_top_logical = adjusted_top
         if mapper.transform.mode is ScaleMode.FILL:
-            right_justification_delta = self._right_justification_delta(group_transform, raw_left)
-            translation_dx = base_translation_dx - right_justification_delta
+            # right_justification_delta = self._right_justification_delta(group_transform, raw_left)
+            translation_dx = base_translation_dx
             if trace_enabled and not collect_only:
                 self._log_legacy_trace(
                     plugin_name,
@@ -3601,6 +3613,8 @@ class OverlayWindow(QWidget):
             trace_fn=trace_fn,
             base_overlay_bounds=base_overlay_bounds,
             debug_vertices=[(x, payload_point_y)],
+            raw_min_x=raw_left,
+            right_just_multiplier=2,
         )
         return command
 
@@ -3681,6 +3695,7 @@ class OverlayWindow(QWidget):
         base_offset_x = fill.base_offset_x
         base_offset_y = fill.base_offset_y
         transform_meta = item.get("__mo_transform__")
+        right_justification_delta = 0.0
         trace_enabled = self._should_trace_payload(plugin_name, item_id)
         raw_x = float(item.get("x", 0))
         raw_y = float(item.get("y", 0))
@@ -3706,7 +3721,7 @@ class OverlayWindow(QWidget):
         base_overlay_points: List[Tuple[float, float]] = []
         reference_overlay_bounds: Optional[Tuple[float, float, float, float]] = None
         if mapper.transform.mode is ScaleMode.FILL:
-            right_justification_delta = self._right_justification_delta(group_transform, raw_x)
+            # right_justification_delta = self._right_justification_delta(group_transform, raw_x)
             transformed_overlay = [
                 self._apply_inverse_group_scale(px, py, anchor_for_transform, base_anchor_point or anchor_for_transform, fill)
                 for px, py in transformed_overlay
@@ -3721,7 +3736,7 @@ class OverlayWindow(QWidget):
                     max(base_xs) + base_translation_dx,
                     max(base_ys) + base_translation_dy,
                 )
-            translation_dx = base_translation_dx - (right_justification_delta * 2.0)
+            translation_dx = base_translation_dx
             if trace_enabled and not collect_only:
                 self._log_legacy_trace(
                     plugin_name,
@@ -3800,6 +3815,8 @@ class OverlayWindow(QWidget):
                 (x, y + h),
                 (x + w, y + h),
             ],
+            raw_min_x=raw_x,
+            right_just_multiplier=2,
         )
         if trace_enabled and not collect_only:
             self._log_legacy_trace(
@@ -3886,9 +3903,10 @@ class OverlayWindow(QWidget):
             base_translation_dy += group_offset_dy
         translation_dx = base_translation_dx
         translation_dy = base_translation_dy
+        justification_delta = 0.0
         if mapper.transform.mode is ScaleMode.FILL and raw_min_x is not None:
-            justification_delta = self._right_justification_delta(group_transform, raw_min_x)
-            translation_dx -= justification_delta * 2.0
+            # justification_delta = self._right_justification_delta(group_transform, raw_min_x)
+            translation_dx = base_translation_dx
             if trace_enabled:
                 self._log_legacy_trace(
                     plugin_name,
@@ -4060,6 +4078,8 @@ class OverlayWindow(QWidget):
             cycle_anchor=cycle_anchor,
             base_overlay_bounds=base_overlay_bounds,
             debug_vertices=tuple(screen_points),
+            raw_min_x=raw_min_x,
+            right_just_multiplier=2 if raw_min_x is not None else 0,
         )
         return command
 

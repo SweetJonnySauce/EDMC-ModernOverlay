@@ -70,6 +70,8 @@ REPLAY_RESOLUTIONS = [
     (2560, 1080),
 ]
 BASE_ASPECT_RATIO = 1280 / 960
+BASE_WIDTH = 1280
+BASE_HEIGHT = 960
 
 
 @dataclass(frozen=True)
@@ -1614,13 +1616,20 @@ class PluginGroupManagerApp:
         container.pack(fill="y", expand=False, padx=8, pady=8)
         ttk.Label(container, text="Payload TTL (seconds):").pack(anchor="w")
         ttk.Entry(container, textvariable=self.replay_ttl_var, width=6).pack(anchor="w", pady=(0, 8))
-        ttk.Label(container, text="Crosshair position (% of window):").pack(anchor="w")
+        ttk.Label(container, text="Crosshair position (% or px of window):").pack(anchor="w")
+        ttk.Label(
+            container,
+            text="Enter % values like 50% or pixel values like 640px (no suffix = pixels).",
+            wraplength=220,
+            justify="left",
+            foreground="#555555",
+        ).pack(anchor="w", pady=(0, 4))
         crosshair_row = ttk.Frame(container)
         crosshair_row.pack(anchor="w", pady=(0, 8))
         ttk.Label(crosshair_row, text="X:").pack(side="left")
-        ttk.Entry(crosshair_row, textvariable=self.crosshair_x_var, width=5).pack(side="left", padx=(2, 8))
+        ttk.Entry(crosshair_row, textvariable=self.crosshair_x_var, width=12).pack(side="left", padx=(2, 8))
         ttk.Label(crosshair_row, text="Y:").pack(side="left")
-        ttk.Entry(crosshair_row, textvariable=self.crosshair_y_var, width=5).pack(side="left", padx=(2, 0))
+        ttk.Entry(crosshair_row, textvariable=self.crosshair_y_var, width=12).pack(side="left", padx=(2, 0))
         ttk.Label(container, text="Mock window sizes:").pack(anchor="w", pady=(4, 2))
         note = ttk.Label(
             container,
@@ -1630,6 +1639,10 @@ class PluginGroupManagerApp:
             foreground="#555555",
         )
         note.pack(anchor="w", pady=(0, 6))
+        action_row = ttk.Frame(container)
+        action_row.pack(anchor="w", pady=(0, 8))
+        ttk.Button(action_row, text="All", command=self._select_all_replay_resolutions).pack(side="left", padx=(0, 6))
+        ttk.Button(action_row, text="None", command=self._clear_replay_resolutions).pack(side="left")
         for width, height in REPLAY_RESOLUTIONS:
             ratio = self._format_aspect_ratio(width, height)
             details = ratio
@@ -2199,6 +2212,14 @@ class PluginGroupManagerApp:
                 selections.append((width, height))
         return selections
 
+    def _select_all_replay_resolutions(self) -> None:
+        for var in self.replay_resolution_vars.values():
+            var.set(True)
+
+    def _clear_replay_resolutions(self) -> None:
+        for var in self.replay_resolution_vars.values():
+            var.set(False)
+
     def _resolve_replay_ttl(self) -> int:
         raw_value = (self.replay_ttl_var.get() or "").strip()
         if not raw_value:
@@ -2217,10 +2238,30 @@ class PluginGroupManagerApp:
         raw_value = (value or "").strip()
         if not raw_value:
             return None
+        multiplier = 1.0
+        mode: Optional[str] = None
+        base = BASE_WIDTH if axis.upper() == "X" else BASE_HEIGHT
+        if raw_value.lower().endswith("px"):
+            raw_value = raw_value[:-2].strip()
+            multiplier = 100.0 / base
+            mode = "px"
+        elif raw_value.endswith("%"):
+            raw_value = raw_value[:-1].strip()
+            mode = "%"
+        else:
+            # Unlabelled inputs are interpreted as pixels.
+            multiplier = 100.0 / base
+            mode = "px"
         try:
             numeric = float(raw_value)
         except ValueError:
-            raise RuntimeError(f"Crosshair {axis} value must be a number between 0 and 100.")
+            raise RuntimeError(
+                f"Crosshair {axis} must be a percent with '%' (e.g. 50%) or a pixel value (e.g. 640 or 640px) relative to a 1280x960 window."
+            )
+        numeric *= multiplier
+        if mode == "%":
+            if numeric < 0.0 or numeric > 100.0:
+                raise RuntimeError(f"Crosshair {axis} value must be between 0 and 100 (received {numeric:g}).")
         if numeric < 0.0 or numeric > 100.0:
             raise RuntimeError(f"Crosshair {axis} value must be between 0 and 100 (received {numeric:g}).")
         return numeric
