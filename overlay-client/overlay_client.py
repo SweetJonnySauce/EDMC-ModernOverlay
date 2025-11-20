@@ -4129,7 +4129,39 @@ class OverlayWindow(QWidget):
                         "overlay_bounds": command.overlay_bounds,
                     },
                 )
+        tracer = self._group_trace_helper(bounds_map, commands)
+        tracer()
         return bounds_map
+
+    def _group_trace_helper(
+        self,
+        bounds_map: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+        commands: Sequence[_LegacyPaintCommand],
+    ) -> Callable[[], None]:
+        def _emit() -> None:
+            for key, bounds in bounds_map.items():
+                if bounds is None or not bounds.is_valid():
+                    continue
+                sample_command = next((cmd for cmd in commands if cmd.group_key.as_tuple() == key), None)
+                if sample_command is None:
+                    continue
+                legacy_item = sample_command.legacy_item
+                if not self._should_trace_payload(legacy_item.plugin, legacy_item.item_id):
+                    continue
+                self._log_legacy_trace(
+                    legacy_item.plugin,
+                    legacy_item.item_id,
+                    "group:aggregate_bounds",
+                    {
+                        "group_key": key,
+                        "trans_min_x": bounds.min_x,
+                        "trans_max_x": bounds.max_x,
+                        "trans_min_y": bounds.min_y,
+                        "trans_max_y": bounds.max_y,
+                    },
+                )
+
+        return _emit
 
     def _draw_group_debug_helpers(self, painter: QPainter, mapper: LegacyMapper) -> None:
         if not self._debug_group_state:
