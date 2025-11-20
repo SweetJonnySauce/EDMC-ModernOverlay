@@ -17,11 +17,15 @@
         "idPrefixes": [
           "bgstally-msg-tick-",
           "bgstally-msg-system_tick-",
-          "bgstally-frame-system_tick"
+          "bgstally-frame-system_tick",
+          {
+            "value": "bgstally-frame-tick",
+            "matchMode": "exact"
+          }
         ],
         "idPrefixGroupAnchor": "ne",
-        "offsetX": -190,
-        "offsetY": 150,
+        "offsetX": 190,
+        "offsetY": 10,
         "payloadJustification": "right"
       },
       "BGS-Tally System Info": {
@@ -40,6 +44,18 @@
         ],
         "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left"
+      },
+      "BGS-Tally Tickwarn": {
+        "idPrefixes": [
+          {
+            "value": "bgstally-frame-tickwarn",
+            "matchMode": "exact"
+          },
+          "bgstally-msg-tickwarn"
+        ],
+        "idPrefixGroupAnchor": "ne",
+        "offsetX": 190,
+        "payloadJustification": "right"
       }
     }
   },

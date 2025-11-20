@@ -23,11 +23,20 @@ from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
-
 ROOT_DIR = Path(__file__).resolve().parents[1]
 OVERLAY_CLIENT_DIR = ROOT_DIR / "overlay-client"
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 if str(OVERLAY_CLIENT_DIR) not in sys.path:
     sys.path.insert(0, str(OVERLAY_CLIENT_DIR))
+
+from prefix_entries import (
+    MATCH_MODE_EXACT,
+    MATCH_MODE_STARTSWITH,
+    PrefixEntry,
+    parse_prefix_entries,
+    serialise_prefix_entries,
+)
 
 try:
     from plugin_overrides import PluginOverrideManager
@@ -481,6 +490,46 @@ def _clean_prefixes(prefix_text: str) -> List[str]:
     return [prefix for prefix in prefixes if prefix]
 
 
+def _parse_id_prefix_text(prefix_text: str) -> List[PrefixEntry]:
+    if not prefix_text:
+        return []
+    entries: List[PrefixEntry] = []
+    seen: set[Tuple[str, str]] = set()
+    for raw_token in prefix_text.split(","):
+        token = raw_token.strip()
+        if not token:
+            continue
+        match_mode = MATCH_MODE_STARTSWITH
+        lower_token = token.casefold()
+        if token.startswith("="):
+            token = token[1:].strip()
+            match_mode = MATCH_MODE_EXACT
+        elif lower_token.endswith("=exact"):
+            token = token[: -len("=exact")].strip()
+            match_mode = MATCH_MODE_EXACT
+        elif lower_token.endswith(" (exact)"):
+            token = token[: -len(" (exact)")].strip()
+            match_mode = MATCH_MODE_EXACT
+        if not token:
+            raise ValueError("ID prefixes must contain non-empty values.")
+        entry = PrefixEntry(value=token, match_mode=match_mode)
+        if entry.key in seen:
+            continue
+        entries.append(entry)
+        seen.add(entry.key)
+    return entries
+
+
+def _format_id_prefix_entries(entries: Sequence[PrefixEntry]) -> str:
+    tokens: List[str] = []
+    for entry in entries:
+        if entry.match_mode == MATCH_MODE_EXACT:
+            tokens.append(f"={entry.value}")
+        else:
+            tokens.append(entry.value)
+    return ", ".join(tokens)
+
+
 class GroupConfigStore:
     """Helper around overlay_groupings.json mutations."""
 
@@ -570,6 +619,13 @@ class GroupConfigStore:
                 seen.append(stripped)
                 cleaned.append(stripped)
         return cleaned
+
+    @staticmethod
+    def _coerce_prefix_entries(raw_value: Any) -> List[PrefixEntry]:
+        entries = parse_prefix_entries(raw_value)
+        if not entries:
+            raise ValueError("At least one ID prefix is required.")
+        return entries
 
     def _normalise_group_map(self, entry: Mapping[str, object]) -> Dict[str, Dict[str, object]]:
         groups: Dict[str, Dict[str, object]] = {}
@@ -681,7 +737,7 @@ class GroupConfigStore:
         return cleaned
 
     def _normalise_group_spec(self, spec: MutableMapping[str, object]) -> Dict[str, object]:
-        prefixes = self._normalise_prefix_list(
+        prefix_entries = parse_prefix_entries(
             spec.get("idPrefixes")
             or spec.get("id_prefixes")
             or spec.get("prefixes")
@@ -689,8 +745,8 @@ class GroupConfigStore:
             or []
         )
         cleaned: Dict[str, object] = {}
-        if prefixes:
-            cleaned["idPrefixes"] = prefixes
+        if prefix_entries:
+            cleaned["idPrefixes"] = serialise_prefix_entries(prefix_entries)
         anchor_token = self._normalise_anchor(spec.get("idPrefixGroupAnchor") or spec.get("anchor"))
         if anchor_token:
             cleaned["idPrefixGroupAnchor"] = anchor_token
@@ -753,11 +809,8 @@ class GroupConfigStore:
                         if not isinstance(spec, Mapping):
                             continue
                         prefixes_value = spec.get("idPrefixes") or spec.get("id_prefixes") or []
-                        prefixes = [
-                            str(item).strip()
-                            for item in prefixes_value
-                            if isinstance(item, (str, int, float)) and str(item).strip()
-                        ]
+                        prefix_entries = parse_prefix_entries(prefixes_value)
+                        display_prefixes = [entry.display_label() for entry in prefix_entries]
                         anchor = spec.get("idPrefixGroupAnchor") or spec.get("anchor") or ""
                         notes = spec.get("notes") or ""
                         raw_justification = spec.get("payloadJustification")
@@ -770,7 +823,8 @@ class GroupConfigStore:
                         view_entries.append(
                             {
                                 "label": label,
-                                "prefixes": list(prefixes),
+                                "prefixes": display_prefixes,
+                                "prefixEntries": [entry.to_mapping() for entry in prefix_entries],
                                 "anchor": anchor,
                                 "offsetX": spec.get("offsetX"),
                                 "offsetY": spec.get("offsetY"),
@@ -894,8 +948,7 @@ class GroupConfigStore:
         offset_y: Optional[object] = None,
         payload_justification: Optional[str] = None,
     ) -> None:
-        if not prefixes:
-            raise ValueError("At least one ID prefix is required.")
+        prefix_entries = self._coerce_prefix_entries(prefixes)
         cleaned_label = label.strip()
         if not cleaned_label:
             raise ValueError("Grouping label is required.")
@@ -921,7 +974,7 @@ class GroupConfigStore:
                 raise ValueError(f"Grouping '{cleaned_label}' already exists for '{group_name}'.")
             cleaned_notes = notes.strip() if isinstance(notes, str) else None
             spec_payload: Dict[str, object] = {
-                "idPrefixes": list(prefixes),
+                "idPrefixes": serialise_prefix_entries(prefix_entries),
                 "idPrefixGroupAnchor": anchor_token,
                 "notes": cleaned_notes,
             }
@@ -964,10 +1017,8 @@ class GroupConfigStore:
                 target_spec = {}
                 groups[original_label] = target_spec
             if prefixes is not None:
-                cleaned_prefixes = self._normalise_prefix_list(prefixes)
-                if not cleaned_prefixes:
-                    raise ValueError("At least one ID prefix is required.")
-                target_spec["idPrefixes"] = cleaned_prefixes
+                prefix_entries = self._coerce_prefix_entries(prefixes)
+                target_spec["idPrefixes"] = serialise_prefix_entries(prefix_entries)
             if anchor is not None:
                 anchor_token = anchor.strip().lower()
                 if anchor_token:
@@ -1151,8 +1202,11 @@ class NewGroupingDialog(simpledialog.Dialog):
         self.label_var = tk.StringVar(value=default_label)
         ttk.Entry(master, textvariable=self.label_var, width=40).grid(row=1, column=1, sticky="ew")
 
-        ttk.Label(master, text="ID prefixes (comma separated)").grid(row=2, column=0, sticky="w")
-        prefix_values = ", ".join(self._suggestion.get("prefixes", [])) if self._suggestion else ""
+        ttk.Label(master, text="ID prefixes (use '=value' for exact matches)").grid(row=2, column=0, sticky="w")
+        suggested_entries = parse_prefix_entries(self._suggestion.get("prefixEntries")) if self._suggestion else []
+        if not suggested_entries and self._suggestion:
+            suggested_entries = parse_prefix_entries(self._suggestion.get("prefixes"))
+        prefix_values = _format_id_prefix_entries(suggested_entries)
         self.prefix_var = tk.StringVar(value=prefix_values)
         ttk.Entry(master, textvariable=self.prefix_var, width=40).grid(row=2, column=1, sticky="ew")
 
@@ -1195,10 +1249,15 @@ class NewGroupingDialog(simpledialog.Dialog):
         if not label:
             messagebox.showerror("Validation error", "Grouping label is required.")
             return False
-        prefixes = _clean_prefixes(self.prefix_var.get())
+        try:
+            prefixes = _parse_id_prefix_text(self.prefix_var.get())
+        except ValueError as exc:
+            messagebox.showerror("Validation error", str(exc))
+            return False
         if not prefixes:
             messagebox.showerror("Validation error", "Enter at least one ID prefix.")
             return False
+        self._validated_prefixes = prefixes
         return True
 
     @staticmethod
@@ -1214,9 +1273,10 @@ class NewGroupingDialog(simpledialog.Dialog):
         return ""
 
     def result_data(self) -> Dict[str, object]:
+        prefixes = getattr(self, "_validated_prefixes", _parse_id_prefix_text(self.prefix_var.get()))
         return {
             "label": self.label_var.get().strip(),
-            "prefixes": _clean_prefixes(self.prefix_var.get()),
+            "prefixes": prefixes,
             "anchor": self.anchor_var.get().strip(),
             "payload_justification": self.justification_var.get().strip(),
             "offset_x": self.offset_x_var.get().strip(),
@@ -1235,6 +1295,10 @@ class EditGroupingDialog(simpledialog.Dialog):
         self._group_name = group_name
         self._entry = entry
         label = entry.get("label", "")
+        parsed_entries = parse_prefix_entries(entry.get("prefixEntries"))
+        if not parsed_entries:
+            parsed_entries = parse_prefix_entries(entry.get("prefixes"))
+        self._prefix_entries: List[PrefixEntry] = list(parsed_entries)
         super().__init__(parent, title=f"Edit grouping '{label}'")
 
     def body(self, master: tk.Tk) -> tk.Widget:  # type: ignore[override]
@@ -1243,20 +1307,68 @@ class EditGroupingDialog(simpledialog.Dialog):
         self.label_var = tk.StringVar(value=str(self._entry.get("label") or ""))
         ttk.Entry(master, textvariable=self.label_var, width=40).grid(row=1, column=1, sticky="ew")
 
-        ttk.Label(master, text="ID prefixes (comma separated)").grid(row=2, column=0, sticky="w")
-        prefixes = ", ".join(self._entry.get("prefixes", [])) if isinstance(self._entry.get("prefixes"), list) else ""
-        self.prefix_var = tk.StringVar(value=prefixes)
-        ttk.Entry(master, textvariable=self.prefix_var, width=40).grid(row=2, column=1, sticky="ew")
+        ttk.Label(master, text="ID prefixes (manage list entries)").grid(row=2, column=0, sticky="w")
+        prefix_frame = ttk.Frame(master)
+        prefix_frame.grid(row=3, column=0, columnspan=2, sticky="nsew", pady=(0, 4))
+        master.grid_rowconfigure(3, weight=1)
+        prefix_frame.grid_columnconfigure(0, weight=1)
 
-        ttk.Label(master, text="Anchor").grid(row=3, column=0, sticky="w")
+        list_frame = ttk.Frame(prefix_frame)
+        list_frame.grid(row=0, column=0, columnspan=3, sticky="nsew")
+        list_frame.grid_columnconfigure(0, weight=1)
+
+        self.prefix_listbox = tk.Listbox(list_frame, height=5, exportselection=False)
+        self.prefix_listbox.grid(row=0, column=0, sticky="nsew")
+        list_scroll = ttk.Scrollbar(list_frame, orient="vertical", command=self.prefix_listbox.yview)
+        list_scroll.grid(row=0, column=1, sticky="ns")
+        self.prefix_listbox.configure(yscrollcommand=list_scroll.set)
+        self.prefix_listbox.bind("<<ListboxSelect>>", lambda _e: self._on_prefix_selection_changed())
+
+        button_frame = ttk.Frame(list_frame)
+        button_frame.grid(row=0, column=2, sticky="nsw", padx=(6, 0))
+        self.remove_prefix_button = ttk.Button(
+            button_frame, text="Remove", command=self._handle_remove_prefix, state="disabled"
+        )
+        self.remove_prefix_button.pack(fill="x", pady=(0, 4))
+        ttk.Label(button_frame, text="Match mode").pack(anchor="w", pady=(6, 0))
+        self.selected_match_mode = tk.StringVar(value="")
+        self.match_mode_combo = ttk.Combobox(
+            button_frame,
+            values=(MATCH_MODE_STARTSWITH, MATCH_MODE_EXACT),
+            textvariable=self.selected_match_mode,
+            state="disabled",
+            width=12,
+        )
+        self.match_mode_combo.pack(fill="x", pady=(2, 0))
+        self.match_mode_combo.bind("<<ComboboxSelected>>", self._handle_selected_mode_changed)
+
+        add_frame = ttk.Frame(prefix_frame)
+        add_frame.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        add_frame.grid_columnconfigure(0, weight=1)
+        ttk.Label(add_frame, text="Value").grid(row=0, column=0, sticky="w")
+        ttk.Label(add_frame, text="Match mode").grid(row=0, column=1, sticky="w", padx=(6, 0))
+        self.new_prefix_var = tk.StringVar()
+        ttk.Entry(add_frame, textvariable=self.new_prefix_var).grid(row=1, column=0, sticky="ew")
+        self.new_match_mode = tk.StringVar(value=MATCH_MODE_STARTSWITH)
+        ttk.Combobox(
+            add_frame,
+            values=(MATCH_MODE_STARTSWITH, MATCH_MODE_EXACT),
+            textvariable=self.new_match_mode,
+            state="readonly",
+            width=12,
+        ).grid(row=1, column=1, sticky="w", padx=(6, 0))
+        ttk.Button(add_frame, text="Add", command=self._handle_add_prefix).grid(row=1, column=2, padx=(6, 0))
+        self._refresh_prefix_listbox()
+
+        ttk.Label(master, text="Anchor").grid(row=4, column=0, sticky="w")
         anchor_choices = ("",) + ANCHOR_CHOICES
         current_anchor = str(self._entry.get("anchor") or "")
         self.anchor_var = tk.StringVar(value=current_anchor)
         ttk.Combobox(master, values=anchor_choices, textvariable=self.anchor_var, state="readonly").grid(
-            row=3, column=1, sticky="w"
+            row=4, column=1, sticky="w"
         )
 
-        ttk.Label(master, text="Payload justification").grid(row=4, column=0, sticky="w")
+        ttk.Label(master, text="Payload justification").grid(row=5, column=0, sticky="w")
         justification_value = str(
             self._entry.get("payloadJustification") or DEFAULT_PAYLOAD_JUSTIFICATION
         ).strip().lower()
@@ -1268,19 +1380,19 @@ class EditGroupingDialog(simpledialog.Dialog):
             values=PAYLOAD_JUSTIFICATION_CHOICES,
             textvariable=self.justification_var,
             state="readonly",
-        ).grid(row=4, column=1, sticky="w")
+        ).grid(row=5, column=1, sticky="w")
 
-        ttk.Label(master, text="Offset X (px)").grid(row=5, column=0, sticky="w")
+        ttk.Label(master, text="Offset X (px)").grid(row=6, column=0, sticky="w")
         self.offset_x_var = tk.StringVar(value=self._format_initial_offset(self._entry.get("offsetX")))
-        ttk.Entry(master, textvariable=self.offset_x_var, width=40).grid(row=5, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.offset_x_var, width=40).grid(row=6, column=1, sticky="ew")
 
-        ttk.Label(master, text="Offset Y (px)").grid(row=6, column=0, sticky="w")
+        ttk.Label(master, text="Offset Y (px)").grid(row=7, column=0, sticky="w")
         self.offset_y_var = tk.StringVar(value=self._format_initial_offset(self._entry.get("offsetY")))
-        ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=6, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=7, column=1, sticky="ew")
 
-        ttk.Label(master, text="Notes").grid(row=7, column=0, sticky="w")
+        ttk.Label(master, text="Notes").grid(row=8, column=0, sticky="w")
         self.notes_var = tk.StringVar(value=str(self._entry.get("notes") or ""))
-        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=7, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=8, column=1, sticky="ew")
         return master
 
     def validate(self) -> bool:  # type: ignore[override]
@@ -1288,8 +1400,7 @@ class EditGroupingDialog(simpledialog.Dialog):
         if not label:
             messagebox.showerror("Validation error", "Grouping label is required.")
             return False
-        prefixes = _clean_prefixes(self.prefix_var.get())
-        if not prefixes:
+        if not self._prefix_entries:
             messagebox.showerror("Validation error", "Enter at least one ID prefix.")
             return False
         return True
@@ -1298,13 +1409,84 @@ class EditGroupingDialog(simpledialog.Dialog):
         return {
             "original_label": self._entry.get("label"),
             "label": self.label_var.get().strip(),
-            "prefixes": _clean_prefixes(self.prefix_var.get()),
+            "prefixes": list(self._prefix_entries),
             "anchor": self.anchor_var.get().strip(),
             "payload_justification": self.justification_var.get().strip(),
             "offset_x": self.offset_x_var.get().strip(),
             "offset_y": self.offset_y_var.get().strip(),
             "notes": self.notes_var.get().strip(),
         }
+
+    def _refresh_prefix_listbox(self) -> None:
+        self.prefix_listbox.delete(0, tk.END)
+        for entry in self._prefix_entries:
+            self.prefix_listbox.insert(tk.END, entry.display_label())
+        self._update_prefix_controls()
+
+    def _update_prefix_controls(self) -> None:
+        selection = self.prefix_listbox.curselection()
+        has_selection = bool(selection)
+        state = "normal" if has_selection else "disabled"
+        self.remove_prefix_button.configure(state=state)
+        self.match_mode_combo.configure(state=state if has_selection else "disabled")
+        if has_selection:
+            entry = self._prefix_entries[selection[0]]
+            self.selected_match_mode.set(entry.match_mode)
+        else:
+            self.selected_match_mode.set("")
+
+    def _on_prefix_selection_changed(self) -> None:
+        self._update_prefix_controls()
+
+    def _handle_selected_mode_changed(self, _event=None) -> None:
+        selection = self.prefix_listbox.curselection()
+        if not selection:
+            return
+        index = selection[0]
+        if not (0 <= index < len(self._prefix_entries)):
+            return
+        mode = self.selected_match_mode.get().strip().lower()
+        if mode not in (MATCH_MODE_STARTSWITH, MATCH_MODE_EXACT):
+            return
+        entry = self._prefix_entries[index]
+        if entry.match_mode == mode:
+            return
+        try:
+            updated = PrefixEntry(value=entry.value, match_mode=mode)
+        except ValueError:
+            return
+        self._prefix_entries[index] = updated
+        self._refresh_prefix_listbox()
+
+    def _handle_add_prefix(self) -> None:
+        value = self.new_prefix_var.get().strip()
+        mode = self.new_match_mode.get().strip().lower()
+        if not value:
+            messagebox.showerror("Validation error", "Enter a prefix value before adding.")
+            return
+        if mode not in (MATCH_MODE_STARTSWITH, MATCH_MODE_EXACT):
+            messagebox.showerror("Validation error", "Select a valid match mode.")
+            return
+        try:
+            entry = PrefixEntry(value=value, match_mode=mode)
+        except ValueError as exc:
+            messagebox.showerror("Validation error", str(exc))
+            return
+        if any(existing.key == entry.key for existing in self._prefix_entries):
+            messagebox.showinfo("Duplicate prefix", "That prefix already exists with the same match mode.")
+            return
+        self._prefix_entries.append(entry)
+        self.new_prefix_var.set("")
+        self._refresh_prefix_listbox()
+
+    def _handle_remove_prefix(self) -> None:
+        selection = self.prefix_listbox.curselection()
+        if not selection:
+            return
+        index = selection[0]
+        if 0 <= index < len(self._prefix_entries):
+            del self._prefix_entries[index]
+            self._refresh_prefix_listbox()
 
     def apply(self) -> None:  # type: ignore[override]
         self.result = self.result_data()
@@ -1332,10 +1514,13 @@ class AddPrefixDialog(simpledialog.Dialog):
         group_name: str,
         grouping_label: str,
         default_prefix: str,
+        payload_id: Optional[str] = None,
     ) -> None:
         self._group_name = group_name
         self._grouping_label = grouping_label
         self._default_prefix = default_prefix.strip()
+        payload_text = payload_id.strip() if isinstance(payload_id, str) else ""
+        self._payload_id = payload_text or self._default_prefix
         super().__init__(parent, title=f"Add prefix to '{grouping_label}'")
 
     def body(self, master: tk.Tk) -> tk.Widget:  # type: ignore[override]
@@ -1347,7 +1532,19 @@ class AddPrefixDialog(simpledialog.Dialog):
         entry = ttk.Entry(master, textvariable=self.prefix_var, width=40)
         entry.grid(row=2, column=1, sticky="ew", pady=(8, 0))
 
+        ttk.Label(master, text="Match mode").grid(row=3, column=0, sticky="w", pady=(8, 0))
+        self.mode_var = tk.StringVar(value=MATCH_MODE_STARTSWITH)
+        mode_combo = ttk.Combobox(
+            master,
+            values=(MATCH_MODE_STARTSWITH, MATCH_MODE_EXACT),
+            textvariable=self.mode_var,
+            state="readonly",
+        )
+        mode_combo.grid(row=3, column=1, sticky="w", pady=(8, 0))
+        mode_combo.bind("<<ComboboxSelected>>", self._on_mode_changed)
+
         master.grid_columnconfigure(1, weight=1)
+        self._on_mode_changed()
         return entry
 
     def validate(self) -> bool:  # type: ignore[override]
@@ -1355,13 +1552,22 @@ class AddPrefixDialog(simpledialog.Dialog):
         if not value:
             messagebox.showerror("Validation error", "Enter a prefix to add.")
             return False
+        mode = self.mode_var.get().strip().lower()
+        if mode not in (MATCH_MODE_STARTSWITH, MATCH_MODE_EXACT):
+            messagebox.showerror("Validation error", "Select a valid match mode.")
+            return False
         return True
 
-    def result_data(self) -> str:
-        return self.prefix_var.get().strip()
+    def result_data(self) -> PrefixEntry:
+        return PrefixEntry(value=self.prefix_var.get().strip(), match_mode=self.mode_var.get().strip())
 
     def apply(self) -> None:  # type: ignore[override]
         self.result = self.result_data()
+
+    def _on_mode_changed(self, _event=None) -> None:
+        mode = self.mode_var.get().strip().lower()
+        if mode == MATCH_MODE_EXACT and self._payload_id:
+            self.prefix_var.set(self._payload_id)
 
 
 class PluginGroupManagerApp:
@@ -1800,7 +2006,7 @@ class PluginGroupManagerApp:
         prefix = self._extract_prefix(record.payload_id, segments=2)
         suggestion: Dict[str, object] = {
             "label": label,
-            "prefixes": [prefix.casefold()],
+            "prefixEntries": [PrefixEntry(value=prefix.casefold()).to_mapping()],
         }
         return suggestion
 
@@ -1875,11 +2081,7 @@ class PluginGroupManagerApp:
             return
         target_spec = groups.get(grouping_label) or {}
         raw_prefixes = target_spec.get("idPrefixes") or target_spec.get("id_prefixes") or target_spec.get("prefixes") or []
-        existing_prefixes: List[str] = []
-        for token in raw_prefixes:
-            text = str(token).strip()
-            if text:
-                existing_prefixes.append(text)
+        existing_prefixes: List[PrefixEntry] = parse_prefix_entries(raw_prefixes)
         LOG.debug(
             "Preparing prefix dialog: payload=%s group=%s grouping=%s existing=%s",
             record.payload_id,
@@ -1898,6 +2100,7 @@ class PluginGroupManagerApp:
             grouping_label=grouping_label,
             default_prefix=default_prefix,
             existing_prefixes=tuple(existing_prefixes),
+            payload_id=record.payload_id,
         )
 
     def _show_payload_context_menu(self, event) -> None:
@@ -1971,7 +2174,8 @@ class PluginGroupManagerApp:
         group_name: str,
         grouping_label: str,
         default_prefix: str,
-        existing_prefixes: Tuple[str, ...],
+        existing_prefixes: Tuple[PrefixEntry, ...],
+        payload_id: Optional[str],
     ) -> None:
         try:
             dialog = AddPrefixDialog(
@@ -1979,6 +2183,7 @@ class PluginGroupManagerApp:
                 group_name=group_name,
                 grouping_label=grouping_label,
                 default_prefix=default_prefix,
+                payload_id=payload_id,
             )
             LOG.debug(
                 "Displayed AddPrefixDialog for payload prefix: group=%s grouping=%s default=%s",
@@ -1990,42 +2195,37 @@ class PluginGroupManagerApp:
             messagebox.showerror("Add to ID Prefix group", f"Unable to show prefix dialog: {exc}")
             LOG.exception("Failed to open AddPrefixDialog for %s/%s", group_name, grouping_label)
             return
-        prefix_value = getattr(dialog, "result", None)
-        if prefix_value is None:
+        prefix_entry = getattr(dialog, "result", None)
+        if prefix_entry is None:
             LOG.debug("Add-to-prefix cancelled via dialog for %s/%s", group_name, grouping_label)
             self.status_var.set(f"Add to ID Prefix group '{grouping_label}' cancelled.")
             return
-        prefix_value = str(prefix_value).strip()
-        if not prefix_value:
-            LOG.debug("Add-to-prefix aborted: dialog returned empty prefix for %s/%s", group_name, grouping_label)
-            messagebox.showerror("Add to ID Prefix group", "Enter a prefix to add.")
-            return
-        prefix_cf = prefix_value.casefold()
-        if any(p.casefold() == prefix_cf for p in existing_prefixes):
+        if any(p.key == prefix_entry.key for p in existing_prefixes):
             LOG.debug(
-                "Add-to-prefix skipped: '%s' already exists in %s/%s -> %s",
-                prefix_value,
+                "Add-to-prefix skipped: '%s' already exists in %s/%s",
+                prefix_entry.value,
                 group_name,
                 grouping_label,
-                existing_prefixes,
             )
-            self.status_var.set(f"ID Prefix group '{grouping_label}' already includes '{prefix_value}'.")
+            self.status_var.set(
+                f"ID Prefix group '{grouping_label}' already includes '{prefix_entry.value}' with that match mode."
+            )
             return
-        updated_prefixes = list(existing_prefixes) + [prefix_value]
+        updated_prefixes = list(existing_prefixes) + [prefix_entry]
         try:
             self._group_store.update_grouping(group_name, grouping_label, prefixes=updated_prefixes)
         except Exception as exc:
-            LOG.exception("Failed to update grouping %s/%s with prefix '%s'", group_name, grouping_label, prefix_value)
+            LOG.exception("Failed to update grouping %s/%s with prefix '%s'", group_name, grouping_label, prefix_entry)
             messagebox.showerror("Add to ID Prefix group", f"Failed to update '{grouping_label}': {exc}")
             return
         LOG.debug(
             "Add-to-prefix succeeded: group=%s grouping=%s prefix=%s updated_prefixes=%s",
             group_name,
             grouping_label,
-            prefix_value,
+            prefix_entry,
             updated_prefixes,
         )
-        self.status_var.set(f"Added '{prefix_value}' to ID Prefix group '{grouping_label}'.")
+        self.status_var.set(f"Added '{prefix_entry.value}' to ID Prefix group '{grouping_label}'.")
         self._refresh_group_data(target_group=group_name)
         self._purge_matched()
 
@@ -2140,8 +2340,11 @@ class PluginGroupManagerApp:
             notes_label = ttk.Label(left_cell, text=f"Notes: {notes_text}", wraplength=LEFT_COLUMN_WIDTH, justify="left")
             notes_label.pack(anchor="w", pady=(2, 0))
 
-            prefixes = [p for p in entry.get("prefixes", []) if isinstance(p, str) and p.strip()]
-            prefix_block = "\n".join(prefixes) if prefixes else "- none -"
+            prefix_entries = parse_prefix_entries(entry.get("prefixEntries"))
+            if not prefix_entries:
+                prefix_entries = parse_prefix_entries(entry.get("prefixes"))
+            display_prefixes = [p.display_label() for p in prefix_entries]
+            prefix_block = "\n".join(display_prefixes) if display_prefixes else "- none -"
             prefix_frame = ttk.Frame(entry_frame)
             prefix_frame.grid(row=1, column=1, sticky="nw", padx=(20, 0))
             ttk.Label(prefix_frame, text="Prefixes", font=("TkDefaultFont", 9, "underline")).pack(anchor="w")
@@ -2526,19 +2729,17 @@ class PluginGroupManagerApp:
         if not records:
             return unmatched
 
-        view_match_data: List[Tuple[str, List[str], List[str]]] = []
+        view_match_data: List[Tuple[str, List[str], List[PrefixEntry]]] = []
         for view in views:
             match_prefixes = [
                 prefix.casefold()
                 for prefix in view.get("match_prefixes", [])
                 if isinstance(prefix, str) and prefix.strip()
             ]
-            grouping_prefixes: List[str] = []
+            grouping_prefixes: List[PrefixEntry] = []
             for entry in view.get("groupings", []):
-                prefixes = entry.get("prefixes") or []
-                for prefix in prefixes:
-                    if isinstance(prefix, str) and prefix.strip():
-                        grouping_prefixes.append(prefix.casefold())
+                raw_entries = entry.get("prefixEntries") or entry.get("prefixes") or []
+                grouping_prefixes.extend(parse_prefix_entries(raw_entries))
             view_match_data.append((view["name"], match_prefixes, grouping_prefixes))
 
         for record in records:
@@ -2554,7 +2755,7 @@ class PluginGroupManagerApp:
                     continue
                 if not any(payload_cf.startswith(prefix) for prefix in match_prefixes):
                     continue
-                if grouping_prefixes and any(payload_cf.startswith(prefix) for prefix in grouping_prefixes):
+                if grouping_prefixes and any(prefix.matches(payload_id) for prefix in grouping_prefixes):
                     continue
                 unmatched[name].append(payload_id)
         return unmatched

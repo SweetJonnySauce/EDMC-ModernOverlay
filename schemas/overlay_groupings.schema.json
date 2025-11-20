@@ -30,7 +30,7 @@
         "idPrefixes": {
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string", "minLength": 1 }
+          "items": { "$ref": "#/$defs/idPrefixValue" }
         },
         "idPrefixGroupAnchor": {
           "type": "string",
@@ -50,6 +50,24 @@
       },
       "required": ["idPrefixes"],
       "additionalProperties": false
+    },
+    "idPrefixValue": {
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        {
+          "type": "object",
+          "properties": {
+            "value": { "type": "string", "minLength": 1 },
+            "matchMode": {
+              "type": "string",
+              "enum": ["startswith", "exact"],
+              "default": "startswith"
+            }
+          },
+          "required": ["value"],
+          "additionalProperties": false
+        }
+      ]
     }
   }
 }

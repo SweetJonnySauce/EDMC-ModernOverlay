@@ -10,6 +10,8 @@ from pathlib import Path
 from threading import RLock
 from typing import Any, Callable, Dict, Mapping, MutableMapping, Optional, Sequence, Tuple, Union
 
+from prefix_entries import PrefixEntry, parse_prefix_entries, serialise_prefix_entries
+
 _LOGGER = logging.getLogger("EDMC.ModernOverlay.API")
 _MAX_MESSAGE_BYTES = 16_384
 _ANCHOR_CHOICES = {"nw", "ne", "sw", "se", "center", "top", "bottom", "left", "right"}
@@ -106,7 +108,7 @@ def define_plugin_group(
     plugin_group: str,
     matching_prefixes: Optional[Sequence[str]] = None,
     id_prefix_group: Optional[str] = None,
-    id_prefixes: Optional[Sequence[str]] = None,
+    id_prefixes: Optional[Sequence[Union[str, Mapping[str, Any]]]] = None,
     id_prefix_group_anchor: Optional[str] = None,
     id_prefix_offset_x: Optional[Union[int, float]] = None,
     id_prefix_offset_y: Optional[Union[int, float]] = None,
@@ -138,8 +140,8 @@ def define_plugin_group(
 
     match_list = _normalise_prefixes(matching_prefixes, "matchingPrefixes") if matching_prefixes is not None else None
     id_group_label = _normalise_label(id_prefix_group, "idPrefixGroup") if id_prefix_group is not None else None
-    id_prefix_list = _normalise_prefixes(id_prefixes, "idPrefixes") if id_prefixes is not None else None
-    if id_prefix_list is not None and id_group_label is None:
+    id_prefix_entries = _normalise_id_prefix_entries(id_prefixes) if id_prefixes is not None else None
+    if id_prefix_entries is not None and id_group_label is None:
         raise PluginGroupingError("idPrefixGroup is required when specifying idPrefixes")
     anchor_token = _normalise_anchor(id_prefix_group_anchor) if id_prefix_group_anchor is not None else None
     if anchor_token is not None and id_group_label is None:
@@ -153,7 +155,7 @@ def define_plugin_group(
         plugin_group=plugin_label,
         matching_prefixes=match_list,
         id_prefix_group=id_group_label,
-        id_prefixes=id_prefix_list,
+        id_prefixes=id_prefix_entries,
         id_prefix_group_anchor=anchor_token,
         offset_x=offset_x,
         offset_y=offset_y,
@@ -212,6 +214,15 @@ def _normalise_prefixes(values: Optional[Sequence[str]], field: str) -> Tuple[st
     if not cleaned:
         raise PluginGroupingError(f"{field} must contain at least one non-empty string")
     return tuple(cleaned)
+
+
+def _normalise_id_prefix_entries(values: Optional[Sequence[Union[str, Mapping[str, Any]]]]) -> Tuple[PrefixEntry, ...]:
+    if values is None:
+        return ()
+    entries = parse_prefix_entries(values)
+    if not entries:
+        raise PluginGroupingError("idPrefixes must contain at least one non-empty value")
+    return tuple(entries)
 
 
 def _normalise_anchor(value: Optional[str]) -> str:
@@ -284,7 +295,7 @@ class _GroupingUpdate:
     plugin_group: str
     matching_prefixes: Optional[Tuple[str, ...]]
     id_prefix_group: Optional[str]
-    id_prefixes: Optional[Tuple[str, ...]]
+    id_prefixes: Optional[Tuple[PrefixEntry, ...]]
     id_prefix_group_anchor: Optional[str]
     offset_x: Optional[float]
     offset_y: Optional[float]
@@ -326,25 +337,29 @@ class _PluginGroupingStore:
                     group_entry = {}
 
                 if update.id_prefixes is not None:
-                    new_prefixes = list(update.id_prefixes)
-                    if group_entry.get("idPrefixes") != new_prefixes:
-                        group_entry["idPrefixes"] = new_prefixes
+                    prefix_entries = list(update.id_prefixes)
+                    serialised_prefixes = serialise_prefix_entries(prefix_entries)
+                    if group_entry.get("idPrefixes") != serialised_prefixes:
+                        group_entry["idPrefixes"] = serialised_prefixes
                         mutated = True
+                    new_value_keys = {entry.value_cf for entry in prefix_entries}
                     # Remove these prefixes from every other group so they stay unique within this plugin.
                     for other_label, other_entry in list(groups.items()):
                         if other_label == update.id_prefix_group:
                             continue
                         if not isinstance(other_entry, dict):
                             continue
-                        other_prefixes = other_entry.get("idPrefixes")
-                        if not isinstance(other_prefixes, list) or not other_prefixes:
+                        other_prefixes_raw = other_entry.get("idPrefixes")
+                        other_prefixes = parse_prefix_entries(other_prefixes_raw)
+                        if not other_prefixes:
                             continue
                         original = list(other_prefixes)
-                        filtered = [prefix for prefix in original if prefix not in new_prefixes]
-                        if filtered == original:
+                        filtered = [entry for entry in original if entry.value_cf not in new_value_keys]
+                        if len(filtered) == len(original):
                             continue
-                        other_entry["idPrefixes"] = filtered
-                        if not filtered:
+                        if filtered:
+                            other_entry["idPrefixes"] = serialise_prefix_entries(filtered)
+                        else:
                             other_entry.pop("idPrefixes", None)
                         groups[other_label] = other_entry
                         mutated = True
@@ -353,11 +368,12 @@ class _PluginGroupingStore:
                         matches = []
                         plugin_block["matchingPrefixes"] = matches
                         mutated = True
-                    for prefix in update.id_prefixes:
-                        if _prefix_is_captured(prefix, matches):
+                    for entry in prefix_entries:
+                        value = entry.value.casefold()
+                        if _prefix_is_captured(value, matches):
                             continue
-                        if not _matches_contains_prefix(matches, prefix):
-                            matches.append(prefix)
+                        if not _matches_contains_prefix(matches, value):
+                            matches.append(value)
                             mutated = True
 
                 if update.id_prefix_group_anchor is not None:

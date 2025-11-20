@@ -1433,10 +1433,27 @@ class _PluginRuntime:
                     prefixes[token] = plugin_label
 
         def _normalise_prefix_iter(raw: Any) -> Iterable[str]:
-            if isinstance(raw, str):
-                return [raw]
+            def _extract_value(entry: Any) -> Optional[str]:
+                if isinstance(entry, str):
+                    token = entry.strip()
+                    return token if token else None
+                if isinstance(entry, Mapping):
+                    raw_value = entry.get("value") or entry.get("prefix")
+                    if isinstance(raw_value, str):
+                        token = raw_value.strip()
+                        return token if token else None
+                return None
+
+            if isinstance(raw, (str, Mapping)):
+                candidate = _extract_value(raw)
+                return [candidate] if candidate else []
             if isinstance(raw, Iterable) and not isinstance(raw, (str, bytes)):
-                return [str(item) for item in raw if isinstance(item, str)]
+                results: list[str] = []
+                for item in raw:
+                    value = _extract_value(item)
+                    if value:
+                        results.append(value)
+                return results
             return []
 
         for plugin_name, config in data.items():
