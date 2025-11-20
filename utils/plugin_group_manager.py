@@ -1411,6 +1411,8 @@ class PluginGroupManagerApp:
         self._payload_context_menu: Optional[tk.Menu] = None
         self._payload_menu_dismiss_bind: Optional[str] = None
         self.replay_ttl_var = tk.StringVar(value=str(DEFAULT_REPLAY_TTL))
+        self.crosshair_x_var = tk.StringVar(value="")
+        self.crosshair_y_var = tk.StringVar(value="")
         self.replay_resolution_vars: Dict[Tuple[int, int], tk.BooleanVar] = {}
         self._active_mock_process: Optional[subprocess.Popen[Any]] = None
 
@@ -1612,6 +1614,13 @@ class PluginGroupManagerApp:
         container.pack(fill="y", expand=False, padx=8, pady=8)
         ttk.Label(container, text="Payload TTL (seconds):").pack(anchor="w")
         ttk.Entry(container, textvariable=self.replay_ttl_var, width=6).pack(anchor="w", pady=(0, 8))
+        ttk.Label(container, text="Crosshair position (% of window):").pack(anchor="w")
+        crosshair_row = ttk.Frame(container)
+        crosshair_row.pack(anchor="w", pady=(0, 8))
+        ttk.Label(crosshair_row, text="X:").pack(side="left")
+        ttk.Entry(crosshair_row, textvariable=self.crosshair_x_var, width=5).pack(side="left", padx=(2, 8))
+        ttk.Label(crosshair_row, text="Y:").pack(side="left")
+        ttk.Entry(crosshair_row, textvariable=self.crosshair_y_var, width=5).pack(side="left", padx=(2, 0))
         ttk.Label(container, text="Mock window sizes:").pack(anchor="w", pady=(4, 2))
         note = ttk.Label(
             container,
@@ -2203,10 +2212,30 @@ class PluginGroupManagerApp:
         ttl = int(round(numeric))
         return max(1, ttl)
 
+    @staticmethod
+    def _resolve_crosshair_percentage(value: str, axis: str) -> Optional[float]:
+        raw_value = (value or "").strip()
+        if not raw_value:
+            return None
+        try:
+            numeric = float(raw_value)
+        except ValueError:
+            raise RuntimeError(f"Crosshair {axis} value must be a number between 0 and 100.")
+        if numeric < 0.0 or numeric > 100.0:
+            raise RuntimeError(f"Crosshair {axis} value must be between 0 and 100 (received {numeric:g}).")
+        return numeric
+
     def _sleep_with_stop_check(self, seconds: float) -> None:
         time.sleep(max(0.0, seconds))
 
-    def _launch_mock_window(self, width: int, height: int) -> subprocess.Popen[Any]:
+    def _launch_mock_window(
+        self,
+        width: int,
+        height: int,
+        *,
+        crosshair_x: Optional[float] = None,
+        crosshair_y: Optional[float] = None,
+    ) -> subprocess.Popen[Any]:
         if not MOCK_WINDOW_PATH.exists():
             raise RuntimeError(f"Mock window script not found at {MOCK_WINDOW_PATH}.")
         env = dict(os.environ)
@@ -2220,6 +2249,10 @@ class PluginGroupManagerApp:
             "--size",
             f"{width}x{height}",
         ]
+        if crosshair_x is not None:
+            command.extend(["--crosshair-x", f"{crosshair_x:g}"])
+        if crosshair_y is not None:
+            command.extend(["--crosshair-y", f"{crosshair_y:g}"])
         try:
             process = subprocess.Popen(command, cwd=ROOT_DIR, env=env)
             self._active_mock_process = process
@@ -2265,6 +2298,8 @@ class PluginGroupManagerApp:
         title = "Replay payloads"
         try:
             ttl_value = self._resolve_replay_ttl()
+            crosshair_x = self._resolve_crosshair_percentage(self.crosshair_x_var.get(), "X")
+            crosshair_y = self._resolve_crosshair_percentage(self.crosshair_y_var.get(), "Y")
             port = self._load_overlay_port()
             self._wait_for_overlay_ready(port)
             messages = self._load_payloads_from_log(log_path)
@@ -2285,7 +2320,7 @@ class PluginGroupManagerApp:
             mock_process = None
             try:
                 width, height = resolution
-                mock_process = self._launch_mock_window(width, height)
+                mock_process = self._launch_mock_window(width, height, crosshair_x=crosshair_x, crosshair_y=crosshair_y)
                 self._sleep_with_stop_check(REPLAY_WINDOW_WAIT_SECONDS)
                 total = len(messages)
                 for seq, payload in enumerate(messages, start=1):
