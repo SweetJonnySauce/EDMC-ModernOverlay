@@ -3432,7 +3432,6 @@ class OverlayWindow(QWidget):
         self._debug_legacy_point_size = scaled_point_size
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
-        right_justification_delta = 0.0
         if trace_enabled and not collect_only:
             self._log_legacy_trace(
                 plugin_name,
@@ -3460,20 +3459,7 @@ class OverlayWindow(QWidget):
         base_left_logical = adjusted_left
         base_top_logical = adjusted_top
         if mapper.transform.mode is ScaleMode.FILL:
-            right_justification_delta = self._right_justification_delta(group_transform, raw_left)
-            translation_dx = base_translation_dx - right_justification_delta
-            if trace_enabled and not collect_only:
-                self._log_legacy_trace(
-                    plugin_name,
-                    item_id,
-                    "paint:message_translation",
-                    {
-                        "base_translation_dx": base_translation_dx,
-                        "base_translation_dy": base_translation_dy,
-                        "right_justification_delta": right_justification_delta,
-                        "applied_translation_dx": translation_dx,
-                    },
-                )
+            translation_dx = base_translation_dx
             adjusted_left += translation_dx
             adjusted_top += base_translation_dy
             if selected_anchor is not None:
