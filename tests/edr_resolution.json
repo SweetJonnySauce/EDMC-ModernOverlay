@@ -52,27 +52,27 @@
     },
     {
       "name": "edr-bounty",
-      "source": "payload_store/edr-bounty.log",
+      "source": "payload_store/edr_bounty.log",
       "ttl": 6
     },
     {
       "name": "edr-target",
-      "source": "payload_store/edr-target.log",
+      "source": "payload_store/edr_target.log",
       "ttl": 8
     },
     {
       "name": "edr-intel",
-      "source": "payload_store/edr-intel.log",
+      "source": "payload_store/edr_intel.log",
       "ttl": 6
     },
     {
       "name": "edr-docking",
-      "source": "payload_store/edr-docking.log",
+      "source": "payload_store/edr_docking.log",
       "ttl": 4
     },
     {
       "name": "edr-notice",
-      "source": "payload_store/edr-notice.log",
+      "source": "payload_store/edr_notice.log",
       "ttl": 2
     }
   ]

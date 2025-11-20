@@ -37,6 +37,7 @@ class DebugConfig:
     trace_payload_ids: tuple[str, ...] = ()
     overlay_outline: bool = False
     group_bounds_outline: bool = False
+    payload_vertex_markers: bool = False
     overlay_logs_to_keep: Optional[int] = None
 
 
@@ -81,6 +82,7 @@ def load_debug_config(path: Path) -> DebugConfig:
 
     overlay_outline = bool(data.get("overlay_outline", False))
     group_bounds_outline = bool(data.get("group_bounds_outline", False))
+    payload_vertex_markers = bool(data.get("payload_vertex_markers", False))
 
     def _coerce_log_retention(value: Any) -> Optional[int]:
         if value is None:
@@ -102,5 +104,6 @@ def load_debug_config(path: Path) -> DebugConfig:
         trace_payload_ids=payload_ids,
         overlay_outline=overlay_outline,
         group_bounds_outline=group_bounds_outline,
+        payload_vertex_markers=payload_vertex_markers,
         overlay_logs_to_keep=overlay_logs_to_keep,
     )

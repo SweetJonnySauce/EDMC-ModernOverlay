@@ -8,8 +8,8 @@
   },
   "resolutions": [
     {
-      "width": 1920,
-      "height": 1280
+      "width": 1024,
+      "height": 768
     }
   ],
   "payloads": [
@@ -25,32 +25,32 @@
     },
     {
       "name": "Galaxy/System Tick",
-      "source": "payload_store/bgstally-tick.log",
+      "source": "payload_store/bgstally-tick_wout_frame.log",
       "ttl": 1000
     },
     {
       "name": "BGSTally Colonisation",
-      "source": "payload_store/bgstally-colonisation.log",
+      "source": "payload_store/bgstally-colonisation_wout_frame.log",
       "ttl": 1000
     },
     {
       "name": "edr-docking",
-      "source": "payload_store/edr-docking.log",
+      "source": "payload_store/edr_docking.log",
       "ttl": 1000
     },
     {
       "name": "edr-target",
-      "source": "payload_store/edr-target.log",
+      "source": "payload_store/edr_target.log",
       "ttl": 1000
     },
     {
       "name": "edr-intel",
-      "source": "payload_store/edr-intel.log",
+      "source": "payload_store/edr_intel.log",
       "ttl": 1000
     },
     {
       "name": "edr-notice",
-      "source": "payload_store/edr-notice.log",
+      "source": "payload_store/edr_notice.log",
       "ttl": 1000
     }
   ]

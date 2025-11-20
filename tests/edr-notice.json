@@ -15,7 +15,7 @@
     "payloads": [
         {
             "name": "edr-notice",
-            "source": "payload_store/edr-notice.log",
+            "source": "payload_store/edr_notice.log",
             "ttl": 1000
         }
     ]

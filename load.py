@@ -697,7 +697,7 @@ class _PluginRuntime:
             self._payload_filter_mtime = stat.st_mtime
             return
         excludes: Set[str] = set()
-        enabled = False
+        logging_override: Optional[bool] = None
         trace_enabled = False
         trace_payload_ids: Tuple[str, ...] = ()
         capture_client_stderrout = False
@@ -738,9 +738,9 @@ class _PluginRuntime:
             if isinstance(payload_section, Mapping):
                 enabled_value = payload_section.get("overlay_payload_log_enabled")
                 if isinstance(enabled_value, bool):
-                    enabled = enabled_value
+                    logging_override = enabled_value
                 elif enabled_value is not None:
-                    enabled = bool(enabled_value)
+                    logging_override = bool(enabled_value)
                 exclude_values = payload_section.get("exclude_plugins")
                 if isinstance(exclude_values, Iterable):
                     for value in exclude_values:
@@ -756,9 +756,9 @@ class _PluginRuntime:
                                 excludes.add(value.strip().lower())
                 legacy_flag = data.get("log_payloads")
                 if isinstance(legacy_flag, bool):
-                    enabled = legacy_flag
+                    logging_override = legacy_flag
                 elif legacy_flag is not None:
-                    enabled = bool(legacy_flag)
+                    logging_override = bool(legacy_flag)
             tracing_section = data.get("tracing")
             payload_value: Any = None
             if isinstance(tracing_section, Mapping):
@@ -781,7 +781,8 @@ class _PluginRuntime:
         else:
             log_retention_override = None
         self._payload_filter_excludes = excludes
-        self._payload_logging_enabled = pref_logging_enabled
+        effective_logging = pref_logging_enabled if logging_override is None else logging_override
+        self._payload_logging_enabled = effective_logging
         self._trace_enabled = trace_enabled
         self._trace_payload_prefixes = trace_payload_ids
         self._apply_capture_override(capture_client_stderrout)
@@ -1305,9 +1306,14 @@ class _PluginRuntime:
                 message.setdefault("timestamp", datetime.now(UTC).isoformat())
                 payload_type = str(message.get("type") or "message").lower()
                 if payload_type == "message":
-                    text = str(message.get("text") or "").strip()
+                    raw_text = message.get("text")
+                    text = str(raw_text or "").strip()
                     if not text:
-                        raise ValueError("LegacyOverlay message text is empty")
+                        LOGGER.debug(
+                            "Ignoring empty LegacyOverlay message text for payload id=%s",
+                            message.get("id"),
+                        )
+                        text = ""
                     message["type"] = "message"
                     message["text"] = text
                 elif payload_type == "shape":
@@ -1364,6 +1370,7 @@ class _PluginRuntime:
             "scale_mode": str(self._preferences.scale_mode or "fit"),
             "nudge_overflow_payloads": bool(self._preferences.nudge_overflow_payloads),
             "payload_nudge_gutter": int(self._preferences.payload_nudge_gutter),
+            "payload_log_delay_seconds": float(getattr(self._preferences, "payload_log_delay_seconds", 0.0)),
             "platform_context": self._platform_context_payload(),
         }
         self._last_config = dict(payload)
@@ -1371,7 +1378,7 @@ class _PluginRuntime:
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s debug_overlay_corner=%s status_bottom_margin=%s client_log_retention=%d gridlines_enabled=%s "
             "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s scale_mode=%s "
-            "nudge_overflow=%s payload_gutter=%d font_min=%.1f font_max=%.1f platform_context=%s",
+            "nudge_overflow=%s payload_gutter=%d payload_log_delay=%.2f font_min=%.1f font_max=%.1f platform_context=%s",
             payload["opacity"],
             payload["show_status"],
             payload["debug_overlay_corner"],
@@ -1388,6 +1395,7 @@ class _PluginRuntime:
             payload["scale_mode"],
             payload["nudge_overflow_payloads"],
             payload["payload_nudge_gutter"],
+            payload["payload_log_delay_seconds"],
             payload["min_font_point"],
             payload["max_font_point"],
             payload["platform_context"],
@@ -1425,10 +1433,27 @@ class _PluginRuntime:
                     prefixes[token] = plugin_label
 
         def _normalise_prefix_iter(raw: Any) -> Iterable[str]:
-            if isinstance(raw, str):
-                return [raw]
+            def _extract_value(entry: Any) -> Optional[str]:
+                if isinstance(entry, str):
+                    token = entry.strip()
+                    return token if token else None
+                if isinstance(entry, Mapping):
+                    raw_value = entry.get("value") or entry.get("prefix")
+                    if isinstance(raw_value, str):
+                        token = raw_value.strip()
+                        return token if token else None
+                return None
+
+            if isinstance(raw, (str, Mapping)):
+                candidate = _extract_value(raw)
+                return [candidate] if candidate else []
             if isinstance(raw, Iterable) and not isinstance(raw, (str, bytes)):
-                return [str(item) for item in raw if isinstance(item, str)]
+                results: list[str] = []
+                for item in raw:
+                    value = _extract_value(item)
+                    if value:
+                        results.append(value)
+                return results
             return []
 
         for plugin_name, config in data.items():

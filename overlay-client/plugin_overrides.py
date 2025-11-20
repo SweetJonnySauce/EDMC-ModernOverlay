@@ -6,7 +6,14 @@ import math
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
+import sys
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
+
+OVERLAY_ROOT = Path(__file__).resolve().parents[1]
+if str(OVERLAY_ROOT) not in sys.path:
+    sys.path.insert(0, str(OVERLAY_ROOT))
+
+from prefix_entries import PrefixEntry, parse_prefix_entries
 
 from debug_config import DebugConfig
 
@@ -21,7 +28,7 @@ _DEFAULT_PAYLOAD_JUSTIFICATION = "left"
 @dataclass
 class _GroupSpec:
     label: Optional[str]
-    prefixes: Tuple[str, ...]
+    prefixes: Tuple[PrefixEntry, ...]
     defaults: Optional[JsonDict]
     anchor: Optional[str] = None
     offset_x: float = 0.0
@@ -229,19 +236,9 @@ class PluginOverrideManager:
             grouping_specs: List[_GroupSpec] = []
             group_prefix_hints: List[str] = []
 
-            def _clean_group_prefixes(raw_value: Any) -> Tuple[str, ...]:
-                if isinstance(raw_value, str):
-                    values = [raw_value]
-                elif isinstance(raw_value, Iterable):
-                    values = [entry for entry in raw_value if isinstance(entry, str)]
-                else:
-                    values = []
-                cleaned: List[str] = []
-                for entry in values:
-                    token = entry.strip()
-                    if token:
-                        cleaned.append(token.casefold())
-                return tuple(cleaned)
+            def _clean_group_prefixes(raw_value: Any) -> Tuple[PrefixEntry, ...]:
+                entries = parse_prefix_entries(raw_value)
+                return tuple(entries)
 
             def _parse_anchor(source: Mapping[str, Any]) -> Optional[str]:
                 anchor_field = source.get("idPrefixGroupAnchor") or source.get("anchor")
@@ -295,9 +292,10 @@ class PluginOverrideManager:
                         payload_justification=payload_justification,
                     )
                 )
-                for prefix in prefixes:
-                    if prefix not in group_prefix_hints:
-                        group_prefix_hints.append(prefix)
+                for entry in prefixes:
+                    value_cf = entry.value.casefold()
+                    if value_cf not in group_prefix_hints:
+                        group_prefix_hints.append(value_cf)
 
             id_prefix_groups = plugin_payload.get("idPrefixGroups")
             if isinstance(id_prefix_groups, Mapping):
@@ -474,14 +472,45 @@ class PluginOverrideManager:
             return None
         if not message_id:
             return None
-        message_id_cf = message_id.casefold()
-        for spec in config.group_specs:
-            if any(message_id_cf.startswith(prefix) for prefix in spec.prefixes):
-                label_value = spec.label or (spec.prefixes[0] if spec.prefixes else "")
-                if spec.defaults:
-                    return label_value, dict(spec.defaults)
-                break
+        spec = self._select_group_spec(config, message_id)
+        if spec is None:
+            return None
+        label_value = spec.label or (spec.prefixes[0].value if spec.prefixes else "")
+        if spec.defaults:
+            return label_value, dict(spec.defaults)
         return None
+
+    @staticmethod
+    def _match_prefix_score(prefixes: Sequence[PrefixEntry], payload_cf: str) -> Optional[Tuple[int, int]]:
+        best: Optional[Tuple[int, int]] = None
+        for entry in prefixes:
+            if entry.match_mode == "exact":
+                if payload_cf != entry.value_cf:
+                    continue
+                score = (2, len(entry.value))
+            else:
+                if not payload_cf.startswith(entry.value_cf):
+                    continue
+                score = (1, len(entry.value))
+            if best is None or score > best:
+                best = score
+        return best
+
+    def _select_group_spec(self, config: _PluginConfig, payload_id: str) -> Optional[_GroupSpec]:
+        if not config.group_specs or not payload_id:
+            return None
+        payload_cf = payload_id.casefold()
+        best: Optional[Tuple[int, int, int]] = None
+        selected: Optional[_GroupSpec] = None
+        for order, spec in enumerate(config.group_specs):
+            score = self._match_prefix_score(spec.prefixes, payload_cf)
+            if score is None:
+                continue
+            candidate = (score[0], score[1], -order)
+            if best is None or candidate > best:
+                best = candidate
+                selected = spec
+        return selected
 
     def grouping_key_for(self, plugin: Optional[str], payload_id: Optional[str]) -> Optional[Tuple[str, Optional[str]]]:
         self._reload_if_needed()
@@ -505,12 +534,11 @@ class PluginOverrideManager:
         if not isinstance(payload_id, str) or not payload_id:
             return plugin_label, None
 
-        payload_cf = payload_id.casefold()
-        for spec in config.group_specs:
-            if any(payload_cf.startswith(prefix) for prefix in spec.prefixes):
-                label_value = spec.label or (spec.prefixes[0] if spec.prefixes else None)
-                return plugin_label, label_value
-        return plugin_label, None
+        spec = self._select_group_spec(config, payload_id)
+        if spec is None:
+            return plugin_label, None
+        label_value = spec.label or (spec.prefixes[0].value if spec.prefixes else None)
+        return plugin_label, label_value
 
     def group_is_configured(self, plugin: Optional[str], suffix: Optional[str]) -> bool:
         self._reload_if_needed()
@@ -523,7 +551,7 @@ class PluginOverrideManager:
         if suffix is None:
             return False
         for spec in config.group_specs:
-            label_value = spec.label or (spec.prefixes[0] if spec.prefixes else None)
+            label_value = spec.label or (spec.prefixes[0].value if spec.prefixes else None)
             if label_value == suffix:
                 return True
         return False
@@ -537,7 +565,7 @@ class PluginOverrideManager:
         if config is None or not config.group_specs or suffix is None:
             return 0.0, 0.0
         for spec in config.group_specs:
-            label_value = spec.label or (spec.prefixes[0] if spec.prefixes else None)
+            label_value = spec.label or (spec.prefixes[0].value if spec.prefixes else None)
             if label_value == suffix:
                 return spec.offset_x, spec.offset_y
         return 0.0, 0.0
@@ -551,7 +579,7 @@ class PluginOverrideManager:
         if config is None or not config.group_specs or suffix is None:
             return _DEFAULT_PAYLOAD_JUSTIFICATION
         for spec in config.group_specs:
-            label_value = spec.label or (spec.prefixes[0] if spec.prefixes else None)
+            label_value = spec.label or (spec.prefixes[0].value if spec.prefixes else None)
             if label_value == suffix:
                 token = spec.payload_justification or _DEFAULT_PAYLOAD_JUSTIFICATION
                 if token not in _PAYLOAD_JUSTIFICATION_CHOICES:
@@ -569,7 +597,7 @@ class PluginOverrideManager:
             config = self._plugins.get(canonical)
             if config is not None and suffix is not None:
                 for spec in config.group_specs:
-                    label_value = spec.label or (spec.prefixes[0] if spec.prefixes else None)
+                    label_value = spec.label or (spec.prefixes[0].value if spec.prefixes else None)
                     if label_value == suffix:
                         anchor_token = spec.anchor
                         break

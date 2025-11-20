@@ -48,6 +48,8 @@ class DeveloperHelperController:
         if getattr(initial, "scale_mode", None):
             window.set_scale_mode(initial.scale_mode)
         window.set_payload_nudge(initial.nudge_overflow_payloads, initial.payload_nudge_gutter)
+        if hasattr(initial, "payload_log_delay_seconds"):
+            window.set_payload_log_delay(getattr(initial, "payload_log_delay_seconds", 0.0))
 
     def apply_config(self, window: "OverlayWindow", payload: Dict[str, Any]) -> None:
         config = DeveloperHelperConfig.from_payload(payload)
@@ -82,6 +84,8 @@ class DeveloperHelperController:
             window.set_scale_mode(config.scale_mode)
         if config.nudge_overflow_payloads is not None or config.payload_nudge_gutter is not None:
             window.set_payload_nudge(config.nudge_overflow_payloads, config.payload_nudge_gutter)
+        if getattr(config, "payload_log_delay_seconds", None) is not None:
+            window.set_payload_log_delay(config.payload_log_delay_seconds)
         if 'platform_context' in payload:
             window.update_platform_context(payload.get('platform_context'))
         elif config.force_xwayland is not None:

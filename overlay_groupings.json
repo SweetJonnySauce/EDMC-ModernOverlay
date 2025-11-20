@@ -10,21 +10,22 @@
           "bgstally-frame-colonisation"
         ],
         "idPrefixGroupAnchor": "ne",
-        "offsetY": -150,
-        "payloadJustification": "right",
-        "offsetX": 1275
+        "offsetX": 1280,
+        "payloadJustification": "right"
       },
       "BGS-Tally Tick Notifications": {
         "idPrefixes": [
-          "bgstally-frame-tick",
-          "bgstally-msg-tick-",
-          "bgstally-frame-system_tick",
           "bgstally-msg-system_tick-",
-          "bgstally-msg-tickwarn-",
-          "bgstally-frame-tickwarn"
+          "bgstally-frame-system_tick",
+          {
+            "value": "bgstally-frame-tick",
+            "matchMode": "exact"
+          },
+          "bgstally-msg-tick-"
         ],
         "idPrefixGroupAnchor": "ne",
-        "offsetX": 195,
+        "offsetX": 190,
+        "offsetY": 10,
         "payloadJustification": "right"
       },
       "BGS-Tally System Info": {
@@ -43,6 +44,18 @@
         ],
         "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left"
+      },
+      "BGS-Tally Tickwarn": {
+        "idPrefixes": [
+          {
+            "value": "bgstally-frame-tickwarn",
+            "matchMode": "exact"
+          },
+          "bgstally-msg-tickwarn"
+        ],
+        "idPrefixGroupAnchor": "ne",
+        "offsetX": 190,
+        "payloadJustification": "right"
       }
     }
   },
@@ -111,13 +124,6 @@
       "edr-"
     ],
     "idPrefixGroups": {
-      "target": {
-        "idPrefixes": [
-          "edr-target"
-        ],
-        "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
-      },
       "Edr Navroute": {
         "idPrefixes": [
           "edr-navroute-"
@@ -142,6 +148,7 @@
         "idPrefixes": [
           "edr-bounty"
         ],
+        "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left"
       },
       "EDR Docking": {
@@ -150,7 +157,6 @@
           "edr-docking-station-"
         ],
         "idPrefixGroupAnchor": "nw",
-        "offsetX": 0,
         "payloadJustification": "left"
       },
       "EDR Intel": {
@@ -163,6 +169,13 @@
       "EDR Notice": {
         "idPrefixes": [
           "edr-notice-"
+        ],
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left"
+      },
+      "EDR Target": {
+        "idPrefixes": [
+          "edr-target"
         ],
         "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left"
@@ -203,7 +216,7 @@
       "station-"
     ],
     "idPrefixGroups": {
-      "All LandingPad Prefixes": {
+      "LandingPad": {
         "idPrefixes": [
           "shell-",
           "line-",

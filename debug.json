@@ -3,12 +3,16 @@
   "group_bounds_outline": true,
   "overlay_logs_to_keep": 5,
   "overlay_outline": true,
+  "payload_vertex_markers": false,
   "payload_logging": {
     "exclude_plugins": [],
     "overlay_payload_log_enabled": true
   },
   "tracing": {
     "enabled": false,
-    "payload_ids": []
+    "payload_ids": [
+      "bgstally-frame-colonisation",
+      "bgstally-msg-colonisation-0"
+    ]
   }
 }

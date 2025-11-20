@@ -30,7 +30,7 @@ The JSON root is an object keyed by the display name you want shown in the overl
 |-------|------|-------|
 | `matchingPrefixes` | array of non-empty strings | Optional. Used for plugin inference. Whenever an `idPrefixes` array is provided, missing entries are appended automatically (add-only). Entries are lowercased and deduplicated. In general, the `idPrefixes` provided should be top level and broadly scoped to capture as many of the payloads. Think `bioscan-` more than `bioscan-details-`. |
 | `idPrefixGroups` | object | Optional, but any entry here must contain at least one group. Each property name is the label shown in tooling (e.g., “Bioscan Details”). |
-| `idPrefixGroups.<name>.idPrefixes` | array of non-empty strings | Required whenever a group is created. Prefixes are lowercased, deduplicated, and unique per plugin group—if you reassign a prefix, it is removed from all other groups automatically. In general, the `idPrefixes` provided should be lower level and more narrow scoped (but still a prefix). Think `bgstally-msg-info-` more than `bgstally-msg-info-0`.|
+| `idPrefixGroups.<name>.idPrefixes` | array of non-empty strings **or** `{ "value": "...", "matchMode": "startswith \| exact" }` objects | Required whenever a group is created. Each entry defaults to `startswith` matching; set `matchMode` to `exact` when the payload ID must match in full (useful when another prefix shares the same leading characters). Prefixes are lowercased, deduplicated, and unique per plugin group—if you reassign a prefix, it is removed from all other groups automatically. In general, the `idPrefixes` provided should be lower level and more narrow scoped (but still a prefix). Think `bgstally-msg-info-` more than `bgstally-msg-info-0`.|
 | `idPrefixGroups.<name>.idPrefixGroupAnchor` | enum | Optional. One of `nw`, `ne`, `sw`, `se`, `center`, `top`, `bottom`, `left`, or `right`. Defaults to `nw` when omitted. `top`/`bottom` keep the midpoint of the vertical edges anchored, while `left`/`right` do the same for the horizontal edges—useful when plugins want edges to stay aligned against the overlay boundary. |
 | `idPrefixGroups.<name>.offsetX` / `offsetY` | number | Optional. Translates the whole group in the legacy 1280 × 960 canvas before Fill-mode scaling applies. Positive values move right/down; negative values move left/up. |
 | `idPrefixGroups.<name>.payloadJustification` | enum | Optional. One of `left` (default), `center`, or `right`. Applies only to idPrefix groups. After anchor adjustments (but before overflow nudging) Modern Overlay shifts narrower payloads so that their right edge or midpoint lines up with the widest payload in the group. The widest entry defines the alignment width and stays put. |
@@ -78,7 +78,7 @@ The repository ships with `schemas/overlay_groupings.schema.json` (Draft 2020‑
         "idPrefixes": {
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string", "minLength": 1 }
+          "items": { "$ref": "#/$defs/idPrefixValue" }
         },
         "idPrefixGroupAnchor": {
           "type": "string",
@@ -92,6 +92,24 @@ The repository ships with `schemas/overlay_groupings.schema.json` (Draft 2020‑
       },
       "required": ["idPrefixes"],
       "additionalProperties": false
+    },
+    "idPrefixValue": {
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        {
+          "type": "object",
+          "properties": {
+            "value": { "type": "string", "minLength": 1 },
+            "matchMode": {
+              "type": "string",
+              "enum": ["startswith", "exact"],
+              "default": "startswith"
+            }
+          },
+          "required": ["value"],
+          "additionalProperties": false
+        }
+      ]
     }
   }
 }
@@ -222,6 +240,7 @@ Launch `python3 utils/plugin_group_tester.py` for a Tk-based form that posts to 
 The full Plugin Group Manager remains available for exploratory work:
 
 - Watches live payload logs, suggests prefixes/groups, and lets you edit everything through dialogs.
+- The ID-prefix editor now treats each entry as its own row. Pick a row to toggle the match mode (starts-with or exact) via a dropdown, or add/remove entries at the bottom. The “Add to ID Prefix group” dialog also offers a match-mode selector and automatically inserts the full payload ID when you switch to `exact`.
 - Automatically reloads if it notices that `overlay_groupings.json` changed on disk (including API- or CLI-driven updates) and purges payloads that now match a group.
 - Great for vetting Fill-mode anchors with real payloads before copying the values into commits.
 

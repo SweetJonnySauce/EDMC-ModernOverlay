@@ -171,6 +171,34 @@ def test_grouping_key_infers_plugin_when_missing_plugin_name(override_file: Path
     assert inferred_key == ("EDR", "docking")
 
 
+def test_exact_match_takes_priority_over_prefix(override_file: Path) -> None:
+    override_file.write_text(
+        json.dumps(
+            {
+                "Example": {
+                    "idPrefixGroups": {
+                        "alerts": {
+                            "idPrefixes": [
+                                "example.alert."
+                            ]
+                        },
+                        "warning": {
+                            "idPrefixes": [
+                                {"value": "example.alert.urgent", "matchMode": "exact"}
+                            ]
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = _make_manager(override_file)
+
+    assert manager.grouping_key_for("Example", "example.alert.urgent") == ("Example", "warning")
+    assert manager.grouping_key_for("Example", "example.alert.normal") == ("Example", "alerts")
+
+
 def test_group_anchor_selection(override_file: Path) -> None:
     override_file.write_text(
         json.dumps(

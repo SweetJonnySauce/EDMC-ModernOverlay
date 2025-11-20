@@ -16,6 +16,8 @@ class JustificationRequest:
     suffix: Optional[str]
     justification: str
     width: float
+    baseline_width: Optional[float] = None
+    right_justification_delta_px: float = 0.0
 
 
 def calculate_offsets(requests: Sequence[JustificationRequest]) -> Dict[Any, float]:
@@ -34,15 +36,24 @@ def calculate_offsets(requests: Sequence[JustificationRequest]) -> Dict[Any, flo
     for entries in groups.values():
         if not entries:
             continue
-        max_width = max(width for _, width in entries)
-        if max_width <= 0.0:
+        baseline: Optional[float] = None
+        for request, width in entries:
+            if request.baseline_width and request.baseline_width > 0.0:
+                baseline = max(baseline or 0.0, request.baseline_width)
+        if baseline is None:
+            baseline = max(width for _, width in entries)
+        baseline = max(0.0, float(baseline))
+        if baseline <= 0.0:
             continue
         for request, width in entries:
-            delta = max_width - width
+            delta = baseline - width
             if delta <= 0.0:
                 continue
             if request.justification == "center":
                 delta *= 0.5
-            offsets[request.identifier] = delta
+            adjusted = delta - max(0.0, float(request.right_justification_delta_px or 0.0))
+            if adjusted <= 0.0:
+                continue
+            offsets[request.identifier] = adjusted
 
     return offsets

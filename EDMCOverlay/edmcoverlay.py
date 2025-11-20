@@ -101,11 +101,6 @@ def _normalise_vector_points(
     if len(points) == 1:
         duplicate = dict(points[0])
         points.append(duplicate)
-        LOGGER.debug(
-            "Extended single-point vector payload for compatibility: id=%s plugin=%s",
-            item_id,
-            plugin,
-        )
         return points
     return None
 

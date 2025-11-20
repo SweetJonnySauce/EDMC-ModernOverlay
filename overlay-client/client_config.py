@@ -27,6 +27,7 @@ class InitialClientSettings:
     scale_mode: str = "fit"
     nudge_overflow_payloads: bool = False
     payload_nudge_gutter: int = 30
+    payload_log_delay_seconds: float = 0.0
 
 
 @dataclass
@@ -54,6 +55,7 @@ class DeveloperHelperConfig:
     scale_mode: Optional[str] = None
     nudge_overflow_payloads: Optional[bool] = None
     payload_nudge_gutter: Optional[int] = None
+    payload_log_delay_seconds: Optional[float] = None
 
     @classmethod
     def from_payload(cls, payload: Dict[str, Any]) -> "DeveloperHelperConfig":
@@ -123,6 +125,7 @@ class DeveloperHelperConfig:
             scale_mode=mode_token,
             nudge_overflow_payloads=_bool(payload.get("nudge_overflow_payloads"), None),
             payload_nudge_gutter=_int(payload.get("payload_nudge_gutter"), None),
+            payload_log_delay_seconds=_float(payload.get("payload_log_delay_seconds"), None),
         )
 
 
@@ -182,6 +185,11 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
     except (TypeError, ValueError):
         gutter = defaults.payload_nudge_gutter
     gutter = max(0, min(gutter, 500))
+    try:
+        log_delay = float(data.get("payload_log_delay_seconds", defaults.payload_log_delay_seconds))
+    except (TypeError, ValueError):
+        log_delay = defaults.payload_log_delay_seconds
+    log_delay = max(0.0, log_delay)
 
     return InitialClientSettings(
         client_log_retention=max(1, retention),
@@ -199,4 +207,5 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         scale_mode=mode,
         nudge_overflow_payloads=nudge_overflow,
         payload_nudge_gutter=gutter,
+        payload_log_delay_seconds=log_delay,
     )

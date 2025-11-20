@@ -104,6 +104,20 @@ def test_define_plugin_group_lowercases_prefixes(grouping_store):
     assert payload["MixedCase"]["idPrefixGroups"]["Alerts"]["idPrefixes"] == ["gamma-", "delta-"]
 
 
+def test_define_plugin_group_supports_exact_match_mode(grouping_store):
+    overlay_api.define_plugin_group(
+        plugin_group="Example",
+        id_prefix_group="tick",
+        id_prefixes=[{"value": "bgstally-frame-tick", "matchMode": "exact"}],
+    )
+
+    payload = _load(grouping_store)
+    group = payload["Example"]["idPrefixGroups"]["tick"]
+    assert group["idPrefixes"] == [{"value": "bgstally-frame-tick", "matchMode": "exact"}]
+    # matchingPrefixes still holds strings so plugin detection continues to work
+    assert payload["Example"]["matchingPrefixes"] == ["bgstally-frame-tick"]
+
+
 def test_define_plugin_group_moves_prefix_between_groups(grouping_store):
     overlay_api.define_plugin_group(
         plugin_group="Example",

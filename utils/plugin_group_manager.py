@@ -10,6 +10,9 @@ import math
 import os
 import queue
 import re
+import shutil
+import socket
+import subprocess
 import sys
 import threading
 import time
@@ -20,11 +23,20 @@ from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
-
 ROOT_DIR = Path(__file__).resolve().parents[1]
 OVERLAY_CLIENT_DIR = ROOT_DIR / "overlay-client"
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 if str(OVERLAY_CLIENT_DIR) not in sys.path:
     sys.path.insert(0, str(OVERLAY_CLIENT_DIR))
+
+from prefix_entries import (
+    MATCH_MODE_EXACT,
+    MATCH_MODE_STARTSWITH,
+    PrefixEntry,
+    parse_prefix_entries,
+    serialise_prefix_entries,
+)
 
 try:
     from plugin_overrides import PluginOverrideManager
@@ -39,6 +51,8 @@ GROUPINGS_PATH = ROOT_DIR / "overlay_groupings.json"
 DEBUG_CONFIG_PATH = ROOT_DIR / "debug.json"
 SETTINGS_PATH = ROOT_DIR / "overlay_settings.json"
 TRACE_LOG_PATH = Path(__file__).resolve().with_name("plugin_group_manager_context.log")
+PORT_PATH = ROOT_DIR / "port.json"
+PAYLOAD_STORE_DIR = ROOT_DIR / "payload_store"
 PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
 PAYLOAD_LOG_BASENAMES = ("overlay-payloads.log", "overlay_payloads.log")
 ANCHOR_CHOICES = ("nw", "ne", "sw", "se", "center", "top", "bottom", "left", "right")
@@ -49,6 +63,24 @@ GROUP_SELECTOR_STYLE = "ModernOverlayGroupSelect.TCombobox"
 LEFT_COLUMN_WIDTH = 180
 GROUP_INFO_WRAP = 360
 LEFT_PANEL_WRAP = 520
+DEFAULT_REPLAY_TTL = 1
+REPLAY_WINDOW_WAIT_SECONDS = 2.0
+MOCK_WINDOW_TITLE = "Elite - Dangerous (Stub)"
+MOCK_WINDOW_PATH = ROOT_DIR / "utils" / "mock_elite_window.py"
+REPLAY_RESOLUTIONS = [
+    (1280, 960),
+    (1280, 1024),
+    (1024, 768),
+    (1720, 1440),
+    (1920, 800),
+    (1920, 1080),
+    (1440, 900),
+    (1440, 960),
+    (2560, 1080),
+]
+BASE_ASPECT_RATIO = 1280 / 960
+BASE_WIDTH = 1280
+BASE_HEIGHT = 960
 
 
 @dataclass(frozen=True)
@@ -458,6 +490,46 @@ def _clean_prefixes(prefix_text: str) -> List[str]:
     return [prefix for prefix in prefixes if prefix]
 
 
+def _parse_id_prefix_text(prefix_text: str) -> List[PrefixEntry]:
+    if not prefix_text:
+        return []
+    entries: List[PrefixEntry] = []
+    seen: set[Tuple[str, str]] = set()
+    for raw_token in prefix_text.split(","):
+        token = raw_token.strip()
+        if not token:
+            continue
+        match_mode = MATCH_MODE_STARTSWITH
+        lower_token = token.casefold()
+        if token.startswith("="):
+            token = token[1:].strip()
+            match_mode = MATCH_MODE_EXACT
+        elif lower_token.endswith("=exact"):
+            token = token[: -len("=exact")].strip()
+            match_mode = MATCH_MODE_EXACT
+        elif lower_token.endswith(" (exact)"):
+            token = token[: -len(" (exact)")].strip()
+            match_mode = MATCH_MODE_EXACT
+        if not token:
+            raise ValueError("ID prefixes must contain non-empty values.")
+        entry = PrefixEntry(value=token, match_mode=match_mode)
+        if entry.key in seen:
+            continue
+        entries.append(entry)
+        seen.add(entry.key)
+    return entries
+
+
+def _format_id_prefix_entries(entries: Sequence[PrefixEntry]) -> str:
+    tokens: List[str] = []
+    for entry in entries:
+        if entry.match_mode == MATCH_MODE_EXACT:
+            tokens.append(f"={entry.value}")
+        else:
+            tokens.append(entry.value)
+    return ", ".join(tokens)
+
+
 class GroupConfigStore:
     """Helper around overlay_groupings.json mutations."""
 
@@ -547,6 +619,13 @@ class GroupConfigStore:
                 seen.append(stripped)
                 cleaned.append(stripped)
         return cleaned
+
+    @staticmethod
+    def _coerce_prefix_entries(raw_value: Any) -> List[PrefixEntry]:
+        entries = parse_prefix_entries(raw_value)
+        if not entries:
+            raise ValueError("At least one ID prefix is required.")
+        return entries
 
     def _normalise_group_map(self, entry: Mapping[str, object]) -> Dict[str, Dict[str, object]]:
         groups: Dict[str, Dict[str, object]] = {}
@@ -658,7 +737,7 @@ class GroupConfigStore:
         return cleaned
 
     def _normalise_group_spec(self, spec: MutableMapping[str, object]) -> Dict[str, object]:
-        prefixes = self._normalise_prefix_list(
+        prefix_entries = parse_prefix_entries(
             spec.get("idPrefixes")
             or spec.get("id_prefixes")
             or spec.get("prefixes")
@@ -666,8 +745,8 @@ class GroupConfigStore:
             or []
         )
         cleaned: Dict[str, object] = {}
-        if prefixes:
-            cleaned["idPrefixes"] = prefixes
+        if prefix_entries:
+            cleaned["idPrefixes"] = serialise_prefix_entries(prefix_entries)
         anchor_token = self._normalise_anchor(spec.get("idPrefixGroupAnchor") or spec.get("anchor"))
         if anchor_token:
             cleaned["idPrefixGroupAnchor"] = anchor_token
@@ -730,11 +809,8 @@ class GroupConfigStore:
                         if not isinstance(spec, Mapping):
                             continue
                         prefixes_value = spec.get("idPrefixes") or spec.get("id_prefixes") or []
-                        prefixes = [
-                            str(item).strip()
-                            for item in prefixes_value
-                            if isinstance(item, (str, int, float)) and str(item).strip()
-                        ]
+                        prefix_entries = parse_prefix_entries(prefixes_value)
+                        display_prefixes = [entry.display_label() for entry in prefix_entries]
                         anchor = spec.get("idPrefixGroupAnchor") or spec.get("anchor") or ""
                         notes = spec.get("notes") or ""
                         raw_justification = spec.get("payloadJustification")
@@ -747,7 +823,8 @@ class GroupConfigStore:
                         view_entries.append(
                             {
                                 "label": label,
-                                "prefixes": list(prefixes),
+                                "prefixes": display_prefixes,
+                                "prefixEntries": [entry.to_mapping() for entry in prefix_entries],
                                 "anchor": anchor,
                                 "offsetX": spec.get("offsetX"),
                                 "offsetY": spec.get("offsetY"),
@@ -871,8 +948,7 @@ class GroupConfigStore:
         offset_y: Optional[object] = None,
         payload_justification: Optional[str] = None,
     ) -> None:
-        if not prefixes:
-            raise ValueError("At least one ID prefix is required.")
+        prefix_entries = self._coerce_prefix_entries(prefixes)
         cleaned_label = label.strip()
         if not cleaned_label:
             raise ValueError("Grouping label is required.")
@@ -898,7 +974,7 @@ class GroupConfigStore:
                 raise ValueError(f"Grouping '{cleaned_label}' already exists for '{group_name}'.")
             cleaned_notes = notes.strip() if isinstance(notes, str) else None
             spec_payload: Dict[str, object] = {
-                "idPrefixes": list(prefixes),
+                "idPrefixes": serialise_prefix_entries(prefix_entries),
                 "idPrefixGroupAnchor": anchor_token,
                 "notes": cleaned_notes,
             }
@@ -941,10 +1017,8 @@ class GroupConfigStore:
                 target_spec = {}
                 groups[original_label] = target_spec
             if prefixes is not None:
-                cleaned_prefixes = self._normalise_prefix_list(prefixes)
-                if not cleaned_prefixes:
-                    raise ValueError("At least one ID prefix is required.")
-                target_spec["idPrefixes"] = cleaned_prefixes
+                prefix_entries = self._coerce_prefix_entries(prefixes)
+                target_spec["idPrefixes"] = serialise_prefix_entries(prefix_entries)
             if anchor is not None:
                 anchor_token = anchor.strip().lower()
                 if anchor_token:
@@ -1128,8 +1202,11 @@ class NewGroupingDialog(simpledialog.Dialog):
         self.label_var = tk.StringVar(value=default_label)
         ttk.Entry(master, textvariable=self.label_var, width=40).grid(row=1, column=1, sticky="ew")
 
-        ttk.Label(master, text="ID prefixes (comma separated)").grid(row=2, column=0, sticky="w")
-        prefix_values = ", ".join(self._suggestion.get("prefixes", [])) if self._suggestion else ""
+        ttk.Label(master, text="ID prefixes (use '=value' for exact matches)").grid(row=2, column=0, sticky="w")
+        suggested_entries = parse_prefix_entries(self._suggestion.get("prefixEntries")) if self._suggestion else []
+        if not suggested_entries and self._suggestion:
+            suggested_entries = parse_prefix_entries(self._suggestion.get("prefixes"))
+        prefix_values = _format_id_prefix_entries(suggested_entries)
         self.prefix_var = tk.StringVar(value=prefix_values)
         ttk.Entry(master, textvariable=self.prefix_var, width=40).grid(row=2, column=1, sticky="ew")
 
@@ -1172,10 +1249,15 @@ class NewGroupingDialog(simpledialog.Dialog):
         if not label:
             messagebox.showerror("Validation error", "Grouping label is required.")
             return False
-        prefixes = _clean_prefixes(self.prefix_var.get())
+        try:
+            prefixes = _parse_id_prefix_text(self.prefix_var.get())
+        except ValueError as exc:
+            messagebox.showerror("Validation error", str(exc))
+            return False
         if not prefixes:
             messagebox.showerror("Validation error", "Enter at least one ID prefix.")
             return False
+        self._validated_prefixes = prefixes
         return True
 
     @staticmethod
@@ -1191,9 +1273,10 @@ class NewGroupingDialog(simpledialog.Dialog):
         return ""
 
     def result_data(self) -> Dict[str, object]:
+        prefixes = getattr(self, "_validated_prefixes", _parse_id_prefix_text(self.prefix_var.get()))
         return {
             "label": self.label_var.get().strip(),
-            "prefixes": _clean_prefixes(self.prefix_var.get()),
+            "prefixes": prefixes,
             "anchor": self.anchor_var.get().strip(),
             "payload_justification": self.justification_var.get().strip(),
             "offset_x": self.offset_x_var.get().strip(),
@@ -1212,6 +1295,10 @@ class EditGroupingDialog(simpledialog.Dialog):
         self._group_name = group_name
         self._entry = entry
         label = entry.get("label", "")
+        parsed_entries = parse_prefix_entries(entry.get("prefixEntries"))
+        if not parsed_entries:
+            parsed_entries = parse_prefix_entries(entry.get("prefixes"))
+        self._prefix_entries: List[PrefixEntry] = list(parsed_entries)
         super().__init__(parent, title=f"Edit grouping '{label}'")
 
     def body(self, master: tk.Tk) -> tk.Widget:  # type: ignore[override]
@@ -1220,20 +1307,68 @@ class EditGroupingDialog(simpledialog.Dialog):
         self.label_var = tk.StringVar(value=str(self._entry.get("label") or ""))
         ttk.Entry(master, textvariable=self.label_var, width=40).grid(row=1, column=1, sticky="ew")
 
-        ttk.Label(master, text="ID prefixes (comma separated)").grid(row=2, column=0, sticky="w")
-        prefixes = ", ".join(self._entry.get("prefixes", [])) if isinstance(self._entry.get("prefixes"), list) else ""
-        self.prefix_var = tk.StringVar(value=prefixes)
-        ttk.Entry(master, textvariable=self.prefix_var, width=40).grid(row=2, column=1, sticky="ew")
+        ttk.Label(master, text="ID prefixes (manage list entries)").grid(row=2, column=0, sticky="w")
+        prefix_frame = ttk.Frame(master)
+        prefix_frame.grid(row=3, column=0, columnspan=2, sticky="nsew", pady=(0, 4))
+        master.grid_rowconfigure(3, weight=1)
+        prefix_frame.grid_columnconfigure(0, weight=1)
 
-        ttk.Label(master, text="Anchor").grid(row=3, column=0, sticky="w")
+        list_frame = ttk.Frame(prefix_frame)
+        list_frame.grid(row=0, column=0, columnspan=3, sticky="nsew")
+        list_frame.grid_columnconfigure(0, weight=1)
+
+        self.prefix_listbox = tk.Listbox(list_frame, height=5, exportselection=False)
+        self.prefix_listbox.grid(row=0, column=0, sticky="nsew")
+        list_scroll = ttk.Scrollbar(list_frame, orient="vertical", command=self.prefix_listbox.yview)
+        list_scroll.grid(row=0, column=1, sticky="ns")
+        self.prefix_listbox.configure(yscrollcommand=list_scroll.set)
+        self.prefix_listbox.bind("<<ListboxSelect>>", lambda _e: self._on_prefix_selection_changed())
+
+        button_frame = ttk.Frame(list_frame)
+        button_frame.grid(row=0, column=2, sticky="nsw", padx=(6, 0))
+        self.remove_prefix_button = ttk.Button(
+            button_frame, text="Remove", command=self._handle_remove_prefix, state="disabled"
+        )
+        self.remove_prefix_button.pack(fill="x", pady=(0, 4))
+        ttk.Label(button_frame, text="Match mode").pack(anchor="w", pady=(6, 0))
+        self.selected_match_mode = tk.StringVar(value="")
+        self.match_mode_combo = ttk.Combobox(
+            button_frame,
+            values=(MATCH_MODE_STARTSWITH, MATCH_MODE_EXACT),
+            textvariable=self.selected_match_mode,
+            state="disabled",
+            width=12,
+        )
+        self.match_mode_combo.pack(fill="x", pady=(2, 0))
+        self.match_mode_combo.bind("<<ComboboxSelected>>", self._handle_selected_mode_changed)
+
+        add_frame = ttk.Frame(prefix_frame)
+        add_frame.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        add_frame.grid_columnconfigure(0, weight=1)
+        ttk.Label(add_frame, text="Value").grid(row=0, column=0, sticky="w")
+        ttk.Label(add_frame, text="Match mode").grid(row=0, column=1, sticky="w", padx=(6, 0))
+        self.new_prefix_var = tk.StringVar()
+        ttk.Entry(add_frame, textvariable=self.new_prefix_var).grid(row=1, column=0, sticky="ew")
+        self.new_match_mode = tk.StringVar(value=MATCH_MODE_STARTSWITH)
+        ttk.Combobox(
+            add_frame,
+            values=(MATCH_MODE_STARTSWITH, MATCH_MODE_EXACT),
+            textvariable=self.new_match_mode,
+            state="readonly",
+            width=12,
+        ).grid(row=1, column=1, sticky="w", padx=(6, 0))
+        ttk.Button(add_frame, text="Add", command=self._handle_add_prefix).grid(row=1, column=2, padx=(6, 0))
+        self._refresh_prefix_listbox()
+
+        ttk.Label(master, text="Anchor").grid(row=4, column=0, sticky="w")
         anchor_choices = ("",) + ANCHOR_CHOICES
         current_anchor = str(self._entry.get("anchor") or "")
         self.anchor_var = tk.StringVar(value=current_anchor)
         ttk.Combobox(master, values=anchor_choices, textvariable=self.anchor_var, state="readonly").grid(
-            row=3, column=1, sticky="w"
+            row=4, column=1, sticky="w"
         )
 
-        ttk.Label(master, text="Payload justification").grid(row=4, column=0, sticky="w")
+        ttk.Label(master, text="Payload justification").grid(row=5, column=0, sticky="w")
         justification_value = str(
             self._entry.get("payloadJustification") or DEFAULT_PAYLOAD_JUSTIFICATION
         ).strip().lower()
@@ -1245,19 +1380,19 @@ class EditGroupingDialog(simpledialog.Dialog):
             values=PAYLOAD_JUSTIFICATION_CHOICES,
             textvariable=self.justification_var,
             state="readonly",
-        ).grid(row=4, column=1, sticky="w")
+        ).grid(row=5, column=1, sticky="w")
 
-        ttk.Label(master, text="Offset X (px)").grid(row=5, column=0, sticky="w")
+        ttk.Label(master, text="Offset X (px)").grid(row=6, column=0, sticky="w")
         self.offset_x_var = tk.StringVar(value=self._format_initial_offset(self._entry.get("offsetX")))
-        ttk.Entry(master, textvariable=self.offset_x_var, width=40).grid(row=5, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.offset_x_var, width=40).grid(row=6, column=1, sticky="ew")
 
-        ttk.Label(master, text="Offset Y (px)").grid(row=6, column=0, sticky="w")
+        ttk.Label(master, text="Offset Y (px)").grid(row=7, column=0, sticky="w")
         self.offset_y_var = tk.StringVar(value=self._format_initial_offset(self._entry.get("offsetY")))
-        ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=6, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=7, column=1, sticky="ew")
 
-        ttk.Label(master, text="Notes").grid(row=7, column=0, sticky="w")
+        ttk.Label(master, text="Notes").grid(row=8, column=0, sticky="w")
         self.notes_var = tk.StringVar(value=str(self._entry.get("notes") or ""))
-        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=7, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=8, column=1, sticky="ew")
         return master
 
     def validate(self) -> bool:  # type: ignore[override]
@@ -1265,8 +1400,7 @@ class EditGroupingDialog(simpledialog.Dialog):
         if not label:
             messagebox.showerror("Validation error", "Grouping label is required.")
             return False
-        prefixes = _clean_prefixes(self.prefix_var.get())
-        if not prefixes:
+        if not self._prefix_entries:
             messagebox.showerror("Validation error", "Enter at least one ID prefix.")
             return False
         return True
@@ -1275,13 +1409,84 @@ class EditGroupingDialog(simpledialog.Dialog):
         return {
             "original_label": self._entry.get("label"),
             "label": self.label_var.get().strip(),
-            "prefixes": _clean_prefixes(self.prefix_var.get()),
+            "prefixes": list(self._prefix_entries),
             "anchor": self.anchor_var.get().strip(),
             "payload_justification": self.justification_var.get().strip(),
             "offset_x": self.offset_x_var.get().strip(),
             "offset_y": self.offset_y_var.get().strip(),
             "notes": self.notes_var.get().strip(),
         }
+
+    def _refresh_prefix_listbox(self) -> None:
+        self.prefix_listbox.delete(0, tk.END)
+        for entry in self._prefix_entries:
+            self.prefix_listbox.insert(tk.END, entry.display_label())
+        self._update_prefix_controls()
+
+    def _update_prefix_controls(self) -> None:
+        selection = self.prefix_listbox.curselection()
+        has_selection = bool(selection)
+        state = "normal" if has_selection else "disabled"
+        self.remove_prefix_button.configure(state=state)
+        self.match_mode_combo.configure(state=state if has_selection else "disabled")
+        if has_selection:
+            entry = self._prefix_entries[selection[0]]
+            self.selected_match_mode.set(entry.match_mode)
+        else:
+            self.selected_match_mode.set("")
+
+    def _on_prefix_selection_changed(self) -> None:
+        self._update_prefix_controls()
+
+    def _handle_selected_mode_changed(self, _event=None) -> None:
+        selection = self.prefix_listbox.curselection()
+        if not selection:
+            return
+        index = selection[0]
+        if not (0 <= index < len(self._prefix_entries)):
+            return
+        mode = self.selected_match_mode.get().strip().lower()
+        if mode not in (MATCH_MODE_STARTSWITH, MATCH_MODE_EXACT):
+            return
+        entry = self._prefix_entries[index]
+        if entry.match_mode == mode:
+            return
+        try:
+            updated = PrefixEntry(value=entry.value, match_mode=mode)
+        except ValueError:
+            return
+        self._prefix_entries[index] = updated
+        self._refresh_prefix_listbox()
+
+    def _handle_add_prefix(self) -> None:
+        value = self.new_prefix_var.get().strip()
+        mode = self.new_match_mode.get().strip().lower()
+        if not value:
+            messagebox.showerror("Validation error", "Enter a prefix value before adding.")
+            return
+        if mode not in (MATCH_MODE_STARTSWITH, MATCH_MODE_EXACT):
+            messagebox.showerror("Validation error", "Select a valid match mode.")
+            return
+        try:
+            entry = PrefixEntry(value=value, match_mode=mode)
+        except ValueError as exc:
+            messagebox.showerror("Validation error", str(exc))
+            return
+        if any(existing.key == entry.key for existing in self._prefix_entries):
+            messagebox.showinfo("Duplicate prefix", "That prefix already exists with the same match mode.")
+            return
+        self._prefix_entries.append(entry)
+        self.new_prefix_var.set("")
+        self._refresh_prefix_listbox()
+
+    def _handle_remove_prefix(self) -> None:
+        selection = self.prefix_listbox.curselection()
+        if not selection:
+            return
+        index = selection[0]
+        if 0 <= index < len(self._prefix_entries):
+            del self._prefix_entries[index]
+            self._refresh_prefix_listbox()
 
     def apply(self) -> None:  # type: ignore[override]
         self.result = self.result_data()
@@ -1309,10 +1514,13 @@ class AddPrefixDialog(simpledialog.Dialog):
         group_name: str,
         grouping_label: str,
         default_prefix: str,
+        payload_id: Optional[str] = None,
     ) -> None:
         self._group_name = group_name
         self._grouping_label = grouping_label
         self._default_prefix = default_prefix.strip()
+        payload_text = payload_id.strip() if isinstance(payload_id, str) else ""
+        self._payload_id = payload_text or self._default_prefix
         super().__init__(parent, title=f"Add prefix to '{grouping_label}'")
 
     def body(self, master: tk.Tk) -> tk.Widget:  # type: ignore[override]
@@ -1324,7 +1532,19 @@ class AddPrefixDialog(simpledialog.Dialog):
         entry = ttk.Entry(master, textvariable=self.prefix_var, width=40)
         entry.grid(row=2, column=1, sticky="ew", pady=(8, 0))
 
+        ttk.Label(master, text="Match mode").grid(row=3, column=0, sticky="w", pady=(8, 0))
+        self.mode_var = tk.StringVar(value=MATCH_MODE_STARTSWITH)
+        mode_combo = ttk.Combobox(
+            master,
+            values=(MATCH_MODE_STARTSWITH, MATCH_MODE_EXACT),
+            textvariable=self.mode_var,
+            state="readonly",
+        )
+        mode_combo.grid(row=3, column=1, sticky="w", pady=(8, 0))
+        mode_combo.bind("<<ComboboxSelected>>", self._on_mode_changed)
+
         master.grid_columnconfigure(1, weight=1)
+        self._on_mode_changed()
         return entry
 
     def validate(self) -> bool:  # type: ignore[override]
@@ -1332,13 +1552,22 @@ class AddPrefixDialog(simpledialog.Dialog):
         if not value:
             messagebox.showerror("Validation error", "Enter a prefix to add.")
             return False
+        mode = self.mode_var.get().strip().lower()
+        if mode not in (MATCH_MODE_STARTSWITH, MATCH_MODE_EXACT):
+            messagebox.showerror("Validation error", "Select a valid match mode.")
+            return False
         return True
 
-    def result_data(self) -> str:
-        return self.prefix_var.get().strip()
+    def result_data(self) -> PrefixEntry:
+        return PrefixEntry(value=self.prefix_var.get().strip(), match_mode=self.mode_var.get().strip())
 
     def apply(self) -> None:  # type: ignore[override]
         self.result = self.result_data()
+
+    def _on_mode_changed(self, _event=None) -> None:
+        mode = self.mode_var.get().strip().lower()
+        if mode == MATCH_MODE_EXACT and self._payload_id:
+            self.prefix_var.set(self._payload_id)
 
 
 class PluginGroupManagerApp:
@@ -1347,7 +1576,12 @@ class PluginGroupManagerApp:
     def __init__(self, log_dir_override: Optional[Path] = None) -> None:
         self._matcher = OverrideMatcher(GROUPINGS_PATH)
         self._locator = LogLocator(ROOT_DIR, override_dir=log_dir_override)
-        cache_path = self._locator.log_dir / "new-payloads.json"
+        cache_path = ROOT_DIR / "payload_store" / "new-payloads.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            cache_path.unlink()
+        except FileNotFoundError:
+            pass
         self._payload_store = NewPayloadStore(cache_path)
         self._group_store = GroupConfigStore(GROUPINGS_PATH)
         self._queue: "queue.Queue[Tuple[str, object]]" = queue.Queue()
@@ -1365,7 +1599,7 @@ class PluginGroupManagerApp:
         self._grouping_label_font = default_font.copy()
         self._grouping_label_font.configure(weight="bold")
         self.root.title("Plugin Group Manager")
-        self.root.geometry("1100x800")
+        self.root.geometry("1350x800")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._style = ttk.Style(self.root)
         self._payload_window_bg = self._resolve_payload_window_background()
@@ -1389,10 +1623,18 @@ class PluginGroupManagerApp:
         self._group_scroll_targets: List[tk.Widget] = []
         self._payload_context_menu: Optional[tk.Menu] = None
         self._payload_menu_dismiss_bind: Optional[str] = None
+        self.replay_ttl_var = tk.StringVar(value=str(DEFAULT_REPLAY_TTL))
+        self.crosshair_x_var = tk.StringVar(value="")
+        self.crosshair_y_var = tk.StringVar(value="")
+        self.replay_resolution_vars: Dict[Tuple[int, int], tk.BooleanVar] = {}
+        self._active_mock_process: Optional[subprocess.Popen[Any]] = None
 
         self._build_ui()
         self._refresh_group_data()
         self._update_payload_count()
+        self.root.after_idle(self._start_background_tasks)
+
+    def _start_background_tasks(self) -> None:
         self.root.after(200, self._process_queue)
         self.root.after(self._group_file_poll_ms, self._poll_groupings_file)
 
@@ -1431,6 +1673,7 @@ class PluginGroupManagerApp:
         main.pack(fill="both", expand=True)
         main.columnconfigure(0, weight=1)
         main.columnconfigure(1, weight=1)
+        main.columnconfigure(2, weight=0)
         main.rowconfigure(0, weight=1)
 
         left_panel = ttk.Frame(main)
@@ -1439,6 +1682,9 @@ class PluginGroupManagerApp:
         right_panel = ttk.Frame(main)
         right_panel.grid(row=0, column=1, sticky="nsew")
         right_panel.rowconfigure(2, weight=1)
+        replay_section = self._create_label_frame(main, "Replay Settings")
+        replay_section.grid(row=0, column=2, sticky="ns", padx=(8, 0))
+        self._build_replay_panel(replay_section)
 
         overview_section = self._create_label_frame(left_panel, "Overview & Instructions")
         overview_section.pack(fill="x", expand=False, pady=(0, 12))
@@ -1541,11 +1787,11 @@ class PluginGroupManagerApp:
         )
         ttk.Button(info_grid, text="Delete group", command=self._delete_selected_group).grid(row=0, column=3, sticky="e", padx=(8, 0))
         ttk.Label(info_grid, text="Match prefixes:").grid(row=1, column=0, sticky="nw", pady=(4, 0))
-        ttk.Label(info_grid, textvariable=self.group_match_var, wraplength=500, justify="left").grid(
+        ttk.Label(info_grid, textvariable=self.group_match_var, wraplength=640, justify="left").grid(
             row=1, column=1, columnspan=3, sticky="w", pady=(4, 0)
         )
         ttk.Label(info_grid, text="Notes:").grid(row=2, column=0, sticky="nw", pady=(4, 0))
-        ttk.Label(info_grid, textvariable=self.group_notes_var, wraplength=500, justify="left").grid(
+        ttk.Label(info_grid, textvariable=self.group_notes_var, wraplength=640, justify="left").grid(
             row=2,
             column=1,
             columnspan=3,
@@ -1579,6 +1825,50 @@ class PluginGroupManagerApp:
             self._group_scroll_targets.append(self.grouping_entries_frame)
         self._enable_group_scroll(None)
 
+    def _build_replay_panel(self, parent: ttk.LabelFrame) -> None:
+        container = ttk.Frame(parent)
+        container.pack(fill="y", expand=False, padx=8, pady=8)
+        ttk.Label(container, text="Payload TTL (seconds):").pack(anchor="w")
+        ttk.Entry(container, textvariable=self.replay_ttl_var, width=6).pack(anchor="w", pady=(0, 8))
+        ttk.Label(container, text="Crosshair position (% or px of window):").pack(anchor="w")
+        ttk.Label(
+            container,
+            text="Enter % values like 50% or pixel values like 640px (no suffix = pixels).",
+            wraplength=220,
+            justify="left",
+            foreground="#555555",
+        ).pack(anchor="w", pady=(0, 4))
+        crosshair_row = ttk.Frame(container)
+        crosshair_row.pack(anchor="w", pady=(0, 8))
+        ttk.Label(crosshair_row, text="X:").pack(side="left")
+        ttk.Entry(crosshair_row, textvariable=self.crosshair_x_var, width=12).pack(side="left", padx=(2, 8))
+        ttk.Label(crosshair_row, text="Y:").pack(side="left")
+        ttk.Entry(crosshair_row, textvariable=self.crosshair_y_var, width=12).pack(side="left", padx=(2, 0))
+        ttk.Label(container, text="Mock window sizes:").pack(anchor="w", pady=(4, 2))
+        note = ttk.Label(
+            container,
+            text="Select the resolutions to test. The mock window is resized via wmctrl before each replay.",
+            wraplength=220,
+            justify="left",
+            foreground="#555555",
+        )
+        note.pack(anchor="w", pady=(0, 6))
+        action_row = ttk.Frame(container)
+        action_row.pack(anchor="w", pady=(0, 8))
+        ttk.Button(action_row, text="All", command=self._select_all_replay_resolutions).pack(side="left", padx=(0, 6))
+        ttk.Button(action_row, text="None", command=self._clear_replay_resolutions).pack(side="left")
+        for width, height in REPLAY_RESOLUTIONS:
+            ratio = self._format_aspect_ratio(width, height)
+            details = ratio
+            if width == 1280 and height == 960:
+                details = f"{ratio}, default"
+            label = f"{width} x {height} ({details})"
+            arrow = self._overflow_indicator(width, height)
+            if arrow:
+                label = f"{label} {arrow}"
+            var = tk.BooleanVar(value=False)
+            self.replay_resolution_vars[(width, height)] = var
+            ttk.Checkbutton(container, text=label, variable=var).pack(anchor="w")
 
     def _create_label_frame(self, parent: tk.Widget, text: str) -> ttk.LabelFrame:
         label = ttk.Label(parent, text=text, font=self._group_title_font)
@@ -1724,7 +2014,7 @@ class PluginGroupManagerApp:
         prefix = self._extract_prefix(record.payload_id, segments=2)
         suggestion: Dict[str, object] = {
             "label": label,
-            "prefixes": [prefix.casefold()],
+            "prefixEntries": [PrefixEntry(value=prefix.casefold()).to_mapping()],
         }
         return suggestion
 
@@ -1756,7 +2046,12 @@ class PluginGroupManagerApp:
             except tk.TclError:
                 pass
             self._payload_context_menu = None
-        self._payload_menu_dismiss_bind = None
+        if self._payload_menu_dismiss_bind:
+            try:
+                self.root.unbind("<Button-1>", self._payload_menu_dismiss_bind)
+            except tk.TclError:
+                pass
+            self._payload_menu_dismiss_bind = None
 
     def _queue_add_payload_to_existing_grouping(self, group_name: str, grouping_label: str) -> None:
         """Defer add-prefix flow until after the context menu closes."""
@@ -1794,11 +2089,7 @@ class PluginGroupManagerApp:
             return
         target_spec = groups.get(grouping_label) or {}
         raw_prefixes = target_spec.get("idPrefixes") or target_spec.get("id_prefixes") or target_spec.get("prefixes") or []
-        existing_prefixes: List[str] = []
-        for token in raw_prefixes:
-            text = str(token).strip()
-            if text:
-                existing_prefixes.append(text)
+        existing_prefixes: List[PrefixEntry] = parse_prefix_entries(raw_prefixes)
         LOG.debug(
             "Preparing prefix dialog: payload=%s group=%s grouping=%s existing=%s",
             record.payload_id,
@@ -1817,6 +2108,7 @@ class PluginGroupManagerApp:
             grouping_label=grouping_label,
             default_prefix=default_prefix,
             existing_prefixes=tuple(existing_prefixes),
+            payload_id=record.payload_id,
         )
 
     def _show_payload_context_menu(self, event) -> None:
@@ -1867,6 +2159,12 @@ class PluginGroupManagerApp:
         LOG.debug("Posting context menu for payload=%s with %s entries", row_id, menu.index("end") + 1)
         self._payload_context_menu = menu
         menu.bind("<Unmap>", lambda _evt: self._dismiss_payload_context_menu())
+        try:
+            self._payload_menu_dismiss_bind = self.root.bind(
+                "<Button-1>", lambda _evt: self._dismiss_payload_context_menu(), add="+"
+            )
+        except tk.TclError:
+            self._payload_menu_dismiss_bind = None
 
         def _menu_click_handler(evt, menu_ref=menu):
             self._on_payload_context_menu_click(evt, menu_ref)
@@ -1884,7 +2182,8 @@ class PluginGroupManagerApp:
         group_name: str,
         grouping_label: str,
         default_prefix: str,
-        existing_prefixes: Tuple[str, ...],
+        existing_prefixes: Tuple[PrefixEntry, ...],
+        payload_id: Optional[str],
     ) -> None:
         try:
             dialog = AddPrefixDialog(
@@ -1892,6 +2191,7 @@ class PluginGroupManagerApp:
                 group_name=group_name,
                 grouping_label=grouping_label,
                 default_prefix=default_prefix,
+                payload_id=payload_id,
             )
             LOG.debug(
                 "Displayed AddPrefixDialog for payload prefix: group=%s grouping=%s default=%s",
@@ -1903,42 +2203,37 @@ class PluginGroupManagerApp:
             messagebox.showerror("Add to ID Prefix group", f"Unable to show prefix dialog: {exc}")
             LOG.exception("Failed to open AddPrefixDialog for %s/%s", group_name, grouping_label)
             return
-        prefix_value = getattr(dialog, "result", None)
-        if prefix_value is None:
+        prefix_entry = getattr(dialog, "result", None)
+        if prefix_entry is None:
             LOG.debug("Add-to-prefix cancelled via dialog for %s/%s", group_name, grouping_label)
             self.status_var.set(f"Add to ID Prefix group '{grouping_label}' cancelled.")
             return
-        prefix_value = str(prefix_value).strip()
-        if not prefix_value:
-            LOG.debug("Add-to-prefix aborted: dialog returned empty prefix for %s/%s", group_name, grouping_label)
-            messagebox.showerror("Add to ID Prefix group", "Enter a prefix to add.")
-            return
-        prefix_cf = prefix_value.casefold()
-        if any(p.casefold() == prefix_cf for p in existing_prefixes):
+        if any(p.key == prefix_entry.key for p in existing_prefixes):
             LOG.debug(
-                "Add-to-prefix skipped: '%s' already exists in %s/%s -> %s",
-                prefix_value,
+                "Add-to-prefix skipped: '%s' already exists in %s/%s",
+                prefix_entry.value,
                 group_name,
                 grouping_label,
-                existing_prefixes,
             )
-            self.status_var.set(f"ID Prefix group '{grouping_label}' already includes '{prefix_value}'.")
+            self.status_var.set(
+                f"ID Prefix group '{grouping_label}' already includes '{prefix_entry.value}' with that match mode."
+            )
             return
-        updated_prefixes = list(existing_prefixes) + [prefix_value]
+        updated_prefixes = list(existing_prefixes) + [prefix_entry]
         try:
             self._group_store.update_grouping(group_name, grouping_label, prefixes=updated_prefixes)
         except Exception as exc:
-            LOG.exception("Failed to update grouping %s/%s with prefix '%s'", group_name, grouping_label, prefix_value)
+            LOG.exception("Failed to update grouping %s/%s with prefix '%s'", group_name, grouping_label, prefix_entry)
             messagebox.showerror("Add to ID Prefix group", f"Failed to update '{grouping_label}': {exc}")
             return
         LOG.debug(
             "Add-to-prefix succeeded: group=%s grouping=%s prefix=%s updated_prefixes=%s",
             group_name,
             grouping_label,
-            prefix_value,
+            prefix_entry,
             updated_prefixes,
         )
-        self.status_var.set(f"Added '{prefix_value}' to ID Prefix group '{grouping_label}'.")
+        self.status_var.set(f"Added '{prefix_entry.value}' to ID Prefix group '{grouping_label}'.")
         self._refresh_group_data(target_group=group_name)
         self._purge_matched()
 
@@ -2053,12 +2348,15 @@ class PluginGroupManagerApp:
             notes_label = ttk.Label(left_cell, text=f"Notes: {notes_text}", wraplength=LEFT_COLUMN_WIDTH, justify="left")
             notes_label.pack(anchor="w", pady=(2, 0))
 
-            prefixes = [p for p in entry.get("prefixes", []) if isinstance(p, str) and p.strip()]
-            prefix_block = "\n".join(prefixes) if prefixes else "- none -"
+            prefix_entries = parse_prefix_entries(entry.get("prefixEntries"))
+            if not prefix_entries:
+                prefix_entries = parse_prefix_entries(entry.get("prefixes"))
+            display_prefixes = [p.display_label() for p in prefix_entries]
+            prefix_block = "\n".join(display_prefixes) if display_prefixes else "- none -"
             prefix_frame = ttk.Frame(entry_frame)
             prefix_frame.grid(row=1, column=1, sticky="nw", padx=(20, 0))
             ttk.Label(prefix_frame, text="Prefixes", font=("TkDefaultFont", 9, "underline")).pack(anchor="w")
-            tk.Label(prefix_frame, text=prefix_block, justify="left", anchor="w", wraplength=380).pack(anchor="w", pady=(2, 0))
+            tk.Label(prefix_frame, text=prefix_block, justify="left", anchor="w", wraplength=520).pack(anchor="w", pady=(2, 0))
 
             button_frame = ttk.Frame(entry_frame)
             button_frame.grid(row=1, column=2, rowspan=2, padx=(18, 0), pady=(0, 4), sticky="n")
@@ -2072,6 +2370,13 @@ class PluginGroupManagerApp:
                 text="Delete",
                 command=lambda group=group_name, entry_label=entry.get("label"): self._delete_grouping(group, entry_label),
             ).pack(fill="x", pady=(4, 0))
+            log_path = self._log_path_for_group_label(entry.get("label"))
+            if log_path:
+                ttk.Button(
+                    button_frame,
+                    text="Play",
+                    command=lambda path=log_path: self._play_group_log(path),
+                ).pack(fill="x", pady=(4, 0))
             if index < len(entries) - 1:
                 ttk.Separator(self.grouping_entries_frame, orient="horizontal").pack(fill="x", padx=4, pady=(0, 4))
 
@@ -2090,6 +2395,336 @@ class PluginGroupManagerApp:
             return f"{value:g}"
         return "0"
 
+    @staticmethod
+    def _format_aspect_ratio(width: int, height: int) -> str:
+        try:
+            divisor = math.gcd(int(width), int(height))
+        except (ValueError, TypeError):
+            return "?"
+        if divisor <= 0:
+            return "?"
+        return f"{width // divisor}:{height // divisor}"
+
+    @staticmethod
+    def _overflow_indicator(width: int, height: int) -> str:
+        try:
+            ratio = float(width) / float(height)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return ""
+        if math.isclose(ratio, BASE_ASPECT_RATIO, rel_tol=1e-3, abs_tol=1e-3):
+            return ""
+        return "↓" if ratio > BASE_ASPECT_RATIO else "→"
+
+    def _selected_replay_resolutions(self) -> List[Tuple[int, int]]:
+        selections: List[Tuple[int, int]] = []
+        for width, height in REPLAY_RESOLUTIONS:
+            var = self.replay_resolution_vars.get((width, height))
+            if var is not None and var.get():
+                selections.append((width, height))
+        return selections
+
+    def _select_all_replay_resolutions(self) -> None:
+        for var in self.replay_resolution_vars.values():
+            var.set(True)
+
+    def _clear_replay_resolutions(self) -> None:
+        for var in self.replay_resolution_vars.values():
+            var.set(False)
+
+    def _resolve_replay_ttl(self) -> int:
+        raw_value = (self.replay_ttl_var.get() or "").strip()
+        if not raw_value:
+            return DEFAULT_REPLAY_TTL
+        try:
+            numeric = float(raw_value)
+        except ValueError:
+            raise RuntimeError("Replay TTL must be a positive number.")
+        if numeric <= 0:
+            raise RuntimeError("Replay TTL must be a positive number.")
+        ttl = int(round(numeric))
+        return max(1, ttl)
+
+    @staticmethod
+    def _resolve_crosshair_percentage(value: str, axis: str) -> Optional[float]:
+        raw_value = (value or "").strip()
+        if not raw_value:
+            return None
+        multiplier = 1.0
+        mode: Optional[str] = None
+        base = BASE_WIDTH if axis.upper() == "X" else BASE_HEIGHT
+        if raw_value.lower().endswith("px"):
+            raw_value = raw_value[:-2].strip()
+            multiplier = 100.0 / base
+            mode = "px"
+        elif raw_value.endswith("%"):
+            raw_value = raw_value[:-1].strip()
+            mode = "%"
+        else:
+            # Unlabelled inputs are interpreted as pixels.
+            multiplier = 100.0 / base
+            mode = "px"
+        try:
+            numeric = float(raw_value)
+        except ValueError:
+            raise RuntimeError(
+                f"Crosshair {axis} must be a percent with '%' (e.g. 50%) or a pixel value (e.g. 640 or 640px) relative to a 1280x960 window."
+            )
+        numeric *= multiplier
+        if mode == "%":
+            if numeric < 0.0 or numeric > 100.0:
+                raise RuntimeError(f"Crosshair {axis} value must be between 0 and 100 (received {numeric:g}).")
+        if numeric < 0.0 or numeric > 100.0:
+            raise RuntimeError(f"Crosshair {axis} value must be between 0 and 100 (received {numeric:g}).")
+        return numeric
+
+    def _sleep_with_stop_check(self, seconds: float) -> None:
+        time.sleep(max(0.0, seconds))
+
+    def _launch_mock_window(
+        self,
+        width: int,
+        height: int,
+        *,
+        crosshair_x: Optional[float] = None,
+        crosshair_y: Optional[float] = None,
+    ) -> subprocess.Popen[Any]:
+        if not MOCK_WINDOW_PATH.exists():
+            raise RuntimeError(f"Mock window script not found at {MOCK_WINDOW_PATH}.")
+        env = dict(os.environ)
+        env["MOCK_ELITE_WIDTH"] = str(width)
+        env["MOCK_ELITE_HEIGHT"] = str(height)
+        command = [
+            sys.executable,
+            str(MOCK_WINDOW_PATH),
+            "--title",
+            MOCK_WINDOW_TITLE,
+            "--size",
+            f"{width}x{height}",
+        ]
+        if crosshair_x is not None:
+            command.extend(["--crosshair-x", f"{crosshair_x:g}"])
+        if crosshair_y is not None:
+            command.extend(["--crosshair-y", f"{crosshair_y:g}"])
+        try:
+            process = subprocess.Popen(command, cwd=ROOT_DIR, env=env)
+            self._active_mock_process = process
+            return process
+        except OSError as exc:
+            raise RuntimeError(f"Failed to launch mock window: {exc}") from exc
+
+    def _terminate_mock_window(self, process: Optional[subprocess.Popen[Any]]) -> None:
+        if process is None:
+            return
+        if process.poll() is not None:
+            if process is self._active_mock_process:
+                self._active_mock_process = None
+            return
+        try:
+            process.terminate()
+        except Exception:
+            pass
+        try:
+            process.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+                try:
+                    process.kill()
+                    process.wait(timeout=1.0)
+                except Exception:
+                    pass
+        if process is self._active_mock_process:
+            self._active_mock_process = None
+
+    @staticmethod
+    def _log_path_for_group_label(label_value: Optional[object]) -> Optional[Path]:
+        if not isinstance(label_value, str):
+            return None
+        slug = label_value.strip().lower().replace(" ", "_")
+        if not slug:
+            return None
+        candidate = PAYLOAD_STORE_DIR / f"{slug}.log"
+        if candidate.exists():
+            return candidate
+        return None
+
+    def _play_group_log(self, log_path: Path) -> None:
+        title = "Replay payloads"
+        try:
+            ttl_value = self._resolve_replay_ttl()
+            crosshair_x = self._resolve_crosshair_percentage(self.crosshair_x_var.get(), "X")
+            crosshair_y = self._resolve_crosshair_percentage(self.crosshair_y_var.get(), "Y")
+            port = self._load_overlay_port()
+            self._wait_for_overlay_ready(port)
+            messages = self._load_payloads_from_log(log_path)
+        except RuntimeError as exc:
+            self._report_playback_error(title, str(exc))
+            return
+        if not messages:
+            messagebox.showinfo(title, f"No playable payloads were found in {log_path.name}.")
+            return
+        resolutions = self._selected_replay_resolutions()
+        if not resolutions:
+            resolutions = [(1280, 960)]
+        total_resolutions = len(resolutions)
+        for idx, resolution in enumerate(resolutions, start=1):
+            label = f"{resolution[0]}x{resolution[1]}"
+            self.status_var.set(f"Replaying {log_path.name} at {label} ({idx}/{total_resolutions})…")
+            self.root.update_idletasks()
+            mock_process = None
+            try:
+                width, height = resolution
+                mock_process = self._launch_mock_window(width, height, crosshair_x=crosshair_x, crosshair_y=crosshair_y)
+                self._sleep_with_stop_check(REPLAY_WINDOW_WAIT_SECONDS)
+                total = len(messages)
+                for seq, payload in enumerate(messages, start=1):
+                    payload_copy = json.loads(json.dumps(payload))
+                    payload_body = payload_copy.get("payload")
+                    if isinstance(payload_body, dict):
+                        payload_body["ttl"] = ttl_value
+                    meta = payload_copy.setdefault("meta", {})
+                    if isinstance(meta, dict):
+                        meta.setdefault("sequence", seq)
+                        meta.setdefault("count", total)
+                        if resolution is not None:
+                            meta["resolution"] = label
+                    response = self._send_payload_to_client(port, payload_copy)
+                    if response.get("status") != "ok":
+                        error_msg = response.get("error") or response
+                        self._report_playback_error(title, f"Overlay client reported an error for payload {seq}: {error_msg}")
+                        return
+                self._sleep_with_stop_check(ttl_value + 2.0)
+            finally:
+                self._terminate_mock_window(mock_process)
+        success_msg = f"Sent {len(messages)} payload(s) from {log_path.name}."
+        self.status_var.set(success_msg)
+
+    @staticmethod
+    def _report_playback_error(title: str, message: str) -> None:
+        print(f"[plugin-group-manager] {title}: {message}", file=sys.stderr)
+        messagebox.showerror(title, message)
+
+    def _load_overlay_port(self) -> int:
+        try:
+            port_data = json.loads(PORT_PATH.read_text(encoding="utf-8"))
+        except FileNotFoundError as exc:
+            raise RuntimeError(f"port.json was not found at {PORT_PATH}") from exc
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Failed to parse port.json: {exc}") from exc
+        port = port_data.get("port")
+        if not isinstance(port, int) or port <= 0:
+            raise RuntimeError(f"port.json did not contain a valid port number: {port}")
+        return port
+
+    def _wait_for_overlay_ready(self, port: int, timeout: float = 30.0) -> None:
+        deadline = time.monotonic() + timeout
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=2.0):
+                    return
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(
+                        f"Timed out waiting for the overlay broadcaster on port {port}: {exc}"
+                    ) from exc
+                time.sleep(0.5)
+
+    def _load_payloads_from_log(self, log_path: Path) -> List[Dict[str, Any]]:
+        if not log_path.exists():
+            raise RuntimeError(f"Log file not found: {log_path}")
+        messages: List[Dict[str, Any]] = []
+        try:
+            with log_path.open("r", encoding="utf-8") as handle:
+                for line_no, line in enumerate(handle, start=1):
+                    payload = self._extract_payload_from_log_line(line, line_no, log_path)
+                    if payload is None:
+                        continue
+                    messages.append(payload)
+        except OSError as exc:
+            raise RuntimeError(f"Failed to read {log_path}: {exc}") from exc
+        return messages
+
+    @staticmethod
+    def _extract_payload_from_log_line(raw_line: str, line_no: int, log_path: Path) -> Optional[Dict[str, Any]]:
+        record = PluginGroupManagerApp._extract_json_segment(raw_line)
+        if record is None:
+            return None
+        payload_obj = record.get("raw")
+        if not isinstance(payload_obj, dict):
+            payload_obj = record.get("payload")
+        if not isinstance(payload_obj, dict):
+            payload_obj = record
+        if not isinstance(payload_obj, dict):
+            return None
+        payload = dict(payload_obj)
+        payload_type = payload.get("type")
+        if isinstance(payload_type, str):
+            payload_type_cf = payload_type.casefold()
+            if payload_type_cf == "legacy_clear":
+                return None
+        if str(payload.get("event") or "").strip().lower() == "legacyoverlay":
+            payload.setdefault("event", "LegacyOverlay")
+            payload_type = str(payload.get("type") or "message").lower()
+            if payload_type == "message":
+                text_value = str(payload.get("text") or "").strip()
+                if not text_value:
+                    return None
+        ttl_value = payload.get("ttl")
+        if isinstance(ttl_value, (int, float)) and ttl_value <= 0:
+            return None
+        event = payload.get("event") or record.get("event")
+        if not isinstance(event, str) or not event:
+            return None
+        payload["event"] = event
+        return {
+            "cli": "legacy_overlay",
+            "payload": payload,
+            "meta": {
+                "source": "plugin_group_manager",
+                "logfile": str(log_path),
+                "line": line_no,
+            },
+        }
+
+    @staticmethod
+    def _extract_json_segment(line: str) -> Optional[Dict[str, Any]]:
+        start = line.find("{")
+        if start == -1:
+            return None
+        segment = line[start:]
+        try:
+            return json.loads(segment)
+        except json.JSONDecodeError:
+            return None
+
+    @staticmethod
+    def _send_payload_to_client(port: int, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        message = json.dumps(payload, ensure_ascii=False)
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=5.0) as sock:
+                sock.settimeout(5.0)
+                writer = sock.makefile("w", encoding="utf-8", newline="\n")
+                reader = sock.makefile("r", encoding="utf-8")
+                writer.write(message)
+                writer.write("\n")
+                writer.flush()
+                for _ in range(10):
+                    response_line = reader.readline()
+                    if not response_line:
+                        raise RuntimeError("Connection closed before acknowledgement was received.")
+                    try:
+                        response = json.loads(response_line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(response, Mapping) and "status" in response:
+                        return dict(response)
+                raise RuntimeError("Did not receive an acknowledgement from the overlay client.")
+        except OSError as exc:
+            raise RuntimeError(
+                f"Failed to send payload to the overlay client on port {port}: {exc}. "
+                "Ensure the Modern Overlay window is running."
+            ) from exc
+
     def _on_group_selected(self) -> None:
         name = self.selected_group_var.get()
         self._render_selected_group(name if name else None)
@@ -2102,19 +2737,17 @@ class PluginGroupManagerApp:
         if not records:
             return unmatched
 
-        view_match_data: List[Tuple[str, List[str], List[str]]] = []
+        view_match_data: List[Tuple[str, List[str], List[PrefixEntry]]] = []
         for view in views:
             match_prefixes = [
                 prefix.casefold()
                 for prefix in view.get("match_prefixes", [])
                 if isinstance(prefix, str) and prefix.strip()
             ]
-            grouping_prefixes: List[str] = []
+            grouping_prefixes: List[PrefixEntry] = []
             for entry in view.get("groupings", []):
-                prefixes = entry.get("prefixes") or []
-                for prefix in prefixes:
-                    if isinstance(prefix, str) and prefix.strip():
-                        grouping_prefixes.append(prefix.casefold())
+                raw_entries = entry.get("prefixEntries") or entry.get("prefixes") or []
+                grouping_prefixes.extend(parse_prefix_entries(raw_entries))
             view_match_data.append((view["name"], match_prefixes, grouping_prefixes))
 
         for record in records:
@@ -2130,7 +2763,7 @@ class PluginGroupManagerApp:
                     continue
                 if not any(payload_cf.startswith(prefix) for prefix in match_prefixes):
                     continue
-                if grouping_prefixes and any(payload_cf.startswith(prefix) for prefix in grouping_prefixes):
+                if grouping_prefixes and any(prefix.matches(payload_id) for prefix in grouping_prefixes):
                     continue
                 unmatched[name].append(payload_id)
         return unmatched
