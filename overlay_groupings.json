@@ -9,22 +9,20 @@
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
         ],
-        "idPrefixGroupAnchor": "top",
-        "offsetX": 500,
-        "payloadJustification": "center"
+        "idPrefixGroupAnchor": "ne",
+        "offsetX": 1280,
+        "payloadJustification": "right"
       },
       "BGS-Tally Tick Notifications": {
         "idPrefixes": [
           "bgstally-msg-tick-",
           "bgstally-msg-system_tick-",
-          "bgstally-msg-tickwarn-",
-          "bgstally-frame-system_tick",
-          "bgstally-frame-tick"
+          "bgstally-frame-system_tick"
         ],
-        "idPrefixGroupAnchor": "nw",
-        "offsetX": -200,
-        "offsetY": 200,
-        "payloadJustification": "left"
+        "idPrefixGroupAnchor": "ne",
+        "offsetX": -190,
+        "offsetY": 150,
+        "payloadJustification": "right"
       },
       "BGS-Tally System Info": {
         "idPrefixes": [

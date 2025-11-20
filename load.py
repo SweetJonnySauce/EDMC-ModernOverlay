@@ -697,7 +697,7 @@ class _PluginRuntime:
             self._payload_filter_mtime = stat.st_mtime
             return
         excludes: Set[str] = set()
-        enabled = False
+        logging_override: Optional[bool] = None
         trace_enabled = False
         trace_payload_ids: Tuple[str, ...] = ()
         capture_client_stderrout = False
@@ -738,9 +738,9 @@ class _PluginRuntime:
             if isinstance(payload_section, Mapping):
                 enabled_value = payload_section.get("overlay_payload_log_enabled")
                 if isinstance(enabled_value, bool):
-                    enabled = enabled_value
+                    logging_override = enabled_value
                 elif enabled_value is not None:
-                    enabled = bool(enabled_value)
+                    logging_override = bool(enabled_value)
                 exclude_values = payload_section.get("exclude_plugins")
                 if isinstance(exclude_values, Iterable):
                     for value in exclude_values:
@@ -756,9 +756,9 @@ class _PluginRuntime:
                                 excludes.add(value.strip().lower())
                 legacy_flag = data.get("log_payloads")
                 if isinstance(legacy_flag, bool):
-                    enabled = legacy_flag
+                    logging_override = legacy_flag
                 elif legacy_flag is not None:
-                    enabled = bool(legacy_flag)
+                    logging_override = bool(legacy_flag)
             tracing_section = data.get("tracing")
             payload_value: Any = None
             if isinstance(tracing_section, Mapping):
@@ -781,7 +781,8 @@ class _PluginRuntime:
         else:
             log_retention_override = None
         self._payload_filter_excludes = excludes
-        self._payload_logging_enabled = pref_logging_enabled
+        effective_logging = pref_logging_enabled if logging_override is None else logging_override
+        self._payload_logging_enabled = effective_logging
         self._trace_enabled = trace_enabled
         self._trace_payload_prefixes = trace_payload_ids
         self._apply_capture_override(capture_client_stderrout)
