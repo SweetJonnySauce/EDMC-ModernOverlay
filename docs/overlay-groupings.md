@@ -147,6 +147,7 @@ The helper enforces the schema, lowercases prefixes, ensures per-plugin uniquene
 ## Example 1: Center a text string at the top center of the screen
 
 <img width="1919" height="112" alt="image" src="https://github.com/user-attachments/assets/e57a15cf-2026-4cc6-b2a8-6ed5d57fc936" />
+(screenshot not the same as the example)
 
 Call the grouping helper **once at plugin startup** to keep your group anchored to the top edge while horizontally aligning every payload around its midpoint:
 
