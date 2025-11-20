@@ -199,6 +199,7 @@ class _LegacyPaintCommand:
     justification_dx: float = 0.0
     base_overlay_bounds: Optional[Tuple[float, float, float, float]] = None
     reference_overlay_bounds: Optional[Tuple[float, float, float, float]] = None
+    debug_vertices: Optional[Sequence[Tuple[int, int]]] = None
 
     def paint(self, window: "OverlayWindow", painter: QPainter, offset_x: int, offset_y: int) -> None:
         raise NotImplementedError
@@ -596,6 +597,7 @@ class OverlayWindow(QWidget):
             DEBUG_CONFIG_ENABLED
             or debug_config.overlay_outline
             or debug_config.group_bounds_outline
+            or debug_config.payload_vertex_markers
             or debug_config.trace_enabled
         )
         self._dev_mode_enabled: bool = dev_mode_active
@@ -3028,6 +3030,8 @@ class OverlayWindow(QWidget):
             self._debug_group_state = {}
         window_width = max(self.width(), 0)
         window_height = max(self.height(), 0)
+        draw_vertex_markers = self._dev_mode_enabled and self._debug_config.payload_vertex_markers
+        vertex_points: List[Tuple[int, int]] = []
         for command in commands:
             key_tuple = command.group_key.as_tuple()
             translation_x, translation_y = anchor_translation_by_group.get(key_tuple, (0.0, 0.0))
@@ -3037,6 +3041,35 @@ class OverlayWindow(QWidget):
             payload_offset_y = translation_y + nudge_y
             self._log_offscreen_payload(command, payload_offset_x, payload_offset_y, window_width, window_height)
             command.paint(self, painter, payload_offset_x, payload_offset_y)
+            if draw_vertex_markers and command.bounds:
+                left, top, right, bottom = command.bounds
+                group_corners = [
+                    (left, top),
+                    (right, top),
+                    (left, bottom),
+                    (right, bottom),
+                ]
+                trace_vertices = self._should_trace_payload(
+                    getattr(command.legacy_item, "plugin", None),
+                    command.legacy_item.item_id,
+                )
+                for px, py in group_corners:
+                    adjusted_x = int(round(float(px) + payload_offset_x))
+                    adjusted_y = int(round(float(py) + payload_offset_y))
+                    vertex_points.append((adjusted_x, adjusted_y))
+                    if trace_vertices:
+                        self._log_legacy_trace(
+                            command.legacy_item.plugin,
+                            command.legacy_item.item_id,
+                            "debug:payload_vertex",
+                            {
+                                "pixel_x": adjusted_x,
+                                "pixel_y": adjusted_y,
+                                "payload_kind": getattr(command.legacy_item, "kind", "unknown"),
+                            },
+                        )
+        if draw_vertex_markers and vertex_points:
+            self._draw_payload_vertex_markers(painter, vertex_points)
         if collect_debug_helpers:
             self._draw_group_debug_helpers(painter, mapper)
 
@@ -3432,6 +3465,7 @@ class OverlayWindow(QWidget):
         self._debug_legacy_point_size = scaled_point_size
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
+        right_justification_delta = 0.0
         if trace_enabled and not collect_only:
             self._log_legacy_trace(
                 plugin_name,
@@ -3459,7 +3493,20 @@ class OverlayWindow(QWidget):
         base_left_logical = adjusted_left
         base_top_logical = adjusted_top
         if mapper.transform.mode is ScaleMode.FILL:
-            translation_dx = base_translation_dx
+            right_justification_delta = self._right_justification_delta(group_transform, raw_left)
+            translation_dx = base_translation_dx - right_justification_delta
+            if trace_enabled and not collect_only:
+                self._log_legacy_trace(
+                    plugin_name,
+                    item_id,
+                    "paint:message_translation",
+                    {
+                        "base_translation_dx": base_translation_dx,
+                        "base_translation_dy": base_translation_dy,
+                        "right_justification_delta": right_justification_delta,
+                        "applied_translation_dx": translation_dx,
+                    },
+                )
             adjusted_left += translation_dx
             adjusted_top += base_translation_dy
             if selected_anchor is not None:
@@ -3484,7 +3531,8 @@ class OverlayWindow(QWidget):
         metrics = QFontMetrics(metrics_font)
         text_width = metrics.horizontalAdvance(text)
         x = int(round(fill.screen_x(adjusted_left)))
-        baseline = int(round(fill.screen_y(adjusted_top) + metrics.ascent()))
+        payload_point_y = int(round(fill.screen_y(adjusted_top)))
+        baseline = int(round(payload_point_y + metrics.ascent()))
         center_x = x + text_width // 2
         top = baseline - metrics.ascent()
         bottom = baseline + metrics.descent()
@@ -3499,7 +3547,8 @@ class OverlayWindow(QWidget):
             overlay_bottom = (bounds[3] - base_offset_y) / scale
             overlay_bounds = (overlay_left, overlay_top, overlay_right, overlay_bottom)
             base_x = int(round(fill.screen_x(base_left_logical)))
-            base_baseline = int(round(fill.screen_y(base_top_logical) + metrics.ascent()))
+            base_base_y = int(round(fill.screen_y(base_top_logical)))
+            base_baseline = int(round(base_base_y + metrics.ascent()))
             base_top = base_baseline - metrics.ascent()
             base_bottom = base_baseline + metrics.descent()
             base_bounds = (base_x, base_top, base_x + text_width, base_bottom)
@@ -3551,6 +3600,7 @@ class OverlayWindow(QWidget):
             cycle_anchor=(center_x, center_y),
             trace_fn=trace_fn,
             base_overlay_bounds=base_overlay_bounds,
+            debug_vertices=[(x, payload_point_y)],
         )
         return command
 
@@ -3744,6 +3794,12 @@ class OverlayWindow(QWidget):
             cycle_anchor=(center_x, center_y),
             base_overlay_bounds=base_overlay_bounds,
             reference_overlay_bounds=reference_overlay_bounds,
+            debug_vertices=[
+                (x, y),
+                (x + w, y),
+                (x, y + h),
+                (x + w, y + h),
+            ],
         )
         if trace_enabled and not collect_only:
             self._log_legacy_trace(
@@ -3936,8 +3992,7 @@ class OverlayWindow(QWidget):
             def trace_fn(stage: str, details: Mapping[str, Any]) -> None:
                 self._log_legacy_trace(plugin_name, item_id, stage, details)
 
-        px_list: List[int] = []
-        py_list: List[int] = []
+        screen_points: List[Tuple[int, int]] = []
         for point in vector_payload.get("points", []):
             try:
                 mapped_x = float(point.get("x", 0.0)) * scale + base_offset_x
@@ -3946,16 +4001,17 @@ class OverlayWindow(QWidget):
                 continue
             px = int(round(mapped_x))
             py = int(round(mapped_y))
-            px_list.append(px)
-            py_list.append(py)
+            screen_points.append((px, py))
         bounds: Optional[Tuple[int, int, int, int]]
         cycle_anchor: Optional[Tuple[int, int]]
         overlay_bounds: Optional[Tuple[float, float, float, float]]
-        if px_list and py_list:
-            bounds = (min(px_list), min(py_list), max(px_list), max(py_list))
+        if screen_points:
+            xs = [pt[0] for pt in screen_points]
+            ys = [pt[1] for pt in screen_points]
+            bounds = (min(xs), min(ys), max(xs), max(ys))
             cycle_anchor = (
-                int(round((min(px_list) + max(px_list)) / 2.0)),
-                int(round((min(py_list) + max(py_list)) / 2.0)),
+                int(round((min(xs) + max(xs)) / 2.0)),
+                int(round((min(ys) + max(ys)) / 2.0)),
             )
             if (
                 math.isfinite(overlay_min_x)
@@ -4003,6 +4059,7 @@ class OverlayWindow(QWidget):
             trace_fn=trace_fn,
             cycle_anchor=cycle_anchor,
             base_overlay_bounds=base_overlay_bounds,
+            debug_vertices=tuple(screen_points),
         )
         return command
 
@@ -4165,6 +4222,19 @@ class OverlayWindow(QWidget):
                 )
 
         return _emit
+
+    def _draw_payload_vertex_markers(self, painter: QPainter, points: Sequence[Tuple[int, int]]) -> None:
+        if not points:
+            return
+        painter.save()
+        pen = QPen(QColor("#ff3333"))
+        pen.setWidth(max(1, self._line_width("vector_marker")))
+        painter.setPen(pen)
+        span = 3
+        for x, y in points:
+            painter.drawLine(x - span, y - span, x + span, y + span)
+            painter.drawLine(x - span, y + span, x + span, y - span)
+        painter.restore()
 
     def _draw_group_debug_helpers(self, painter: QPainter, mapper: LegacyMapper) -> None:
         if not self._debug_group_state:
