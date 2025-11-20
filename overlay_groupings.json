@@ -15,13 +15,13 @@
       },
       "BGS-Tally Tick Notifications": {
         "idPrefixes": [
-          "bgstally-msg-tick-",
           "bgstally-msg-system_tick-",
           "bgstally-frame-system_tick",
           {
             "value": "bgstally-frame-tick",
             "matchMode": "exact"
-          }
+          },
+          "bgstally-msg-tick-"
         ],
         "idPrefixGroupAnchor": "ne",
         "offsetX": 190,

@@ -1576,7 +1576,12 @@ class PluginGroupManagerApp:
     def __init__(self, log_dir_override: Optional[Path] = None) -> None:
         self._matcher = OverrideMatcher(GROUPINGS_PATH)
         self._locator = LogLocator(ROOT_DIR, override_dir=log_dir_override)
-        cache_path = self._locator.log_dir / "new-payloads.json"
+        cache_path = ROOT_DIR / "payload_store" / "new-payloads.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            cache_path.unlink()
+        except FileNotFoundError:
+            pass
         self._payload_store = NewPayloadStore(cache_path)
         self._group_store = GroupConfigStore(GROUPINGS_PATH)
         self._queue: "queue.Queue[Tuple[str, object]]" = queue.Queue()
@@ -1627,6 +1632,9 @@ class PluginGroupManagerApp:
         self._build_ui()
         self._refresh_group_data()
         self._update_payload_count()
+        self.root.after_idle(self._start_background_tasks)
+
+    def _start_background_tasks(self) -> None:
         self.root.after(200, self._process_queue)
         self.root.after(self._group_file_poll_ms, self._poll_groupings_file)
 
