@@ -189,9 +189,8 @@ Legacy calls always speak the 1280×960 virtual canvas and Modern Overlay scales
 
 ## Example 2: Right-justify a banner against the top-right edge
 
-<img width="357" height="215" alt="image" src="https://github.com/user-attachments/assets/dccd499b-904b-4ff1-987b-a6191a2bac85" />
+<img width="358" height="321" alt="image" src="https://github.com/user-attachments/assets/62d3e903-7396-4b07-be38-6a2a58954d3f" />
 (screenshot not the same as the example)
-
 
 Register the grouping **once at startup** so Modern Overlay anchors the block to the north-east corner while right-justifying the payload text:
 
