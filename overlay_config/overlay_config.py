@@ -54,6 +54,15 @@ class IdPrefixGroupWidget(tk.Frame):
         except Exception:
             pass
 
+    def _is_dropdown_open(self) -> bool:
+        """Return True when the combobox popdown is visible."""
+
+        try:
+            popdown = self.dropdown.tk.call("ttk::combobox::PopdownWindow", self.dropdown)
+            return bool(int(self.dropdown.tk.call("winfo", "viewable", popdown)))
+        except Exception:
+            return False
+
     def handle_key(self, keysym: str) -> bool:
         """Process keys while this widget has focus mode active."""
 
@@ -65,10 +74,11 @@ class IdPrefixGroupWidget(tk.Frame):
                 pass
             return True
         if key == "return":
-            try:
-                self.dropdown.event_generate("<Return>")
-            except Exception:
-                pass
+            if self._is_dropdown_open():
+                try:
+                    self.dropdown.event_generate("<Return>")
+                except Exception:
+                    pass
             return True
         return False
 
