@@ -519,7 +519,7 @@ class OverlayConfigApp(tk.Tk):
         self._drag_offset: tuple[int, int] | None = None
 
         self._placement_open = False
-        self._open_width = 960
+        self._open_width = 0
         self.sidebar_width = 260
         self.sidebar_pad = 12
         self.sidebar_pad_closed = 0
@@ -543,6 +543,7 @@ class OverlayConfigApp(tk.Tk):
         self.overlay_padding = 8
         self.overlay_border_width = 3
         self._focus_widgets: dict[tuple[str, int], object] = {}
+        self._current_direction = "right"
 
         self._build_layout()
         self._binding_config = BindingConfig.load()
@@ -678,7 +679,6 @@ class OverlayConfigApp(tk.Tk):
         )
         self._apply_placement_state()
         self._refresh_widget_focus()
-        self._current_direction = "left"
 
     def _build_sidebar_sections(self) -> None:
         """Create labeled boxes that will hold future controls."""
@@ -886,6 +886,10 @@ class OverlayConfigApp(tk.Tk):
         if hasattr(self, "sidebar_cells"):
             self._update_sidebar_highlight()
         self._update_placement_focus_highlight()
+        try:
+            self.indicator_wrapper.lift()
+        except Exception:
+            pass
 
     def close_application(self, event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Close the Overlay Controller window."""
@@ -1179,7 +1183,9 @@ class OverlayConfigApp(tk.Tk):
         sidebar_total_open = self.sidebar_width + self.sidebar_pad
         sidebar_total_closed = self.sidebar_width
         open_min_width = open_outer_padding + sidebar_total_open + self.placement_min_width
-        closed_min_width = closed_outer_padding + sidebar_total_closed + self.closed_min_width
+        closed_min_width = (
+            closed_outer_padding + sidebar_total_closed + self.closed_min_width + self.indicator_hit_width
+        )
 
         if self._placement_open:
             self.container.grid_configure(
@@ -1199,29 +1205,25 @@ class OverlayConfigApp(tk.Tk):
             self.minsize(open_min_width, 420)
             self.geometry(f"{int(target_width)}x{int(current_height)}")
             self._current_direction = "left"
-            self._show_indicator(direction="left")
         else:
             self.container.grid_configure(
                 padx=(self.container_pad_left, self.container_pad_right_closed)
             )
             self._current_right_pad = self.container_pad_right_closed
-            self._open_width = max(
-                self.winfo_width(),
-                self.winfo_reqwidth(),
-                open_min_width,
-            )
+            self._open_width = max(self._open_width or 0, self.winfo_width(), self.winfo_reqwidth(), open_min_width)
             self.placement_frame.grid_forget()
-            self.container.grid_columnconfigure(1, weight=0, minsize=0)
+            self.container.grid_columnconfigure(1, weight=0, minsize=self.indicator_hit_width)
             self.update_idletasks()
             collapsed_width = max(self.winfo_reqwidth(), closed_min_width)
             self.minsize(closed_min_width, 420)
             self.geometry(f"{int(collapsed_width)}x{int(current_height)}")
             self._current_direction = "right"
-            self._show_indicator(direction="right")
 
         pad = self.sidebar_pad if self._placement_open else self.sidebar_pad_closed
         self.sidebar.grid(row=0, column=0, sticky="nsew", padx=(0, pad))
         self._current_sidebar_pad = pad
+        self.update_idletasks()
+        self._show_indicator(direction=self._current_direction)
         self._refresh_widget_focus()
 
     def _show_indicator(self, direction: str) -> None:
@@ -1230,21 +1232,27 @@ class OverlayConfigApp(tk.Tk):
         self.update_idletasks()
         sidebar_right = self.sidebar.winfo_x() + self.sidebar.winfo_width()
         pad_between = self._current_sidebar_pad
-        gap_available = max(0, pad_between)
+        container_width = self.container.winfo_width()
+        reserved_after_sidebar = max(0, container_width - sidebar_right)
+        gap_available = pad_between if pad_between > 0 else reserved_after_sidebar
         hit_width = max(
             self.indicator_width,
             min(self.indicator_hit_width, gap_available or self.indicator_width),
         )
         self.indicator_wrapper.config(width=hit_width)
         if gap_available > 0:
-            indicator_x = sidebar_right + (gap_available - hit_width) / 2
+            indicator_x = sidebar_right + max(0, (gap_available - hit_width) / 2)
         else:
-            indicator_x = sidebar_right
+            indicator_x = max(0, container_width - hit_width)
         y = max(
             self.container_pad_vertical,
             (self.container.winfo_height() - self.indicator_height) / 2,
         )
         self.indicator_wrapper.place(x=indicator_x, y=y)
+        try:
+            self.indicator_wrapper.lift()
+        except Exception:
+            pass
         self.indicator_canvas.delete("all")
         arrow_height = self.indicator_height / self.indicator_count
         for i in range(self.indicator_count):
@@ -1299,6 +1307,11 @@ class OverlayConfigApp(tk.Tk):
         try:
             self.deiconify()
             self.lift()
+        except Exception:
+            pass
+        # Ensure indicator is positioned after the first real layout pass.
+        try:
+            self.after_idle(lambda: self._show_indicator(direction=self._current_direction))
         except Exception:
             pass
 
