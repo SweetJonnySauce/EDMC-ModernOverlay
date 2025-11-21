@@ -82,6 +82,7 @@ class OverlayConfigApp(tk.Tk):
         self.title("Overlay Config")
         self.geometry("960x600")
         self.minsize(640, 420)
+        self._closing = False
         self._pending_close_job: str | None = None
         self._focus_close_delay_ms = 200
         self._moving_guard_job: str | None = None
@@ -416,6 +417,8 @@ class OverlayConfigApp(tk.Tk):
     def close_application(self, event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Close the Overlay Config window."""
 
+        if self._closing:
+            return
         if event is not None:
             keysym = getattr(event, "keysym", "") or ""
             if keysym.lower() == "escape" and not self.widget_select_mode:
@@ -424,16 +427,6 @@ class OverlayConfigApp(tk.Tk):
             if self._handle_active_widget_key(keysym):
                 return
 
-        if self._is_focus_out_event(event):
-            # Ignore focus changes that stay within this window or its popdowns.
-            if self._is_internal_focus_shift(event) or self._is_focus_within_app():
-                return
-            if self._moving_guard_active:
-                self._pending_focus_out = True
-                return
-            self._schedule_focus_out_close()
-            return
-
         self._finalize_close()
 
     def _finalize_close(self) -> None:
@@ -441,6 +434,7 @@ class OverlayConfigApp(tk.Tk):
 
         self._cancel_pending_close()
         self._pending_focus_out = False
+        self._closing = True
         self.destroy()
 
     def _handle_focus_in(self, _event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]
@@ -486,13 +480,17 @@ class OverlayConfigApp(tk.Tk):
             self._pending_close_job = None
 
     def _schedule_focus_out_close(self) -> None:
+        if self._closing:
+            # Already on path to close; avoid re-arming timers.
+            return
         self._cancel_pending_close()
-        self._pending_close_job = self.after(self._focus_close_delay_ms, self._close_if_unfocused)
+        self._pending_close_job = self.after_idle(self._finalize_close)
 
     def _close_if_unfocused(self) -> None:
         self._pending_close_job = None
         self._pending_focus_out = False
         if self._is_focus_within_app():
+            self._closing = False
             return
         self._finalize_close()
 

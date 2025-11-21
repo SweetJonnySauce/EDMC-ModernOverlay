@@ -6,8 +6,7 @@
       "display_name": "Keyboard (default)",
       "bindings": {
         "close_app": [
-          "<Escape>",
-          "<FocusOut>"
+          "<Escape>"
         ],
         "indicator_toggle": [
           "<Button-1>"
