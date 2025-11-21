@@ -507,7 +507,7 @@ class OverlayConfigApp(tk.Tk):
         super().__init__()
         self.withdraw()
         self.title("Overlay Controller")
-        self.geometry("760x560")
+        self.geometry("720x560")
         self.minsize(640, 420)
         self._closing = False
         self._pending_close_job: str | None = None
@@ -1204,18 +1204,27 @@ class OverlayConfigApp(tk.Tk):
             target_width = max(self._open_width, self.winfo_reqwidth(), open_min_width)
             self.minsize(open_min_width, 420)
             self.geometry(f"{int(target_width)}x{int(current_height)}")
+            self._open_width = max(self._open_width, self.winfo_width(), self.winfo_reqwidth(), open_min_width)
             self._current_direction = "left"
         else:
             self.container.grid_configure(
                 padx=(self.container_pad_left, self.container_pad_right_closed)
             )
             self._current_right_pad = self.container_pad_right_closed
-            self._open_width = max(self._open_width or 0, self.winfo_width(), self.winfo_reqwidth(), open_min_width)
             self.placement_frame.grid_forget()
             self.container.grid_columnconfigure(1, weight=0, minsize=self.indicator_hit_width)
             self.update_idletasks()
-            collapsed_width = max(self.winfo_reqwidth(), closed_min_width)
-            self.minsize(closed_min_width, 420)
+            sidebar_width = max(self.sidebar_width, self.sidebar.winfo_reqwidth())
+            pad_between = self.sidebar_pad_closed
+            collapsed_width = (
+                self.container_pad_left
+                + self.container_pad_right_closed
+                + pad_between
+                + sidebar_width
+                + self.indicator_hit_width
+            )
+            collapsed_width = max(collapsed_width, closed_min_width)
+            self.minsize(collapsed_width, 420)
             self.geometry(f"{int(collapsed_width)}x{int(current_height)}")
             self._current_direction = "right"
 
@@ -1232,18 +1241,12 @@ class OverlayConfigApp(tk.Tk):
         self.update_idletasks()
         sidebar_right = self.sidebar.winfo_x() + self.sidebar.winfo_width()
         pad_between = self._current_sidebar_pad
-        container_width = self.container.winfo_width()
-        reserved_after_sidebar = max(0, container_width - sidebar_right)
-        gap_available = pad_between if pad_between > 0 else reserved_after_sidebar
-        hit_width = max(
-            self.indicator_width,
-            min(self.indicator_hit_width, gap_available or self.indicator_width),
-        )
+        gap_available = pad_between if pad_between > 0 else self.indicator_hit_width
+        hit_width = min(self.indicator_hit_width, max(self.indicator_width, gap_available))
         self.indicator_wrapper.config(width=hit_width)
-        if gap_available > 0:
-            indicator_x = sidebar_right + max(0, (gap_available - hit_width) / 2)
-        else:
-            indicator_x = max(0, container_width - hit_width)
+        right_bias = max(0, hit_width - self.indicator_width)
+        indicator_x = sidebar_right + max(0, (gap_available - hit_width) / 2) - right_bias
+        indicator_x = max(0, indicator_x)
         y = max(
             self.container_pad_vertical,
             (self.container.winfo_height() - self.indicator_height) / 2,
