@@ -507,7 +507,7 @@ class OverlayConfigApp(tk.Tk):
         super().__init__()
         self.withdraw()
         self.title("Overlay Controller")
-        self.geometry("960x600")
+        self.geometry("760x560")
         self.minsize(640, 420)
         self._closing = False
         self._pending_close_job: str | None = None
