@@ -48,8 +48,11 @@ class IdPrefixGroupWidget(tk.Frame):
     def on_focus_exit(self) -> None:
         """Called when the host exits focus mode for this widget."""
 
-        # No-op for now; placeholder for future controls.
-        return
+        try:
+            # Return focus to the toplevel so no inner control keeps focus.
+            self.winfo_toplevel().focus_set()
+        except Exception:
+            pass
 
     def handle_key(self, keysym: str) -> bool:
         """Process keys while this widget has focus mode active."""
@@ -292,9 +295,9 @@ class OverlayConfigApp(tk.Tk):
     def focus_sidebar_up(self) -> None:
         """Move sidebar focus upward."""
 
-        if self._handle_active_widget_key("Up"):
-            return "break"
         if not self.widget_select_mode:
+            if self._handle_active_widget_key("Up"):
+                return "break"
             return
         if not getattr(self, "sidebar_cells", None):
             return
@@ -305,9 +308,9 @@ class OverlayConfigApp(tk.Tk):
     def focus_sidebar_down(self) -> None:
         """Move sidebar focus downward."""
 
-        if self._handle_active_widget_key("Down"):
-            return "break"
         if not self.widget_select_mode:
+            if self._handle_active_widget_key("Down"):
+                return "break"
             return
         if not getattr(self, "sidebar_cells", None):
             return
@@ -354,9 +357,9 @@ class OverlayConfigApp(tk.Tk):
     def move_widget_focus_left(self) -> None:
         """Handle left arrow behavior in widget select mode."""
 
-        if self._handle_active_widget_key("Left"):
-            return "break"
         if not self.widget_select_mode:
+            if self._handle_active_widget_key("Left"):
+                return "break"
             return
         if self.widget_focus_area == "placement":
             self.widget_focus_area = "sidebar"
@@ -370,9 +373,9 @@ class OverlayConfigApp(tk.Tk):
     def move_widget_focus_right(self) -> None:
         """Handle right arrow behavior in widget select mode."""
 
-        if self._handle_active_widget_key("Right"):
-            return "break"
         if not self.widget_select_mode:
+            if self._handle_active_widget_key("Right"):
+                return "break"
             return
         if self.widget_focus_area == "sidebar":
             if not self._placement_open:
@@ -557,14 +560,11 @@ class OverlayConfigApp(tk.Tk):
         return self._focus_widgets.get(key)
 
     def _handle_active_widget_key(self, keysym: str) -> bool:
+        if self.widget_select_mode:
+            return False
         widget = self._get_active_focus_widget()
         if widget is None:
             return False
-
-        if self.widget_select_mode:
-            self.widget_select_mode = False
-            self._on_focus_mode_entered()
-            self._refresh_widget_focus()
 
         if keysym.lower() == "escape":
             self.exit_focus_mode()
