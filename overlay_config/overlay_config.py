@@ -422,10 +422,8 @@ class OverlayConfigApp(tk.Tk):
                 return
 
         if self._is_focus_out_event(event):
-            if self._is_internal_focus_shift(event):
-                return
-            if not self.widget_select_mode:
-                # Suppress close while a widget is in focus mode (e.g., dropdown popdowns).
+            # Ignore focus changes that stay within this window or its popdowns.
+            if self._is_internal_focus_shift(event) or self._is_focus_within_app():
                 return
             if self._moving_guard_active:
                 self._pending_focus_out = True
@@ -494,7 +492,7 @@ class OverlayConfigApp(tk.Tk):
     def _close_if_unfocused(self) -> None:
         self._pending_close_job = None
         self._pending_focus_out = False
-        if self._is_app_focused():
+        if self._is_focus_within_app():
             return
         self._finalize_close()
 
@@ -511,6 +509,24 @@ class OverlayConfigApp(tk.Tk):
         except Exception:
             return None
 
+    def _is_focus_within_app(self) -> bool:
+        """Return True if focus is within this window or a known popdown."""
+
+        focus_widget = self._safe_focus_get()
+        if focus_widget is None:
+            return False
+        try:
+            if focus_widget.winfo_toplevel() == self:
+                return True
+        except Exception:
+            return False
+        try:
+            klass = focus_widget.winfo_class().lower()
+            name = focus_widget.winfo_name().lower()
+        except Exception:
+            return False
+        return "combobox" in klass or "popdown" in name
+
     def _is_internal_focus_shift(self, event: tk.Event[tk.Misc] | None) -> bool:  # type: ignore[name-defined]
         """Return True if focus is shifting within our widgets (e.g., combobox popdown)."""
 
@@ -526,12 +542,9 @@ class OverlayConfigApp(tk.Tk):
             try:
                 klass = widget.winfo_class().lower()
                 name = widget.winfo_name().lower()
-                toplevel = widget.winfo_toplevel()
             except Exception:
                 continue
             if "combobox" in klass or "popdown" in name:
-                return True
-            if toplevel == self:
                 return True
 
         return False
@@ -544,21 +557,26 @@ class OverlayConfigApp(tk.Tk):
         return self._focus_widgets.get(key)
 
     def _handle_active_widget_key(self, keysym: str) -> bool:
-        if self.widget_select_mode:
-            return False
-        if keysym.lower() == "escape":
-            self.exit_focus_mode()
-            return True
         widget = self._get_active_focus_widget()
         if widget is None:
             return False
+
+        if self.widget_select_mode:
+            self.widget_select_mode = False
+            self._on_focus_mode_entered()
+            self._refresh_widget_focus()
+
+        if keysym.lower() == "escape":
+            self.exit_focus_mode()
+            return True
+
         handler = getattr(widget, "handle_key", None)
-        if handler is None:
-            return False
         try:
-            return bool(handler(keysym))
+            handled = bool(handler(keysym)) if handler is not None else False
         except Exception:
-            return False
+            handled = True
+        # Always consume keys in focus mode to keep focus locked, unless Escape handled above.
+        return handled or True
 
     def _on_focus_mode_entered(self) -> None:
         widget = self._get_active_focus_widget()
