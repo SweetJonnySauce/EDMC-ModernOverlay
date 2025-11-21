@@ -2,13 +2,82 @@
 
 from __future__ import annotations
 
+import json
 import tkinter as tk
 import platform
 import re
 import subprocess
+from pathlib import Path
+from tkinter import ttk
 
 from input_bindings import BindingConfig, BindingManager
 from selection_overlay import SelectionOverlay
+
+
+class IdPrefixGroupWidget(tk.Frame):
+    """Composite control with a dropdown selector (placeholder for future inputs)."""
+
+    def __init__(self, parent: tk.Widget, options: list[str] | None = None) -> None:
+        super().__init__(parent, bd=0, highlightthickness=0, bg=parent.cget("background"))
+        self._choices = options or []
+        self._selection = tk.StringVar()
+
+        style = ttk.Style(self)
+        style.configure("Compact.TCombobox", padding=0)
+
+        probe = ttk.Combobox(self, style="Compact.TCombobox", font=("TkDefaultFont", 8))
+        probe.update_idletasks()
+        combo_height = max(1, probe.winfo_reqheight())
+        probe.destroy()
+
+        self.dropdown = ttk.Combobox(
+            self,
+            values=self._choices,
+            state="readonly",
+            textvariable=self._selection,
+            width=32,
+            style="Compact.TCombobox",
+            font=("TkDefaultFont", 8),
+        )
+        if self._choices:
+            self.dropdown.current(0)
+
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1, minsize=max(1, int(combo_height * 0.6)))
+
+        self.dropdown.grid(row=0, column=0, padx=2, pady=1, sticky="nsew")
+
+    def on_focus_enter(self) -> None:
+        """Called when the host enters focus mode for this widget."""
+
+        try:
+            self.dropdown.focus_set()
+        except Exception:
+            pass
+
+    def on_focus_exit(self) -> None:
+        """Called when the host exits focus mode for this widget."""
+
+        # No-op for now; placeholder for future controls.
+        return
+
+    def handle_key(self, keysym: str) -> bool:
+        """Process keys while this widget has focus mode active."""
+
+        key = keysym.lower()
+        if key in {"space", "down"}:
+            try:
+                self.dropdown.event_generate("<Down>")
+            except Exception:
+                pass
+            return True
+        if key == "return":
+            try:
+                self.dropdown.event_generate("<Return>")
+            except Exception:
+                pass
+            return True
+        return False
 
 
 class OverlayConfigApp(tk.Tk):
@@ -51,6 +120,7 @@ class OverlayConfigApp(tk.Tk):
         self.widget_select_mode = True
         self.overlay_padding = 8
         self.overlay_border_width = 3
+        self._focus_widgets: dict[tuple[str, int], object] = {}
 
         self._build_layout()
         self._binding_config = BindingConfig.load()
@@ -82,6 +152,7 @@ class OverlayConfigApp(tk.Tk):
         self._binding_manager.activate()
         self.bind("<Configure>", self._handle_configure)
         self.bind("<FocusIn>", self._handle_focus_in)
+        self.bind("<Return>", self._handle_return_key, add="+")
         self.after(0, self._center_and_show)
 
     def _build_layout(self) -> None:
@@ -188,8 +259,8 @@ class OverlayConfigApp(tk.Tk):
                 self.sidebar,
                 bd=0,
                 relief="flat",
-                width=220,
-                height=80,
+                width=240 if index == 0 else 220,
+                height=30 if index == 0 else 80,
             )
             frame.grid(
                 row=index,
@@ -202,14 +273,18 @@ class OverlayConfigApp(tk.Tk):
                 padx=(self.overlay_padding, self.overlay_padding),
             )
             frame.grid_propagate(True)
-            text_label = tk.Label(frame, text=label_text, anchor="center", padx=6, pady=6)
-            text_label.pack(fill="both", expand=True)
+            if index == 0:
+                self.idprefix_widget = IdPrefixGroupWidget(frame, options=self._load_idprefix_options())
+                self.idprefix_widget.pack(fill="both", expand=True, padx=4, pady=4)
+                self._focus_widgets[("sidebar", index)] = self.idprefix_widget
+            else:
+                text_label = tk.Label(frame, text=label_text, anchor="center", padx=6, pady=6)
+                text_label.pack(fill="both", expand=True)
             frame.bind(
                 "<Button-1>", lambda event, idx=index: self._handle_sidebar_click(idx), add="+"
             )
-            text_label.bind(
-                "<Button-1>", lambda event, idx=index: self._handle_sidebar_click(idx), add="+"
-            )
+            for child in frame.winfo_children():
+                child.bind("<Button-1>", lambda event, idx=index: self._handle_sidebar_click(idx), add="+")
             self.sidebar.grid_rowconfigure(index, weight=weight)
             self.sidebar_cells.append(frame)
 
@@ -227,6 +302,8 @@ class OverlayConfigApp(tk.Tk):
     def focus_sidebar_up(self) -> None:
         """Move sidebar focus upward."""
 
+        if self._handle_active_widget_key("Up"):
+            return "break"
         if not self.widget_select_mode:
             return
         if not getattr(self, "sidebar_cells", None):
@@ -238,6 +315,8 @@ class OverlayConfigApp(tk.Tk):
     def focus_sidebar_down(self) -> None:
         """Move sidebar focus downward."""
 
+        if self._handle_active_widget_key("Down"):
+            return "break"
         if not self.widget_select_mode:
             return
         if not getattr(self, "sidebar_cells", None):
@@ -262,6 +341,7 @@ class OverlayConfigApp(tk.Tk):
         self.widget_focus_area = "sidebar"
         self._set_sidebar_focus(index)
         self.widget_select_mode = False
+        self._on_focus_mode_entered()
         self._refresh_widget_focus()
         try:
             self.focus_set()
@@ -284,6 +364,8 @@ class OverlayConfigApp(tk.Tk):
     def move_widget_focus_left(self) -> None:
         """Handle left arrow behavior in widget select mode."""
 
+        if self._handle_active_widget_key("Left"):
+            return "break"
         if not self.widget_select_mode:
             return
         if self.widget_focus_area == "placement":
@@ -298,6 +380,8 @@ class OverlayConfigApp(tk.Tk):
     def move_widget_focus_right(self) -> None:
         """Handle right arrow behavior in widget select mode."""
 
+        if self._handle_active_widget_key("Right"):
+            return "break"
         if not self.widget_select_mode:
             return
         if self.widget_focus_area == "sidebar":
@@ -338,6 +422,14 @@ class OverlayConfigApp(tk.Tk):
 
     def close_application(self, event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Close the Overlay Config window."""
+
+        if event is not None:
+            keysym = getattr(event, "keysym", "") or ""
+            if keysym.lower() == "escape" and not self.widget_select_mode:
+                self.exit_focus_mode()
+                return
+            if self._handle_active_widget_key(keysym):
+                return
 
         if self._is_focus_out_event(event):
             if self._moving_guard_active:
@@ -412,8 +504,74 @@ class OverlayConfigApp(tk.Tk):
         self._finalize_close()
 
     def _is_app_focused(self) -> bool:
-        focus_widget = self.focus_get()
+        try:
+            focus_widget = self.focus_get()
+        except Exception:
+            return False
         return bool(focus_widget and focus_widget.winfo_toplevel() == self)
+
+    def _get_active_focus_widget(self) -> object | None:
+        if self.widget_focus_area == "sidebar":
+            key = ("sidebar", getattr(self, "_sidebar_focus_index", -1))
+        else:
+            return None
+        return self._focus_widgets.get(key)
+
+    def _handle_active_widget_key(self, keysym: str) -> bool:
+        if self.widget_select_mode:
+            return False
+        if keysym.lower() == "escape":
+            self.exit_focus_mode()
+            return True
+        widget = self._get_active_focus_widget()
+        if widget is None:
+            return False
+        handler = getattr(widget, "handle_key", None)
+        if handler is None:
+            return False
+        try:
+            return bool(handler(keysym))
+        except Exception:
+            return False
+
+    def _on_focus_mode_entered(self) -> None:
+        widget = self._get_active_focus_widget()
+        if widget is None:
+            return
+        handler = getattr(widget, "on_focus_enter", None)
+        if handler:
+            try:
+                handler()
+            except Exception:
+                pass
+
+    def _on_focus_mode_exited(self) -> None:
+        widget = self._get_active_focus_widget()
+        if widget is None:
+            return
+        handler = getattr(widget, "on_focus_exit", None)
+        if handler:
+            try:
+                handler()
+            except Exception:
+                pass
+
+    def _load_idprefix_options(self) -> list[str]:
+        root = Path(__file__).resolve().parents[1]
+        path = root / "overlay_groupings.json"
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return []
+        options: list[str] = []
+        if isinstance(payload, dict):
+            for plugin_name, entry in sorted(payload.items(), key=lambda item: item[0].casefold()):
+                groups = entry.get("idPrefixGroups") if isinstance(entry, dict) else None
+                if not isinstance(groups, dict):
+                    continue
+                for label in sorted(groups.keys(), key=str.casefold):
+                    options.append(f"{plugin_name} — {label}")
+        return options
 
     def _on_configure_activity(self) -> None:
         """Track recent move/resize to avoid closing during window drag."""
@@ -440,6 +598,7 @@ class OverlayConfigApp(tk.Tk):
         if not self.widget_select_mode:
             return
         self.widget_select_mode = False
+        self._on_focus_mode_entered()
         self._refresh_widget_focus()
         return "break"
 
@@ -449,6 +608,7 @@ class OverlayConfigApp(tk.Tk):
         if self.widget_select_mode:
             return
         self.widget_select_mode = True
+        self._on_focus_mode_exited()
         self._refresh_widget_focus()
 
     def _apply_placement_state(self) -> None:
@@ -563,6 +723,11 @@ class OverlayConfigApp(tk.Tk):
             self._show_indicator(direction=self._current_direction)
         self._on_configure_activity()
         self._refresh_widget_focus()
+
+    def _handle_return_key(self, _event: tk.Event[tk.Misc]) -> str | None:  # type: ignore[name-defined]
+        if self._handle_active_widget_key("Return"):
+            return "break"
+        return None
 
     def _center_and_show(self) -> None:
         """Center the window before making it visible to avoid jumpiness."""
