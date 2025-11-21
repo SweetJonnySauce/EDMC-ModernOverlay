@@ -544,6 +544,7 @@ class OverlayConfigApp(tk.Tk):
         self.overlay_border_width = 3
         self._focus_widgets: dict[tuple[str, int], object] = {}
         self._current_direction = "right"
+        self._adjusting_geometry = False
 
         self._build_layout()
         self._binding_config = BindingConfig.load()
@@ -685,10 +686,10 @@ class OverlayConfigApp(tk.Tk):
 
         sections = [
             ("idprefix group selector", 0),
-            ("offset selector", 2),
-            ("absolute x/y", 1),
-            ("anchor selector", 3),
-            ("payload justification", 1),
+            ("offset selector", 0),
+            ("absolute x/y", 0),
+            ("anchor selector", 0),
+            ("payload justification", 0),
             ("zoom selector (future implementation)", 1),
         ]
 
@@ -738,7 +739,8 @@ class OverlayConfigApp(tk.Tk):
             )
             for child in frame.winfo_children():
                 child.bind("<Button-1>", lambda event, idx=index: self._handle_sidebar_click(idx), add="+")
-            self.sidebar.grid_rowconfigure(index, weight=weight)
+            grow_weight = 1 if index == len(sections) - 1 else 0
+            self.sidebar.grid_rowconfigure(index, weight=grow_weight)
             self.sidebar_cells.append(frame)
 
         self.sidebar.grid_columnconfigure(0, weight=1)
@@ -1205,6 +1207,7 @@ class OverlayConfigApp(tk.Tk):
             self.minsize(open_min_width, 420)
             self.geometry(f"{int(target_width)}x{int(current_height)}")
             self._open_width = max(self._open_width, self.winfo_width(), self.winfo_reqwidth(), open_min_width)
+            self._enforce_placement_aspect()
             self._current_direction = "left"
         else:
             self.container.grid_configure(
@@ -1282,10 +1285,37 @@ class OverlayConfigApp(tk.Tk):
 
         self.indicator_canvas.place_forget()
 
+    def _enforce_placement_aspect(self) -> None:
+        """Keep the placement area near a 4:3 ratio by adjusting height instead of width."""
+
+        if not self._placement_open or self._adjusting_geometry:
+            return
+        self.update_idletasks()
+        sidebar_width = max(self.sidebar_width, self.sidebar.winfo_width())
+        container_width = max(1, self.container.winfo_width())
+        available_width = container_width - (
+            self.container_pad_left + self.container_pad_right_open + sidebar_width + self._current_sidebar_pad
+        )
+        placement_width = max(self.placement_min_width, available_width)
+        desired_height = int(placement_width * (3 / 4))
+        min_height = 420
+        target_height = max(min_height, desired_height + (self.container_pad_vertical * 2))
+        current_width = max(1, self.winfo_width())
+        current_height = max(1, self.winfo_height())
+        if abs(target_height - current_height) <= 1:
+            return
+        self._adjusting_geometry = True
+        try:
+            self.geometry(f"{int(current_width)}x{int(target_height)}")
+        finally:
+            self._adjusting_geometry = False
+
     def _handle_configure(self, _event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]
         """Re-center the indicator when the window is resized."""
 
-        if not self._placement_open:
+        if self._placement_open:
+            self._enforce_placement_aspect()
+        else:
             self._show_indicator(direction=self._current_direction)
         self._on_configure_activity()
         self._refresh_widget_focus()
