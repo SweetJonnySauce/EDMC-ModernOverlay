@@ -7,7 +7,6 @@ import tkinter as tk
 import platform
 import re
 import subprocess
-import time
 from pathlib import Path
 from tkinter import ttk
 
@@ -88,7 +87,7 @@ class IdPrefixGroupWidget(tk.Frame):
         except Exception:
             return False
 
-    def handle_key(self, keysym: str) -> bool:
+    def handle_key(self, keysym: str, event: tk.Event[tk.Misc] | None = None) -> bool:  # type: ignore[name-defined]
         """Process keys while this widget has focus mode active."""
 
         key = keysym.lower()
@@ -132,7 +131,7 @@ class OffsetSelectorWidget(tk.Frame):
         super().__init__(parent, bd=0, highlightthickness=0, bg=parent.cget("background"))
         self.button_size = 28
         self._arrows: dict[str, tuple[tk.Canvas, int]] = {}
-        self._active_direction: str | None = None
+        self._pinned: set[str] = set()
         self._default_color = "black"
         self._active_color = "#ff9900"
         self._build_grid()
@@ -180,14 +179,20 @@ class OffsetSelectorWidget(tk.Frame):
 
     def _apply_arrow_colors(self) -> None:
         for direction, (canvas, poly_id) in self._arrows.items():
-            color = self._active_color if direction == self._active_direction else self._default_color
+            color = self._active_color if direction in self._pinned else self._default_color
             try:
                 canvas.itemconfigure(poly_id, fill=color, outline=color)
             except Exception:
                 continue
 
-    def _set_active_direction(self, direction: str | None) -> None:
-        self._active_direction = direction
+    def _pin_direction(self, direction: str) -> None:
+        """Pin a direction, keeping only one pin per axis."""
+
+        if direction in {"left", "right"}:
+            self._pinned.difference_update({"left", "right"})
+        else:
+            self._pinned.difference_update({"up", "down"})
+        self._pinned.add(direction)
         self._apply_arrow_colors()
 
     def _flash_arrow(self, direction: str, flash_ms: int = 140) -> None:
@@ -216,14 +221,29 @@ class OffsetSelectorWidget(tk.Frame):
         except Exception:
             pass
 
-    def handle_key(self, keysym: str) -> bool:
+    def _is_alt_pressed(self, event: object | None) -> bool:
+        """Best-effort check for an active Alt/Mod1 modifier."""
+
+        state = getattr(event, "state", 0) or 0
+        return bool(state & 0x0008) or bool(state & 0x20000)
+
+    def handle_key(self, keysym: str, event: object | None = None) -> bool:
         key = keysym.lower()
-        if key in {"up", "down", "left", "right"}:
-            # Flash the pressed direction without latching the active color.
-            self._set_active_direction(None)
-            self._flash_arrow(key)
-            return True
-        return False
+        if key not in {"up", "down", "left", "right"}:
+            return False
+
+        alt_pressed = self._is_alt_pressed(event)
+        opposite = self._opposite(key)
+
+        if alt_pressed:
+            self._pin_direction(key)
+        elif opposite in self._pinned:
+            # Non-Alt opposite press clears that axis' pin.
+            self._pinned.discard(opposite)
+            self._apply_arrow_colors()
+
+        self._flash_arrow(key)
+        return True
 
 
 class OverlayConfigApp(tk.Tk):
@@ -451,11 +471,11 @@ class OverlayConfigApp(tk.Tk):
         self._apply_placement_state()
         self._refresh_widget_focus()
 
-    def focus_sidebar_up(self) -> None:
+    def focus_sidebar_up(self, event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Move sidebar focus upward."""
 
         if not self.widget_select_mode:
-            if self._handle_active_widget_key("Up"):
+            if self._handle_active_widget_key("Up", event):
                 return "break"
             return
         if not getattr(self, "sidebar_cells", None):
@@ -464,11 +484,11 @@ class OverlayConfigApp(tk.Tk):
         self._set_sidebar_focus(new_index)
         self._refresh_widget_focus()
 
-    def focus_sidebar_down(self) -> None:
+    def focus_sidebar_down(self, event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Move sidebar focus downward."""
 
         if not self.widget_select_mode:
-            if self._handle_active_widget_key("Down"):
+            if self._handle_active_widget_key("Down", event):
                 return "break"
             return
         if not getattr(self, "sidebar_cells", None):
@@ -513,11 +533,11 @@ class OverlayConfigApp(tk.Tk):
         except Exception:
             pass
 
-    def move_widget_focus_left(self) -> None:
+    def move_widget_focus_left(self, event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Handle left arrow behavior in widget select mode."""
 
         if not self.widget_select_mode:
-            if self._handle_active_widget_key("Left"):
+            if self._handle_active_widget_key("Left", event):
                 return "break"
             return
         if self.widget_focus_area == "placement":
@@ -529,11 +549,11 @@ class OverlayConfigApp(tk.Tk):
             self.widget_focus_area = "sidebar"
             self._refresh_widget_focus()
 
-    def move_widget_focus_right(self) -> None:
+    def move_widget_focus_right(self, event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Handle right arrow behavior in widget select mode."""
 
         if not self.widget_select_mode:
-            if self._handle_active_widget_key("Right"):
+            if self._handle_active_widget_key("Right", event):
                 return "break"
             return
         if self.widget_focus_area == "sidebar":
@@ -582,7 +602,7 @@ class OverlayConfigApp(tk.Tk):
             if keysym.lower() == "escape" and not self.widget_select_mode:
                 self.exit_focus_mode()
                 return
-            if self._handle_active_widget_key(keysym):
+            if self._handle_active_widget_key(keysym, event):
                 return
 
         self._finalize_close()
@@ -712,7 +732,7 @@ class OverlayConfigApp(tk.Tk):
             return None
         return self._focus_widgets.get(key)
 
-    def _handle_active_widget_key(self, keysym: str) -> bool:
+    def _handle_active_widget_key(self, keysym: str, event: tk.Event[tk.Misc] | None = None) -> bool:  # type: ignore[name-defined]
         if self.widget_select_mode:
             return False
         widget = self._get_active_focus_widget()
@@ -724,7 +744,7 @@ class OverlayConfigApp(tk.Tk):
             if handler is None:
                 return False
             try:
-                return bool(handler("space"))
+                return bool(handler("space", event))
             except Exception:
                 return True
 
@@ -737,7 +757,7 @@ class OverlayConfigApp(tk.Tk):
 
         handler = getattr(widget, "handle_key", None)
         try:
-            handled = bool(handler(keysym)) if handler is not None else False
+            handled = bool(handler(keysym, event)) if handler is not None else False
         except Exception:
             handled = True
         # Always consume keys in focus mode to keep focus locked, unless Escape handled above.
@@ -933,13 +953,13 @@ class OverlayConfigApp(tk.Tk):
         self._on_configure_activity()
         self._refresh_widget_focus()
 
-    def _handle_return_key(self, _event: tk.Event[tk.Misc]) -> str | None:  # type: ignore[name-defined]
-        if self._handle_active_widget_key("Return"):
+    def _handle_return_key(self, event: tk.Event[tk.Misc]) -> str | None:  # type: ignore[name-defined]
+        if self._handle_active_widget_key("Return", event):
             return "break"
         return None
 
-    def _handle_space_key(self, _event: tk.Event[tk.Misc]) -> str | None:  # type: ignore[name-defined]
-        if self._handle_active_widget_key("space"):
+    def _handle_space_key(self, event: tk.Event[tk.Misc]) -> str | None:  # type: ignore[name-defined]
+        if self._handle_active_widget_key("space", event):
             return "break"
         return None
 
