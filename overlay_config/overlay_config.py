@@ -22,30 +22,20 @@ class IdPrefixGroupWidget(tk.Frame):
         self._choices = options or []
         self._selection = tk.StringVar()
 
-        style = ttk.Style(self)
-        style.configure("Compact.TCombobox", padding=0)
-
-        probe = ttk.Combobox(self, style="Compact.TCombobox", font=("TkDefaultFont", 8))
-        probe.update_idletasks()
-        combo_height = max(1, probe.winfo_reqheight())
-        probe.destroy()
-
         self.dropdown = ttk.Combobox(
             self,
             values=self._choices,
             state="readonly",
             textvariable=self._selection,
-            width=32,
-            style="Compact.TCombobox",
-            font=("TkDefaultFont", 8),
+            width=24,
         )
         if self._choices:
             self.dropdown.current(0)
 
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1, minsize=max(1, int(combo_height * 0.6)))
+        self.columnconfigure(0, weight=0)
+        self.rowconfigure(0, weight=0)
 
-        self.dropdown.grid(row=0, column=0, padx=2, pady=1, sticky="nsew")
+        self.dropdown.grid(row=0, column=0, padx=0, pady=0, sticky="n")
 
     def on_focus_enter(self) -> None:
         """Called when the host enters focus mode for this widget."""
@@ -259,8 +249,8 @@ class OverlayConfigApp(tk.Tk):
                 self.sidebar,
                 bd=0,
                 relief="flat",
-                width=240 if index == 0 else 220,
-                height=30 if index == 0 else 80,
+                width=0 if index == 0 else 220,
+                height=0 if index == 0 else 80,
             )
             frame.grid(
                 row=index,
@@ -275,7 +265,7 @@ class OverlayConfigApp(tk.Tk):
             frame.grid_propagate(True)
             if index == 0:
                 self.idprefix_widget = IdPrefixGroupWidget(frame, options=self._load_idprefix_options())
-                self.idprefix_widget.pack(fill="both", expand=True, padx=4, pady=4)
+                self.idprefix_widget.pack(anchor="n", padx=0, pady=0)
                 self._focus_widgets[("sidebar", index)] = self.idprefix_widget
             else:
                 text_label = tk.Label(frame, text=label_text, anchor="center", padx=6, pady=6)
@@ -432,6 +422,11 @@ class OverlayConfigApp(tk.Tk):
                 return
 
         if self._is_focus_out_event(event):
+            if self._is_internal_focus_shift(event):
+                return
+            if not self.widget_select_mode:
+                # Suppress close while a widget is in focus mode (e.g., dropdown popdowns).
+                return
             if self._moving_guard_active:
                 self._pending_focus_out = True
                 return
@@ -509,6 +504,37 @@ class OverlayConfigApp(tk.Tk):
         except Exception:
             return False
         return bool(focus_widget and focus_widget.winfo_toplevel() == self)
+
+    def _safe_focus_get(self) -> tk.Misc | None:  # type: ignore[name-defined]
+        try:
+            return self.focus_get()
+        except Exception:
+            return None
+
+    def _is_internal_focus_shift(self, event: tk.Event[tk.Misc] | None) -> bool:  # type: ignore[name-defined]
+        """Return True if focus is shifting within our widgets (e.g., combobox popdown)."""
+
+        widgets: list[tk.Misc] = []  # type: ignore[name-defined]
+        event_widget = getattr(event, "widget", None)
+        if event_widget is not None:
+            widgets.append(event_widget)
+        focus_widget = self._safe_focus_get()
+        if focus_widget is not None:
+            widgets.append(focus_widget)
+
+        for widget in widgets:
+            try:
+                klass = widget.winfo_class().lower()
+                name = widget.winfo_name().lower()
+                toplevel = widget.winfo_toplevel()
+            except Exception:
+                continue
+            if "combobox" in klass or "popdown" in name:
+                return True
+            if toplevel == self:
+                return True
+
+        return False
 
     def _get_active_focus_widget(self) -> object | None:
         if self.widget_focus_area == "sidebar":
