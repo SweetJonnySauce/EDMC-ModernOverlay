@@ -78,6 +78,7 @@ class OverlayConfigApp(tk.Tk):
         self._binding_manager.activate()
         self.bind("<Configure>", self._handle_configure)
         self.bind("<FocusIn>", self._handle_focus_in)
+        self.after(0, self._center_on_screen)
 
     def _build_layout(self) -> None:
         """Create the split view with placement and sidebar sections."""
@@ -114,6 +115,8 @@ class OverlayConfigApp(tk.Tk):
             pady=6,
         )
         placement_label.pack(fill="both", expand=True)
+        self.placement_frame.bind("<Button-1>", self._handle_placement_click, add="+")
+        placement_label.bind("<Button-1>", self._handle_placement_click, add="+")
 
         # Sidebar with individual selector sections
         self.sidebar = tk.Frame(
@@ -196,6 +199,12 @@ class OverlayConfigApp(tk.Tk):
             frame.grid_propagate(True)
             text_label = tk.Label(frame, text=label_text, anchor="center", padx=6, pady=6)
             text_label.pack(fill="both", expand=True)
+            frame.bind(
+                "<Button-1>", lambda event, idx=index: self._handle_sidebar_click(idx), add="+"
+            )
+            text_label.bind(
+                "<Button-1>", lambda event, idx=index: self._handle_sidebar_click(idx), add="+"
+            )
             self.sidebar.grid_rowconfigure(index, weight=weight)
             self.sidebar_cells.append(frame)
 
@@ -237,6 +246,35 @@ class OverlayConfigApp(tk.Tk):
             return
         self._sidebar_focus_index = index
         self._update_sidebar_highlight()
+
+    def _handle_sidebar_click(self, index: int, _event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
+        """Move selection to a sidebar cell and enter focus mode."""
+
+        if not getattr(self, "sidebar_cells", None):
+            return
+        if not (0 <= index < len(self.sidebar_cells)):
+            return
+        self.widget_focus_area = "sidebar"
+        self._set_sidebar_focus(index)
+        self.widget_select_mode = False
+        self._refresh_widget_focus()
+        try:
+            self.focus_set()
+        except Exception:
+            pass
+
+    def _handle_placement_click(self, _event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
+        """Move selection to the placement area and enter focus mode."""
+
+        if not self._placement_open:
+            return
+        self.widget_focus_area = "placement"
+        self.widget_select_mode = False
+        self._refresh_widget_focus()
+        try:
+            self.focus_set()
+        except Exception:
+            pass
 
     def move_widget_focus_left(self) -> None:
         """Handle left arrow behavior in widget select mode."""
@@ -394,10 +432,12 @@ class OverlayConfigApp(tk.Tk):
     def enter_focus_mode(self) -> None:
         """Lock the current selection so arrows no longer move it."""
 
-        if not self.widget_select_mode:
-            return
-        self.widget_select_mode = False
-        self._refresh_widget_focus()
+        if self.widget_select_mode:
+            self.widget_select_mode = False
+            self._refresh_widget_focus()
+        else:
+            # Allow space to exit focus mode when already focused.
+            self.exit_focus_mode()
 
     def exit_focus_mode(self) -> None:
         """Return to selection mode so the highlight can move again."""
@@ -519,6 +559,19 @@ class OverlayConfigApp(tk.Tk):
             self._show_indicator(direction=self._current_direction)
         self._on_configure_activity()
         self._refresh_widget_focus()
+
+    def _center_on_screen(self) -> None:
+        """Position the window at the center of the available screen."""
+
+        self.update_idletasks()
+        width = max(1, self.winfo_width() or self.winfo_reqwidth())
+        height = max(1, self.winfo_height() or self.winfo_reqheight())
+        screen_width = max(1, self.winfo_screenwidth())
+        screen_height = max(1, self.winfo_screenheight())
+
+        x = max(0, int((screen_width - width) / 2))
+        y = max(0, int((screen_height - height) / 2))
+        self.geometry(f"{width}x{height}+{x}+{y}")
 
 
 def launch() -> None:
