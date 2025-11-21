@@ -441,9 +441,6 @@ class OverlayConfigApp(tk.Tk):
 
         self._cancel_pending_close()
         self._pending_focus_out = False
-        if not getattr(self, "widget_select_mode", True):
-            self.exit_focus_mode()
-            return
         self.destroy()
 
     def _handle_focus_in(self, _event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]
