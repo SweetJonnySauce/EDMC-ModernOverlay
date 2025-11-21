@@ -1274,7 +1274,7 @@ class _PluginRuntime:
             if not isinstance(payload, Mapping):
                 raise ValueError("Payload must be an object")
             command = payload.get("cli")
-            if command == "overlay_config":
+            if command in ("overlay_controller", "overlay_config"):
                 config_payload = payload.get("config")
                 if not isinstance(config_payload, Mapping):
                     raise ValueError("Overlay config payload missing 'config' object")

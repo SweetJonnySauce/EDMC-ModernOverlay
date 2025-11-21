@@ -1,4 +1,4 @@
-"""Tkinter scaffolding for the Overlay Config tool."""
+"""Tkinter scaffolding for the Overlay Controller tool."""
 
 from __future__ import annotations
 
@@ -33,10 +33,10 @@ class IdPrefixGroupWidget(tk.Frame):
         if self._choices:
             self.dropdown.current(0)
 
-        self.columnconfigure(0, weight=0)
-        self.rowconfigure(0, weight=0)
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
 
-        self.dropdown.grid(row=0, column=0, padx=0, pady=0, sticky="n")
+        self.dropdown.grid(row=0, column=0, padx=0, pady=0)
 
     def on_focus_enter(self) -> None:
         """Called when the host enters focus mode for this widget."""
@@ -135,12 +135,6 @@ class OffsetSelectorWidget(tk.Frame):
         self._active_direction: str | None = None
         self._default_color = "black"
         self._active_color = "#ff9900"
-        self._double_press_window = 0.4
-        self._double_press_min_gap = 0.12
-        self._last_key: str = ""
-        self._last_key_time: float = 0.0
-        self._last_flash_key: str = ""
-        self._last_flash_time: float = 0.0
         self._build_grid()
 
     def _build_grid(self) -> None:
@@ -178,8 +172,6 @@ class OffsetSelectorWidget(tk.Frame):
             points = (inset, inset, inset, size - inset, size - inset, size / 2)
         polygon_id = canvas.create_polygon(*points, fill=self._default_color, outline=self._default_color)
         canvas.grid(row=row, column=column, padx=4, pady=4)
-        canvas.bind("<Double-Button-1>", lambda _e, d=direction: self._handle_arrow_double_click(d))
-        canvas.bind("<Button-1>", lambda _e, d=direction: self._handle_arrow_single_click(d))
         self._arrows[direction] = (canvas, polygon_id)
 
     def _opposite(self, direction: str) -> str:
@@ -197,13 +189,6 @@ class OffsetSelectorWidget(tk.Frame):
     def _set_active_direction(self, direction: str | None) -> None:
         self._active_direction = direction
         self._apply_arrow_colors()
-
-    def _handle_arrow_double_click(self, direction: str) -> None:
-        self._set_active_direction(direction)
-
-    def _handle_arrow_single_click(self, direction: str) -> None:
-        if self._active_direction and self._opposite(direction) == self._active_direction:
-            self._set_active_direction(None)
 
     def _flash_arrow(self, direction: str, flash_ms: int = 140) -> None:
         entry = self._arrows.get(direction)
@@ -234,32 +219,9 @@ class OffsetSelectorWidget(tk.Frame):
     def handle_key(self, keysym: str) -> bool:
         key = keysym.lower()
         if key in {"up", "down", "left", "right"}:
-            now = time.monotonic()
-            dt = now - self._last_key_time
-            is_same_key = key == self._last_key
-            is_double = is_same_key and self._double_press_min_gap <= dt <= self._double_press_window
-            if is_double:
-                self._handle_arrow_double_click(key)
-                self._last_key = ""
-                self._last_key_time = 0.0
-                self._last_flash_key = key
-                self._last_flash_time = now
-                return True
-            if self._active_direction and self._opposite(key) == self._active_direction:
-                self._set_active_direction(None)
-            should_flash = not (
-                key == self._last_flash_key and (now - self._last_flash_time) < self._double_press_window
-            )
-            if should_flash:
-                self._flash_arrow(key)
-                self._last_flash_key = key
-                self._last_flash_time = now
-            self._last_key = key
-            self._last_key_time = now
-            return True
-        if key == "space":
-            for direction in ("up", "right", "down", "left"):
-                self._flash_arrow(direction)
+            # Flash the pressed direction without latching the active color.
+            self._set_active_direction(None)
+            self._flash_arrow(key)
             return True
         return False
 
@@ -270,7 +232,7 @@ class OverlayConfigApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.withdraw()
-        self.title("Overlay Config")
+        self.title("Overlay Controller")
         self.geometry("960x600")
         self.minsize(640, 420)
         self._closing = False
@@ -451,7 +413,7 @@ class OverlayConfigApp(tk.Tk):
             frame.grid(
                 row=index,
                 column=0,
-                sticky="nw" if index == 0 else "nsew",
+                sticky="nsew",
                 pady=(
                     self.overlay_padding if index == 0 else 1,
                     self.overlay_padding if index == len(sections) - 1 else 1,
@@ -461,7 +423,7 @@ class OverlayConfigApp(tk.Tk):
             frame.grid_propagate(True)
             if index == 0:
                 self.idprefix_widget = IdPrefixGroupWidget(frame, options=self._load_idprefix_options())
-                self.idprefix_widget.pack(anchor="n", padx=0, pady=0)
+                self.idprefix_widget.pack(fill="both", expand=True, padx=0, pady=0)
                 self._focus_widgets[("sidebar", index)] = self.idprefix_widget
             elif index == 1:
                 self.offset_widget = OffsetSelectorWidget(frame)
@@ -611,7 +573,7 @@ class OverlayConfigApp(tk.Tk):
         self._update_placement_focus_highlight()
 
     def close_application(self, event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
-        """Close the Overlay Config window."""
+        """Close the Overlay Controller window."""
 
         if self._closing:
             return

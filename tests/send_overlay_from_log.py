@@ -210,7 +210,7 @@ def _command_for_event(event: str) -> Optional[str]:
     if event_lower == "overlaymetrics":
         return "overlay_metrics"
     if event_lower == "overlayconfig":
-        return "overlay_config"
+        return "overlay_controller"
     return None
 
 
@@ -233,10 +233,10 @@ def _build_cli_message(
         }
     elif command == "overlay_metrics":
         message = {"cli": "overlay_metrics", **payload}
-    elif command == "overlay_config":
+    elif command in ("overlay_controller", "overlay_config"):
         config_payload = dict(payload)
         config_payload.pop("event", None)
-        message = {"cli": "overlay_config", "config": config_payload}
+        message = {"cli": "overlay_controller", "config": config_payload}
     else:
         raise ValueError(f"Unsupported CLI command: {command}")
     meta = message.setdefault("meta", {})
