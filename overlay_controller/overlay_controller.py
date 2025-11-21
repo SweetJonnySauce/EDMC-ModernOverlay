@@ -1258,7 +1258,7 @@ class OverlayConfigApp(tk.Tk):
                 if not isinstance(groups, dict):
                     continue
                 for label in sorted(groups.keys(), key=str.casefold):
-                    options.append(f"{plugin_name} — {label}")
+                    options.append(f"{plugin_name}: {label}")
         return options
 
     def _on_configure_activity(self) -> None:
