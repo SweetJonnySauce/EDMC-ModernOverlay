@@ -541,6 +541,7 @@ class OverlayConfigApp(tk.Tk):
         self.widget_focus_area = "sidebar"
         self.widget_select_mode = True
         self.overlay_padding = 8
+        self.placement_overlay_padding = 4
         self.overlay_border_width = 3
         self._focus_widgets: dict[tuple[str, int], object] = {}
         self._current_direction = "right"
@@ -674,7 +675,7 @@ class OverlayConfigApp(tk.Tk):
         )
         self.placement_overlay = SelectionOverlay(
             parent=self.container,
-            padding=self.overlay_padding,
+            padding=self.placement_overlay_padding,
             border_width=self.overlay_border_width,
             corner_radius=0,
         )
@@ -1198,8 +1199,8 @@ class OverlayConfigApp(tk.Tk):
                 row=0,
                 column=1,
                 sticky="nsew",
-                padx=(0, self.overlay_padding),
-                pady=(self.overlay_padding, self.overlay_padding),
+                padx=(self.placement_overlay_padding, self.placement_overlay_padding),
+                pady=(self.placement_overlay_padding, self.placement_overlay_padding),
             )
             self.container.grid_columnconfigure(1, weight=1, minsize=self.placement_min_width)
             self.update_idletasks()
