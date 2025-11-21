@@ -63,6 +63,30 @@ class IdPrefixGroupWidget(tk.Frame):
         except Exception:
             return False
 
+    def _advance_selection(self, step: int = 1) -> bool:
+        """Move selection by the given step; returns True if it changed."""
+
+        count = len(self._choices)
+        if not count:
+            return False
+        try:
+            current_index = int(self.dropdown.current())
+        except Exception:
+            current_index = -1
+        if current_index < 0:
+            current_index = 0
+
+        target_index = (current_index + step) % count
+        if target_index == current_index:
+            return False
+
+        try:
+            self.dropdown.current(target_index)
+            self.dropdown.event_generate("<<ComboboxSelected>>")
+            return True
+        except Exception:
+            return False
+
     def handle_key(self, keysym: str) -> bool:
         """Process keys while this widget has focus mode active."""
 
@@ -80,6 +104,10 @@ class IdPrefixGroupWidget(tk.Frame):
             except Exception:
                 pass
             return True
+        if key == "left":
+            return self._advance_selection(-1)
+        if key == "right":
+            return self._advance_selection(1)
         if key == "down":
             try:
                 self.dropdown.event_generate("<Down>")
