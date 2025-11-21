@@ -11,136 +11,6 @@ from input_bindings import BindingConfig, BindingManager
 from selection_overlay import SelectionOverlay
 
 
-class RoundedContainer(tk.Frame):
-    """A frame with a rounded background drawn via Canvas."""
-
-    def __init__(
-        self,
-        parent: tk.Widget,
-        *,
-        corner_radius: int = 12,
-        padding: int = 6,
-        fill_color: str = "#f5f5f5",
-    ) -> None:
-        super().__init__(parent, bd=0, highlightthickness=0, bg=parent.cget("background"))
-        self._radius = max(0, corner_radius)
-        self._padding = max(0, padding)
-        self._fill = fill_color
-        self._canvas = tk.Canvas(
-            self,
-            bd=0,
-            highlightthickness=0,
-            background=self.cget("bg"),
-        )
-        self._canvas.pack(fill="both", expand=True)
-        self.content = tk.Frame(
-            self._canvas,
-            bd=0,
-            highlightthickness=0,
-            background=self._fill,
-        )
-        self._content_window = self._canvas.create_window(
-            self._padding,
-            self._padding,
-            anchor="nw",
-            window=self.content,
-        )
-        self._canvas.bind("<Configure>", self._redraw_background)
-
-    def _redraw_background(self, event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]
-        width = max(1, event.width)
-        height = max(1, event.height)
-        x1 = self._padding
-        y1 = self._padding
-        x2 = max(x1 + 1, width - self._padding)
-        y2 = max(y1 + 1, height - self._padding)
-        inner_width = max(1, width - (self._padding * 2))
-        inner_height = max(1, height - (self._padding * 2))
-        self._canvas.itemconfigure(self._content_window, width=inner_width, height=inner_height)
-
-        r = min(
-            float(self._radius),
-            max(0.0, (x2 - x1) / 2),
-            max(0.0, (y2 - y1) / 2),
-        )
-        self._canvas.delete("bg")
-        if r <= 0:
-            self._canvas.create_rectangle(
-                x1, y1, x2, y2, fill=self._fill, outline=self._fill, tags="bg"
-            )
-            return
-
-        # Rounded rectangle composed of arcs and rectangles.
-        self._canvas.create_arc(
-            x1,
-            y1,
-            x1 + 2 * r,
-            y1 + 2 * r,
-            start=90,
-            extent=90,
-            style="pieslice",
-            outline=self._fill,
-            fill=self._fill,
-            tags="bg",
-        )
-        self._canvas.create_arc(
-            x2 - 2 * r,
-            y1,
-            x2,
-            y1 + 2 * r,
-            start=0,
-            extent=90,
-            style="pieslice",
-            outline=self._fill,
-            fill=self._fill,
-            tags="bg",
-        )
-        self._canvas.create_arc(
-            x2 - 2 * r,
-            y2 - 2 * r,
-            x2,
-            y2,
-            start=270,
-            extent=90,
-            style="pieslice",
-            outline=self._fill,
-            fill=self._fill,
-            tags="bg",
-        )
-        self._canvas.create_arc(
-            x1,
-            y2 - 2 * r,
-            x1 + 2 * r,
-            y2,
-            start=180,
-            extent=90,
-            style="pieslice",
-            outline=self._fill,
-            fill=self._fill,
-            tags="bg",
-        )
-
-        # Center rectangles to complete the shape.
-        self._canvas.create_rectangle(
-            x1 + r,
-            y1,
-            x2 - r,
-            y2,
-            fill=self._fill,
-            outline=self._fill,
-            tags="bg",
-        )
-        self._canvas.create_rectangle(
-            x1,
-            y1 + r,
-            x2,
-            y2 - r,
-            fill=self._fill,
-            outline=self._fill,
-            tags="bg",
-        )
-
-
 class OverlayConfigApp(tk.Tk):
     """Basic UI skeleton that mirrors the design mockups."""
 
@@ -314,11 +184,10 @@ class OverlayConfigApp(tk.Tk):
         self.widget_select_mode = True
 
         for index, (label_text, weight) in enumerate(sections):
-            frame = RoundedContainer(
+            frame = tk.Frame(
                 self.sidebar,
-                corner_radius=14,
-                padding=6,
-                fill_color="#f5f5f5",
+                bd=0,
+                relief="flat",
                 width=220,
                 height=80,
             )
@@ -333,14 +202,7 @@ class OverlayConfigApp(tk.Tk):
                 padx=(self.overlay_padding, self.overlay_padding),
             )
             frame.grid_propagate(True)
-            text_label = tk.Label(
-                frame.content,
-                text=label_text,
-                anchor="center",
-                padx=8,
-                pady=8,
-                bg="#f5f5f5",
-            )
+            text_label = tk.Label(frame, text=label_text, anchor="center", padx=6, pady=6)
             text_label.pack(fill="both", expand=True)
             frame.bind(
                 "<Button-1>", lambda event, idx=index: self._handle_sidebar_click(idx), add="+"
