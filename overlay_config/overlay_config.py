@@ -67,7 +67,20 @@ class IdPrefixGroupWidget(tk.Frame):
         """Process keys while this widget has focus mode active."""
 
         key = keysym.lower()
-        if key in {"space", "down"}:
+        if key == "space":
+            try:
+                if self._is_dropdown_open():
+                    focus_target = self.dropdown.tk.call("focus")
+                    if focus_target:
+                        self.dropdown.tk.call("event", "generate", focus_target, "<Return>")
+                    else:
+                        self.dropdown.event_generate("<Return>")
+                else:
+                    self.dropdown.event_generate("<Down>")
+            except Exception:
+                pass
+            return True
+        if key == "down":
             try:
                 self.dropdown.event_generate("<Down>")
             except Exception:
@@ -157,6 +170,7 @@ class OverlayConfigApp(tk.Tk):
         self.bind("<Configure>", self._handle_configure)
         self.bind("<FocusIn>", self._handle_focus_in)
         self.bind("<Return>", self._handle_return_key, add="+")
+        self.bind("<space>", self._handle_space_key, add="+")
         self.after(0, self._center_and_show)
 
     def _build_layout(self) -> None:
@@ -175,7 +189,7 @@ class OverlayConfigApp(tk.Tk):
         self.grid_columnconfigure(0, weight=1)
 
         self.container.grid_rowconfigure(0, weight=1)
-        self.container.grid_columnconfigure(0, weight=0, minsize=self.sidebar_width)
+        self.container.grid_columnconfigure(0, weight=1, minsize=self.sidebar_width)
         self.container.grid_columnconfigure(1, weight=1)
 
         # Placement window placeholder (open state)
@@ -204,7 +218,7 @@ class OverlayConfigApp(tk.Tk):
             bd=0,
             highlightthickness=0,
         )
-        self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, self.sidebar_pad))
+        self.sidebar.grid(row=0, column=0, sticky="nsew", padx=(0, self.sidebar_pad))
         self._build_sidebar_sections()
         self.sidebar.grid_propagate(False)
 
@@ -571,9 +585,21 @@ class OverlayConfigApp(tk.Tk):
         if widget is None:
             return False
 
-        if keysym.lower() == "escape":
+        def select() -> bool:
+            handler = getattr(widget, "handle_key", None)
+            if handler is None:
+                return False
+            try:
+                return bool(handler("space"))
+            except Exception:
+                return True
+
+        lower_keysym = keysym.lower()
+        if lower_keysym == "escape":
             self.exit_focus_mode()
             return True
+        if lower_keysym == "space":
+            return select() or True
 
         handler = getattr(widget, "handle_key", None)
         try:
@@ -711,7 +737,7 @@ class OverlayConfigApp(tk.Tk):
             self._show_indicator(direction="right")
 
         pad = self.sidebar_pad if self._placement_open else self.sidebar_pad_closed
-        self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, pad))
+        self.sidebar.grid(row=0, column=0, sticky="nsew", padx=(0, pad))
         self._current_sidebar_pad = pad
         self._refresh_widget_focus()
 
@@ -775,6 +801,11 @@ class OverlayConfigApp(tk.Tk):
 
     def _handle_return_key(self, _event: tk.Event[tk.Misc]) -> str | None:  # type: ignore[name-defined]
         if self._handle_active_widget_key("Return"):
+            return "break"
+        return None
+
+    def _handle_space_key(self, _event: tk.Event[tk.Misc]) -> str | None:  # type: ignore[name-defined]
+        if self._handle_active_widget_key("space"):
             return "break"
         return None
 
