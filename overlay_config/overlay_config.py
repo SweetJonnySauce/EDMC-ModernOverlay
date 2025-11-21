@@ -16,6 +16,12 @@ class OverlayConfigApp(tk.Tk):
         self.title("Overlay Config")
         self.geometry("960x600")
         self.minsize(640, 420)
+        self._pending_close_job: str | None = None
+        self._focus_close_delay_ms = 200
+        self._moving_guard_job: str | None = None
+        self._moving_guard_active = False
+        self._move_guard_timeout_ms = 500
+        self._pending_focus_out = False
 
         self._placement_open = False
         self._open_width = 960
@@ -71,6 +77,7 @@ class OverlayConfigApp(tk.Tk):
         self._binding_manager.register_action("close_app", self.close_application)
         self._binding_manager.activate()
         self.bind("<Configure>", self._handle_configure)
+        self.bind("<FocusIn>", self._handle_focus_in)
 
     def _build_layout(self) -> None:
         """Create the split view with placement and sidebar sections."""
@@ -286,13 +293,103 @@ class OverlayConfigApp(tk.Tk):
             self._update_sidebar_highlight()
         self._update_placement_focus_highlight()
 
-    def close_application(self) -> None:
+    def close_application(self, event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Close the Overlay Config window."""
 
+        if self._is_focus_out_event(event):
+            if self._moving_guard_active:
+                self._pending_focus_out = True
+                return
+            self._schedule_focus_out_close()
+            return
+
+        self._finalize_close()
+
+    def _finalize_close(self) -> None:
+        """Close immediately, respecting focus mode behavior."""
+
+        self._cancel_pending_close()
+        self._pending_focus_out = False
         if not getattr(self, "widget_select_mode", True):
             self.exit_focus_mode()
             return
         self.destroy()
+
+    def _handle_focus_in(self, _event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]
+        """Cancel any delayed close when the window regains focus."""
+
+        self._cancel_pending_close()
+        self._pending_focus_out = False
+
+    def _is_focus_out_event(self, event: tk.Event[tk.Misc] | None) -> bool:  # type: ignore[name-defined]
+        """Return True if the event represents a real focus loss worth acting on."""
+
+        if event is None:
+            return False
+        event_type = getattr(event, "type", None)
+        event_type_name = getattr(event_type, "name", None) or str(event_type)
+        is_focus_out = (
+            event_type == tk.EventType.FocusOut
+            or event_type_name.endswith("FocusOut")
+            or event_type == 9
+        )
+        if not is_focus_out:
+            return False
+
+        mode = getattr(event, "mode", None)
+        mode_name = getattr(mode, "name", None) or str(mode)
+        mode_label = mode_name.split(".")[-1]
+        grab_related = mode in (1, 2, 3) or mode_label in {
+            "NotifyGrab",
+            "NotifyUngrab",
+            "NotifyWhileGrabbed",
+        }
+        if grab_related:
+            return False
+
+        return True
+
+    def _cancel_pending_close(self) -> None:
+        if self._pending_close_job is not None:
+            try:
+                self.after_cancel(self._pending_close_job)
+            except Exception:
+                pass
+            self._pending_close_job = None
+
+    def _schedule_focus_out_close(self) -> None:
+        self._cancel_pending_close()
+        self._pending_close_job = self.after(self._focus_close_delay_ms, self._close_if_unfocused)
+
+    def _close_if_unfocused(self) -> None:
+        self._pending_close_job = None
+        self._pending_focus_out = False
+        if self._is_app_focused():
+            return
+        self._finalize_close()
+
+    def _is_app_focused(self) -> bool:
+        focus_widget = self.focus_get()
+        return bool(focus_widget and focus_widget.winfo_toplevel() == self)
+
+    def _on_configure_activity(self) -> None:
+        """Track recent move/resize to avoid closing during window drag."""
+
+        self._moving_guard_active = True
+        if self._moving_guard_job is not None:
+            try:
+                self.after_cancel(self._moving_guard_job)
+            except Exception:
+                pass
+        self._moving_guard_job = self.after(self._move_guard_timeout_ms, self._handle_move_guard_expired)
+        self._cancel_pending_close()
+
+    def _handle_move_guard_expired(self) -> None:
+        self._moving_guard_job = None
+        self._moving_guard_active = False
+        if self._pending_focus_out and not self._is_app_focused():
+            self._schedule_focus_out_close()
+        self._pending_focus_out = False
 
     def enter_focus_mode(self) -> None:
         """Lock the current selection so arrows no longer move it."""
@@ -420,6 +517,7 @@ class OverlayConfigApp(tk.Tk):
 
         if not self._placement_open:
             self._show_indicator(direction=self._current_direction)
+        self._on_configure_activity()
         self._refresh_widget_focus()
 
 
