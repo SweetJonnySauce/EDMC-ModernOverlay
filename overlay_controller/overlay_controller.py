@@ -1257,8 +1257,21 @@ class OverlayConfigApp(tk.Tk):
                 groups = entry.get("idPrefixGroups") if isinstance(entry, dict) else None
                 if not isinstance(groups, dict):
                     continue
-                for label in sorted(groups.keys(), key=str.casefold):
-                    options.append(f"{plugin_name}: {label}")
+                labels = sorted(groups.keys(), key=str.casefold)
+                def _prefix(label: str) -> str:
+                    for sep in ("-", " "):
+                        head, *rest = label.split(sep, 1)
+                        if rest:
+                            return head.strip().casefold()
+                    return label.strip().casefold()
+
+                first_parts = {_prefix(lbl) for lbl in labels}
+                show_plugin = len(first_parts) > 1
+                for label in labels:
+                    if show_plugin:
+                        options.append(f"{plugin_name}: {label}")
+                    else:
+                        options.append(label)
         return options
 
     def _on_configure_activity(self) -> None:
