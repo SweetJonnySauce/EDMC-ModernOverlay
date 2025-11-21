@@ -7,6 +7,7 @@ import tkinter as tk
 import platform
 import re
 import subprocess
+import time
 from pathlib import Path
 from tkinter import ttk
 
@@ -120,6 +121,145 @@ class IdPrefixGroupWidget(tk.Frame):
                     self.dropdown.event_generate("<Return>")
                 except Exception:
                     pass
+            return True
+        return False
+
+
+class OffsetSelectorWidget(tk.Frame):
+    """Simple four-way offset selector with triangular arrow buttons."""
+
+    def __init__(self, parent: tk.Widget) -> None:
+        super().__init__(parent, bd=0, highlightthickness=0, bg=parent.cget("background"))
+        self.button_size = 28
+        self._arrows: dict[str, tuple[tk.Canvas, int]] = {}
+        self._active_direction: str | None = None
+        self._default_color = "black"
+        self._active_color = "#ff9900"
+        self._double_press_window = 0.4
+        self._double_press_min_gap = 0.12
+        self._last_key: str = ""
+        self._last_key_time: float = 0.0
+        self._last_flash_key: str = ""
+        self._last_flash_time: float = 0.0
+        self._build_grid()
+
+    def _build_grid(self) -> None:
+        for i in range(3):
+            self.grid_columnconfigure(i, weight=1)
+            self.grid_rowconfigure(i, weight=1)
+
+        self._add_arrow("up", row=0, column=1)
+        self._add_arrow("left", row=1, column=0)
+        self._add_arrow("right", row=1, column=2)
+        self._add_arrow("down", row=2, column=1)
+
+        spacer = tk.Frame(self, width=self.button_size, height=self.button_size, bd=0, highlightthickness=0)
+        spacer.grid(row=1, column=1, padx=4, pady=4)
+
+    def _add_arrow(self, direction: str, row: int, column: int) -> None:
+        canvas = tk.Canvas(
+            self,
+            width=self.button_size,
+            height=self.button_size,
+            bd=0,
+            highlightthickness=1,
+            relief="solid",
+            bg=self.cget("background"),
+        )
+        size = self.button_size
+        inset = 6
+        if direction == "up":
+            points = (size / 2, inset, size - inset, size - inset, inset, size - inset)
+        elif direction == "down":
+            points = (inset, inset, size - inset, inset, size / 2, size - inset)
+        elif direction == "left":
+            points = (inset, size / 2, size - inset, inset, size - inset, size - inset)
+        else:  # right
+            points = (inset, inset, inset, size - inset, size - inset, size / 2)
+        polygon_id = canvas.create_polygon(*points, fill=self._default_color, outline=self._default_color)
+        canvas.grid(row=row, column=column, padx=4, pady=4)
+        canvas.bind("<Double-Button-1>", lambda _e, d=direction: self._handle_arrow_double_click(d))
+        canvas.bind("<Button-1>", lambda _e, d=direction: self._handle_arrow_single_click(d))
+        self._arrows[direction] = (canvas, polygon_id)
+
+    def _opposite(self, direction: str) -> str:
+        mapping = {"up": "down", "down": "up", "left": "right", "right": "left"}
+        return mapping.get(direction, "")
+
+    def _apply_arrow_colors(self) -> None:
+        for direction, (canvas, poly_id) in self._arrows.items():
+            color = self._active_color if direction == self._active_direction else self._default_color
+            try:
+                canvas.itemconfigure(poly_id, fill=color, outline=color)
+            except Exception:
+                continue
+
+    def _set_active_direction(self, direction: str | None) -> None:
+        self._active_direction = direction
+        self._apply_arrow_colors()
+
+    def _handle_arrow_double_click(self, direction: str) -> None:
+        self._set_active_direction(direction)
+
+    def _handle_arrow_single_click(self, direction: str) -> None:
+        if self._active_direction and self._opposite(direction) == self._active_direction:
+            self._set_active_direction(None)
+
+    def _flash_arrow(self, direction: str, flash_ms: int = 140) -> None:
+        entry = self._arrows.get(direction)
+        if not entry:
+            return
+        canvas, poly_id = entry
+        try:
+            canvas.itemconfigure(poly_id, fill=self._active_color, outline=self._active_color)
+            canvas.after(
+                flash_ms,
+                self._apply_arrow_colors,
+            )
+        except Exception:
+            pass
+
+    def on_focus_enter(self) -> None:
+        try:
+            self.focus_set()
+        except Exception:
+            pass
+
+    def on_focus_exit(self) -> None:
+        try:
+            self.winfo_toplevel().focus_set()
+        except Exception:
+            pass
+
+    def handle_key(self, keysym: str) -> bool:
+        key = keysym.lower()
+        if key in {"up", "down", "left", "right"}:
+            now = time.monotonic()
+            dt = now - self._last_key_time
+            is_same_key = key == self._last_key
+            is_double = is_same_key and self._double_press_min_gap <= dt <= self._double_press_window
+            if is_double:
+                self._handle_arrow_double_click(key)
+                self._last_key = ""
+                self._last_key_time = 0.0
+                self._last_flash_key = key
+                self._last_flash_time = now
+                return True
+            if self._active_direction and self._opposite(key) == self._active_direction:
+                self._set_active_direction(None)
+            should_flash = not (
+                key == self._last_flash_key and (now - self._last_flash_time) < self._double_press_window
+            )
+            if should_flash:
+                self._flash_arrow(key)
+                self._last_flash_key = key
+                self._last_flash_time = now
+            self._last_key = key
+            self._last_key_time = now
+            return True
+        if key == "space":
+            for direction in ("up", "right", "down", "left"):
+                self._flash_arrow(direction)
             return True
         return False
 
@@ -288,7 +428,7 @@ class OverlayConfigApp(tk.Tk):
         """Create labeled boxes that will hold future controls."""
 
         sections = [
-            ("idprefix group selector", 3),
+            ("idprefix group selector", 0),
             ("offset selector", 2),
             ("absolute x/y", 1),
             ("anchor selector", 3),
@@ -311,7 +451,7 @@ class OverlayConfigApp(tk.Tk):
             frame.grid(
                 row=index,
                 column=0,
-                sticky="nsew",
+                sticky="nw" if index == 0 else "nsew",
                 pady=(
                     self.overlay_padding if index == 0 else 1,
                     self.overlay_padding if index == len(sections) - 1 else 1,
@@ -323,6 +463,10 @@ class OverlayConfigApp(tk.Tk):
                 self.idprefix_widget = IdPrefixGroupWidget(frame, options=self._load_idprefix_options())
                 self.idprefix_widget.pack(anchor="n", padx=0, pady=0)
                 self._focus_widgets[("sidebar", index)] = self.idprefix_widget
+            elif index == 1:
+                self.offset_widget = OffsetSelectorWidget(frame)
+                self.offset_widget.pack(expand=True)
+                self._focus_widgets[("sidebar", index)] = self.offset_widget
             else:
                 text_label = tk.Label(frame, text=label_text, anchor="center", padx=6, pady=6)
                 text_label.pack(fill="both", expand=True)
