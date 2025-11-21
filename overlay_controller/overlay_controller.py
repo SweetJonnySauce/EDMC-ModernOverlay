@@ -372,7 +372,7 @@ class AbsoluteXYWidget(tk.Frame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=0)
         self.grid_columnconfigure(2, weight=0)
-        self.grid_columnconfigure(3, weight=2)
+        self.grid_columnconfigure(3, weight=1)
         self.grid_rowconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
@@ -382,9 +382,9 @@ class AbsoluteXYWidget(tk.Frame):
         y_entry = tk.Entry(self, textvariable=self._y_var, width=8)
 
         x_label.grid(row=0, column=1, sticky="e")
-        x_entry.grid(row=0, column=2, padx=(2, 2))
+        x_entry.grid(row=0, column=2, padx=(2, 24))
         y_label.grid(row=1, column=1, sticky="e")
-        y_entry.grid(row=1, column=2, padx=(2, 2))
+        y_entry.grid(row=1, column=2, padx=(2, 24))
 
         self._entries = {"x": x_entry, "y": y_entry}
 
@@ -424,12 +424,23 @@ class AbsoluteXYWidget(tk.Frame):
 
     def on_focus_enter(self) -> None:
         self._focus_field(self._active_field)
+        entry = self._entries.get(self._active_field)
+        if entry is not None:
+            try:
+                entry.select_range(0, "end")
+            except Exception:
+                pass
 
     def on_focus_exit(self) -> None:
         try:
             self.winfo_toplevel().focus_set()
         except Exception:
             pass
+
+    def focus_set(self) -> None:  # type: ignore[override]
+        """Forward focus to the active entry so typing works immediately."""
+
+        self._focus_field(self._active_field)
 
     def _parse_value(self, raw: str, axis: str) -> float:
         """Parse value using percent/pixel rules from plugin_group_manager."""
@@ -780,28 +791,42 @@ class OverlayConfigApp(tk.Tk):
             return
         if not (0 <= index < len(self.sidebar_cells)):
             return
+        if not self.widget_select_mode and index != getattr(self, "_sidebar_focus_index", -1):
+            self._on_focus_mode_exited()
         self.widget_focus_area = "sidebar"
         self._set_sidebar_focus(index)
         self.widget_select_mode = False
         self._on_focus_mode_entered()
         self._refresh_widget_focus()
-        try:
-            self.focus_set()
-        except Exception:
-            pass
+        if self.widget_select_mode:
+            try:
+                self.focus_set()
+            except Exception:
+                pass
+        else:
+            target = self._get_active_focus_widget()
+            focus_target = getattr(target, "focus_set", None)
+            if callable(focus_target):
+                try:
+                    focus_target()
+                except Exception:
+                    pass
 
     def _handle_placement_click(self, _event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Move selection to the placement area and enter focus mode."""
 
         if not self._placement_open:
             return
+        if not self.widget_select_mode and self.widget_focus_area == "sidebar":
+            self._on_focus_mode_exited()
         self.widget_focus_area = "placement"
         self.widget_select_mode = False
         self._refresh_widget_focus()
-        try:
-            self.focus_set()
-        except Exception:
-            pass
+        if self.widget_select_mode:
+            try:
+                self.focus_set()
+            except Exception:
+                pass
 
     def move_widget_focus_left(self, event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Handle left arrow behavior in widget select mode."""
@@ -1064,8 +1089,8 @@ class OverlayConfigApp(tk.Tk):
             handled = bool(handler(keysym, event)) if handler is not None else False
         except Exception:
             handled = True
-        # Always consume keys in focus mode to keep focus locked, unless Escape handled above.
-        return handled or True
+        # Only consume when explicitly handled; allow text input in focused children.
+        return handled
 
     def _on_focus_mode_entered(self) -> None:
         widget = self._get_active_focus_widget()
