@@ -525,13 +525,13 @@ class OverlayConfigApp(tk.Tk):
         self.sidebar_pad_closed = 0
         self.container_pad_left = 12
         self.container_pad_right_open = 12
-        self.container_pad_right_closed = 2
+        self.container_pad_right_closed = 0
         self.container_pad_vertical = 12
         self.placement_min_width = 450
         self.closed_min_width = 0
         self.indicator_width = 12
         self.indicator_height = 72
-        self.indicator_hit_padding = max(4, self.indicator_height // 6)
+        self.indicator_hit_padding = 0
         self.indicator_hit_width = self.indicator_width + (self.indicator_hit_padding * 2)
         self.indicator_gap = 0
 
