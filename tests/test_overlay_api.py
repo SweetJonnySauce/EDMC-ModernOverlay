@@ -171,6 +171,55 @@ def test_define_plugin_group_anchor_requires_existing_group(grouping_store):
         )
 
 
+def test_define_plugin_group_sets_payload_justification(grouping_store):
+    overlay_api.define_plugin_group(
+        plugin_group="Example",
+        id_prefix_group="alerts",
+        id_prefixes=["example-alert-"],
+        payload_justification="center",
+    )
+
+    payload = _load(grouping_store)
+    group = payload["Example"]["idPrefixGroups"]["alerts"]
+    assert group["payloadJustification"] == "center"
+
+
+def test_define_plugin_group_updates_payload_justification(grouping_store):
+    overlay_api.define_plugin_group(
+        plugin_group="Example",
+        id_prefix_group="alerts",
+        id_prefixes=["example-alert-"],
+    )
+
+    updated = overlay_api.define_plugin_group(
+        plugin_group="Example",
+        id_prefix_group="alerts",
+        payload_justification="right",
+    )
+    assert updated is True
+
+    payload = _load(grouping_store)
+    assert payload["Example"]["idPrefixGroups"]["alerts"]["payloadJustification"] == "right"
+
+
+def test_define_plugin_group_requires_id_group_for_payload_justification(grouping_store):
+    with pytest.raises(PluginGroupingError):
+        overlay_api.define_plugin_group(
+            plugin_group="Example",
+            payload_justification="center",
+        )
+
+
+def test_define_plugin_group_validates_payload_justification_token(grouping_store):
+    with pytest.raises(PluginGroupingError):
+        overlay_api.define_plugin_group(
+            plugin_group="Example",
+            id_prefix_group="alerts",
+            id_prefixes=["example-"],
+            payload_justification="middle",
+        )
+
+
 def test_define_plugin_group_requires_store(grouping_store):
     overlay_api.unregister_grouping_store()
     with pytest.raises(PluginGroupingError):

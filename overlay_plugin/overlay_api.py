@@ -15,6 +15,7 @@ from prefix_entries import PrefixEntry, parse_prefix_entries, serialise_prefix_e
 _LOGGER = logging.getLogger("EDMC.ModernOverlay.API")
 _MAX_MESSAGE_BYTES = 16_384
 _ANCHOR_CHOICES = {"nw", "ne", "sw", "se", "center", "top", "bottom", "left", "right"}
+_JUSTIFICATION_CHOICES = {"left", "center", "right"}
 
 _publisher: Optional[Callable[[Mapping[str, Any]], bool]] = None
 _grouping_store: Optional["_PluginGroupingStore"] = None
@@ -112,6 +113,7 @@ def define_plugin_group(
     id_prefix_group_anchor: Optional[str] = None,
     id_prefix_offset_x: Optional[Union[int, float]] = None,
     id_prefix_offset_y: Optional[Union[int, float]] = None,
+    payload_justification: Optional[str] = None,
 ) -> bool:
     """Create or replace grouping metadata for a plugin.
 
@@ -135,6 +137,7 @@ def define_plugin_group(
         and id_prefix_group_anchor is None
         and id_prefix_offset_x is None
         and id_prefix_offset_y is None
+        and payload_justification is None
     ):
         raise PluginGroupingError("Provide matchingPrefixes, idPrefixGroup, idPrefixes, or idPrefixGroupAnchor")
 
@@ -150,6 +153,11 @@ def define_plugin_group(
     offset_y = _normalise_offset(id_prefix_offset_y, "idPrefixGroup offsetY") if id_prefix_offset_y is not None else None
     if id_group_label is None and (offset_x is not None or offset_y is not None):
         raise PluginGroupingError("idPrefixGroup is required when specifying offsets")
+    justification_token = (
+        _normalise_justification(payload_justification) if payload_justification is not None else None
+    )
+    if justification_token is not None and id_group_label is None:
+        raise PluginGroupingError("idPrefixGroup is required when specifying payloadJustification")
 
     update = _GroupingUpdate(
         plugin_group=plugin_label,
@@ -159,6 +167,7 @@ def define_plugin_group(
         id_prefix_group_anchor=anchor_token,
         offset_x=offset_x,
         offset_y=offset_y,
+        payload_justification=justification_token,
     )
     return store.apply(update)
 
@@ -238,6 +247,19 @@ def _normalise_anchor(value: Optional[str]) -> str:
     return token
 
 
+def _normalise_justification(value: Optional[str]) -> str:
+    if not isinstance(value, str):
+        raise PluginGroupingError("payloadJustification must be a string")
+    token = value.strip().lower()
+    if not token:
+        raise PluginGroupingError("payloadJustification must be non-empty")
+    if token not in _JUSTIFICATION_CHOICES:
+        raise PluginGroupingError(
+            "payloadJustification must be one of: " + ", ".join(sorted(_JUSTIFICATION_CHOICES))
+        )
+    return token
+
+
 def _normalise_offset(value: Union[int, float], field: str) -> float:
     if not isinstance(value, (int, float)):
         raise PluginGroupingError(f"{field} must be a number")
@@ -299,6 +321,7 @@ class _GroupingUpdate:
     id_prefix_group_anchor: Optional[str]
     offset_x: Optional[float]
     offset_y: Optional[float]
+    payload_justification: Optional[str]
 
 
 class _PluginGroupingStore:
@@ -379,6 +402,10 @@ class _PluginGroupingStore:
                 if update.id_prefix_group_anchor is not None:
                     if group_entry.get("idPrefixGroupAnchor") != update.id_prefix_group_anchor:
                         group_entry["idPrefixGroupAnchor"] = update.id_prefix_group_anchor
+                        mutated = True
+                if update.payload_justification is not None:
+                    if group_entry.get("payloadJustification") != update.payload_justification:
+                        group_entry["payloadJustification"] = update.payload_justification
                         mutated = True
                 if update.offset_x is not None:
                     if group_entry.get("offsetX") != update.offset_x:
