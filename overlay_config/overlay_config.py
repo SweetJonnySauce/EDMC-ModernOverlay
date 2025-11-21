@@ -434,15 +434,14 @@ class OverlayConfigApp(tk.Tk):
             self._schedule_focus_out_close()
         self._pending_focus_out = False
 
-    def enter_focus_mode(self) -> None:
+    def enter_focus_mode(self, _event: tk.Event[tk.Misc] | None = None) -> str | None:  # type: ignore[name-defined]
         """Lock the current selection so arrows no longer move it."""
 
-        if self.widget_select_mode:
-            self.widget_select_mode = False
-            self._refresh_widget_focus()
-        else:
-            # Allow space to exit focus mode when already focused.
-            self.exit_focus_mode()
+        if not self.widget_select_mode:
+            return
+        self.widget_select_mode = False
+        self._refresh_widget_focus()
+        return "break"
 
     def exit_focus_mode(self) -> None:
         """Return to selection mode so the highlight can move again."""

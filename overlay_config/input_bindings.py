@@ -164,9 +164,8 @@ class BindingManager:
 
         def _callback(event: object) -> None:
             if takes_event:
-                handler(event)
-            else:
-                handler()
+                return handler(event)
+            return handler()
 
         self._cached_wrappers[action] = _callback
         return _callback

@@ -19,7 +19,7 @@ class SelectionOverlay:
         self._parent = parent
         self._padding = padding
         self._border_width = border_width
-        computed_radius = max(12, padding * 3)
+        computed_radius = max(8, padding * 2)
         if corner_radius is None:
             self._corner_radius = computed_radius
         else:
