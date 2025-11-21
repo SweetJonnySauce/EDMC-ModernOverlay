@@ -659,12 +659,12 @@ class OverlayConfigApp(tk.Tk):
         self.indicator_wrapper.pack_propagate(False)
         self.indicator_canvas = tk.Canvas(
             self.indicator_wrapper,
-            width=self.indicator_width,
+            width=self.indicator_hit_width,
             height=self.indicator_height,
             highlightthickness=0,
             bg=indicator_bg,
         )
-        self.indicator_canvas.pack(expand=True)
+        self.indicator_canvas.pack(fill="both", expand=True)
 
         self.sidebar_overlay = SelectionOverlay(
             parent=self.sidebar,
@@ -1253,28 +1253,25 @@ class OverlayConfigApp(tk.Tk):
             self.indicator_wrapper.lift()
         except Exception:
             pass
+        self.indicator_canvas.configure(width=hit_width, height=self.indicator_height)
         self.indicator_canvas.delete("all")
         arrow_height = self.indicator_height / self.indicator_count
         for i in range(self.indicator_count):
             top = i * arrow_height
             if direction == "left":
-                points = (
-                    self.indicator_width,
-                    top,
-                    self.indicator_width,
-                    top + arrow_height,
-                    0,
-                    top + (arrow_height / 2),
-                )
+                base_x = hit_width
+                tip_x = max(0, base_x - self.indicator_width)
             else:
-                points = (
-                    0,
-                    top,
-                    0,
-                    top + arrow_height,
-                    self.indicator_width,
-                    top + (arrow_height / 2),
-                )
+                base_x = max(0, hit_width - self.indicator_width)
+                tip_x = hit_width
+            points = (
+                base_x,
+                top,
+                base_x,
+                top + arrow_height,
+                tip_x,
+                top + (arrow_height / 2),
+            )
             self.indicator_canvas.create_polygon(*points, fill="black")
 
     def _hide_indicator(self) -> None:
