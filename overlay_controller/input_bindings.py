@@ -33,7 +33,7 @@ DEFAULT_CONFIG = {
         "alt_widget_move_right": ["<Alt-Right>"],
         "enter_focus": ["<space>"],
         "widget_activate": ["<Return>"],
-        "exit_focus": ["<Control-w>"],
+        "exit_focus": ["<Control-w>", "<Escape>"],
     },
 }
     },

@@ -13,6 +13,9 @@ from tkinter import ttk
 from input_bindings import BindingConfig, BindingManager
 from selection_overlay import SelectionOverlay
 
+ABS_BASE_WIDTH = 1280
+ABS_BASE_HEIGHT = 960
+
 
 class IdPrefixGroupWidget(tk.Frame):
     """Composite control with a dropdown selector (placeholder for future inputs)."""
@@ -218,7 +221,7 @@ class OffsetSelectorWidget(tk.Frame):
 
     def __init__(self, parent: tk.Widget) -> None:
         super().__init__(parent, bd=0, highlightthickness=0, bg=parent.cget("background"))
-        self.button_size = 28
+        self.button_size = 30
         self._arrows: dict[str, tuple[tk.Canvas, int]] = {}
         self._pinned: set[str] = set()
         self._default_color = "black"
@@ -250,7 +253,7 @@ class OffsetSelectorWidget(tk.Frame):
             bg=self.cget("background"),
         )
         size = self.button_size
-        inset = 6
+        inset = 7
         if direction == "up":
             points = (size / 2, inset, size - inset, size - inset, inset, size - inset)
         elif direction == "down":
@@ -355,6 +358,136 @@ class OffsetSelectorWidget(tk.Frame):
         self._flash_arrow(key)
         return True
 
+
+class AbsoluteXYWidget(tk.Frame):
+    """Absolute X/Y input widget with focus-aware navigation."""
+
+    def __init__(self, parent: tk.Widget) -> None:
+        super().__init__(parent, bd=0, highlightthickness=0, bg=parent.cget("background"))
+        self._request_focus: callable | None = None
+        self._active_field: str = "x"
+        self._x_var = tk.StringVar()
+        self._y_var = tk.StringVar()
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=0)
+        self.grid_columnconfigure(2, weight=0)
+        self.grid_columnconfigure(3, weight=2)
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+
+        x_label = tk.Label(self, text="X:", anchor="e", padx=4, pady=2, bg=self.cget("background"))
+        y_label = tk.Label(self, text="Y:", anchor="e", padx=4, pady=2, bg=self.cget("background"))
+        x_entry = tk.Entry(self, textvariable=self._x_var, width=8)
+        y_entry = tk.Entry(self, textvariable=self._y_var, width=8)
+
+        x_label.grid(row=0, column=1, sticky="e")
+        x_entry.grid(row=0, column=2, padx=(2, 2))
+        y_label.grid(row=1, column=1, sticky="e")
+        y_entry.grid(row=1, column=2, padx=(2, 2))
+
+        self._entries = {"x": x_entry, "y": y_entry}
+
+        for field, entry in self._entries.items():
+            entry.bind("<Button-1>", lambda _e, f=field: self._handle_entry_click(f), add="+")
+            entry.bind("<FocusIn>", lambda _e, f=field: self._set_active_field(f), add="+")
+
+    def set_focus_request_callback(self, callback: callable | None) -> None:
+        """Register a callback that requests host focus when a control is clicked."""
+
+        self._request_focus = callback
+
+    def _set_active_field(self, field: str) -> None:
+        if field not in ("x", "y"):
+            return
+        self._active_field = field
+
+    def _focus_field(self, field: str) -> None:
+        self._set_active_field(field)
+        entry = self._entries.get(field)
+        if entry is None:
+            return
+        try:
+            entry.focus_set()
+            entry.icursor("end")
+        except Exception:
+            pass
+
+    def _handle_entry_click(self, field: str) -> str:
+        if self._request_focus:
+            try:
+                self._request_focus()
+            except Exception:
+                pass
+        self._focus_field(field)
+        return "break"
+
+    def on_focus_enter(self) -> None:
+        self._focus_field(self._active_field)
+
+    def on_focus_exit(self) -> None:
+        try:
+            self.winfo_toplevel().focus_set()
+        except Exception:
+            pass
+
+    def _parse_value(self, raw: str, axis: str) -> float:
+        """Parse value using percent/pixel rules from plugin_group_manager."""
+
+        token = (raw or "").strip()
+        if not token:
+            raise ValueError(f"{axis} value is empty")
+
+        base = ABS_BASE_WIDTH if axis.upper() == "X" else ABS_BASE_HEIGHT
+        multiplier = 1.0
+        mode = "px"
+        token_lower = token.lower()
+        if token_lower.endswith("px"):
+            token = token[:-2].strip()
+            multiplier = 100.0 / base
+        elif token.endswith("%"):
+            token = token[:-1].strip()
+            mode = "%"
+        else:
+            multiplier = 100.0 / base
+        try:
+            numeric = float(token)
+        except ValueError:
+            raise ValueError(
+                f"{axis} must be a percent with '%' (e.g. 50%) or a pixel value (e.g. 640 or 640px) relative to a 1280x960 window."
+            ) from None
+        numeric *= multiplier
+        if numeric < 0.0 or numeric > 100.0:
+            raise ValueError(f"{axis} value must be between 0 and 100 (received {numeric:g}).")
+        return numeric
+
+    def get_values(self) -> tuple[str, str]:
+        return self._x_var.get(), self._y_var.get()
+
+    def parse_values(self) -> tuple[float | None, float | None]:
+        """Return parsed percent values or None if empty."""
+
+        results: list[float | None] = []
+        for raw, axis in ((self._x_var.get(), "X"), (self._y_var.get(), "Y")):
+            token = (raw or "").strip()
+            if not token:
+                results.append(None)
+                continue
+            try:
+                results.append(self._parse_value(token, axis))
+            except ValueError:
+                results.append(None)
+        return results[0], results[1]
+
+    def handle_key(self, keysym: str, event: object | None = None) -> bool:
+        key = keysym.lower()
+        if key == "down" and self._active_field == "x":
+            self._focus_field("y")
+            return True
+        if key == "up" and self._active_field == "y":
+            self._focus_field("x")
+            return True
+        return False
 
 class OverlayConfigApp(tk.Tk):
     """Basic UI skeleton that mirrors the design mockups."""
@@ -581,6 +714,11 @@ class OverlayConfigApp(tk.Tk):
                 self.offset_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
                 self.offset_widget.pack(expand=True)
                 self._focus_widgets[("sidebar", index)] = self.offset_widget
+            elif index == 2:
+                self.absolute_widget = AbsoluteXYWidget(frame)
+                self.absolute_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
+                self.absolute_widget.pack(fill="both", expand=True, padx=0, pady=0)
+                self._focus_widgets[("sidebar", index)] = self.absolute_widget
             else:
                 text_label = tk.Label(frame, text=label_text, anchor="center", padx=6, pady=6)
                 text_label.pack(fill="both", expand=True)

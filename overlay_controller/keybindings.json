@@ -42,7 +42,8 @@
           "<Return>"
         ],
         "exit_focus": [
-          "<Control-w>"
+          "<Control-w>",
+          "<Escape>"
         ]
       }
     }
