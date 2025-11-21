@@ -23,8 +23,23 @@
         "widget_move_right": [
           "<Right>"
         ],
+        "alt_sidebar_focus_up": [
+          "<Alt-Up>"
+        ],
+        "alt_sidebar_focus_down": [
+          "<Alt-Down>"
+        ],
+        "alt_widget_move_left": [
+          "<Alt-Left>"
+        ],
+        "alt_widget_move_right": [
+          "<Alt-Right>"
+        ],
         "enter_focus": [
           "<space>"
+        ],
+        "widget_activate": [
+          "<Return>"
         ],
         "exit_focus": [
           "<Control-w>"

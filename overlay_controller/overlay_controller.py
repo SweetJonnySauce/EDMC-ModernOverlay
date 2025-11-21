@@ -31,6 +31,8 @@ class IdPrefixGroupWidget(tk.Frame):
         )
         if self._choices:
             self.dropdown.current(0)
+        for seq in ("<Alt-Up>", "<Alt-Down>", "<Alt-Left>", "<Alt-Right>"):
+            self.dropdown.bind(seq, lambda _e: "break")
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
@@ -89,6 +91,13 @@ class IdPrefixGroupWidget(tk.Frame):
 
     def handle_key(self, keysym: str, event: tk.Event[tk.Misc] | None = None) -> bool:  # type: ignore[name-defined]
         """Process keys while this widget has focus mode active."""
+
+        def _alt_pressed(evt: object | None) -> bool:
+            state = getattr(evt, "state", 0) or 0
+            return bool(state & 0x0008) or bool(state & 0x20000)
+
+        if _alt_pressed(event):
+            return False
 
         key = keysym.lower()
         if key == "space":
@@ -262,6 +271,7 @@ class OverlayConfigApp(tk.Tk):
         self._moving_guard_active = False
         self._move_guard_timeout_ms = 500
         self._pending_focus_out = False
+        self._drag_offset: tuple[int, int] | None = None
 
         self._placement_open = False
         self._open_width = 960
@@ -313,14 +323,33 @@ class OverlayConfigApp(tk.Tk):
             "widget_move_right",
             self.move_widget_focus_right,
         )
+        self._binding_manager.register_action(
+            "alt_sidebar_focus_up",
+            self.focus_sidebar_up,
+        )
+        self._binding_manager.register_action(
+            "alt_sidebar_focus_down",
+            self.focus_sidebar_down,
+        )
+        self._binding_manager.register_action(
+            "alt_widget_move_left",
+            self.move_widget_focus_left,
+        )
+        self._binding_manager.register_action(
+            "alt_widget_move_right",
+            self.move_widget_focus_right,
+        )
         self._binding_manager.register_action("enter_focus", self.enter_focus_mode)
+        self._binding_manager.register_action("widget_activate", self._handle_return_key)
         self._binding_manager.register_action("exit_focus", self.exit_focus_mode)
         self._binding_manager.register_action("close_app", self.close_application)
         self._binding_manager.activate()
         self.bind("<Configure>", self._handle_configure)
         self.bind("<FocusIn>", self._handle_focus_in)
-        self.bind("<Return>", self._handle_return_key, add="+")
         self.bind("<space>", self._handle_space_key, add="+")
+        self.bind("<ButtonPress-1>", self._start_window_drag, add="+")
+        self.bind("<B1-Motion>", self._on_window_drag, add="+")
+        self.bind("<ButtonRelease-1>", self._end_window_drag, add="+")
         self.after(0, self._center_and_show)
 
     def _build_layout(self) -> None:
@@ -620,6 +649,40 @@ class OverlayConfigApp(tk.Tk):
 
         self._cancel_pending_close()
         self._pending_focus_out = False
+        self._drag_offset = None
+
+    def _start_window_drag(self, event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]
+        """Begin window drag tracking when a mouse button is pressed."""
+
+        try:
+            if event.widget.winfo_toplevel() is not self:
+                return
+        except Exception:
+            return
+        try:
+            self._drag_offset = (
+                event.x_root - self.winfo_rootx(),
+                event.y_root - self.winfo_rooty(),
+            )
+        except Exception:
+            self._drag_offset = None
+
+    def _on_window_drag(self, event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]
+        """Move the window while dragging."""
+
+        if self._drag_offset is None:
+            return
+        try:
+            x = int(event.x_root - self._drag_offset[0])
+            y = int(event.y_root - self._drag_offset[1])
+            self.geometry(f"+{x}+{y}")
+        except Exception:
+            pass
+
+    def _end_window_drag(self, _event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]
+        """Clear drag tracking when the mouse button is released."""
+
+        self._drag_offset = None
 
     def _is_focus_out_event(self, event: tk.Event[tk.Misc] | None) -> bool:  # type: ignore[name-defined]
         """Return True if the event represents a real focus loss worth acting on."""
