@@ -21,6 +21,7 @@ class IdPrefixGroupWidget(tk.Frame):
         super().__init__(parent, bd=0, highlightthickness=0, bg=parent.cget("background"))
         self._choices = options or []
         self._selection = tk.StringVar()
+        self._request_focus: callable | None = None
 
         self.dropdown = ttk.Combobox(
             self,
@@ -31,13 +32,33 @@ class IdPrefixGroupWidget(tk.Frame):
         )
         if self._choices:
             self.dropdown.current(0)
-        for seq in ("<Alt-Up>", "<Alt-Down>", "<Alt-Left>", "<Alt-Right>"):
+        alt_sequences = (
+            "<Alt-Up>",
+            "<Alt-Down>",
+            "<Alt-Left>",
+            "<Alt-Right>",
+            "<Alt-KeyPress-Up>",
+            "<Alt-KeyPress-Down>",
+            "<Alt-KeyPress-Left>",
+            "<Alt-KeyPress-Right>",
+        )
+        block_classes = ("TComboboxListbox", "Listbox", "TComboboxPopdown")
+        for seq in alt_sequences:
             self.dropdown.bind(seq, lambda _e: "break")
+            for class_name in block_classes:
+                try:
+                    self.dropdown.bind_class(class_name, seq, lambda _e: "break")
+                except Exception:
+                    continue
+        self._build_triangles()
+        self.dropdown.bind("<Button-1>", self._handle_dropdown_click, add="+")
 
-        self.columnconfigure(0, weight=1)
+        self.columnconfigure(0, weight=0)
+        self.columnconfigure(1, weight=1)
+        self.columnconfigure(2, weight=0)
         self.rowconfigure(0, weight=1)
 
-        self.dropdown.grid(row=0, column=0, padx=0, pady=0)
+        self.dropdown.grid(row=0, column=1, padx=0, pady=0)
 
     def on_focus_enter(self) -> None:
         """Called when the host enters focus mode for this widget."""
@@ -89,6 +110,65 @@ class IdPrefixGroupWidget(tk.Frame):
         except Exception:
             return False
 
+    def _build_triangles(self) -> None:
+        """Add clickable triangles on either side of the combobox."""
+
+        def _make_button(column: int, direction: str) -> None:
+            btn = tk.Canvas(
+                self,
+                width=28,
+                height=28,
+                bd=0,
+                highlightthickness=0,
+                bg=self.cget("background"),
+            )
+            size = 28
+            inset = 6
+            if direction == "left":
+                points = (inset, size / 2, size - inset, inset, size - inset, size - inset)
+            else:
+                points = (size - inset, size / 2, inset, inset, inset, size - inset)
+            btn.create_polygon(*points, fill="black", outline="black")
+            btn.grid(row=0, column=column, padx=4, pady=0)
+
+            def _on_click(_event: object) -> str | None:
+                if self._request_focus:
+                    try:
+                        self._request_focus()
+                    except Exception:
+                        pass
+                try:
+                    self.dropdown.focus_set()
+                except Exception:
+                    pass
+                self._advance_selection(-1 if direction == "left" else 1)
+                return "break"
+
+            btn.bind("<Button-1>", _on_click)
+            if not hasattr(self, "_triangle_buttons"):
+                self._triangle_buttons: list[tk.Canvas] = []
+            self._triangle_buttons.append(btn)
+
+        _make_button(0, "left")
+        _make_button(2, "right")
+
+    def set_focus_request_callback(self, callback: callable | None) -> None:
+        """Register a callback that requests host focus when a control is clicked."""
+
+        self._request_focus = callback
+
+    def _handle_dropdown_click(self, _event: object) -> None:
+        """Ensure the widget enters focus/selection before native dropdown handling."""
+
+        if self._request_focus:
+            try:
+                self._request_focus()
+            except Exception:
+                pass
+        try:
+            self.dropdown.focus_set()
+        except Exception:
+            pass
     def handle_key(self, keysym: str, event: tk.Event[tk.Misc] | None = None) -> bool:  # type: ignore[name-defined]
         """Process keys while this widget has focus mode active."""
 
@@ -97,7 +177,7 @@ class IdPrefixGroupWidget(tk.Frame):
             return bool(state & 0x0008) or bool(state & 0x20000)
 
         if _alt_pressed(event):
-            return False
+            return True
 
         key = keysym.lower()
         if key == "space":
@@ -143,6 +223,7 @@ class OffsetSelectorWidget(tk.Frame):
         self._pinned: set[str] = set()
         self._default_color = "black"
         self._active_color = "#ff9900"
+        self._request_focus: callable | None = None
         self._build_grid()
 
     def _build_grid(self) -> None:
@@ -180,6 +261,7 @@ class OffsetSelectorWidget(tk.Frame):
             points = (inset, inset, inset, size - inset, size - inset, size / 2)
         polygon_id = canvas.create_polygon(*points, fill=self._default_color, outline=self._default_color)
         canvas.grid(row=row, column=column, padx=4, pady=4)
+        canvas.bind("<Button-1>", lambda _e, d=direction: self._handle_click(d))
         self._arrows[direction] = (canvas, polygon_id)
 
     def _opposite(self, direction: str) -> str:
@@ -218,6 +300,20 @@ class OffsetSelectorWidget(tk.Frame):
         except Exception:
             pass
 
+    def _handle_click(self, direction: str) -> None:
+        """Handle mouse click on an arrow, ensuring focus is acquired first."""
+
+        if self._request_focus:
+            try:
+                self._request_focus()
+            except Exception:
+                pass
+        try:
+            self.focus_set()
+        except Exception:
+            pass
+        self.handle_key(direction)
+
     def on_focus_enter(self) -> None:
         try:
             self.focus_set()
@@ -235,6 +331,11 @@ class OffsetSelectorWidget(tk.Frame):
 
         state = getattr(event, "state", 0) or 0
         return bool(state & 0x0008) or bool(state & 0x20000)
+
+    def set_focus_request_callback(self, callback: callable | None) -> None:
+        """Register a callback that requests host focus when a control is clicked."""
+
+        self._request_focus = callback
 
     def handle_key(self, keysym: str, event: object | None = None) -> bool:
         key = keysym.lower()
@@ -324,11 +425,11 @@ class OverlayConfigApp(tk.Tk):
             self.move_widget_focus_right,
         )
         self._binding_manager.register_action(
-            "alt_sidebar_focus_up",
+            "alt_widget_move_up",
             self.focus_sidebar_up,
         )
         self._binding_manager.register_action(
-            "alt_sidebar_focus_down",
+            "alt_widget_move_down",
             self.focus_sidebar_down,
         )
         self._binding_manager.register_action(
@@ -472,10 +573,12 @@ class OverlayConfigApp(tk.Tk):
             frame.grid_propagate(True)
             if index == 0:
                 self.idprefix_widget = IdPrefixGroupWidget(frame, options=self._load_idprefix_options())
+                self.idprefix_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
                 self.idprefix_widget.pack(fill="both", expand=True, padx=0, pady=0)
                 self._focus_widgets[("sidebar", index)] = self.idprefix_widget
             elif index == 1:
                 self.offset_widget = OffsetSelectorWidget(frame)
+                self.offset_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
                 self.offset_widget.pack(expand=True)
                 self._focus_widgets[("sidebar", index)] = self.offset_widget
             else:
