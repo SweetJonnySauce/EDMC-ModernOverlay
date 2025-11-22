@@ -4348,7 +4348,9 @@ class OverlayWindow(QWidget):
         outline_pen.setStyle(Qt.PenStyle.DashLine)
         painter.setPen(outline_pen)
         text_pen = QPen(QColor("#ffffff"))
-        font = painter.font()
+        font = QFont(self._font_family)
+        self._apply_font_fallbacks(font)
+        font.setWeight(QFont.Weight.Normal)
         font.setPointSizeF(max(font.pointSizeF(), 9.0))
         painter.setFont(font)
         for key, debug_state in self._debug_group_state.items():
