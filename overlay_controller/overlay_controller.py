@@ -27,6 +27,7 @@ class IdPrefixGroupWidget(tk.Frame):
         self._choices = options or []
         self._selection = tk.StringVar()
         self._request_focus: callable | None = None
+        self._on_selection_changed: callable | None = None
 
         self.dropdown = ttk.Combobox(
             self,
@@ -57,6 +58,7 @@ class IdPrefixGroupWidget(tk.Frame):
                     continue
         self._build_triangles()
         self.dropdown.bind("<Button-1>", self._handle_dropdown_click, add="+")
+        self.dropdown.bind("<<ComboboxSelected>>", self._handle_selection_change, add="+")
 
         self.columnconfigure(0, weight=0)
         self.columnconfigure(1, weight=1)
@@ -162,6 +164,11 @@ class IdPrefixGroupWidget(tk.Frame):
 
         self._request_focus = callback
 
+    def set_selection_change_callback(self, callback: callable | None) -> None:
+        """Register a callback invoked when the selection changes."""
+
+        self._on_selection_changed = callback
+
     def _handle_dropdown_click(self, _event: object) -> None:
         """Ensure the widget enters focus/selection before native dropdown handling."""
 
@@ -174,6 +181,13 @@ class IdPrefixGroupWidget(tk.Frame):
             self.dropdown.focus_set()
         except Exception:
             pass
+
+    def _handle_selection_change(self, _event: object | None = None) -> None:
+        if self._on_selection_changed:
+            try:
+                self._on_selection_changed(self.dropdown.get())
+            except Exception:
+                pass
     def handle_key(self, keysym: str, event: tk.Event[tk.Misc] | None = None) -> bool:  # type: ignore[name-defined]
         """Process keys while this widget has focus mode active."""
 
@@ -478,6 +492,13 @@ class JustificationWidget(tk.Frame):
         self._apply_styles()
         return True
 
+    def set_justification(self, name: str | None) -> None:
+        mapping = {"left": 0, "center": 1, "right": 2}
+        idx = mapping.get((name or "left").strip().lower(), 0)
+        if idx != self._active_index:
+            self._active_index = idx
+            self._apply_styles()
+
 
 class AnchorSelectorWidget(tk.Frame):
     """3x3 anchor grid with movable highlight."""
@@ -629,6 +650,28 @@ class AnchorSelectorWidget(tk.Frame):
         self._active_index = row * 3 + col
         self._draw()
         return True
+
+    def set_anchor(self, name: str | None) -> None:
+        mapping = {
+            "nw": 0,
+            "n": 1,
+            "top": 1,
+            "ne": 2,
+            "w": 3,
+            "left": 3,
+            "center": 4,
+            "c": 4,
+            "e": 5,
+            "right": 5,
+            "sw": 6,
+            "s": 7,
+            "bottom": 7,
+            "se": 8,
+        }
+        idx = mapping.get((name or "nw").strip().lower(), 0)
+        if idx != self._active_index:
+            self._active_index = idx
+            self._draw()
 
 
 class AbsoluteXYWidget(tk.Frame):
@@ -819,8 +862,11 @@ class OverlayConfigApp(tk.Tk):
         self._focus_widgets: dict[tuple[str, int], object] = {}
         self._current_direction = "right"
         self._adjusting_geometry = False
+        self._groupings_data: dict[str, object] = {}
+        self._idprefix_entries: list[tuple[str, str]] = []
 
         self._build_layout()
+        self._handle_idprefix_selected()
         self._binding_config = BindingConfig.load()
         self._binding_manager = BindingManager(self, self._binding_config)
         self._binding_manager.register_action(
@@ -999,6 +1045,7 @@ class OverlayConfigApp(tk.Tk):
             if index == 0:
                 self.idprefix_widget = IdPrefixGroupWidget(frame, options=self._load_idprefix_options())
                 self.idprefix_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
+                self.idprefix_widget.set_selection_change_callback(lambda _sel=None: self._handle_idprefix_selected())
                 self.idprefix_widget.pack(fill="both", expand=True, padx=0, pady=0)
                 self._focus_widgets[("sidebar", index)] = self.idprefix_widget
             elif index == 1:
@@ -1421,10 +1468,12 @@ class OverlayConfigApp(tk.Tk):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            return []
+            payload = {}
+        self._groupings_data = payload if isinstance(payload, dict) else {}
         options: list[str] = []
-        if isinstance(payload, dict):
-            for plugin_name, entry in sorted(payload.items(), key=lambda item: item[0].casefold()):
+        self._idprefix_entries.clear()
+        if isinstance(self._groupings_data, dict):
+            for plugin_name, entry in sorted(self._groupings_data.items(), key=lambda item: item[0].casefold()):
                 groups = entry.get("idPrefixGroups") if isinstance(entry, dict) else None
                 if not isinstance(groups, dict):
                     continue
@@ -1439,11 +1488,40 @@ class OverlayConfigApp(tk.Tk):
                 first_parts = {_prefix(lbl) for lbl in labels}
                 show_plugin = len(first_parts) > 1
                 for label in labels:
-                    if show_plugin:
-                        options.append(f"{plugin_name}: {label}")
-                    else:
-                        options.append(label)
+                    display = f"{plugin_name}: {label}" if show_plugin else label
+                    options.append(display)
+                    self._idprefix_entries.append((plugin_name, label))
         return options
+
+    def _get_group_config(self, plugin_name: str, label: str) -> dict[str, object]:
+        entry = self._groupings_data.get(plugin_name) if isinstance(self._groupings_data, dict) else None
+        groups = entry.get("idPrefixGroups") if isinstance(entry, dict) else None
+        group = groups.get(label) if isinstance(groups, dict) else None
+        return group if isinstance(group, dict) else {}
+
+    def _handle_idprefix_selected(self, _selection: str | None = None) -> None:
+        if not hasattr(self, "idprefix_widget"):
+            return
+        try:
+            idx = int(self.idprefix_widget.dropdown.current())
+        except Exception:
+            idx = -1
+        if not (0 <= idx < len(self._idprefix_entries)):
+            return
+        plugin_name, label = self._idprefix_entries[idx]
+        cfg = self._get_group_config(plugin_name, label)
+        anchor_name = cfg.get("idPrefixGroupAnchor") if isinstance(cfg, dict) else None
+        if hasattr(self, "anchor_widget"):
+            try:
+                self.anchor_widget.set_anchor(anchor_name)
+            except Exception:
+                pass
+        justification = cfg.get("payloadJustification") if isinstance(cfg, dict) else None
+        if hasattr(self, "justification_widget"):
+            try:
+                self.justification_widget.set_justification(justification)
+            except Exception:
+                pass
 
     def _on_configure_activity(self) -> None:
         """Track recent move/resize to avoid closing during window drag."""
