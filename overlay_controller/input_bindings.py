@@ -21,16 +21,21 @@ DEFAULT_CONFIG = {
             "device_type": "keyboard",
             "display_name": "Keyboard (default)",
             "bindings": {
-                "close_app": ["<Escape>", "<FocusOut>"],
-                "indicator_toggle": ["<Button-1>"],
-                "sidebar_focus_up": ["<Up>"],
-                "sidebar_focus_down": ["<Down>"],
-                "widget_move_left": ["<Left>"],
-                "widget_move_right": ["<Right>"],
-                "enter_focus": ["<space>"],
-                "exit_focus": ["<Control-w>"],
-            },
-        }
+        "close_app": ["<Escape>"],
+        "indicator_toggle": ["<Button-1>"],
+        "sidebar_focus_up": ["<Up>"],
+        "sidebar_focus_down": ["<Down>"],
+        "widget_move_left": ["<Left>"],
+        "widget_move_right": ["<Right>"],
+        "alt_widget_move_up": ["<Alt-Up>"],
+        "alt_widget_move_down": ["<Alt-Down>"],
+        "alt_widget_move_left": ["<Alt-Left>"],
+        "alt_widget_move_right": ["<Alt-Right>"],
+        "enter_focus": ["<space>"],
+        "widget_activate": ["<Return>"],
+        "exit_focus": ["<Control-w>", "<Escape>"],
+    },
+}
     },
 }
 
