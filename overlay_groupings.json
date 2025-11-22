@@ -7,8 +7,8 @@
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
         ],
-        "offsetX": 950.0,
-        "offsetY": -20.0,
+        "offsetX": 727.81,
+        "offsetY": -300.0,
         "payloadJustification": "right"
       },
       "BGS-Tally Ready": {
@@ -75,8 +75,8 @@
         "idPrefixes": [
           "bioscan_radar_"
         ],
-        "offsetX": 150.0,
-        "offsetY": 130.0,
+        "offsetX": -100.0,
+        "offsetY": -20.0,
         "payloadJustification": "left"
       },
       "Bioscan Summary": {
