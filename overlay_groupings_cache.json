@@ -2,7 +2,7 @@
   "groups": {
     "BGS-Tally": {
       "BGS-Tally Colonisation": {
-        "last_updated": 1763792708.4115758,
+        "last_updated": 1763793703.7269723,
         "normalized": {
           "has_transformed": true,
           "norm_height": 145.0,
@@ -13,7 +13,7 @@
           "norm_width": 298.0
         },
         "transformed": {
-          "anchor": "right",
+          "anchor": "nw",
           "justification": "right",
           "nudge_dx": 0,
           "nudge_dy": 0,
@@ -21,10 +21,10 @@
           "offset_dx": 1280.0,
           "offset_dy": 0.0,
           "trans_height": 145.0,
-          "trans_max_x": 779.0,
-          "trans_max_y": 552.5,
-          "trans_min_x": 481.0,
-          "trans_min_y": 407.5,
+          "trans_max_x": 149.0,
+          "trans_max_y": 72.5,
+          "trans_min_x": -149.0,
+          "trans_min_y": -72.5,
           "trans_width": 298.0
         }
       },
@@ -69,7 +69,7 @@
     },
     "Bioscan": {
       "Bioscan Radar": {
-        "last_updated": 1763787888.0131881,
+        "last_updated": 1763793162.7806518,
         "normalized": {
           "has_transformed": false,
           "norm_height": 200.0,
@@ -81,10 +81,10 @@
         },
         "transformed": {
           "anchor": "nw",
-          "trans_max_x": 840.0,
-          "trans_max_y": 350.0,
-          "trans_min_x": 640.0,
-          "trans_min_y": 150.0
+          "trans_max_x": 750.0,
+          "trans_max_y": 430.0,
+          "trans_min_x": 550.0,
+          "trans_min_y": 230.0
         }
       }
     }

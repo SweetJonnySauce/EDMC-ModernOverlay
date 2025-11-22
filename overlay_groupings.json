@@ -2,13 +2,13 @@
   "BGS-Tally": {
     "idPrefixGroups": {
       "BGS-Tally Colonisation": {
-        "idPrefixGroupAnchor": "right",
+        "idPrefixGroupAnchor": "nw",
         "idPrefixes": [
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
         ],
-        "offsetX": 630.0,
-        "offsetY": 180.0,
+        "offsetX": 0.0,
+        "offsetY": -300.0,
         "payloadJustification": "left"
       },
       "BGS-Tally Ready": {
@@ -39,8 +39,8 @@
           },
           "bgstally-msg-tick-"
         ],
-        "offsetX": 200.0,
-        "offsetY": 50.0,
+        "offsetX": 88.5,
+        "offsetY": 65.0,
         "payloadJustification": "right"
       },
       "BGS-Tally Tickwarn": {
@@ -75,8 +75,8 @@
         "idPrefixes": [
           "bioscan_radar_"
         ],
-        "offsetX": 240.0,
-        "offsetY": 50.0,
+        "offsetX": 250.0,
+        "offsetY": 230.0,
         "payloadJustification": "left"
       },
       "Bioscan Summary": {
@@ -84,7 +84,8 @@
         "idPrefixes": [
           "bioscan_summary_"
         ],
-        "offsetX": 240,
+        "offsetX": 0.0,
+        "offsetY": 0.0,
         "payloadJustification": "center"
       },
       "Bioscan Title": {

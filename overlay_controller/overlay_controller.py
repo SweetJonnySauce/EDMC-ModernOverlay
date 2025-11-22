@@ -1753,6 +1753,145 @@ class OverlayConfigApp(tk.Tk):
         }
         return mapping.get((anchor, direction), anchor)
 
+    def _anchor_sides(self, anchor: str) -> tuple[str, str]:
+        token = (anchor or "").lower().replace("-", "").replace("_", "")
+        h = "center"
+        v = "center"
+        if token in {"nw", "w", "sw", "left"} or "left" in token:
+            h = "left"
+        elif token in {"ne", "e", "se", "right"} or "right" in token:
+            h = "right"
+        if token in {"nw", "n", "ne", "top"} or "top" in token:
+            v = "top"
+        elif token in {"sw", "s", "se", "bottom"} or "bottom" in token:
+            v = "bottom"
+        return h, v
+
+    def _compute_anchor_point(self, min_x: float, max_x: float, min_y: float, max_y: float, anchor: str) -> tuple[float, float]:
+        h, v = self._anchor_sides(anchor)
+        ax = min_x if h == "left" else max_x if h == "right" else (min_x + max_x) / 2.0
+        ay = min_y if v == "top" else max_y if v == "bottom" else (min_y + max_y) / 2.0
+        return ax, ay
+
+    def _build_rect_from_anchor(self, anchor: str, width: float, height: float, anchor_x: float, anchor_y: float) -> tuple[float, float, float, float]:
+        h, v = self._anchor_sides(anchor)
+        if h == "left":
+            min_x = anchor_x
+            max_x = anchor_x + width
+        elif h == "right":
+            min_x = anchor_x - width
+            max_x = anchor_x
+        else:
+            min_x = anchor_x - (width / 2.0)
+            max_x = anchor_x + (width / 2.0)
+
+        if v == "top":
+            min_y = anchor_y
+            max_y = anchor_y + height
+        elif v == "bottom":
+            min_y = anchor_y - height
+            max_y = anchor_y
+        else:
+            min_y = anchor_y - (height / 2.0)
+            max_y = anchor_y + (height / 2.0)
+
+        return min_x, min_y, max_x, max_y
+
+    def _draw_preview(self) -> None:
+        canvas = getattr(self, "preview_canvas", None)
+        if canvas is None:
+            return
+        canvas.delete("all")
+        width = int(canvas.winfo_width() or canvas["width"])
+        height = int(canvas.winfo_height() or canvas["height"])
+        padding = 10
+        inner_w = max(1, width - 2 * padding)
+        inner_h = max(1, height - 2 * padding)
+        canvas.create_rectangle(
+            padding,
+            padding,
+            width - padding,
+            height - padding,
+            outline="#555555",
+            dash=(3, 3),
+        )
+
+        selection = self._get_current_group_selection()
+        if selection is None:
+            canvas.create_text(width // 2, height // 2, text="(select a group)", fill="#888888")
+            return
+        plugin_name, label = selection
+        norm_vals, trans_vals, cache_anchor, _ts = self._get_cache_entry(plugin_name, label)
+        cfg = self._get_group_config(plugin_name, label)
+        cfg_anchor = cfg.get("idPrefixGroupAnchor") if isinstance(cfg, dict) else None
+        anchor = None
+        if hasattr(self, "anchor_widget"):
+            try:
+                anchor = self.anchor_widget.get_anchor()
+            except Exception:
+                anchor = None
+        if not anchor:
+            anchor = cache_anchor or cfg_anchor or "nw"
+        offset_x_cfg = float(cfg.get("offsetX", 0.0)) if isinstance(cfg, dict) else 0.0
+        offset_y_cfg = float(cfg.get("offsetY", 0.0)) if isinstance(cfg, dict) else 0.0
+
+        scale = max(0.01, min(inner_w / float(ABS_BASE_WIDTH), inner_h / float(ABS_BASE_HEIGHT)))
+        origin_x = padding
+        origin_y = padding
+
+        def _rect_color(fill: str) -> dict[str, object]:
+            return {"fill": fill, "outline": "#000000", "width": 1}
+
+        norm_x0 = origin_x + norm_vals["min_x"] * scale
+        norm_y0 = origin_y + norm_vals["min_y"] * scale
+        norm_x1 = origin_x + norm_vals["max_x"] * scale
+        norm_y1 = origin_y + norm_vals["max_y"] * scale
+        canvas.create_rectangle(norm_x0, norm_y0, norm_x1, norm_y1, **_rect_color("#66a3ff"))
+
+        norm_width = norm_vals["max_x"] - norm_vals["min_x"]
+        norm_height = norm_vals["max_y"] - norm_vals["min_y"]
+        norm_anchor_x, norm_anchor_y = self._compute_anchor_point(
+            norm_vals["min_x"], norm_vals["max_x"], norm_vals["min_y"], norm_vals["max_y"], anchor
+        )
+
+        # Current transformed anchor from cache, then shift so target anchor = normalized anchor + offsets.
+        trans_anchor_cur_x, trans_anchor_cur_y = self._compute_anchor_point(
+            trans_vals["min_x"], trans_vals["max_x"], trans_vals["min_y"], trans_vals["max_y"], anchor
+        )
+        target_anchor_x = norm_anchor_x + offset_x_cfg
+        target_anchor_y = norm_anchor_y + offset_y_cfg
+        dx = target_anchor_x - trans_anchor_cur_x
+        dy = target_anchor_y - trans_anchor_cur_y
+
+        trans_min_x = trans_vals["min_x"] + dx
+        trans_max_x = trans_vals["max_x"] + dx
+        trans_min_y = trans_vals["min_y"] + dy
+        trans_max_y = trans_vals["max_y"] + dy
+
+        trans_x0 = origin_x + trans_min_x * scale
+        trans_y0 = origin_y + trans_min_y * scale
+        trans_x1 = origin_x + trans_max_x * scale
+        trans_y1 = origin_y + trans_max_y * scale
+        canvas.create_rectangle(trans_x0, trans_y0, trans_x1, trans_y1, **_rect_color("#ffa94d"))
+
+        def _draw_anchor(ax: float, ay: float, color: str) -> None:
+            px = origin_x + ax * scale
+            py = origin_y + ay * scale
+            r = 4
+            canvas.create_oval(px - r, py - r, px + r, py + r, fill=color, outline="#000000")
+
+        _draw_anchor(norm_anchor_x, norm_anchor_y, "#66a3ff")
+        _draw_anchor(target_anchor_x, target_anchor_y, "#ffa94d")
+
+        canvas.create_text(
+            padding + 6,
+            padding + 6,
+            text=f"{label}",
+            anchor="nw",
+            fill="#ffffff",
+            font=("TkDefaultFont", 9, "bold"),
+        )
+
     def _draw_preview(self) -> None:
         canvas = getattr(self, "preview_canvas", None)
         if canvas is None:
