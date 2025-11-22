@@ -608,6 +608,12 @@ class AnchorSelectorWidget(tk.Frame):
     def handle_key(self, keysym: str, _event: object | None = None) -> bool:
         if not self._has_focus:
             return False
+        # Ignore modified arrows (e.g., Alt+Arrow) to keep behavior consistent with bindings.
+        state = getattr(_event, "state", 0) or 0
+        alt_pressed = bool(state & 0x0008) or bool(state & 0x20000)
+        if alt_pressed:
+            return False
+
         key = keysym.lower()
         row, col = divmod(self._active_index, 3)
         if key == "left" and col > 0:
