@@ -1637,14 +1637,8 @@ class OverlayConfigApp(tk.Tk):
             pass
 
     def _write_groupings_cache(self) -> None:
-        path = getattr(self, "_groupings_cache_path", None)
-        if path is None:
-            return
-        try:
-            text = json.dumps(self._groupings_cache, indent=2, sort_keys=True)
-            path.write_text(text + "\n", encoding="utf-8")
-        except Exception:
-            pass
+        # Controller is read-only for overlay_group_cache.json; no-op to avoid clobbering client data.
+        return
 
     def _flush_groupings_config(self) -> None:
         self._debounce_handles["config_write"] = None
@@ -1652,7 +1646,7 @@ class OverlayConfigApp(tk.Tk):
 
     def _flush_groupings_cache(self) -> None:
         self._debounce_handles["cache_write"] = None
-        self._write_groupings_cache()
+        # Read-only cache; skip writes.
 
     def _schedule_debounce(self, key: str, callback: callable, delay_ms: int | None = None) -> None:
         """Schedule a debounced callback keyed by name."""
@@ -1671,7 +1665,13 @@ class OverlayConfigApp(tk.Tk):
         self._schedule_debounce("config_write", self._flush_groupings_config, delay_ms)
 
     def _schedule_groupings_cache_write(self, delay_ms: int | None = None) -> None:
-        self._schedule_debounce("cache_write", self._flush_groupings_cache, delay_ms)
+        # Cache is maintained by overlay client; avoid scheduling writes from controller.
+        existing = self._debounce_handles.pop("cache_write", None)
+        if existing is not None:
+            try:
+                self.after_cancel(existing)
+            except Exception:
+                pass
 
     def _capture_anchor_restore_state(self, selection: tuple[str, str]) -> bool:
         if selection is None:
