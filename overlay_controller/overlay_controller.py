@@ -1916,7 +1916,7 @@ class OverlayConfigApp(tk.Tk):
             canvas.create_text(width // 2, height // 2, text="(select a group)", fill="#888888")
             return
         plugin_name, label = selection
-        norm_vals, trans_vals, _anchor, _ts = self._get_cache_entry(plugin_name, label)
+        norm_vals, trans_vals, anchor_name, _ts = self._get_cache_entry(plugin_name, label)
 
         scale = max(0.01, min(inner_w / float(ABS_BASE_WIDTH), inner_h / float(ABS_BASE_HEIGHT)))
         offset_x = padding
@@ -1938,6 +1938,27 @@ class OverlayConfigApp(tk.Tk):
         trans_x1 = offset_x + trans_vals["max_x"] * scale
         trans_y1 = offset_y + trans_vals["max_y"] * scale
         canvas.create_rectangle(trans_x0, trans_y0, trans_x1, trans_y1, **_rect_color("#ffa94d"))
+
+        # Draw anchor indicator on the transformed rectangle.
+        anchor_px, anchor_py = self._compute_anchor_point(
+            trans_vals["min_x"],
+            trans_vals["max_x"],
+            trans_vals["min_y"],
+            trans_vals["max_y"],
+            anchor_name,
+        )
+        anchor_screen_x = offset_x + anchor_px * scale
+        anchor_screen_y = offset_y + anchor_py * scale
+        anchor_radius = 4
+        canvas.create_oval(
+            anchor_screen_x - anchor_radius,
+            anchor_screen_y - anchor_radius,
+            anchor_screen_x + anchor_radius,
+            anchor_screen_y + anchor_radius,
+            fill="#ffffff",
+            outline="#000000",
+            width=1,
+        )
 
         canvas.create_text(
             padding + 6,

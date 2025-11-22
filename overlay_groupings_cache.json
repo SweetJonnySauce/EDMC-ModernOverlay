@@ -2,7 +2,7 @@
   "groups": {
     "BGS-Tally": {
       "BGS-Tally Colonisation": {
-        "last_updated": 1763793703.7269723,
+        "last_updated": 1763834268.030544,
         "normalized": {
           "has_transformed": true,
           "norm_height": 145.0,
@@ -13,7 +13,7 @@
           "norm_width": 298.0
         },
         "transformed": {
-          "anchor": "nw",
+          "anchor": "ne",
           "justification": "right",
           "nudge_dx": 0,
           "nudge_dy": 0,
@@ -21,15 +21,15 @@
           "offset_dx": 1280.0,
           "offset_dy": 0.0,
           "trans_height": 145.0,
-          "trans_max_x": 149.0,
-          "trans_max_y": 72.5,
-          "trans_min_x": -149.0,
-          "trans_min_y": -72.5,
+          "trans_max_x": 369.0,
+          "trans_max_y": 372.5,
+          "trans_min_x": 71.0,
+          "trans_min_y": 227.5,
           "trans_width": 298.0
         }
       },
       "BGS-Tally Tick Notifications": {
-        "last_updated": 1763787753.1527073,
+        "last_updated": 1763834308.8521967,
         "normalized": {
           "has_transformed": true,
           "norm_height": 30.0,
@@ -48,10 +48,10 @@
           "offset_dx": 190.0,
           "offset_dy": 10.0,
           "trans_height": 30.0,
-          "trans_max_x": 1280.0,
-          "trans_max_y": 80.0,
-          "trans_min_x": 1057.0,
-          "trans_min_y": 50.0,
+          "trans_max_x": 1291.5,
+          "trans_max_y": 25.0,
+          "trans_min_x": 1068.5,
+          "trans_min_y": -5.0,
           "trans_width": 213.0
         }
       },
