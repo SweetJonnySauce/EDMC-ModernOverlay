@@ -18,6 +18,10 @@ from selection_overlay import SelectionOverlay
 
 ABS_BASE_WIDTH = 1280
 ABS_BASE_HEIGHT = 960
+ABS_MIN_X = 0.0
+ABS_MAX_X = float(ABS_BASE_WIDTH)
+ABS_MIN_Y = 0.0
+ABS_MAX_Y = float(ABS_BASE_HEIGHT)
 
 
 class IdPrefixGroupWidget(tk.Frame):
@@ -244,6 +248,7 @@ class OffsetSelectorWidget(tk.Frame):
         self._default_color = "black"
         self._active_color = "#ff9900"
         self._request_focus: callable | None = None
+        self._on_change: callable | None = None
         self._build_grid()
 
     def _build_grid(self) -> None:
@@ -305,6 +310,7 @@ class OffsetSelectorWidget(tk.Frame):
             self._pinned.difference_update({"up", "down"})
         self._pinned.add(direction)
         self._apply_arrow_colors()
+        self._emit_change(direction, pinned=True)
 
     def _flash_arrow(self, direction: str, flash_ms: int = 140) -> None:
         entry = self._arrows.get(direction)
@@ -371,9 +377,22 @@ class OffsetSelectorWidget(tk.Frame):
             # Non-Alt opposite press clears that axis' pin.
             self._pinned.discard(opposite)
             self._apply_arrow_colors()
+            self._emit_change(opposite, pinned=False)
 
         self._flash_arrow(key)
+        self._emit_change(key, pinned=False)
         return True
+
+    def set_change_callback(self, callback: callable | None) -> None:
+        self._on_change = callback
+
+    def _emit_change(self, direction: str, pinned: bool) -> None:
+        if self._on_change is None:
+            return
+        try:
+            self._on_change(direction, pinned)
+        except Exception:
+            pass
 
 
 class JustificationWidget(tk.Frame):
@@ -386,6 +405,7 @@ class JustificationWidget(tk.Frame):
         self._active_index = 0
         self._choices = ["Left", "Center", "Right"]
         self._icons: list[tk.Canvas] = []
+        self._on_change: callable | None = None
         self._build_icons()
 
     def _build_icons(self) -> None:
@@ -456,6 +476,7 @@ class JustificationWidget(tk.Frame):
             return "break"
         self._active_index = max(0, min(len(self._choices) - 1, index))
         self._apply_styles()
+        self._emit_change()
         return "break"
 
     def set_focus_request_callback(self, callback: callable | None) -> None:
@@ -491,6 +512,7 @@ class JustificationWidget(tk.Frame):
             return False
         self._active_index = new_index
         self._apply_styles()
+        self._emit_change()
         return True
 
     def set_justification(self, name: str | None) -> None:
@@ -499,6 +521,20 @@ class JustificationWidget(tk.Frame):
         if idx != self._active_index:
             self._active_index = idx
             self._apply_styles()
+
+    def get_justification(self) -> str:
+        return ["left", "center", "right"][self._active_index]
+
+    def set_change_callback(self, callback: callable | None) -> None:
+        self._on_change = callback
+
+    def _emit_change(self) -> None:
+        if self._on_change is None:
+            return
+        try:
+            self._on_change(self.get_justification())
+        except Exception:
+            pass
 
 
 class AnchorSelectorWidget(tk.Frame):
@@ -657,7 +693,7 @@ class AnchorSelectorWidget(tk.Frame):
 
     def set_anchor(self, name: str | None) -> None:
         mapping = {
-            "nw": 0,
+            "nw": 0,  # legacy aliases
             "n": 1,
             "top": 1,
             "ne": 2,
@@ -680,13 +716,13 @@ class AnchorSelectorWidget(tk.Frame):
     def get_anchor(self) -> str:
         mapping = {
             0: "nw",
-            1: "n",
+            1: "top",
             2: "ne",
-            3: "w",
+            3: "left",
             4: "center",
-            5: "e",
+            5: "right",
             6: "sw",
-            7: "s",
+            7: "bottom",
             8: "se",
         }
         return mapping.get(self._active_index, "nw")
@@ -925,9 +961,10 @@ class OverlayConfigApp(tk.Tk):
         self._groupings_cache: dict[str, object] = {}
         self._absolute_user_state: dict[tuple[str, str], dict[str, float | None]] = {}
         self._absolute_tolerance_px = 0.5
-        self._config_write_job: str | None = None
-        self._cache_write_job: str | None = None
+        self._debounce_handles: dict[str, str | None] = {}
         self._write_debounce_ms = 300
+        self._offset_write_debounce_ms = 600
+        self._offset_step_px = 10.0
 
         self._build_layout()
         self._groupings_cache = self._load_groupings_cache()
@@ -1116,6 +1153,7 @@ class OverlayConfigApp(tk.Tk):
             elif index == 1:
                 self.offset_widget = OffsetSelectorWidget(frame)
                 self.offset_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
+                self.offset_widget.set_change_callback(self._handle_offset_changed)
                 self.offset_widget.pack(expand=True)
                 self._focus_widgets[("sidebar", index)] = self.offset_widget
             elif index == 2:
@@ -1135,6 +1173,7 @@ class OverlayConfigApp(tk.Tk):
             elif index == 4:
                 self.justification_widget = JustificationWidget(frame)
                 self.justification_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
+                self.justification_widget.set_change_callback(self._handle_justification_changed)
                 self.justification_widget.pack(fill="both", expand=True, padx=4, pady=4)
                 self._focus_widgets[("sidebar", index)] = self.justification_widget
             else:
@@ -1606,28 +1645,31 @@ class OverlayConfigApp(tk.Tk):
             pass
 
     def _flush_groupings_config(self) -> None:
-        self._config_write_job = None
+        self._debounce_handles["config_write"] = None
         self._write_groupings_config()
 
     def _flush_groupings_cache(self) -> None:
-        self._cache_write_job = None
+        self._debounce_handles["cache_write"] = None
         self._write_groupings_cache()
 
-    def _schedule_groupings_config_write(self) -> None:
-        if self._config_write_job is not None:
-            try:
-                self.after_cancel(self._config_write_job)
-            except Exception:
-                pass
-        self._config_write_job = self.after(self._write_debounce_ms, self._flush_groupings_config)
+    def _schedule_debounce(self, key: str, callback: callable, delay_ms: int | None = None) -> None:
+        """Schedule a debounced callback keyed by name."""
 
-    def _schedule_groupings_cache_write(self) -> None:
-        if self._cache_write_job is not None:
+        existing = self._debounce_handles.get(key)
+        if existing is not None:
             try:
-                self.after_cancel(self._cache_write_job)
+                self.after_cancel(existing)
             except Exception:
                 pass
-        self._cache_write_job = self.after(self._write_debounce_ms, self._flush_groupings_cache)
+        delay = self._write_debounce_ms if delay_ms is None else delay_ms
+        handle = self.after(delay, callback)
+        self._debounce_handles[key] = handle
+
+    def _schedule_groupings_config_write(self, delay_ms: int | None = None) -> None:
+        self._schedule_debounce("config_write", self._flush_groupings_config, delay_ms)
+
+    def _schedule_groupings_cache_write(self, delay_ms: int | None = None) -> None:
+        self._schedule_debounce("cache_write", self._flush_groupings_cache, delay_ms)
 
     def _get_current_group_selection(self) -> tuple[str, str] | None:
         if not hasattr(self, "idprefix_widget"):
@@ -1641,35 +1683,75 @@ class OverlayConfigApp(tk.Tk):
         return self._idprefix_entries[idx]
 
     def _select_transformed_for_anchor(self, anchor: str, trans_min: float, trans_max: float, axis: str) -> float:
-        anchor = (anchor or "").lower()
-        if axis == "x":
-            if anchor in {"nw", "w", "sw", "left"}:
-                return trans_min
-            if anchor in {"ne", "e", "se", "right"}:
-                return trans_max
-            return (trans_min + trans_max) / 2.0
-        # y axis
-        if anchor in {"nw", "n", "ne", "top"}:
-            return trans_min
-        if anchor in {"sw", "s", "se", "bottom"}:
-            return trans_max
         return (trans_min + trans_max) / 2.0
 
     def _rebuild_transformed_span(self, anchor: str, user_val: float, norm_span: float, axis: str) -> tuple[float, float]:
-        anchor = (anchor or "").lower()
         span = max(0.0, norm_span)
-        if axis == "x":
-            if anchor in {"nw", "w", "sw", "left"}:
-                return user_val, user_val + span
-            if anchor in {"ne", "e", "se", "right"}:
-                return user_val - span, user_val
-        else:
-            if anchor in {"nw", "n", "ne", "top"}:
-                return user_val, user_val + span
-            if anchor in {"sw", "s", "se", "bottom"}:
-                return user_val - span, user_val
         start = user_val - (span / 2.0)
         return start, start + span
+
+    def _split_anchor(self, anchor: str) -> tuple[str, str]:
+        anchor = (anchor or "").lower()
+        x_side = "center"
+        y_side = "center"
+        if "left" in anchor:
+            x_side = "left"
+        elif "right" in anchor:
+            x_side = "right"
+        if "top" in anchor or anchor == "n":
+            y_side = "top"
+        elif "bottom" in anchor or anchor == "s":
+            y_side = "bottom"
+        return x_side, y_side
+
+    def _combine_anchor(self, x_side: str, y_side: str) -> str:
+        x_side = x_side or "center"
+        y_side = y_side or "center"
+        if x_side == "left" and y_side == "top":
+            return "nw"
+        if x_side == "right" and y_side == "top":
+            return "ne"
+        if x_side == "left" and y_side == "bottom":
+            return "sw"
+        if x_side == "right" and y_side == "bottom":
+            return "se"
+        if x_side == "left":
+            return "left"
+        if x_side == "right":
+            return "right"
+        if y_side == "top":
+            return "top"
+        if y_side == "bottom":
+            return "bottom"
+        return "center"
+
+    def _resolve_pinned_anchor(self, current_anchor: str, direction: str) -> str:
+        anchor = (current_anchor or "").lower()
+        direction = (direction or "").lower()
+        mapping = {
+            ("ne", "down"): "se",
+            ("ne", "left"): "nw",
+            ("top", "right"): "ne",
+            ("top", "left"): "nw",
+            ("top", "down"): "bottom",
+            ("nw", "right"): "ne",
+            ("nw", "down"): "sw",
+            ("left", "up"): "nw",
+            ("left", "down"): "sw",
+            ("left", "right"): "right",
+            ("sw", "up"): "nw",
+            ("sw", "right"): "se",
+            ("bottom", "left"): "sw",
+            ("bottom", "right"): "se",
+            ("bottom", "up"): "top",
+            ("se", "left"): "sw",
+            ("se", "up"): "ne",
+            ("center", "up"): "top",
+            ("center", "left"): "left",
+            ("center", "down"): "bottom",
+            ("center", "right"): "right",
+        }
+        return mapping.get((anchor, direction), anchor)
 
     def _get_cache_entry(
         self, plugin_name: str, label: str
@@ -1694,7 +1776,7 @@ class OverlayConfigApp(tk.Tk):
             "max_y": float(transformed.get("trans_max_y", norm_vals["max_y"])) if isinstance(transformed, dict) else norm_vals["max_y"],
         }
         anchor = transformed.get("anchor") if isinstance(transformed, dict) else None
-        anchor_name = str(anchor).lower() if isinstance(anchor, str) else "nw"
+        anchor_name = str(anchor).lower() if isinstance(anchor, str) else "top-left"
         timestamp = float(entry.get("last_updated", 0.0)) if isinstance(entry, dict) else 0.0
         return norm_vals, trans_vals, anchor_name, timestamp
 
@@ -1769,6 +1851,25 @@ class OverlayConfigApp(tk.Tk):
                 pass
         self._sync_absolute_for_current_group(force_ui=True)
 
+    def _handle_justification_changed(self, justification: str) -> None:
+        selection = self._get_current_group_selection()
+        if selection is None:
+            return
+        plugin_name, label = selection
+        if not isinstance(self._groupings_data, dict):
+            return
+        entry = self._groupings_data.get(plugin_name)
+        if not isinstance(entry, dict):
+            return
+        groups = entry.get("idPrefixGroups") if isinstance(entry, dict) else None
+        if not isinstance(groups, dict):
+            return
+        group = groups.get(label)
+        if not isinstance(group, dict):
+            return
+        group["payloadJustification"] = justification
+        self._schedule_groupings_config_write()
+
     def _handle_absolute_changed(self, axis: str) -> None:
         selection = self._get_current_group_selection()
         if selection is None or not hasattr(self, "absolute_widget"):
@@ -1786,7 +1887,66 @@ class OverlayConfigApp(tk.Tk):
         self._absolute_user_state[selection] = state
         self._sync_absolute_for_current_group(force_ui=False)
 
-    def _handle_anchor_changed(self, anchor: str) -> None:
+    def _handle_offset_changed(self, direction: str, pinned: bool) -> None:
+        selection = self._get_current_group_selection()
+        if selection is None or not hasattr(self, "absolute_widget"):
+            return
+        plugin_name, label = selection
+        x_val, y_val = self.absolute_widget.get_px_values()
+        x_val = x_val if x_val is not None else 0.0
+        y_val = y_val if y_val is not None else 0.0
+
+        if pinned:
+            current_anchor = "center"
+            if hasattr(self, "anchor_widget"):
+                try:
+                    current_anchor = self.anchor_widget.get_anchor()
+                except Exception:
+                    pass
+            if direction == "left":
+                x_val = ABS_MIN_X
+            elif direction == "right":
+                x_val = ABS_MAX_X
+            elif direction == "up":
+                y_val = ABS_MIN_Y
+            elif direction == "down":
+                y_val = ABS_MAX_Y
+            else:
+                return
+            anchor_target = self._resolve_pinned_anchor(current_anchor, direction)
+        else:
+            step = self._offset_step_px
+            anchor_target = None
+            if direction == "left":
+                x_val = max(ABS_MIN_X, x_val - step)
+            elif direction == "right":
+                x_val = min(ABS_MAX_X, x_val + step)
+            elif direction == "up":
+                y_val = max(ABS_MIN_Y, y_val - step)
+            elif direction == "down":
+                y_val = min(ABS_MAX_Y, y_val + step)
+            else:
+                return
+
+        now = time.time()
+        state = self._absolute_user_state.get(selection, {"x": None, "y": None, "x_ts": 0.0, "y_ts": 0.0})
+        state["x"] = x_val
+        state["y"] = y_val
+        state["x_ts"] = now
+        state["y_ts"] = now
+        self._absolute_user_state[selection] = state
+        self.absolute_widget.set_px_values(x_val, y_val)
+        if pinned and hasattr(self, "anchor_widget"):
+            try:
+                self.anchor_widget.set_anchor(anchor_target)
+            except Exception:
+                pass
+            self._handle_anchor_changed(anchor_target, prefer_user=True)
+        self._sync_absolute_for_current_group(
+            force_ui=False, debounce_ms=self._offset_write_debounce_ms, prefer_user=pinned
+        )
+
+    def _handle_anchor_changed(self, anchor: str, prefer_user: bool = False) -> None:
         selection = self._get_current_group_selection()
         if selection is None:
             return
@@ -1809,7 +1969,7 @@ class OverlayConfigApp(tk.Tk):
         cache_ts_write = max(cache_ts, time.time())
         self._update_cache_entry(plugin_name, label, trans_vals, anchor, cache_ts_write)
         self._schedule_groupings_cache_write()
-        self._sync_absolute_for_current_group(force_ui=True)
+        self._sync_absolute_for_current_group(force_ui=True, prefer_user=prefer_user)
 
     def _sync_axis(
         self,
@@ -1823,6 +1983,7 @@ class OverlayConfigApp(tk.Tk):
         user_ts: float,
         cache_ts: float,
         axis: str,
+        prefer_user: bool,
     ) -> tuple[float, float, float, float, float, float, float]:
         base_val = norm_min
         current_transformed = self._select_transformed_for_anchor(anchor, trans_min, trans_max, axis)
@@ -1832,6 +1993,9 @@ class OverlayConfigApp(tk.Tk):
         resolved_offset = offset
         resolved_cache_val = current_transformed
         resolved_cache_ts = cache_ts
+
+        if prefer_user and user_val is not None:
+            cache_ts = -1.0
 
         if cache_ts > user_ts:
             resolved_user = current_transformed
@@ -1859,7 +2023,9 @@ class OverlayConfigApp(tk.Tk):
             new_max,
         )
 
-    def _sync_absolute_for_current_group(self, force_ui: bool = False) -> None:
+    def _sync_absolute_for_current_group(
+        self, force_ui: bool = False, debounce_ms: int | None = None, prefer_user: bool = False
+    ) -> None:
         if not hasattr(self, "absolute_widget"):
             return
         selection = self._get_current_group_selection()
@@ -1890,6 +2056,7 @@ class OverlayConfigApp(tk.Tk):
             user_x_ts,
             cache_ts,
             "x",
+            prefer_user,
         )
 
         offset_y_res, user_y_res, cache_y_res, cache_ts_y, user_ts_y, new_ty_min, new_ty_max = self._sync_axis(
@@ -1903,6 +2070,7 @@ class OverlayConfigApp(tk.Tk):
             user_y_ts,
             cache_ts,
             "y",
+            prefer_user,
         )
 
         state["x"] = user_x_res
@@ -1926,7 +2094,7 @@ class OverlayConfigApp(tk.Tk):
 
         if cfg_changed:
             self._set_config_offsets(plugin_name, label, offset_x_res, offset_y_res)
-            self._schedule_groupings_config_write()
+            self._schedule_groupings_config_write(debounce_ms)
 
         if cache_changed:
             cache_ts_write = max(cache_ts_x, cache_ts_y, time.time())
@@ -1937,7 +2105,7 @@ class OverlayConfigApp(tk.Tk):
                 "max_y": new_ty_max,
             }
             self._update_cache_entry(plugin_name, label, trans_vals_update, anchor, cache_ts_write)
-            self._schedule_groupings_cache_write()
+            self._schedule_groupings_cache_write(debounce_ms)
 
         if force_ui or cfg_changed or cache_changed or user_x is None or user_y is None:
             self.absolute_widget.set_px_values(user_x_res, user_y_res)
