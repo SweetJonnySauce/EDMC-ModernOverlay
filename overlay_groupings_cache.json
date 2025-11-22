@@ -2,7 +2,7 @@
   "groups": {
     "BGS-Tally": {
       "BGS-Tally Colonisation": {
-        "last_updated": 1763834268.030544,
+        "last_updated": 1763834795.8960738,
         "normalized": {
           "has_transformed": true,
           "norm_height": 145.0,
@@ -21,10 +21,10 @@
           "offset_dx": 1280.0,
           "offset_dy": 0.0,
           "trans_height": 145.0,
-          "trans_max_x": 369.0,
-          "trans_max_y": 372.5,
-          "trans_min_x": 71.0,
-          "trans_min_y": 227.5,
+          "trans_max_x": 298.0,
+          "trans_max_y": 145.0,
+          "trans_min_x": 0.0,
+          "trans_min_y": 0.0,
           "trans_width": 298.0
         }
       },

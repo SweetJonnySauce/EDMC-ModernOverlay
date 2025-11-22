@@ -1683,11 +1683,24 @@ class OverlayConfigApp(tk.Tk):
         return self._idprefix_entries[idx]
 
     def _select_transformed_for_anchor(self, anchor: str, trans_min: float, trans_max: float, axis: str) -> float:
+        horizontal, vertical = self._anchor_sides(anchor)
+        side = horizontal if (axis or "").lower() == "x" else vertical
+        if side in {"left", "top"}:
+            return trans_min
+        if side in {"right", "bottom"}:
+            return trans_max
         return (trans_min + trans_max) / 2.0
 
     def _rebuild_transformed_span(self, anchor: str, user_val: float, norm_span: float, axis: str) -> tuple[float, float]:
         span = max(0.0, norm_span)
-        start = user_val - (span / 2.0)
+        horizontal, vertical = self._anchor_sides(anchor)
+        side = horizontal if (axis or "").lower() == "x" else vertical
+        if side in {"left", "top"}:
+            start = user_val
+        elif side in {"right", "bottom"}:
+            start = user_val - span
+        else:
+            start = user_val - (span / 2.0)
         return start, start + span
 
     def _split_anchor(self, anchor: str) -> tuple[str, str]:
