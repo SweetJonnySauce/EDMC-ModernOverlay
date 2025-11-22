@@ -242,7 +242,7 @@ class OffsetSelectorWidget(tk.Frame):
 
     def __init__(self, parent: tk.Widget) -> None:
         super().__init__(parent, bd=0, highlightthickness=0, bg=parent.cget("background"))
-        self.button_size = 30
+        self.button_size = 36
         self._arrows: dict[str, tuple[tk.Canvas, int]] = {}
         self._pinned: set[str] = set()
         self._default_color = "black"
@@ -548,8 +548,8 @@ class AnchorSelectorWidget(tk.Frame):
         self._on_change: callable | None = None
         self.canvas = tk.Canvas(
             self,
-            width=200,
-            height=200,
+            width=120,
+            height=120,
             bd=0,
             highlightthickness=0,
             bg=self.cget("background"),
@@ -1163,7 +1163,7 @@ class OverlayConfigApp(tk.Tk):
                 self.absolute_widget.pack(fill="both", expand=True, padx=0, pady=0)
                 self._focus_widgets[("sidebar", index)] = self.absolute_widget
             elif index == 3:
-                frame.configure(height=220)
+                frame.configure(height=140)
                 frame.grid_propagate(False)
                 self.anchor_widget = AnchorSelectorWidget(frame)
                 self.anchor_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
