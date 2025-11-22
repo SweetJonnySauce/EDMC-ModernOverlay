@@ -4,6 +4,8 @@ __pycache__/
 *.py[cod]
 port.json
 payload_store/new-payloads.json
+overlay_group_cache.json
+overlay_group_cache.json.tmp
 #*.code-workspace
 [Ee][Uu][Rr][Oo][Cc][Aa][Pp][Ss].[Tt][Tt][Ff]
 _external/

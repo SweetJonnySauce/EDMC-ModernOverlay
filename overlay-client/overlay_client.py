@@ -58,6 +58,7 @@ from vector_renderer import render_vector, VectorPainterAdapter  # type: ignore 
 from plugin_overrides import PluginOverrideManager  # type: ignore  # noqa: E402
 from debug_config import DEBUG_CONFIG_ENABLED, DebugConfig, load_debug_config  # type: ignore  # noqa: E402
 from group_transform import GroupTransform, GroupKey  # type: ignore  # noqa: E402
+from group_cache import GroupPlacementCache, resolve_cache_path  # type: ignore  # noqa: E402
 from font_utils import apply_font_fallbacks  # type: ignore  # noqa: E402
 from viewport_helper import (
     BASE_HEIGHT,
@@ -612,6 +613,11 @@ class OverlayWindow(QWidget):
         self._group_log_next_allowed: Dict[Tuple[str, Optional[str]], float] = {}
         self._logged_group_bounds: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
         self._logged_group_transforms: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
+        self._group_cache = GroupPlacementCache(
+            resolve_cache_path(ROOT_DIR),
+            debounce_seconds=10.0,
+            logger=_CLIENT_LOGGER,
+        )
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -2882,6 +2888,8 @@ class OverlayWindow(QWidget):
         overlay_bounds_base = self._collect_base_overlay_bounds(commands)
         transform_candidates: Dict[Tuple[str, Optional[str]], Tuple[str, Optional[str]]] = {}
         latest_base_payload: Dict[Tuple[str, Optional[str]], Dict[str, Any]] = {}
+        cache_base_payloads: Dict[Tuple[str, Optional[str]], Dict[str, Any]] = {}
+        cache_transform_payloads: Dict[Tuple[str, Optional[str]], Dict[str, Any]] = {}
         active_group_keys: Set[Tuple[str, Optional[str]]] = set()
         for key, logical_bounds in overlay_bounds_base.items():
             if logical_bounds is None or not logical_bounds.is_valid():
@@ -2917,6 +2925,7 @@ class OverlayWindow(QWidget):
                 "bounds_tuple": bounds_tuple,
             }
             latest_base_payload[key] = payload_dict
+            cache_base_payloads[key] = dict(payload_dict)
             pending_payload = self._group_log_pending_base.get(key)
             pending_tuple = pending_payload.get("bounds_tuple") if pending_payload else None
             last_logged = self._logged_group_bounds.get(key)
@@ -2985,6 +2994,24 @@ class OverlayWindow(QWidget):
                 transformed_bounds.max_x,
                 transformed_bounds.max_y,
             )
+            transform_payload = {
+                "plugin": plugin_label,
+                "suffix": suffix_label,
+                "min_x": transformed_bounds.min_x,
+                "min_y": transformed_bounds.min_y,
+                "max_x": transformed_bounds.max_x,
+                "max_y": transformed_bounds.max_y,
+                "width": width_t,
+                "height": height_t,
+                "anchor": anchor_token,
+                "justification": justification_token,
+                "offset_dx": offset_dx,
+                "offset_dy": offset_dy,
+                "nudge_dx": nudge_x,
+                "nudge_dy": nudge_y,
+                "nudged": nudged,
+            }
+            cache_transform_payloads[key] = dict(transform_payload)
             pending_payload = self._group_log_pending_transform.get(key)
             pending_tuple = pending_payload.get("bounds_tuple") if pending_payload else None
             last_logged = self._logged_group_transforms.get(key)
@@ -2994,21 +3021,7 @@ class OverlayWindow(QWidget):
                 continue
             if pending_payload is None or pending_tuple != transform_tuple:
                 self._group_log_pending_transform[key] = {
-                    "plugin": plugin_label,
-                    "suffix": suffix_label,
-                    "min_x": transformed_bounds.min_x,
-                    "min_y": transformed_bounds.min_y,
-                    "max_x": transformed_bounds.max_x,
-                    "max_y": transformed_bounds.max_y,
-                    "width": width_t,
-                    "height": height_t,
-                    "anchor": anchor_token,
-                    "justification": justification_token,
-                    "offset_dx": offset_dx,
-                    "offset_dy": offset_dy,
-                    "nudge_dx": nudge_x,
-                    "nudge_dy": nudge_y,
-                    "nudged": nudged,
+                    **transform_payload,
                     "bounds_tuple": transform_tuple,
                 }
                 if key not in self._group_log_pending_base:
@@ -3017,6 +3030,7 @@ class OverlayWindow(QWidget):
                         self._group_log_pending_base[key] = base_snapshot
                     delay_target = now_monotonic if self._payload_log_delay <= 0.0 else now_monotonic + self._payload_log_delay
                     self._group_log_next_allowed[key] = delay_target
+        self._update_group_cache_from_payloads(cache_base_payloads, cache_transform_payloads)
         self._flush_group_log_entries(active_group_keys)
         collect_debug_helpers = self._dev_mode_enabled and self._debug_config.group_bounds_outline
         if collect_debug_helpers:
@@ -4242,6 +4256,75 @@ class OverlayWindow(QWidget):
                 )
 
         return _emit
+
+    @staticmethod
+    def _cache_safe_float(value: Any) -> float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if not math.isfinite(number):
+            return 0.0
+        return round(number, 3)
+
+    @staticmethod
+    def _cache_safe_int(value: Any) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+
+    def _normalized_cache_payload(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return {
+            "norm_min_x": self._cache_safe_float(payload.get("min_x")),
+            "norm_min_y": self._cache_safe_float(payload.get("min_y")),
+            "norm_width": self._cache_safe_float(payload.get("width")),
+            "norm_height": self._cache_safe_float(payload.get("height")),
+            "norm_max_x": self._cache_safe_float(payload.get("max_x")),
+            "norm_max_y": self._cache_safe_float(payload.get("max_y")),
+            "has_transformed": bool(payload.get("has_transformed", False)),
+        }
+
+    def _transformed_cache_payload(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        anchor_raw = payload.get("anchor") or "nw"
+        justification_raw = payload.get("justification") or "left"
+        return {
+            "trans_min_x": self._cache_safe_float(payload.get("min_x")),
+            "trans_min_y": self._cache_safe_float(payload.get("min_y")),
+            "trans_width": self._cache_safe_float(payload.get("width")),
+            "trans_height": self._cache_safe_float(payload.get("height")),
+            "trans_max_x": self._cache_safe_float(payload.get("max_x")),
+            "trans_max_y": self._cache_safe_float(payload.get("max_y")),
+            "anchor": str(anchor_raw).strip().lower(),
+            "justification": str(justification_raw).strip().lower(),
+            "offset_dx": self._cache_safe_float(payload.get("offset_dx")),
+            "offset_dy": self._cache_safe_float(payload.get("offset_dy")),
+            "nudge_dx": self._cache_safe_int(payload.get("nudge_dx")),
+            "nudge_dy": self._cache_safe_int(payload.get("nudge_dy")),
+            "nudged": bool(payload.get("nudged", False)),
+        }
+
+    def _update_group_cache_from_payloads(
+        self,
+        base_payloads: Mapping[Tuple[str, Optional[str]], Mapping[str, Any]],
+        transform_payloads: Mapping[Tuple[str, Optional[str]], Mapping[str, Any]],
+    ) -> None:
+        cache = getattr(self, "_group_cache", None)
+        if cache is None:
+            return
+        for key, base_payload in base_payloads.items():
+            plugin_label = (base_payload.get("plugin") or "").strip()
+            suffix_label = base_payload.get("suffix")
+            normalized = self._normalized_cache_payload(base_payload)
+            transformed_payload = None
+            if normalized.get("has_transformed"):
+                raw_transform = transform_payloads.get(key)
+                if raw_transform is not None:
+                    transformed_payload = self._transformed_cache_payload(raw_transform)
+            try:
+                cache.update_group(plugin_label, suffix_label, normalized, transformed_payload)
+            except Exception:
+                pass
 
     def _draw_payload_vertex_markers(self, painter: QPainter, points: Sequence[Tuple[int, int]]) -> None:
         if not points:
