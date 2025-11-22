@@ -7,9 +7,9 @@
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
         ],
-        "offsetX": 298.0,
-        "offsetY": -300.0,
-        "payloadJustification": "left"
+        "offsetX": 810.0,
+        "offsetY": -12.560000000000002,
+        "payloadJustification": "right"
       },
       "BGS-Tally Ready": {
         "idPrefixGroupAnchor": "nw",
@@ -39,8 +39,8 @@
           },
           "bgstally-msg-tick-"
         ],
-        "offsetX": 100.0,
-        "offsetY": 10.0,
+        "offsetX": 211.5,
+        "offsetY": -5.0,
         "payloadJustification": "right"
       },
       "BGS-Tally Tickwarn": {
@@ -75,8 +75,8 @@
         "idPrefixes": [
           "bioscan_radar_"
         ],
-        "offsetX": 250.0,
-        "offsetY": 230.0,
+        "offsetX": 150.0,
+        "offsetY": 130.0,
         "payloadJustification": "left"
       },
       "Bioscan Summary": {

@@ -957,9 +957,11 @@ class OverlayConfigApp(tk.Tk):
         self._idprefix_entries: list[tuple[str, str]] = []
         root = Path(__file__).resolve().parents[1]
         self._groupings_path = root / "overlay_groupings.json"
-        self._groupings_cache_path = root / "overlay_groupings_cache.json"
+        self._groupings_cache_path = root / "overlay_group_cache.json"
         self._groupings_cache: dict[str, object] = {}
         self._absolute_user_state: dict[tuple[str, str], dict[str, float | None]] = {}
+        self._anchor_restore_state: dict[tuple[str, str], dict[str, float | None]] = {}
+        self._anchor_restore_handles: dict[tuple[str, str], str | None] = {}
         self._absolute_tolerance_px = 0.5
         self._debounce_handles: dict[str, str | None] = {}
         self._write_debounce_ms = 300
@@ -1612,7 +1614,7 @@ class OverlayConfigApp(tk.Tk):
         path = getattr(self, "_groupings_cache_path", None)
         if path is None:
             root = Path(__file__).resolve().parents[1]
-            path = root / "overlay_groupings_cache.json"
+            path = root / "overlay_group_cache.json"
             self._groupings_cache_path = path
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -1670,6 +1672,76 @@ class OverlayConfigApp(tk.Tk):
 
     def _schedule_groupings_cache_write(self, delay_ms: int | None = None) -> None:
         self._schedule_debounce("cache_write", self._flush_groupings_cache, delay_ms)
+
+    def _capture_anchor_restore_state(self, selection: tuple[str, str]) -> bool:
+        if selection is None:
+            return False
+        state = self._absolute_user_state.get(selection, {"x": None, "y": None, "x_ts": 0.0, "y_ts": 0.0})
+        x_val = state.get("x")
+        y_val = state.get("y")
+        if (x_val is None or y_val is None) and hasattr(self, "absolute_widget"):
+            try:
+                x_widget, y_widget = self.absolute_widget.get_px_values()
+                if x_val is None:
+                    x_val = x_widget
+                if y_val is None:
+                    y_val = y_widget
+            except Exception:
+                pass
+        if x_val is None and y_val is None:
+            return False
+        now = time.time()
+        self._anchor_restore_state[selection] = {
+            "x": x_val,
+            "y": y_val,
+            "x_ts": float(state.get("x_ts", now) or now),
+            "y_ts": float(state.get("y_ts", now) or now),
+        }
+        return True
+
+    def _schedule_anchor_restore(self, selection: tuple[str, str]) -> None:
+        if selection is None:
+            return
+        handle = self._anchor_restore_handles.pop(selection, None)
+        if handle is not None:
+            try:
+                self.after_cancel(handle)
+            except Exception:
+                pass
+        self._restore_anchor_offsets(selection)
+
+    def _restore_anchor_offsets(self, selection: tuple[str, str]) -> None:
+        handle = self._anchor_restore_handles.pop(selection, None)
+        if handle is not None:
+            try:
+                self.after_cancel(handle)
+            except Exception:
+                pass
+        if selection != self._get_current_group_selection():
+            return
+        snapshot = self._anchor_restore_state.pop(selection, None)
+        if not isinstance(snapshot, dict):
+            return
+        x_val = snapshot.get("x")
+        y_val = snapshot.get("y")
+        if x_val is None and y_val is None:
+            return
+        now = time.time()
+        state = self._absolute_user_state.get(selection, {"x": None, "y": None, "x_ts": 0.0, "y_ts": 0.0})
+        if x_val is not None:
+            state["x"] = x_val
+            state["x_ts"] = max(now, float(snapshot.get("x_ts", now) or now))
+        if y_val is not None:
+            state["y"] = y_val
+            state["y_ts"] = max(now, float(snapshot.get("y_ts", now) or now))
+        self._absolute_user_state[selection] = state
+        if hasattr(self, "absolute_widget"):
+            try:
+                self.absolute_widget.set_px_values(state.get("x"), state.get("y"))
+            except Exception:
+                pass
+        self._sync_absolute_for_current_group(force_ui=True, debounce_ms=self._offset_write_debounce_ms, prefer_user=True)
+        self._draw_preview()
 
     def _get_current_group_selection(self) -> tuple[str, str] | None:
         if not hasattr(self, "idprefix_widget"):
@@ -2181,6 +2253,7 @@ class OverlayConfigApp(tk.Tk):
         selection = self._get_current_group_selection()
         if selection is None:
             return
+        captured = self._capture_anchor_restore_state(selection)
         plugin_name, label = selection
         if not isinstance(self._groupings_data, dict):
             return
@@ -2202,6 +2275,8 @@ class OverlayConfigApp(tk.Tk):
         self._schedule_groupings_cache_write()
         self._sync_absolute_for_current_group(force_ui=True, prefer_user=prefer_user)
         self._draw_preview()
+        if captured:
+            self._schedule_anchor_restore(selection)
 
     def _sync_axis(
         self,
