@@ -498,7 +498,8 @@ class AnchorSelectorWidget(tk.Frame):
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", lambda _e: self._draw())
         self.after_idle(self._draw)
-        self.canvas.bind("<Button-1>", lambda _e: self._handle_click())
+        self.canvas.bind("<Button-1>", self._handle_click)
+        self._positions: list[tuple[float, float]] = []
 
     def _draw(self) -> None:
         self.canvas.delete("all")
@@ -527,6 +528,7 @@ class AnchorSelectorWidget(tk.Frame):
         for j in range(3):
             for i in range(3):
                 positions.append((xs[i], ys[j]))
+        self._positions = positions
 
         # Highlight square anchored on active dot
         px, py = positions[self._active_index]
@@ -562,12 +564,26 @@ class AnchorSelectorWidget(tk.Frame):
                     width=2,
                 )
 
-    def _handle_click(self) -> str | None:
+    def _handle_click(self, event: tk.Event[tk.Misc]) -> str | None:  # type: ignore[name-defined]
         if self._request_focus:
             try:
                 self._request_focus()
             except Exception:
                 pass
+        if self._positions:
+            ex = getattr(event, "x", None)
+            ey = getattr(event, "y", None)
+            if ex is not None and ey is not None:
+                try:
+                    nearest = min(
+                        enumerate(self._positions),
+                        key=lambda item: (item[1][0] - ex) ** 2 + (item[1][1] - ey) ** 2,
+                    )[0]
+                    if nearest != self._active_index:
+                        self._active_index = nearest
+                        self._draw()
+                except Exception:
+                    pass
         return "break"
 
     def set_focus_request_callback(self, callback: callable | None) -> None:
