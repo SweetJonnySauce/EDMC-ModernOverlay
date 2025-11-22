@@ -1052,17 +1052,17 @@ class OverlayConfigApp(tk.Tk):
             relief="flat",
             background="#f5f5f5",
         )
-        placement_label = tk.Label(
+        self.preview_canvas = tk.Canvas(
             self.placement_frame,
-            text="placement window (open)",
-            anchor="nw",
-            bg="#f5f5f5",
-            padx=8,
-            pady=6,
+            bd=0,
+            highlightthickness=1,
+            relief="solid",
+            background="#202020",
         )
-        placement_label.pack(fill="both", expand=True)
+        self.preview_canvas.pack(fill="both", expand=True)
+        self.preview_canvas.bind("<Button-1>", self._handle_placement_click, add="+")
         self.placement_frame.bind("<Button-1>", self._handle_placement_click, add="+")
-        placement_label.bind("<Button-1>", self._handle_placement_click, add="+")
+        self.preview_canvas.bind("<Configure>", lambda _e: self._draw_preview())
 
         # Sidebar with individual selector sections
         self.sidebar = tk.Frame(
@@ -1753,6 +1753,62 @@ class OverlayConfigApp(tk.Tk):
         }
         return mapping.get((anchor, direction), anchor)
 
+    def _draw_preview(self) -> None:
+        canvas = getattr(self, "preview_canvas", None)
+        if canvas is None:
+            return
+        canvas.delete("all")
+        width = int(canvas.winfo_width() or canvas["width"])
+        height = int(canvas.winfo_height() or canvas["height"])
+        padding = 10
+        inner_w = max(1, width - 2 * padding)
+        inner_h = max(1, height - 2 * padding)
+        canvas.create_rectangle(
+            padding,
+            padding,
+            width - padding,
+            height - padding,
+            outline="#555555",
+            dash=(3, 3),
+        )
+
+        selection = self._get_current_group_selection()
+        if selection is None:
+            canvas.create_text(width // 2, height // 2, text="(select a group)", fill="#888888")
+            return
+        plugin_name, label = selection
+        norm_vals, trans_vals, _anchor, _ts = self._get_cache_entry(plugin_name, label)
+
+        scale = max(0.01, min(inner_w / float(ABS_BASE_WIDTH), inner_h / float(ABS_BASE_HEIGHT)))
+        offset_x = padding
+        offset_y = padding
+
+        def _rect_color(fill: str) -> dict[str, object]:
+            return {"fill": fill, "outline": "#000000", "width": 1}
+
+        # Normalized rectangle
+        norm_x0 = offset_x + norm_vals["min_x"] * scale
+        norm_y0 = offset_y + norm_vals["min_y"] * scale
+        norm_x1 = offset_x + norm_vals["max_x"] * scale
+        norm_y1 = offset_y + norm_vals["max_y"] * scale
+        canvas.create_rectangle(norm_x0, norm_y0, norm_x1, norm_y1, **_rect_color("#66a3ff"))
+
+        # Transformed rectangle
+        trans_x0 = offset_x + trans_vals["min_x"] * scale
+        trans_y0 = offset_y + trans_vals["min_y"] * scale
+        trans_x1 = offset_x + trans_vals["max_x"] * scale
+        trans_y1 = offset_y + trans_vals["max_y"] * scale
+        canvas.create_rectangle(trans_x0, trans_y0, trans_x1, trans_y1, **_rect_color("#ffa94d"))
+
+        canvas.create_text(
+            padding + 6,
+            padding + 6,
+            text=f"{label}",
+            anchor="nw",
+            fill="#ffffff",
+            font=("TkDefaultFont", 9, "bold"),
+        )
+
     def _get_cache_entry(
         self, plugin_name: str, label: str
     ) -> tuple[dict[str, float], dict[str, float], str, float]:
@@ -1850,6 +1906,7 @@ class OverlayConfigApp(tk.Tk):
             except Exception:
                 pass
         self._sync_absolute_for_current_group(force_ui=True)
+        self._draw_preview()
 
     def _handle_justification_changed(self, justification: str) -> None:
         selection = self._get_current_group_selection()
@@ -1945,6 +2002,7 @@ class OverlayConfigApp(tk.Tk):
         self._sync_absolute_for_current_group(
             force_ui=False, debounce_ms=self._offset_write_debounce_ms, prefer_user=pinned
         )
+        self._draw_preview()
 
     def _handle_anchor_changed(self, anchor: str, prefer_user: bool = False) -> None:
         selection = self._get_current_group_selection()
@@ -1970,6 +2028,7 @@ class OverlayConfigApp(tk.Tk):
         self._update_cache_entry(plugin_name, label, trans_vals, anchor, cache_ts_write)
         self._schedule_groupings_cache_write()
         self._sync_absolute_for_current_group(force_ui=True, prefer_user=prefer_user)
+        self._draw_preview()
 
     def _sync_axis(
         self,
@@ -2109,6 +2168,7 @@ class OverlayConfigApp(tk.Tk):
 
         if force_ui or cfg_changed or cache_changed or user_x is None or user_y is None:
             self.absolute_widget.set_px_values(user_x_res, user_y_res)
+        self._draw_preview()
 
     def _on_configure_activity(self) -> None:
         """Track recent move/resize to avoid closing during window drag."""
