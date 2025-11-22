@@ -9,6 +9,8 @@ import re
 import subprocess
 from pathlib import Path
 from tkinter import ttk
+import sys
+import traceback
 
 from input_bindings import BindingConfig, BindingManager
 from selection_overlay import SelectionOverlay
@@ -477,6 +479,136 @@ class JustificationWidget(tk.Frame):
         return True
 
 
+class AnchorSelectorWidget(tk.Frame):
+    """3x3 anchor grid with movable highlight."""
+
+    def __init__(self, parent: tk.Widget) -> None:
+        super().__init__(parent, bd=0, highlightthickness=0, bg=parent.cget("background"))
+        self._request_focus: callable | None = None
+        self._has_focus = False
+        self._active_index = 0  # start at NW
+        self.canvas = tk.Canvas(
+            self,
+            width=200,
+            height=200,
+            bd=0,
+            highlightthickness=0,
+            bg=self.cget("background"),
+        )
+        self.canvas.pack(fill="both", expand=True)
+        self.canvas.bind("<Configure>", lambda _e: self._draw())
+        self.after_idle(self._draw)
+        self.canvas.bind("<Button-1>", lambda _e: self._handle_click())
+
+    def _draw(self) -> None:
+        self.canvas.delete("all")
+        self.canvas.update_idletasks()
+        w = max(1, int(self.canvas.winfo_width() or self.canvas.winfo_reqwidth()))
+        h = max(1, int(self.canvas.winfo_height() or self.canvas.winfo_reqheight()))
+        size = min(w, h)
+        grid_size = min(size * 0.85, size - 24)
+        spacing = max(10.0, grid_size / 2)
+        grid_extent = spacing * 2
+        offset_x = (w - grid_extent) / 2
+        offset_y = (h - grid_extent) / 2
+        xs = [offset_x + spacing * i for i in range(3)]
+        ys = [offset_y + spacing * i for i in range(3)]
+        line_color = "#2b2b2b" if self._has_focus else "#888888"
+        dot_color = "#000000"
+        highlight_color = "#000000"
+
+        # Outer square (dashed)
+        self.canvas.create_line(xs[0], ys[0], xs[2], ys[0], fill=line_color, dash=(2, 3))
+        self.canvas.create_line(xs[2], ys[0], xs[2], ys[2], fill=line_color, dash=(2, 3))
+        self.canvas.create_line(xs[2], ys[2], xs[0], ys[2], fill=line_color, dash=(2, 3))
+        self.canvas.create_line(xs[0], ys[2], xs[0], ys[0], fill=line_color, dash=(2, 3))
+
+        positions: list[tuple[float, float]] = []
+        for j in range(3):
+            for i in range(3):
+                positions.append((xs[i], ys[j]))
+
+        # Highlight square anchored on active dot
+        px, py = positions[self._active_index]
+        highlight_size = spacing
+        min_x, max_x = xs[0], xs[2]
+        min_y, max_y = ys[0], ys[2]
+        hx0 = min(max(px - highlight_size / 2, min_x), max_x - highlight_size)
+        hy0 = min(max(py - highlight_size / 2, min_y), max_y - highlight_size)
+        hx1 = hx0 + highlight_size
+        hy1 = hy0 + highlight_size
+        if self._has_focus:
+            self.canvas.create_rectangle(hx0, hy0, hx1, hy1, fill="#cfe6ff", outline="#5a7cae", width=1.2)
+        else:
+            self.canvas.create_rectangle(hx0, hy0, hx1, hy1, outline=line_color, width=1)
+
+        dot_r = 8
+        for idx, (px, py) in enumerate(positions):
+            self.canvas.create_oval(
+                px - dot_r,
+                py - dot_r,
+                px + dot_r,
+                py + dot_r,
+                outline=dot_color,
+                fill=dot_color,
+            )
+            if idx == self._active_index:
+                self.canvas.create_oval(
+                    px - (dot_r + 4),
+                    py - (dot_r + 4),
+                    px + (dot_r + 4),
+                    py + (dot_r + 4),
+                    outline=highlight_color,
+                    width=2,
+                )
+
+    def _handle_click(self) -> str | None:
+        if self._request_focus:
+            try:
+                self._request_focus()
+            except Exception:
+                pass
+        return "break"
+
+    def set_focus_request_callback(self, callback: callable | None) -> None:
+        self._request_focus = callback
+
+    def on_focus_enter(self) -> None:
+        self._has_focus = True
+        self._draw()
+        try:
+            self.focus_set()
+        except Exception:
+            pass
+
+    def on_focus_exit(self) -> None:
+        self._has_focus = False
+        self._draw()
+        try:
+            self.winfo_toplevel().focus_set()
+        except Exception:
+            pass
+
+    def handle_key(self, keysym: str, _event: object | None = None) -> bool:
+        if not self._has_focus:
+            return False
+        key = keysym.lower()
+        row, col = divmod(self._active_index, 3)
+        if key == "left" and col > 0:
+            col -= 1
+        elif key == "right" and col < 2:
+            col += 1
+        elif key == "up" and row > 0:
+            row -= 1
+        elif key == "down" and row < 2:
+            row += 1
+        else:
+            return False
+        self._active_index = row * 3 + col
+        self._draw()
+        return True
+
+
 class AbsoluteXYWidget(tk.Frame):
     """Absolute X/Y input widget with focus-aware navigation."""
 
@@ -625,8 +757,9 @@ class OverlayConfigApp(tk.Tk):
         super().__init__()
         self.withdraw()
         self.title("Overlay Controller")
-        self.geometry("720x560")
-        self.minsize(640, 420)
+        self.geometry("740x760")
+        self.base_min_height = 640
+        self.minsize(640, self.base_min_height)
         self._closing = False
         self._pending_close_job: str | None = None
         self._focus_close_delay_ms = 200
@@ -718,6 +851,11 @@ class OverlayConfigApp(tk.Tk):
         self.bind("<ButtonRelease-1>", self._end_window_drag, add="+")
         self.after(0, self._center_and_show)
 
+    def report_callback_exception(self, exc, val, tb) -> None:  # type: ignore[override]
+        """Ensure Tk errors are printed to stderr instead of being swallowed."""
+
+        traceback.print_exception(exc, val, tb, file=sys.stderr)
+
     def _build_layout(self) -> None:
         """Create the split view with placement and sidebar sections."""
 
@@ -734,7 +872,7 @@ class OverlayConfigApp(tk.Tk):
         self.grid_columnconfigure(0, weight=1)
 
         self.container.grid_rowconfigure(0, weight=1)
-        self.container.grid_columnconfigure(0, weight=1, minsize=self.sidebar_width)
+        self.container.grid_columnconfigure(0, weight=0, minsize=self.sidebar_width)
         self.container.grid_columnconfigure(1, weight=1)
 
         # Placement window placeholder (open state)
@@ -763,9 +901,9 @@ class OverlayConfigApp(tk.Tk):
             bd=0,
             highlightthickness=0,
         )
-        self.sidebar.grid(row=0, column=0, sticky="nsew", padx=(0, self.sidebar_pad))
+        self.sidebar.grid(row=0, column=0, sticky="ns", padx=(0, self.sidebar_pad))
         self._build_sidebar_sections()
-        self.sidebar.grid_propagate(False)
+        self.sidebar.grid_propagate(True)
 
         indicator_bg = self.container.cget("background")
         self.indicator_wrapper = tk.Frame(
@@ -817,12 +955,13 @@ class OverlayConfigApp(tk.Tk):
         self.widget_select_mode = True
 
         for index, (label_text, weight) in enumerate(sections):
+            default_height = 120 if label_text == "anchor selector" else 80
             frame = tk.Frame(
                 self.sidebar,
                 bd=0,
                 relief="flat",
                 width=0 if index == 0 else 220,
-                height=0 if index == 0 else 80,
+                height=0 if index == 0 else default_height,
             )
             frame.grid(
                 row=index,
@@ -850,6 +989,13 @@ class OverlayConfigApp(tk.Tk):
                 self.absolute_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
                 self.absolute_widget.pack(fill="both", expand=True, padx=0, pady=0)
                 self._focus_widgets[("sidebar", index)] = self.absolute_widget
+            elif index == 3:
+                frame.configure(height=220)
+                frame.grid_propagate(False)
+                self.anchor_widget = AnchorSelectorWidget(frame)
+                self.anchor_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
+                self.anchor_widget.pack(fill="both", expand=True, padx=4, pady=4)
+                self._focus_widgets[("sidebar", index)] = self.anchor_widget
             elif index == 4:
                 self.justification_widget = JustificationWidget(frame)
                 self.justification_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
@@ -864,7 +1010,10 @@ class OverlayConfigApp(tk.Tk):
             for child in frame.winfo_children():
                 child.bind("<Button-1>", lambda event, idx=index: self._handle_sidebar_click(idx), add="+")
             grow_weight = 1 if index == len(sections) - 1 else 0
-            self.sidebar.grid_rowconfigure(index, weight=grow_weight)
+            row_opts = {"weight": grow_weight}
+            if index == 3:
+                row_opts["minsize"] = 220
+            self.sidebar.grid_rowconfigure(index, **row_opts)
             self.sidebar_cells.append(frame)
 
         self.sidebar.grid_columnconfigure(0, weight=1)
@@ -1316,7 +1465,7 @@ class OverlayConfigApp(tk.Tk):
         """Show the correct placement frame for the current state."""
 
         self.update_idletasks()
-        current_height = max(self.winfo_height(), 420)
+        current_height = max(self.winfo_height(), self.base_min_height)
         open_outer_padding = self.container_pad_left + self.container_pad_right_open
         closed_outer_padding = self.container_pad_left + self.container_pad_right_closed
         sidebar_total_open = self.sidebar_width + self.sidebar_pad
@@ -1341,7 +1490,7 @@ class OverlayConfigApp(tk.Tk):
             self.container.grid_columnconfigure(1, weight=1, minsize=self.placement_min_width)
             self.update_idletasks()
             target_width = max(self._open_width, self.winfo_reqwidth(), open_min_width)
-            self.minsize(open_min_width, 420)
+            self.minsize(open_min_width, self.base_min_height)
             self.geometry(f"{int(target_width)}x{int(current_height)}")
             self._open_width = max(self._open_width, self.winfo_width(), self.winfo_reqwidth(), open_min_width)
             self._enforce_placement_aspect()
@@ -1364,7 +1513,7 @@ class OverlayConfigApp(tk.Tk):
                 + self.indicator_hit_width
             )
             collapsed_width = max(collapsed_width, closed_min_width)
-            self.minsize(collapsed_width, 420)
+            self.minsize(collapsed_width, self.base_min_height)
             self.geometry(f"{int(collapsed_width)}x{int(current_height)}")
             self._current_direction = "right"
 
@@ -1429,21 +1578,25 @@ class OverlayConfigApp(tk.Tk):
             return
         self.update_idletasks()
         sidebar_width = max(self.sidebar_width, self.sidebar.winfo_width())
-        container_width = max(1, self.container.winfo_width())
-        available_width = container_width - (
-            self.container_pad_left + self.container_pad_right_open + sidebar_width + self._current_sidebar_pad
+        min_height = getattr(self, "base_min_height", 420)
+        current_height = max(min_height, self.winfo_height() or 0)
+        available_height = max(1, current_height - (self.container_pad_vertical * 2))
+        placement_width = max(self.placement_min_width, available_height * (4 / 3))
+        total_width = (
+            self.container_pad_left
+            + self.container_pad_right_open
+            + sidebar_width
+            + self._current_sidebar_pad
+            + placement_width
         )
-        placement_width = max(self.placement_min_width, available_width)
-        desired_height = int(placement_width * (3 / 4))
-        min_height = 420
-        target_height = max(min_height, desired_height + (self.container_pad_vertical * 2))
+        placement_height = placement_width * (3 / 4)
+        target_height = max(min_height, placement_height + (self.container_pad_vertical * 2))
         current_width = max(1, self.winfo_width())
-        current_height = max(1, self.winfo_height())
-        if abs(target_height - current_height) <= 1:
+        if abs(target_height - current_height) <= 1 and abs(total_width - current_width) <= 1:
             return
         self._adjusting_geometry = True
         try:
-            self.geometry(f"{int(current_width)}x{int(target_height)}")
+            self.geometry(f"{int(total_width)}x{int(target_height)}")
         finally:
             self._adjusting_geometry = False
 
