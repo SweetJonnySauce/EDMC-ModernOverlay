@@ -1,99 +1,103 @@
 {
   "BGS-Tally": {
-    "matchingPrefixes": [
-      "bgstally-"
-    ],
     "idPrefixGroups": {
       "BGS-Tally Colonisation": {
+        "idPrefixGroupAnchor": "ne",
         "idPrefixes": [
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
         ],
-        "idPrefixGroupAnchor": "ne",
-        "offsetX": 1280,
+        "offsetX": 1280.0,
+        "offsetY": 0.0,
         "payloadJustification": "right"
       },
-      "BGS-Tally Tick Notifications": {
+      "BGS-Tally Ready": {
+        "idPrefixGroupAnchor": "nw",
         "idPrefixes": [
-          "bgstally-msg-system_tick-",
-          "bgstally-frame-system_tick",
-          {
-            "value": "bgstally-frame-tick",
-            "matchMode": "exact"
-          },
-          "bgstally-msg-tick-"
+          "bgstally-frame-info",
+          "bgstally-msg-info-"
         ],
-        "idPrefixGroupAnchor": "ne",
-        "offsetX": 190,
-        "offsetY": 10,
-        "payloadJustification": "right"
+        "payloadJustification": "left"
       },
       "BGS-Tally System Info": {
+        "idPrefixGroupAnchor": "nw",
         "idPrefixes": [
           "bgstally-msg-system_info",
           "bgstally-frame-indicator",
           "bgstally-frame-system_info"
         ],
-        "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left"
       },
-      "BGS-Tally Ready": {
+      "BGS-Tally Tick Notifications": {
+        "idPrefixGroupAnchor": "ne",
         "idPrefixes": [
-          "bgstally-frame-info",
-          "bgstally-msg-info-"
+          "bgstally-msg-system_tick-",
+          "bgstally-frame-system_tick",
+          {
+            "matchMode": "exact",
+            "value": "bgstally-frame-tick"
+          },
+          "bgstally-msg-tick-"
         ],
-        "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
+        "offsetX": 200.0,
+        "offsetY": 50.0,
+        "payloadJustification": "right"
       },
       "BGS-Tally Tickwarn": {
+        "idPrefixGroupAnchor": "ne",
         "idPrefixes": [
           {
-            "value": "bgstally-frame-tickwarn",
-            "matchMode": "exact"
+            "matchMode": "exact",
+            "value": "bgstally-frame-tickwarn"
           },
           "bgstally-msg-tickwarn"
         ],
-        "idPrefixGroupAnchor": "ne",
-        "offsetX": 190,
+        "offsetX": 0.0,
+        "offsetY": 0.0,
         "payloadJustification": "right"
       }
-    }
+    },
+    "matchingPrefixes": [
+      "bgstally-"
+    ]
   },
   "Bioscan": {
-    "matchingPrefixes": [
-      "bioscan_"
-    ],
     "idPrefixGroups": {
-      "Bioscan Radar": {
-        "idPrefixes": [
-          "bioscan_radar_"
-        ],
-        "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
-      },
       "Bioscan Details": {
+        "idPrefixGroupAnchor": "nw",
         "idPrefixes": [
           "bioscan_details_"
         ],
+        "payloadJustification": "left"
+      },
+      "Bioscan Radar": {
         "idPrefixGroupAnchor": "nw",
+        "idPrefixes": [
+          "bioscan_radar_"
+        ],
+        "offsetX": 240.0,
+        "offsetY": 50.0,
         "payloadJustification": "left"
       },
       "Bioscan Summary": {
+        "idPrefixGroupAnchor": "top",
         "idPrefixes": [
           "bioscan_summary_"
         ],
-        "idPrefixGroupAnchor": "top",
         "offsetX": 240,
         "payloadJustification": "center"
       },
       "Bioscan Title": {
+        "idPrefixGroupAnchor": "nw",
         "idPrefixes": [
           "bioscan_title_"
         ],
-        "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left"
       }
-    }
+    },
+    "matchingPrefixes": [
+      "bioscan_"
+    ]
   },
   "ED-Mining-Analytics": {
     "idPrefixGroups": {
@@ -106,117 +110,110 @@
     }
   },
   "EDMC-ModernOverlay": {
-    "matchingPrefixes": [
-      "modernoverlay-"
-    ],
     "idPrefixGroups": {
       "Modernoverlay Test": {
+        "idPrefixGroupAnchor": "nw",
         "idPrefixes": [
           "modernoverlay-test"
         ],
-        "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left"
       }
-    }
+    },
+    "matchingPrefixes": [
+      "modernoverlay-"
+    ]
   },
   "EDR": {
-    "matchingPrefixes": [
-      "edr-"
-    ],
     "idPrefixGroups": {
+      "EDR Bounty": {
+        "idPrefixGroupAnchor": "nw",
+        "idPrefixes": [
+          "edr-bounty"
+        ],
+        "payloadJustification": "left"
+      },
+      "EDR Docking": {
+        "idPrefixGroupAnchor": "nw",
+        "idPrefixes": [
+          "edr-docking-",
+          "edr-docking-station-"
+        ],
+        "payloadJustification": "left"
+      },
+      "EDR Intel": {
+        "idPrefixGroupAnchor": "nw",
+        "idPrefixes": [
+          "edr-intel"
+        ],
+        "payloadJustification": "left"
+      },
+      "EDR Notice": {
+        "idPrefixGroupAnchor": "nw",
+        "idPrefixes": [
+          "edr-notice-"
+        ],
+        "payloadJustification": "left"
+      },
+      "EDR Target": {
+        "idPrefixGroupAnchor": "nw",
+        "idPrefixes": [
+          "edr-target"
+        ],
+        "payloadJustification": "left"
+      },
+      "Edr Navigation": {
+        "idPrefixGroupAnchor": "nw",
+        "idPrefixes": [
+          "edr-navigation-"
+        ],
+        "payloadJustification": "left"
+      },
       "Edr Navroute": {
         "idPrefixes": [
           "edr-navroute-"
         ],
         "payloadJustification": "left"
       },
-      "Edr Navigation": {
-        "idPrefixes": [
-          "edr-navigation-"
-        ],
-        "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
-      },
       "Edr Sitrep": {
+        "idPrefixGroupAnchor": "nw",
         "idPrefixes": [
           "edr-sitrep-"
         ],
-        "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
-      },
-      "EDR Bounty": {
-        "idPrefixes": [
-          "edr-bounty"
-        ],
-        "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
-      },
-      "EDR Docking": {
-        "idPrefixes": [
-          "edr-docking-",
-          "edr-docking-station-"
-        ],
-        "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
-      },
-      "EDR Intel": {
-        "idPrefixes": [
-          "edr-intel"
-        ],
-        "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
-      },
-      "EDR Notice": {
-        "idPrefixes": [
-          "edr-notice-"
-        ],
-        "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
-      },
-      "EDR Target": {
-        "idPrefixes": [
-          "edr-target"
-        ],
-        "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left"
       }
-    }
+    },
+    "matchingPrefixes": [
+      "edr-"
+    ]
   },
   "Example Plugin": {
-    "matchingPrefixes": [
-      "example-",
-      "example-alt-",
-      "test-1"
-    ],
     "idPrefixGroups": {
       "status": {
+        "idPrefixGroupAnchor": "ne",
         "idPrefixes": [
           "example-",
           "example-alert-"
         ],
-        "idPrefixGroupAnchor": "ne",
         "payloadJustification": "left"
       },
       "test": {
+        "idPrefixGroupAnchor": "top",
         "idPrefixes": [
           "example-bob"
         ],
-        "idPrefixGroupAnchor": "top",
         "payloadJustification": "left"
       }
-    }
+    },
+    "matchingPrefixes": [
+      "example-",
+      "example-alt-",
+      "test-1"
+    ]
   },
   "LandingPad": {
-    "matchingPrefixes": [
-      "shell-",
-      "line-",
-      "toaster-left-",
-      "toaster-right-",
-      "pad-",
-      "station-"
-    ],
     "idPrefixGroups": {
       "LandingPad": {
+        "idPrefixGroupAnchor": "nw",
         "idPrefixes": [
           "shell-",
           "line-",
@@ -225,23 +222,30 @@
           "pad-",
           "station-"
         ],
-        "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left"
       }
-    }
+    },
+    "matchingPrefixes": [
+      "shell-",
+      "line-",
+      "toaster-left-",
+      "toaster-right-",
+      "pad-",
+      "station-"
+    ]
   },
   "Navroute": {
-    "matchingPrefixes": [
-      "navroute_"
-    ],
     "idPrefixGroups": {
       "Navroute Display": {
+        "idPrefixGroupAnchor": "nw",
         "idPrefixes": [
           "navroute_display_"
         ],
-        "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left"
       }
-    }
+    },
+    "matchingPrefixes": [
+      "navroute_"
+    ]
   }
 }

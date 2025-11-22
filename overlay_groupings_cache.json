@@ -1,0 +1,93 @@
+{
+  "groups": {
+    "BGS-Tally": {
+      "BGS-Tally Colonisation": {
+        "last_updated": 1763775049.0093448,
+        "normalized": {
+          "has_transformed": true,
+          "norm_height": 145.0,
+          "norm_max_x": 298.0,
+          "norm_max_y": 445.0,
+          "norm_min_x": 0.0,
+          "norm_min_y": 300.0,
+          "norm_width": 298.0
+        },
+        "transformed": {
+          "anchor": "ne",
+          "justification": "right",
+          "nudge_dx": 0,
+          "nudge_dy": 0,
+          "nudged": false,
+          "offset_dx": 1280.0,
+          "offset_dy": 0.0,
+          "trans_height": 145.0,
+          "trans_max_x": 1280.0,
+          "trans_max_y": 445.0,
+          "trans_min_x": 982.0,
+          "trans_min_y": 300.0,
+          "trans_width": 298.0
+        }
+      },
+      "BGS-Tally Tick Notifications": {
+        "last_updated": 1763787753.1527073,
+        "normalized": {
+          "has_transformed": true,
+          "norm_height": 30.0,
+          "norm_max_x": 1303.0,
+          "norm_max_y": 30.0,
+          "norm_min_x": 1080.0,
+          "norm_min_y": 0.0,
+          "norm_width": 223.0
+        },
+        "transformed": {
+          "anchor": "ne",
+          "justification": "right",
+          "nudge_dx": 0,
+          "nudge_dy": 0,
+          "nudged": false,
+          "offset_dx": 190.0,
+          "offset_dy": 10.0,
+          "trans_height": 30.0,
+          "trans_max_x": 1280.0,
+          "trans_max_y": 80.0,
+          "trans_min_x": 1057.0,
+          "trans_min_y": 50.0,
+          "trans_width": 213.0
+        }
+      },
+      "BGS-Tally Tickwarn": {
+        "last_updated": 1763787773.2359667,
+        "normalized": {},
+        "transformed": {
+          "anchor": "nw",
+          "trans_max_x": 0.0,
+          "trans_max_y": 0.0,
+          "trans_min_x": 0.0,
+          "trans_min_y": 0.0
+        }
+      }
+    },
+    "Bioscan": {
+      "Bioscan Radar": {
+        "last_updated": 1763787888.0131881,
+        "normalized": {
+          "has_transformed": false,
+          "norm_height": 200.0,
+          "norm_max_x": 600.0,
+          "norm_max_y": 300.0,
+          "norm_min_x": 400.0,
+          "norm_min_y": 100.0,
+          "norm_width": 200.0
+        },
+        "transformed": {
+          "anchor": "nw",
+          "trans_max_x": 840.0,
+          "trans_max_y": 350.0,
+          "trans_min_x": 640.0,
+          "trans_min_y": 150.0
+        }
+      }
+    }
+  },
+  "version": 1
+}
