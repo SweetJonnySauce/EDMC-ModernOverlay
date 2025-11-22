@@ -509,6 +509,7 @@ class AnchorSelectorWidget(tk.Frame):
         self._request_focus: callable | None = None
         self._has_focus = False
         self._active_index = 0  # start at NW
+        self._on_change: callable | None = None
         self.canvas = tk.Canvas(
             self,
             width=200,
@@ -604,6 +605,7 @@ class AnchorSelectorWidget(tk.Frame):
                     if nearest != self._active_index:
                         self._active_index = nearest
                         self._draw()
+                        self._emit_change()
                 except Exception:
                     pass
         return "break"
@@ -650,6 +652,7 @@ class AnchorSelectorWidget(tk.Frame):
             return False
         self._active_index = row * 3 + col
         self._draw()
+        self._emit_change()
         return True
 
     def set_anchor(self, name: str | None) -> None:
@@ -673,6 +676,31 @@ class AnchorSelectorWidget(tk.Frame):
         if idx != self._active_index:
             self._active_index = idx
             self._draw()
+
+    def get_anchor(self) -> str:
+        mapping = {
+            0: "nw",
+            1: "n",
+            2: "ne",
+            3: "w",
+            4: "center",
+            5: "e",
+            6: "sw",
+            7: "s",
+            8: "se",
+        }
+        return mapping.get(self._active_index, "nw")
+
+    def set_change_callback(self, callback: callable | None) -> None:
+        self._on_change = callback
+
+    def _emit_change(self) -> None:
+        if self._on_change is None:
+            return
+        try:
+            self._on_change(self.get_anchor())
+        except Exception:
+            pass
 
 
 class AbsoluteXYWidget(tk.Frame):
@@ -897,6 +925,9 @@ class OverlayConfigApp(tk.Tk):
         self._groupings_cache: dict[str, object] = {}
         self._absolute_user_state: dict[tuple[str, str], dict[str, float | None]] = {}
         self._absolute_tolerance_px = 0.5
+        self._config_write_job: str | None = None
+        self._cache_write_job: str | None = None
+        self._write_debounce_ms = 300
 
         self._build_layout()
         self._groupings_cache = self._load_groupings_cache()
@@ -1098,6 +1129,7 @@ class OverlayConfigApp(tk.Tk):
                 frame.grid_propagate(False)
                 self.anchor_widget = AnchorSelectorWidget(frame)
                 self.anchor_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
+                self.anchor_widget.set_change_callback(self._handle_anchor_changed)
                 self.anchor_widget.pack(fill="both", expand=True, padx=4, pady=4)
                 self._focus_widgets[("sidebar", index)] = self.anchor_widget
             elif index == 4:
@@ -1573,6 +1605,30 @@ class OverlayConfigApp(tk.Tk):
         except Exception:
             pass
 
+    def _flush_groupings_config(self) -> None:
+        self._config_write_job = None
+        self._write_groupings_config()
+
+    def _flush_groupings_cache(self) -> None:
+        self._cache_write_job = None
+        self._write_groupings_cache()
+
+    def _schedule_groupings_config_write(self) -> None:
+        if self._config_write_job is not None:
+            try:
+                self.after_cancel(self._config_write_job)
+            except Exception:
+                pass
+        self._config_write_job = self.after(self._write_debounce_ms, self._flush_groupings_config)
+
+    def _schedule_groupings_cache_write(self) -> None:
+        if self._cache_write_job is not None:
+            try:
+                self.after_cancel(self._cache_write_job)
+            except Exception:
+                pass
+        self._cache_write_job = self.after(self._write_debounce_ms, self._flush_groupings_cache)
+
     def _get_current_group_selection(self) -> tuple[str, str] | None:
         if not hasattr(self, "idprefix_widget"):
             return None
@@ -1730,6 +1786,31 @@ class OverlayConfigApp(tk.Tk):
         self._absolute_user_state[selection] = state
         self._sync_absolute_for_current_group(force_ui=False)
 
+    def _handle_anchor_changed(self, anchor: str) -> None:
+        selection = self._get_current_group_selection()
+        if selection is None:
+            return
+        plugin_name, label = selection
+        if not isinstance(self._groupings_data, dict):
+            return
+        entry = self._groupings_data.get(plugin_name)
+        if not isinstance(entry, dict):
+            return
+        groups = entry.get("idPrefixGroups") if isinstance(entry, dict) else None
+        if not isinstance(groups, dict):
+            return
+        group = groups.get(label)
+        if not isinstance(group, dict):
+            return
+        group["idPrefixGroupAnchor"] = anchor
+        self._schedule_groupings_config_write()
+
+        norm_vals, trans_vals, _existing_anchor, cache_ts = self._get_cache_entry(plugin_name, label)
+        cache_ts_write = max(cache_ts, time.time())
+        self._update_cache_entry(plugin_name, label, trans_vals, anchor, cache_ts_write)
+        self._schedule_groupings_cache_write()
+        self._sync_absolute_for_current_group(force_ui=True)
+
     def _sync_axis(
         self,
         anchor: str,
@@ -1845,7 +1926,7 @@ class OverlayConfigApp(tk.Tk):
 
         if cfg_changed:
             self._set_config_offsets(plugin_name, label, offset_x_res, offset_y_res)
-            self._write_groupings_config()
+            self._schedule_groupings_config_write()
 
         if cache_changed:
             cache_ts_write = max(cache_ts_x, cache_ts_y, time.time())
@@ -1856,7 +1937,7 @@ class OverlayConfigApp(tk.Tk):
                 "max_y": new_ty_max,
             }
             self._update_cache_entry(plugin_name, label, trans_vals_update, anchor, cache_ts_write)
-            self._write_groupings_cache()
+            self._schedule_groupings_cache_write()
 
         if force_ui or cfg_changed or cache_changed or user_x is None or user_y is None:
             self.absolute_widget.set_px_values(user_x_res, user_y_res)
