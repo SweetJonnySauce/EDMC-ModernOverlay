@@ -2,21 +2,21 @@
   "settings": {
     "window_wait_seconds": 2,
     "wait_between_payload_tests": 0,
-    "wait_to_finish_seconds": 1000,
-    "crosshair_x_percent": 71.875,
-    "crosshair_y_percent": 34.375
+    "wait_to_finish_seconds": 10,
+    "crosshair_x_percent": 7.8125,
+    "crosshair_y_percent": 41.667
   },
   "resolutions": [
     {
-      "width": 1024,
-      "height": 768
+      "width": 3440,
+      "height": 1440
     }
   ],
   "payloads": [
     {
       "name": "BGSTally Colonisation",
       "source": "payload_store/bgstally-colonisation_wout_frame.log",
-      "ttl": 1000
+      "ttl": 10
     }
   ]
 }

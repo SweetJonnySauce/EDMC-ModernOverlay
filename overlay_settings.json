@@ -1,11 +1,11 @@
 {
   "overlay_opacity": 0.0,
-  "show_connection_status": false,
+  "show_connection_status": true,
   "debug_overlay_corner": "SE",
   "client_log_retention": 5,
-  "gridlines_enabled": false,
+  "gridlines_enabled": true,
   "gridline_spacing": 120,
-  "force_render": false,
+  "force_render": true,
   "force_xwayland": false,
   "show_debug_overlay": false,
   "min_font_point": 6.0,
@@ -19,6 +19,6 @@
   "nudge_overflow_payloads": false,
   "payload_nudge_gutter": 30,
   "status_message_gutter": 10,
-  "log_payloads": false,
+  "log_payloads": true,
   "payload_log_delay_seconds": 0.5
 }

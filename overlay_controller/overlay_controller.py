@@ -7,16 +7,39 @@ import tkinter as tk
 import platform
 import re
 import subprocess
+import sys
+import time
+import traceback
+from dataclasses import dataclass
 from pathlib import Path
 from tkinter import ttk
-import sys
-import traceback
+from typing import Dict, Optional, Tuple
 
 from input_bindings import BindingConfig, BindingManager
 from selection_overlay import SelectionOverlay
 
 ABS_BASE_WIDTH = 1280
 ABS_BASE_HEIGHT = 960
+ABS_MIN_X = 0.0
+ABS_MAX_X = float(ABS_BASE_WIDTH)
+ABS_MIN_Y = 0.0
+ABS_MAX_Y = float(ABS_BASE_HEIGHT)
+
+
+@dataclass
+class _GroupSnapshot:
+    plugin: str
+    label: str
+    anchor_token: str  # desired/configured anchor
+    transform_anchor_token: str
+    offset_x: float
+    offset_y: float
+    base_bounds: Tuple[float, float, float, float]
+    base_anchor: Tuple[float, float]
+    transform_bounds: Optional[Tuple[float, float, float, float]]
+    transform_anchor: Optional[Tuple[float, float]]
+    has_transform: bool = False
+    cache_timestamp: float = 0.0
 
 
 class IdPrefixGroupWidget(tk.Frame):
@@ -237,12 +260,14 @@ class OffsetSelectorWidget(tk.Frame):
 
     def __init__(self, parent: tk.Widget) -> None:
         super().__init__(parent, bd=0, highlightthickness=0, bg=parent.cget("background"))
-        self.button_size = 30
+        self.button_size = 36
         self._arrows: dict[str, tuple[tk.Canvas, int]] = {}
         self._pinned: set[str] = set()
         self._default_color = "black"
         self._active_color = "#ff9900"
         self._request_focus: callable | None = None
+        self._on_change: callable | None = None
+        self._enabled = True
         self._build_grid()
 
     def _build_grid(self) -> None:
@@ -304,6 +329,7 @@ class OffsetSelectorWidget(tk.Frame):
             self._pinned.difference_update({"up", "down"})
         self._pinned.add(direction)
         self._apply_arrow_colors()
+        self._emit_change(direction, pinned=True)
 
     def _flash_arrow(self, direction: str, flash_ms: int = 140) -> None:
         entry = self._arrows.get(direction)
@@ -322,6 +348,8 @@ class OffsetSelectorWidget(tk.Frame):
     def _handle_click(self, direction: str) -> None:
         """Handle mouse click on an arrow, ensuring focus is acquired first."""
 
+        if not self._enabled:
+            return
         if self._request_focus:
             try:
                 self._request_focus()
@@ -358,6 +386,8 @@ class OffsetSelectorWidget(tk.Frame):
 
     def handle_key(self, keysym: str, event: object | None = None) -> bool:
         key = keysym.lower()
+        if not self._enabled:
+            return False
         if key not in {"up", "down", "left", "right"}:
             return False
 
@@ -370,9 +400,32 @@ class OffsetSelectorWidget(tk.Frame):
             # Non-Alt opposite press clears that axis' pin.
             self._pinned.discard(opposite)
             self._apply_arrow_colors()
+            self._emit_change(opposite, pinned=False)
 
         self._flash_arrow(key)
+        self._emit_change(key, pinned=False)
         return True
+
+    def set_change_callback(self, callback: callable | None) -> None:
+        self._on_change = callback
+
+    def _emit_change(self, direction: str, pinned: bool) -> None:
+        if self._on_change is None:
+            return
+        if not self._enabled:
+            return
+        try:
+            self._on_change(direction, pinned)
+        except Exception:
+            pass
+
+    def set_enabled(self, enabled: bool) -> None:
+        if self._enabled == enabled:
+            return
+        self._enabled = enabled
+        if not enabled:
+            self._pinned.clear()
+        self._apply_arrow_colors()
 
 
 class JustificationWidget(tk.Frame):
@@ -385,6 +438,8 @@ class JustificationWidget(tk.Frame):
         self._active_index = 0
         self._choices = ["Left", "Center", "Right"]
         self._icons: list[tk.Canvas] = []
+        self._on_change: callable | None = None
+        self._enabled = True
         self._build_icons()
 
     def _build_icons(self) -> None:
@@ -446,6 +501,8 @@ class JustificationWidget(tk.Frame):
             canvas.create_line(base_x0, baseline_y, base_x1, baseline_y, fill=bar_color, width=2, capstyle="round")
 
     def _handle_click(self, index: int) -> str | None:
+        if not self._enabled:
+            return "break"
         if not self._has_focus:
             if self._request_focus:
                 try:
@@ -455,6 +512,7 @@ class JustificationWidget(tk.Frame):
             return "break"
         self._active_index = max(0, min(len(self._choices) - 1, index))
         self._apply_styles()
+        self._emit_change()
         return "break"
 
     def set_focus_request_callback(self, callback: callable | None) -> None:
@@ -463,6 +521,8 @@ class JustificationWidget(tk.Frame):
         self._request_focus = callback
 
     def on_focus_enter(self) -> None:
+        if not self._enabled:
+            return
         self._has_focus = True
         self._apply_styles()
         try:
@@ -479,7 +539,7 @@ class JustificationWidget(tk.Frame):
             pass
 
     def handle_key(self, keysym: str, _event: object | None = None) -> bool:
-        if not self._has_focus:
+        if not self._has_focus or not self._enabled:
             return False
         key = keysym.lower()
         if key not in {"left", "right"}:
@@ -490,6 +550,7 @@ class JustificationWidget(tk.Frame):
             return False
         self._active_index = new_index
         self._apply_styles()
+        self._emit_change()
         return True
 
     def set_justification(self, name: str | None) -> None:
@@ -498,6 +559,28 @@ class JustificationWidget(tk.Frame):
         if idx != self._active_index:
             self._active_index = idx
             self._apply_styles()
+
+    def get_justification(self) -> str:
+        return ["left", "center", "right"][self._active_index]
+
+    def set_change_callback(self, callback: callable | None) -> None:
+        self._on_change = callback
+
+    def _emit_change(self) -> None:
+        if self._on_change is None:
+            return
+        if not self._enabled:
+            return
+        try:
+            self._on_change(self.get_justification())
+        except Exception:
+            pass
+
+    def set_enabled(self, enabled: bool) -> None:
+        self._enabled = enabled
+        if not enabled:
+            self._has_focus = False
+        self._apply_styles()
 
 
 class AnchorSelectorWidget(tk.Frame):
@@ -508,10 +591,12 @@ class AnchorSelectorWidget(tk.Frame):
         self._request_focus: callable | None = None
         self._has_focus = False
         self._active_index = 0  # start at NW
+        self._on_change: callable | None = None
+        self._enabled = True
         self.canvas = tk.Canvas(
             self,
-            width=200,
-            height=200,
+            width=120,
+            height=120,
             bd=0,
             highlightthickness=0,
             bg=self.cget("background"),
@@ -586,6 +671,8 @@ class AnchorSelectorWidget(tk.Frame):
                 )
 
     def _handle_click(self, event: tk.Event[tk.Misc]) -> str | None:  # type: ignore[name-defined]
+        if not self._enabled:
+            return "break"
         if self._request_focus:
             try:
                 self._request_focus()
@@ -603,6 +690,7 @@ class AnchorSelectorWidget(tk.Frame):
                     if nearest != self._active_index:
                         self._active_index = nearest
                         self._draw()
+                        self._emit_change()
                 except Exception:
                     pass
         return "break"
@@ -611,6 +699,8 @@ class AnchorSelectorWidget(tk.Frame):
         self._request_focus = callback
 
     def on_focus_enter(self) -> None:
+        if not self._enabled:
+            return
         self._has_focus = True
         self._draw()
         try:
@@ -627,7 +717,7 @@ class AnchorSelectorWidget(tk.Frame):
             pass
 
     def handle_key(self, keysym: str, _event: object | None = None) -> bool:
-        if not self._has_focus:
+        if not self._has_focus or not self._enabled:
             return False
         # Ignore modified arrows (e.g., Alt+Arrow) to keep behavior consistent with bindings.
         state = getattr(_event, "state", 0) or 0
@@ -649,11 +739,12 @@ class AnchorSelectorWidget(tk.Frame):
             return False
         self._active_index = row * 3 + col
         self._draw()
+        self._emit_change()
         return True
 
     def set_anchor(self, name: str | None) -> None:
         mapping = {
-            "nw": 0,
+            "nw": 0,  # legacy aliases
             "n": 1,
             "top": 1,
             "ne": 2,
@@ -673,6 +764,39 @@ class AnchorSelectorWidget(tk.Frame):
             self._active_index = idx
             self._draw()
 
+    def get_anchor(self) -> str:
+        mapping = {
+            0: "nw",
+            1: "top",
+            2: "ne",
+            3: "left",
+            4: "center",
+            5: "right",
+            6: "sw",
+            7: "bottom",
+            8: "se",
+        }
+        return mapping.get(self._active_index, "nw")
+
+    def set_change_callback(self, callback: callable | None) -> None:
+        self._on_change = callback
+
+    def _emit_change(self) -> None:
+        if self._on_change is None:
+            return
+        if not self._enabled:
+            return
+        try:
+            self._on_change(self.get_anchor())
+        except Exception:
+            pass
+
+    def set_enabled(self, enabled: bool) -> None:
+        self._enabled = enabled
+        if not enabled:
+            self._has_focus = False
+        self._draw()
+
 
 class AbsoluteXYWidget(tk.Frame):
     """Absolute X/Y input widget with focus-aware navigation."""
@@ -683,6 +807,7 @@ class AbsoluteXYWidget(tk.Frame):
         self._active_field: str = "x"
         self._x_var = tk.StringVar()
         self._y_var = tk.StringVar()
+        self._on_change: callable | None = None
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=0)
@@ -702,15 +827,27 @@ class AbsoluteXYWidget(tk.Frame):
         y_entry.grid(row=1, column=2, padx=(2, 24))
 
         self._entries = {"x": x_entry, "y": y_entry}
+        self._enabled = True
+        try:
+            self._default_fg = str(x_entry.cget("fg"))
+        except Exception:
+            self._default_fg = "black"
 
         for field, entry in self._entries.items():
             entry.bind("<Button-1>", lambda _e, f=field: self._handle_entry_click(f), add="+")
             entry.bind("<FocusIn>", lambda _e, f=field: self._set_active_field(f), add="+")
+            entry.bind("<FocusOut>", lambda _e, f=field: self._emit_change(f), add="+")
+            entry.bind("<Return>", lambda _e, f=field: self._emit_change(f) or "break", add="+")
 
     def set_focus_request_callback(self, callback: callable | None) -> None:
         """Register a callback that requests host focus when a control is clicked."""
 
         self._request_focus = callback
+
+    def set_change_callback(self, callback: callable | None) -> None:
+        """Register a callback invoked when user edits a field."""
+
+        self._on_change = callback
 
     def _set_active_field(self, field: str) -> None:
         if field not in ("x", "y"):
@@ -729,6 +866,8 @@ class AbsoluteXYWidget(tk.Frame):
             pass
 
     def _handle_entry_click(self, field: str) -> str:
+        if not self._enabled:
+            return "break"
         if self._request_focus:
             try:
                 self._request_focus()
@@ -736,6 +875,16 @@ class AbsoluteXYWidget(tk.Frame):
                 pass
         self._focus_field(field)
         return "break"
+
+    def _emit_change(self, field: str) -> None:
+        if self._on_change is None:
+            return
+        if not self._enabled:
+            return
+        try:
+            self._on_change(field)
+        except Exception:
+            pass
 
     def on_focus_enter(self) -> None:
         self._focus_field(self._active_field)
@@ -758,40 +907,36 @@ class AbsoluteXYWidget(tk.Frame):
         self._focus_field(self._active_field)
 
     def _parse_value(self, raw: str, axis: str) -> float:
-        """Parse value using percent/pixel rules from plugin_group_manager."""
+        """Parse px or % into pixel values on a 1280x960 base."""
 
         token = (raw or "").strip()
         if not token:
             raise ValueError(f"{axis} value is empty")
 
         base = ABS_BASE_WIDTH if axis.upper() == "X" else ABS_BASE_HEIGHT
-        multiplier = 1.0
-        mode = "px"
         token_lower = token.lower()
         if token_lower.endswith("px"):
             token = token[:-2].strip()
-            multiplier = 100.0 / base
-        elif token.endswith("%"):
+        mode = "%"
+        if token.endswith("%"):
             token = token[:-1].strip()
-            mode = "%"
         else:
-            multiplier = 100.0 / base
+            mode = "px"
         try:
             numeric = float(token)
         except ValueError:
             raise ValueError(
-                f"{axis} must be a percent with '%' (e.g. 50%) or a pixel value (e.g. 640 or 640px) relative to a 1280x960 window."
+                f"{axis} must be a percent (e.g. 50%) or pixel value (e.g. 640 or 640px) relative to a 1280x960 window."
             ) from None
-        numeric *= multiplier
-        if numeric < 0.0 or numeric > 100.0:
-            raise ValueError(f"{axis} value must be between 0 and 100 (received {numeric:g}).")
+        if mode == "%":
+            numeric = (numeric / 100.0) * base
         return numeric
 
     def get_values(self) -> tuple[str, str]:
         return self._x_var.get(), self._y_var.get()
 
     def parse_values(self) -> tuple[float | None, float | None]:
-        """Return parsed percent values or None if empty."""
+        """Return parsed pixel values or None if empty."""
 
         results: list[float | None] = []
         for raw, axis in ((self._x_var.get(), "X"), (self._y_var.get(), "Y")):
@@ -805,8 +950,35 @@ class AbsoluteXYWidget(tk.Frame):
                 results.append(None)
         return results[0], results[1]
 
+    def set_px_values(self, x: float | None, y: float | None) -> None:
+        def _fmt(val: float | None) -> str:
+            if val is None:
+                return ""
+            if abs(val - round(val)) < 0.01:
+                return str(int(round(val)))
+            return f"{val:.2f}".rstrip("0").rstrip(".")
+
+        def _update_entry(entry: tk.Entry, value: str) -> None:
+            current_state = entry.cget("state")
+            if current_state == "disabled":
+                entry.configure(state="normal")
+                entry.delete(0, tk.END)
+                entry.insert(0, value)
+                entry.configure(state="disabled")
+            else:
+                entry.delete(0, tk.END)
+                entry.insert(0, value)
+
+        _update_entry(self._entries["x"], _fmt(x))
+        _update_entry(self._entries["y"], _fmt(y))
+
+    def get_px_values(self) -> tuple[float | None, float | None]:
+        return self.parse_values()
+
     def handle_key(self, keysym: str, event: object | None = None) -> bool:
         key = keysym.lower()
+        if not self._enabled:
+            return False
         if key == "down" and self._active_field == "x":
             self._focus_field("y")
             return True
@@ -814,6 +986,17 @@ class AbsoluteXYWidget(tk.Frame):
             self._focus_field("x")
             return True
         return False
+
+    def set_enabled(self, enabled: bool) -> None:
+        self._enabled = enabled
+        state = "normal" if enabled else "disabled"
+        for entry in self._entries.values():
+            entry.configure(state=state)
+
+    def set_text_color(self, color: str | None) -> None:
+        fg = color or self._default_fg
+        for entry in self._entries.values():
+            entry.configure(fg=fg)
 
 class OverlayConfigApp(tk.Tk):
     """Basic UI skeleton that mirrors the design mockups."""
@@ -864,8 +1047,24 @@ class OverlayConfigApp(tk.Tk):
         self._adjusting_geometry = False
         self._groupings_data: dict[str, object] = {}
         self._idprefix_entries: list[tuple[str, str]] = []
+        root = Path(__file__).resolve().parents[1]
+        self._groupings_path = root / "overlay_groupings.json"
+        self._groupings_cache_path = root / "overlay_group_cache.json"
+        self._groupings_cache: dict[str, object] = {}
+        self._absolute_user_state: dict[tuple[str, str], dict[str, float | None]] = {}
+        self._group_snapshots: dict[tuple[str, str], _GroupSnapshot] = {}
+        self._anchor_restore_state: dict[tuple[str, str], dict[str, float | None]] = {}
+        self._anchor_restore_handles: dict[tuple[str, str], str | None] = {}
+        self._absolute_tolerance_px = 0.5
+        self._status_poll_interval_ms = 2500
+        self._status_poll_handle: str | None = None
+        self._debounce_handles: dict[str, str | None] = {}
+        self._write_debounce_ms = 300
+        self._offset_write_debounce_ms = 600
+        self._offset_step_px = 10.0
 
         self._build_layout()
+        self._groupings_cache = self._load_groupings_cache()
         self._handle_idprefix_selected()
         self._binding_config = BindingConfig.load()
         self._binding_manager = BindingManager(self, self._binding_config)
@@ -917,6 +1116,7 @@ class OverlayConfigApp(tk.Tk):
         self.bind("<ButtonPress-1>", self._start_window_drag, add="+")
         self.bind("<B1-Motion>", self._on_window_drag, add="+")
         self.bind("<ButtonRelease-1>", self._end_window_drag, add="+")
+        self._status_poll_handle = self.after(self._status_poll_interval_ms, self._poll_cache_and_status)
         self.after(0, self._center_and_show)
 
     def report_callback_exception(self, exc, val, tb) -> None:  # type: ignore[override]
@@ -950,17 +1150,17 @@ class OverlayConfigApp(tk.Tk):
             relief="flat",
             background="#f5f5f5",
         )
-        placement_label = tk.Label(
+        self.preview_canvas = tk.Canvas(
             self.placement_frame,
-            text="placement window (open)",
-            anchor="nw",
-            bg="#f5f5f5",
-            padx=8,
-            pady=6,
+            bd=0,
+            highlightthickness=1,
+            relief="solid",
+            background="#202020",
         )
-        placement_label.pack(fill="both", expand=True)
+        self.preview_canvas.pack(fill="both", expand=True)
+        self.preview_canvas.bind("<Button-1>", self._handle_placement_click, add="+")
         self.placement_frame.bind("<Button-1>", self._handle_placement_click, add="+")
-        placement_label.bind("<Button-1>", self._handle_placement_click, add="+")
+        self.preview_canvas.bind("<Configure>", lambda _e: self._draw_preview())
 
         # Sidebar with individual selector sections
         self.sidebar = tk.Frame(
@@ -1051,23 +1251,27 @@ class OverlayConfigApp(tk.Tk):
             elif index == 1:
                 self.offset_widget = OffsetSelectorWidget(frame)
                 self.offset_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
+                self.offset_widget.set_change_callback(self._handle_offset_changed)
                 self.offset_widget.pack(expand=True)
                 self._focus_widgets[("sidebar", index)] = self.offset_widget
             elif index == 2:
                 self.absolute_widget = AbsoluteXYWidget(frame)
                 self.absolute_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
+                self.absolute_widget.set_change_callback(self._handle_absolute_changed)
                 self.absolute_widget.pack(fill="both", expand=True, padx=0, pady=0)
                 self._focus_widgets[("sidebar", index)] = self.absolute_widget
             elif index == 3:
-                frame.configure(height=220)
+                frame.configure(height=140)
                 frame.grid_propagate(False)
                 self.anchor_widget = AnchorSelectorWidget(frame)
                 self.anchor_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
+                self.anchor_widget.set_change_callback(self._handle_anchor_changed)
                 self.anchor_widget.pack(fill="both", expand=True, padx=4, pady=4)
                 self._focus_widgets[("sidebar", index)] = self.anchor_widget
             elif index == 4:
                 self.justification_widget = JustificationWidget(frame)
                 self.justification_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
+                self.justification_widget.set_change_callback(self._handle_justification_changed)
                 self.justification_widget.pack(fill="both", expand=True, padx=4, pady=4)
                 self._focus_widgets[("sidebar", index)] = self.justification_widget
             else:
@@ -1256,6 +1460,7 @@ class OverlayConfigApp(tk.Tk):
         self._cancel_pending_close()
         self._pending_focus_out = False
         self._closing = True
+        self._cancel_status_poll()
         self.destroy()
 
     def _handle_focus_in(self, _event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]
@@ -1463,8 +1668,11 @@ class OverlayConfigApp(tk.Tk):
                 pass
 
     def _load_idprefix_options(self) -> list[str]:
-        root = Path(__file__).resolve().parents[1]
-        path = root / "overlay_groupings.json"
+        path = getattr(self, "_groupings_path", None)
+        if path is None:
+            root = Path(__file__).resolve().parents[1]
+            path = root / "overlay_groupings.json"
+            self._groupings_path = path
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -1499,6 +1707,437 @@ class OverlayConfigApp(tk.Tk):
         group = groups.get(label) if isinstance(groups, dict) else None
         return group if isinstance(group, dict) else {}
 
+    def _get_cache_record(
+        self, plugin_name: str, label: str
+    ) -> tuple[dict[str, object] | None, dict[str, object] | None, float]:
+        groups = self._groupings_cache.get("groups") if isinstance(self._groupings_cache, dict) else {}
+        plugin_entry = groups.get(plugin_name) if isinstance(groups, dict) else {}
+        entry = plugin_entry.get(label) if isinstance(plugin_entry, dict) else {}
+        if not isinstance(entry, dict):
+            return None, None, 0.0
+        normalized = entry.get("base") or entry.get("normalized")
+        normalized = normalized if isinstance(normalized, dict) else None
+        transformed = entry.get("transformed")
+        transformed = transformed if isinstance(transformed, dict) else None
+        timestamp = float(entry.get("last_updated", 0.0)) if isinstance(entry, dict) else 0.0
+        return normalized, transformed, timestamp
+
+    def _set_group_controls_enabled(self, enabled: bool) -> None:
+        widget_names = ("offset_widget", "absolute_widget", "anchor_widget", "justification_widget")
+        for name in widget_names:
+            widget = getattr(self, name, None)
+            setter = getattr(widget, "set_enabled", None)
+            if callable(setter):
+                try:
+                    setter(enabled)
+                except Exception:
+                    continue
+
+    def _compute_absolute_from_snapshot(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
+        base_min_x, base_min_y, _, _ = snapshot.base_bounds
+        return base_min_x + snapshot.offset_x, base_min_y + snapshot.offset_y
+
+    def _clamp_absolute_value(self, value: float, axis: str) -> float:
+        if axis.lower() == "x":
+            return max(ABS_MIN_X, min(ABS_MAX_X, value))
+        return max(ABS_MIN_Y, min(ABS_MAX_Y, value))
+
+    def _store_absolute_state(
+        self, selection: tuple[str, str], absolute_x: float, absolute_y: float, timestamp: float | None = None
+    ) -> None:
+        ts = time.time() if timestamp is None else timestamp
+        state = self._absolute_user_state.setdefault(selection, {})
+        state["x"] = absolute_x
+        state["y"] = absolute_y
+        state["x_ts"] = ts
+        state["y_ts"] = ts
+
+    def _build_group_snapshot(self, plugin_name: str, label: str) -> _GroupSnapshot | None:
+        cfg = self._get_group_config(plugin_name, label)
+        base_payload, transformed_payload, cache_ts = self._get_cache_record(plugin_name, label)
+        if base_payload is None:
+            return None
+        anchor_token = str(
+            cfg.get("idPrefixGroupAnchor")
+            or (transformed_payload.get("anchor") if transformed_payload else "nw")
+            or "nw"
+        ).lower()
+        transform_anchor_token = str(
+            transformed_payload.get("anchor", anchor_token) if isinstance(transformed_payload, dict) else anchor_token
+        ).lower()
+        offset_x = float(cfg.get("offsetX", 0.0)) if isinstance(cfg, dict) else 0.0
+        offset_y = float(cfg.get("offsetY", 0.0)) if isinstance(cfg, dict) else 0.0
+        base_min_x = float(base_payload.get("base_min_x", 0.0))
+        base_min_y = float(base_payload.get("base_min_y", 0.0))
+        base_max_x = float(base_payload.get("base_max_x", base_min_x))
+        base_max_y = float(base_payload.get("base_max_y", base_min_y))
+        base_bounds = (base_min_x, base_min_y, base_max_x, base_max_y)
+        base_anchor = self._compute_anchor_point(base_min_x, base_max_x, base_min_y, base_max_y, anchor_token)
+        if transformed_payload:
+            trans_min_x = float(transformed_payload.get("trans_min_x", base_min_x))
+            trans_min_y = float(transformed_payload.get("trans_min_y", base_min_y))
+            trans_max_x = float(transformed_payload.get("trans_max_x", base_max_x))
+            trans_max_y = float(transformed_payload.get("trans_max_y", base_max_y))
+            has_transform = True
+        else:
+            trans_min_x, trans_min_y, trans_max_x, trans_max_y = base_bounds
+            has_transform = False
+        transform_bounds = (trans_min_x, trans_min_y, trans_max_x, trans_max_y)
+        transform_anchor = self._compute_anchor_point(
+            trans_min_x, trans_max_x, trans_min_y, trans_max_y, transform_anchor_token
+        )
+        return _GroupSnapshot(
+            plugin=plugin_name,
+            label=label,
+            anchor_token=anchor_token,
+             transform_anchor_token=transform_anchor_token,
+            offset_x=offset_x,
+            offset_y=offset_y,
+            base_bounds=base_bounds,
+            base_anchor=base_anchor,
+            transform_bounds=transform_bounds,
+            transform_anchor=transform_anchor,
+            has_transform=has_transform,
+            cache_timestamp=cache_ts,
+        )
+
+    def _update_absolute_widget_color(self, snapshot: _GroupSnapshot | None) -> None:
+        widget = getattr(self, "absolute_widget", None)
+        if widget is None:
+            return
+        color = None
+        if snapshot is not None:
+            abs_x, abs_y = self._compute_absolute_from_snapshot(snapshot)
+            trans_x, trans_y = self._expected_transformed_anchor(snapshot)
+            if (
+                abs(abs_x - trans_x) > self._absolute_tolerance_px
+                or abs(abs_y - trans_y) > self._absolute_tolerance_px
+            ):
+                color = "#cc3333"
+        try:
+            widget.set_text_color(color)
+        except Exception:
+            pass
+
+    def _apply_snapshot_to_absolute_widget(
+        self, selection: tuple[str, str], snapshot: _GroupSnapshot, force_ui: bool = True
+    ) -> None:
+        if not hasattr(self, "absolute_widget"):
+            return
+        abs_x, abs_y = self._compute_absolute_from_snapshot(snapshot)
+        self._store_absolute_state(selection, abs_x, abs_y)
+        widget = getattr(self, "absolute_widget", None)
+        if widget is None:
+            return
+        if force_ui:
+            try:
+                widget.set_px_values(abs_x, abs_y)
+            except Exception:
+                pass
+
+    def _refresh_current_group_snapshot(self, force_ui: bool = True) -> None:
+        selection = self._get_current_group_selection()
+        if selection is None:
+            self._set_group_controls_enabled(False)
+            self._update_absolute_widget_color(None)
+            self._draw_preview()
+            return
+        plugin_name, label = selection
+        snapshot = self._build_group_snapshot(plugin_name, label)
+        if snapshot is None:
+            self._group_snapshots.pop(selection, None)
+            self._set_group_controls_enabled(False)
+            self._update_absolute_widget_color(None)
+            self._draw_preview()
+            return
+        self._group_snapshots[selection] = snapshot
+        self._set_group_controls_enabled(True)
+        self._apply_snapshot_to_absolute_widget(selection, snapshot, force_ui=force_ui)
+        self._update_absolute_widget_color(snapshot)
+        self._draw_preview()
+
+    def _get_group_snapshot(self, selection: tuple[str, str] | None = None) -> _GroupSnapshot | None:
+        key = selection if selection is not None else self._get_current_group_selection()
+        if key is None:
+            return None
+        return self._group_snapshots.get(key)
+
+    def _poll_cache_and_status(self) -> None:
+        self._status_poll_handle = None
+        try:
+            latest = self._load_groupings_cache()
+        except Exception:
+            latest = None
+        if isinstance(latest, dict):
+            self._groupings_cache = latest
+        self._refresh_current_group_snapshot(force_ui=False)
+        self._status_poll_handle = self.after(self._status_poll_interval_ms, self._poll_cache_and_status)
+
+    def _load_groupings_cache(self) -> dict[str, object]:
+        path = getattr(self, "_groupings_cache_path", None)
+        if path is None:
+            root = Path(__file__).resolve().parents[1]
+            path = root / "overlay_group_cache.json"
+            self._groupings_cache_path = path
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        groups = payload.get("groups") if isinstance(payload, dict) else None
+        payload["groups"] = groups if isinstance(groups, dict) else {}
+        return payload
+
+    def _write_groupings_config(self) -> None:
+        path = getattr(self, "_groupings_path", None)
+        if path is None:
+            return
+        try:
+            text = json.dumps(self._groupings_data, indent=2, sort_keys=True)
+            path.write_text(text + "\n", encoding="utf-8")
+        except Exception:
+            pass
+
+    def _write_groupings_cache(self) -> None:
+        # Controller is read-only for overlay_group_cache.json; no-op to avoid clobbering client data.
+        return
+
+    def _flush_groupings_config(self) -> None:
+        self._debounce_handles["config_write"] = None
+        self._write_groupings_config()
+
+    def _flush_groupings_cache(self) -> None:
+        self._debounce_handles["cache_write"] = None
+        # Read-only cache; skip writes.
+
+    def _schedule_debounce(self, key: str, callback: callable, delay_ms: int | None = None) -> None:
+        """Schedule a debounced callback keyed by name."""
+
+        existing = self._debounce_handles.get(key)
+        if existing is not None:
+            try:
+                self.after_cancel(existing)
+            except Exception:
+                pass
+        delay = self._write_debounce_ms if delay_ms is None else delay_ms
+        handle = self.after(delay, callback)
+        self._debounce_handles[key] = handle
+
+    def _schedule_groupings_config_write(self, delay_ms: int | None = None) -> None:
+        self._schedule_debounce("config_write", self._flush_groupings_config, delay_ms)
+
+    def _schedule_groupings_cache_write(self, delay_ms: int | None = None) -> None:
+        # Cache is maintained by overlay client; avoid scheduling writes from controller.
+        existing = self._debounce_handles.pop("cache_write", None)
+        if existing is not None:
+            try:
+                self.after_cancel(existing)
+            except Exception:
+                pass
+
+    def _cancel_status_poll(self) -> None:
+        handle = self._status_poll_handle
+        if handle is None:
+            return
+        try:
+            self.after_cancel(handle)
+        except Exception:
+            pass
+        self._status_poll_handle = None
+
+    def _capture_anchor_restore_state(self, selection: tuple[str, str]) -> bool:
+        if selection is None:
+            return False
+        state = self._absolute_user_state.get(selection, {"x": None, "y": None, "x_ts": 0.0, "y_ts": 0.0})
+        x_val = state.get("x")
+        y_val = state.get("y")
+        if (x_val is None or y_val is None) and hasattr(self, "absolute_widget"):
+            try:
+                x_widget, y_widget = self.absolute_widget.get_px_values()
+                if x_val is None:
+                    x_val = x_widget
+                if y_val is None:
+                    y_val = y_widget
+            except Exception:
+                pass
+        if x_val is None and y_val is None:
+            return False
+        now = time.time()
+        self._anchor_restore_state[selection] = {
+            "x": x_val,
+            "y": y_val,
+            "x_ts": float(state.get("x_ts", now) or now),
+            "y_ts": float(state.get("y_ts", now) or now),
+        }
+        return True
+
+    def _schedule_anchor_restore(self, selection: tuple[str, str]) -> None:
+        if selection is None:
+            return
+        handle = self._anchor_restore_handles.pop(selection, None)
+        if handle is not None:
+            try:
+                self.after_cancel(handle)
+            except Exception:
+                pass
+        self._restore_anchor_offsets(selection)
+
+    def _restore_anchor_offsets(self, selection: tuple[str, str]) -> None:
+        handle = self._anchor_restore_handles.pop(selection, None)
+        if handle is not None:
+            try:
+                self.after_cancel(handle)
+            except Exception:
+                pass
+        if selection != self._get_current_group_selection():
+            return
+        snapshot = self._anchor_restore_state.pop(selection, None)
+        if not isinstance(snapshot, dict):
+            return
+        x_val = snapshot.get("x")
+        y_val = snapshot.get("y")
+        if x_val is None and y_val is None:
+            return
+        now = time.time()
+        state = self._absolute_user_state.get(selection, {"x": None, "y": None, "x_ts": 0.0, "y_ts": 0.0})
+        if x_val is not None:
+            state["x"] = x_val
+            state["x_ts"] = max(now, float(snapshot.get("x_ts", now) or now))
+        if y_val is not None:
+            state["y"] = y_val
+            state["y_ts"] = max(now, float(snapshot.get("y_ts", now) or now))
+        self._absolute_user_state[selection] = state
+        if hasattr(self, "absolute_widget"):
+            try:
+                self.absolute_widget.set_px_values(state.get("x"), state.get("y"))
+            except Exception:
+                pass
+        self._sync_absolute_for_current_group(force_ui=True, debounce_ms=self._offset_write_debounce_ms, prefer_user=True)
+        self._draw_preview()
+
+    def _draw_preview(self) -> None:
+        canvas = getattr(self, "preview_canvas", None)
+        if canvas is None:
+            return
+        canvas.delete("all")
+        width = int(canvas.winfo_width() or canvas["width"])
+        height = int(canvas.winfo_height() or canvas["height"])
+        padding = 10
+        inner_w = max(1, width - 2 * padding)
+        inner_h = max(1, height - 2 * padding)
+        canvas.create_rectangle(
+            padding,
+            padding,
+            width - padding,
+            height - padding,
+            outline="#555555",
+            dash=(3, 3),
+        )
+
+        selection = self._get_current_group_selection()
+        if selection is None:
+            canvas.create_text(width // 2, height // 2, text="(select a group)", fill="#888888")
+            return
+        snapshot = self._get_group_snapshot(selection)
+        if snapshot is None:
+            canvas.create_text(width // 2, height // 2, text="(awaiting cache)", fill="#888888")
+            return
+
+        label = selection[1]
+        base_min_x, base_min_y, base_max_x, base_max_y = snapshot.base_bounds
+        trans_min_x, trans_min_y, trans_max_x, trans_max_y = snapshot.transform_bounds or snapshot.base_bounds
+        anchor_name = snapshot.anchor_token
+        actual_anchor_token = snapshot.transform_anchor_token or anchor_name
+
+        scale = max(0.01, min(inner_w / float(ABS_BASE_WIDTH), inner_h / float(ABS_BASE_HEIGHT)))
+        offset_x = padding
+        offset_y = padding
+
+        def _rect_color(fill: str) -> dict[str, object]:
+            return {"fill": fill, "outline": "#000000", "width": 1}
+
+        norm_x0 = offset_x + base_min_x * scale
+        norm_y0 = offset_y + base_min_y * scale
+        norm_x1 = offset_x + base_max_x * scale
+        norm_y1 = offset_y + base_max_y * scale
+        canvas.create_rectangle(norm_x0, norm_y0, norm_x1, norm_y1, **_rect_color("#66a3ff"))
+        label_text = "Original Placement"
+        label_font = ("TkDefaultFont", 8, "bold")
+        inside = (norm_x1 - norm_x0) >= 110 and (norm_y1 - norm_y0) >= 20
+        label_fill = "#ffffff" if not inside else "#1c2b4a"
+        label_x = norm_x0 + 4 if inside else norm_x1 + 6
+        label_y = norm_y0 + 12 if inside else norm_y0
+        canvas.create_text(
+            label_x,
+            label_y,
+            text=label_text,
+            anchor="nw",
+            fill=label_fill,
+            font=label_font,
+        )
+
+        trans_x0 = offset_x + trans_min_x * scale
+        trans_y0 = offset_y + trans_min_y * scale
+        trans_x1 = offset_x + trans_max_x * scale
+        trans_y1 = offset_y + trans_max_y * scale
+        canvas.create_rectangle(trans_x0, trans_y0, trans_x1, trans_y1, **_rect_color("#ffa94d"))
+        actual_label = "Actual Placement"
+        actual_inside = (trans_x1 - trans_x0) >= 110 and (trans_y1 - trans_y0) >= 20
+        actual_fill = "#ffffff" if not actual_inside else "#5a2d00"
+        actual_label_x = trans_x0 + 4 if actual_inside else trans_x1 + 6
+        actual_label_y = trans_y0 + 12 if actual_inside else trans_y0
+        canvas.create_text(
+            actual_label_x,
+            actual_label_y,
+            text=actual_label,
+            anchor="nw",
+            fill=actual_fill,
+            font=("TkDefaultFont", 8, "bold"),
+        )
+
+        if snapshot.transform_bounds is not None:
+            anchor_px, anchor_py = self._compute_anchor_point(
+                trans_min_x,
+                trans_max_x,
+                trans_min_y,
+                trans_max_y,
+                actual_anchor_token,
+            )
+            anchor_screen_x = offset_x + anchor_px * scale
+            anchor_screen_y = offset_y + anchor_py * scale
+            anchor_radius = 4
+            canvas.create_oval(
+                anchor_screen_x - anchor_radius,
+                anchor_screen_y - anchor_radius,
+                anchor_screen_x + anchor_radius,
+                anchor_screen_y + anchor_radius,
+                fill="#ffffff",
+                outline="#000000",
+                width=1,
+            )
+
+        canvas.create_text(
+            padding + 6,
+            padding + 6,
+            text=f"{label}",
+            anchor="nw",
+            fill="#ffffff",
+            font=("TkDefaultFont", 9, "bold"),
+        )
+    def _persist_offsets(
+        self, selection: tuple[str, str], offset_x: float, offset_y: float, debounce_ms: int | None = None
+    ) -> None:
+        plugin_name, label = selection
+        self._set_config_offsets(plugin_name, label, offset_x, offset_y)
+        delay = self._offset_write_debounce_ms if debounce_ms is None else debounce_ms
+        self._schedule_groupings_config_write(delay)
+        snapshot = self._group_snapshots.get(selection)
+        if snapshot is not None:
+            snapshot.offset_x = offset_x
+            snapshot.offset_y = offset_y
+            self._group_snapshots[selection] = snapshot
+
     def _handle_idprefix_selected(self, _selection: str | None = None) -> None:
         if not hasattr(self, "idprefix_widget"):
             return
@@ -1522,6 +2161,282 @@ class OverlayConfigApp(tk.Tk):
                 self.justification_widget.set_justification(justification)
             except Exception:
                 pass
+        self._sync_absolute_for_current_group(force_ui=True)
+
+    def _handle_justification_changed(self, justification: str) -> None:
+        selection = self._get_current_group_selection()
+        if selection is None:
+            return
+        plugin_name, label = selection
+        if not isinstance(self._groupings_data, dict):
+            return
+        entry = self._groupings_data.get(plugin_name)
+        if not isinstance(entry, dict):
+            return
+        groups = entry.get("idPrefixGroups") if isinstance(entry, dict) else None
+        if not isinstance(groups, dict):
+            return
+        group = groups.get(label)
+        if not isinstance(group, dict):
+            return
+        group["payloadJustification"] = justification
+        self._schedule_groupings_config_write()
+    def _handle_absolute_changed(self, axis: str) -> None:
+        selection = self._get_current_group_selection()
+        if selection is None or not hasattr(self, "absolute_widget"):
+            return
+        snapshot = self._get_group_snapshot(selection)
+        if snapshot is None:
+            return
+        x_val, y_val = self.absolute_widget.get_px_values()
+        base_x, base_y = self._compute_absolute_from_snapshot(snapshot)
+        target_x = x_val if x_val is not None else base_x
+        target_y = y_val if y_val is not None else base_y
+        axis_token = (axis or "").lower()
+        if axis_token in ("x", ""):
+            target_x = self._clamp_absolute_value(target_x, "x")
+        if axis_token in ("y", ""):
+            target_y = self._clamp_absolute_value(target_y, "y")
+
+        base_min_x, base_min_y, _, _ = snapshot.base_bounds
+        new_offset_x = target_x - base_min_x
+        new_offset_y = target_y - base_min_y
+        if (
+            abs(new_offset_x - snapshot.offset_x) <= self._absolute_tolerance_px
+            and abs(new_offset_y - snapshot.offset_y) <= self._absolute_tolerance_px
+        ):
+            self._apply_snapshot_to_absolute_widget(selection, snapshot, force_ui=True)
+            return
+
+        self._persist_offsets(selection, new_offset_x, new_offset_y, debounce_ms=self._offset_write_debounce_ms)
+        self._refresh_current_group_snapshot(force_ui=True)
+
+    def _handle_offset_changed(self, direction: str, pinned: bool) -> None:
+        selection = self._get_current_group_selection()
+        if selection is None or not hasattr(self, "absolute_widget"):
+            return
+        snapshot = self._get_group_snapshot(selection)
+        if snapshot is None:
+            return
+        current_x, current_y = self.absolute_widget.get_px_values()
+        if current_x is None or current_y is None:
+            current_x, current_y = self._compute_absolute_from_snapshot(snapshot)
+        new_x, new_y = current_x, current_y
+        anchor_target = None
+
+        if pinned:
+            current_anchor = snapshot.anchor_token
+            if direction == "left":
+                new_x = ABS_MIN_X
+            elif direction == "right":
+                new_x = ABS_MAX_X
+            elif direction == "up":
+                new_y = ABS_MIN_Y
+            elif direction == "down":
+                new_y = ABS_MAX_Y
+            else:
+                return
+            anchor_target = self._resolve_pinned_anchor(current_anchor, direction)
+        else:
+            step = self._offset_step_px
+            if direction == "left":
+                new_x = self._clamp_absolute_value(current_x - step, "x")
+            elif direction == "right":
+                new_x = self._clamp_absolute_value(current_x + step, "x")
+            elif direction == "up":
+                new_y = self._clamp_absolute_value(current_y - step, "y")
+            elif direction == "down":
+                new_y = self._clamp_absolute_value(current_y + step, "y")
+            else:
+                return
+
+        base_min_x, base_min_y, _, _ = snapshot.base_bounds
+        new_offset_x = new_x - base_min_x
+        new_offset_y = new_y - base_min_y
+        if (
+            abs(new_offset_x - snapshot.offset_x) <= self._absolute_tolerance_px
+            and abs(new_offset_y - snapshot.offset_y) <= self._absolute_tolerance_px
+        ):
+            self._apply_snapshot_to_absolute_widget(selection, snapshot, force_ui=True)
+            return
+
+        self._persist_offsets(selection, new_offset_x, new_offset_y, debounce_ms=self._offset_write_debounce_ms)
+        self._refresh_current_group_snapshot(force_ui=True)
+
+        if pinned and anchor_target and hasattr(self, "anchor_widget"):
+            try:
+                self.anchor_widget.set_anchor(anchor_target)
+            except Exception:
+                pass
+            self._handle_anchor_changed(anchor_target, prefer_user=True)
+    def _get_current_group_selection(self) -> tuple[str, str] | None:
+        if not hasattr(self, "idprefix_widget"):
+            return None
+        try:
+            idx = int(self.idprefix_widget.dropdown.current())
+        except Exception:
+            return None
+        if not (0 <= idx < len(self._idprefix_entries)):
+            return None
+        return self._idprefix_entries[idx]
+    def _anchor_sides(self, anchor: str) -> tuple[str, str]:
+        token = (anchor or "").lower().replace("-", "").replace("_", "")
+        h = "center"
+        v = "center"
+        if token in {"nw", "w", "sw", "left"} or "left" in token:
+            h = "left"
+        elif token in {"ne", "e", "se", "right"} or "right" in token:
+            h = "right"
+        if token in {"nw", "n", "ne", "top"} or "top" in token:
+            v = "top"
+        elif token in {"sw", "s", "se", "bottom"} or "bottom" in token:
+            v = "bottom"
+        return h, v
+    def _sync_absolute_for_current_group(
+        self, force_ui: bool = False, debounce_ms: int | None = None, prefer_user: bool = False
+    ) -> None:
+        _ = debounce_ms, prefer_user
+        self._refresh_current_group_snapshot(force_ui=force_ui)
+    def _select_transformed_for_anchor(self, anchor: str, trans_min: float, trans_max: float, axis: str) -> float:
+        horizontal, vertical = self._anchor_sides(anchor)
+        side = horizontal if (axis or "").lower() == "x" else vertical
+        if side in {"left", "top"}:
+            return trans_min
+        if side in {"right", "bottom"}:
+            return trans_max
+        return (trans_min + trans_max) / 2.0
+
+    def _resolve_pinned_anchor(self, current_anchor: str, direction: str) -> str:
+        anchor = (current_anchor or "").lower()
+        direction = (direction or "").lower()
+        mapping = {
+            ("ne", "down"): "se",
+            ("ne", "left"): "nw",
+            ("top", "right"): "ne",
+            ("top", "left"): "nw",
+            ("top", "down"): "bottom",
+            ("nw", "right"): "ne",
+            ("nw", "down"): "sw",
+            ("left", "up"): "nw",
+            ("left", "down"): "sw",
+            ("left", "right"): "right",
+            ("sw", "up"): "nw",
+            ("sw", "right"): "se",
+            ("bottom", "left"): "sw",
+            ("bottom", "right"): "se",
+            ("bottom", "up"): "top",
+            ("se", "left"): "sw",
+            ("se", "up"): "ne",
+            ("center", "up"): "top",
+            ("center", "left"): "left",
+            ("center", "down"): "bottom",
+            ("center", "right"): "right",
+        }
+        return mapping.get((anchor, direction), anchor)
+
+    def _expected_transformed_anchor(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
+        bounds = snapshot.transform_bounds
+        if bounds is None:
+            base_min_x, base_min_y, base_max_x, base_max_y = snapshot.base_bounds
+            min_x = base_min_x + snapshot.offset_x
+            min_y = base_min_y + snapshot.offset_y
+            max_x = base_max_x + snapshot.offset_x
+            max_y = base_max_y + snapshot.offset_y
+            token = snapshot.anchor_token
+        else:
+            min_x, min_y, max_x, max_y = bounds
+            token = snapshot.transform_anchor_token or snapshot.anchor_token
+        mid_x = (min_x + max_x) / 2.0
+        mid_y = (min_y + max_y) / 2.0
+        token = (token or "nw").strip().lower().replace("-", "").replace("_", "")
+        if token in {"nw", "wn"}:
+            return min_x, min_y
+        if token in {"top", "n"}:
+            return mid_x, min_y
+        if token in {"ne"}:
+            return max_x, min_y
+        if token in {"right", "e"}:
+            return max_x, mid_y
+        if token in {"se"}:
+            return max_x, max_y
+        if token in {"bottom", "s"}:
+            return mid_x, max_y
+        if token in {"sw"}:
+            return min_x, max_y
+        if token in {"left", "w"}:
+            return min_x, mid_y
+        return mid_x, mid_y
+    def _compute_anchor_point(self, min_x: float, max_x: float, min_y: float, max_y: float, anchor: str) -> tuple[float, float]:
+        h, v = self._anchor_sides(anchor)
+        ax = min_x if h == "left" else max_x if h == "right" else (min_x + max_x) / 2.0
+        ay = min_y if v == "top" else max_y if v == "bottom" else (min_y + max_y) / 2.0
+        return ax, ay
+
+
+    def _get_cache_entry(
+        self, plugin_name: str, label: str
+    ) -> tuple[dict[str, float], dict[str, float], str, float]:
+        groups = self._groupings_cache.get("groups") if isinstance(self._groupings_cache, dict) else {}
+        plugin_entry = groups.get(plugin_name) if isinstance(groups, dict) else {}
+        entry = plugin_entry.get(label) if isinstance(plugin_entry, dict) else {}
+        normalized = entry.get("base") if isinstance(entry, dict) else {}
+        transformed = entry.get("transformed") if isinstance(entry, dict) else {}
+        norm_vals = {
+            "min_x": float(normalized.get("base_min_x", 0.0)) if isinstance(normalized, dict) else 0.0,
+            "max_x": float(normalized.get("base_max_x", 0.0)) if isinstance(normalized, dict) else 0.0,
+            "min_y": float(normalized.get("base_min_y", 0.0)) if isinstance(normalized, dict) else 0.0,
+            "max_y": float(normalized.get("base_max_y", 0.0)) if isinstance(normalized, dict) else 0.0,
+        }
+        norm_vals["width"] = float(normalized.get("base_width", norm_vals["max_x"] - norm_vals["min_x"])) if isinstance(normalized, dict) else (norm_vals["max_x"] - norm_vals["min_x"])
+        norm_vals["height"] = float(normalized.get("base_height", norm_vals["max_y"] - norm_vals["min_y"])) if isinstance(normalized, dict) else (norm_vals["max_y"] - norm_vals["min_y"])
+        trans_vals = {
+            "min_x": float(transformed.get("trans_min_x", norm_vals["min_x"])) if isinstance(transformed, dict) else norm_vals["min_x"],
+            "max_x": float(transformed.get("trans_max_x", norm_vals["max_x"])) if isinstance(transformed, dict) else norm_vals["max_x"],
+            "min_y": float(transformed.get("trans_min_y", norm_vals["min_y"])) if isinstance(transformed, dict) else norm_vals["min_y"],
+            "max_y": float(transformed.get("trans_max_y", norm_vals["max_y"])) if isinstance(transformed, dict) else norm_vals["max_y"],
+        }
+        anchor = transformed.get("anchor") if isinstance(transformed, dict) else None
+        anchor_name = str(anchor).lower() if isinstance(anchor, str) else "top-left"
+        timestamp = float(entry.get("last_updated", 0.0)) if isinstance(entry, dict) else 0.0
+        return norm_vals, trans_vals, anchor_name, timestamp
+    def _set_config_offsets(self, plugin_name: str, label: str, offset_x: float, offset_y: float) -> None:
+        if not isinstance(self._groupings_data, dict):
+            return
+        entry = self._groupings_data.get(plugin_name)
+        if not isinstance(entry, dict):
+            return
+        groups = entry.get("idPrefixGroups") if isinstance(entry, dict) else None
+        if not isinstance(groups, dict):
+            return
+        group = groups.get(label)
+        if not isinstance(group, dict):
+            return
+        group["offsetX"] = offset_x
+        group["offsetY"] = offset_y
+    def _handle_anchor_changed(self, anchor: str, prefer_user: bool = False) -> None:
+        selection = self._get_current_group_selection()
+        if selection is None:
+            return
+        captured = self._capture_anchor_restore_state(selection)
+        plugin_name, label = selection
+        if not isinstance(self._groupings_data, dict):
+            return
+        entry = self._groupings_data.get(plugin_name)
+        if not isinstance(entry, dict):
+            return
+        groups = entry.get("idPrefixGroups") if isinstance(entry, dict) else None
+        if not isinstance(groups, dict):
+            return
+        group = groups.get(label)
+        if not isinstance(group, dict):
+            return
+        group["idPrefixGroupAnchor"] = anchor
+        self._schedule_groupings_config_write()
+
+        self._sync_absolute_for_current_group(force_ui=True, prefer_user=prefer_user)
+        self._draw_preview()
+        if captured:
+            self._schedule_anchor_restore(selection)
 
     def _on_configure_activity(self) -> None:
         """Track recent move/resize to avoid closing during window drag."""
