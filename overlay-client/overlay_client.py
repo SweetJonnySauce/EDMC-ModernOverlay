@@ -2915,6 +2915,7 @@ class OverlayWindow(QWidget):
         cache_base_payloads: Dict[Tuple[str, Optional[str]], Dict[str, Any]] = {}
         cache_transform_payloads: Dict[Tuple[str, Optional[str]], Dict[str, Any]] = {}
         active_group_keys: Set[Tuple[str, Optional[str]]] = set()
+        offsets_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         for key, logical_bounds in overlay_bounds_base.items():
             if logical_bounds is None or not logical_bounds.is_valid():
                 continue
@@ -2927,9 +2928,13 @@ class OverlayWindow(QWidget):
             width = max_x - min_x
             height = max_y - min_y
             group_transform = transform_by_group.get(key)
+            offset_x, offset_y = self._group_offsets(group_transform)
+            has_offset = bool(offset_x or offset_y)
             has_transformed = bool(
-                group_transform is not None and self._has_user_group_transform(group_transform)
+                (group_transform is not None and self._has_user_group_transform(group_transform))
+                or has_offset
             )
+            offsets_by_group[key] = (offset_x, offset_y)
             bounds_tuple = (
                 logical_bounds.min_x,
                 logical_bounds.min_y,
@@ -2946,6 +2951,8 @@ class OverlayWindow(QWidget):
                 "width": width,
                 "height": height,
                 "has_transformed": has_transformed,
+                "offset_x": offset_x,
+                "offset_y": offset_y,
                 "bounds_tuple": bounds_tuple,
             }
             latest_base_payload[key] = payload_dict
@@ -3001,6 +3008,7 @@ class OverlayWindow(QWidget):
             width_t = transformed_bounds.max_x - transformed_bounds.min_x
             height_t = transformed_bounds.max_y - transformed_bounds.min_y
             group_transform = transform_by_group.get(key)
+            offset_x, offset_y = offsets_by_group.get(key, (0.0, 0.0))
             anchor_token = "nw"
             justification_token = "left"
             if group_transform is not None:
@@ -3029,6 +3037,8 @@ class OverlayWindow(QWidget):
                 "nudge_dx": nudge_x,
                 "nudge_dy": nudge_y,
                 "nudged": nudged,
+                "offset_dx": offset_x,
+                "offset_dy": offset_y,
             }
             cache_transform_payloads[key] = dict(transform_payload)
             pending_payload = self._group_log_pending_transform.get(key)
@@ -4333,6 +4343,8 @@ class OverlayWindow(QWidget):
             "nudge_dx": self._cache_safe_int(payload.get("nudge_dx")),
             "nudge_dy": self._cache_safe_int(payload.get("nudge_dy")),
             "nudged": bool(payload.get("nudged", False)),
+            "offset_dx": self._cache_safe_float(payload.get("offset_dx")),
+            "offset_dy": self._cache_safe_float(payload.get("offset_dy")),
         }
 
     def _update_group_cache_from_payloads(
@@ -4458,6 +4470,8 @@ class OverlayWindow(QWidget):
             f"norm_max_x={float(payload.get('max_x', 0.0)):.1f}",
             f"norm_max_y={float(payload.get('max_y', 0.0)):.1f}",
             f"has_transformed={bool(payload.get('has_transformed', False))}",
+            f"offset_x={float(payload.get('offset_x', 0.0)):.1f}",
+            f"offset_y={float(payload.get('offset_y', 0.0)):.1f}",
         ]
         _CLIENT_LOGGER.debug(" ".join(log_parts))
 
@@ -4477,6 +4491,8 @@ class OverlayWindow(QWidget):
             f"nudge_dx={payload.get('nudge_dx', 0)}",
             f"nudge_dy={payload.get('nudge_dy', 0)}",
             f"nudged={payload.get('nudged', False)}",
+            f"offset_dx={float(payload.get('offset_dx', 0.0)):.1f}",
+            f"offset_dy={float(payload.get('offset_dy', 0.0)):.1f}",
         ]
         _CLIENT_LOGGER.debug(" ".join(log_parts))
 
