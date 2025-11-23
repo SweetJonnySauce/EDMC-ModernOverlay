@@ -2345,6 +2345,10 @@ class OverlayConfigApp(tk.Tk):
         offset_y = float(cfg.get("offsetY", 0.0)) if isinstance(cfg, dict) else 0.0
 
         norm_vals, trans_vals, anchor, cache_ts = self._get_cache_entry(plugin_name, label)
+        base_norm_min_x = norm_vals["min_x"] - offset_x
+        base_norm_max_x = norm_vals["max_x"] - offset_x
+        base_norm_min_y = norm_vals["min_y"] - offset_y
+        base_norm_max_y = norm_vals["max_y"] - offset_y
 
         state = self._absolute_user_state.get(selection, {"x": None, "y": None, "x_ts": 0.0, "y_ts": 0.0})
         user_x = state.get("x")
@@ -2354,8 +2358,8 @@ class OverlayConfigApp(tk.Tk):
 
         offset_x_res, user_x_res, cache_x_res, cache_ts_x, user_ts_x, new_tx_min, new_tx_max = self._sync_axis(
             anchor,
-            norm_vals["min_x"],
-            norm_vals["max_x"],
+            base_norm_min_x,
+            base_norm_max_x,
             trans_vals["min_x"],
             trans_vals["max_x"],
             offset_x,
@@ -2368,8 +2372,8 @@ class OverlayConfigApp(tk.Tk):
 
         offset_y_res, user_y_res, cache_y_res, cache_ts_y, user_ts_y, new_ty_min, new_ty_max = self._sync_axis(
             anchor,
-            norm_vals["min_y"],
-            norm_vals["max_y"],
+            base_norm_min_y,
+            base_norm_max_y,
             trans_vals["min_y"],
             trans_vals["max_y"],
             offset_y,

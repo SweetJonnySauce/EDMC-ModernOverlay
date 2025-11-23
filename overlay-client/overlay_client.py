@@ -807,6 +807,10 @@ class OverlayWindow(QWidget):
                 anchor_x = mapped[0]
         if not (math.isfinite(anchor_x) and math.isfinite(anchor_y)):
             return None
+        offset_x, offset_y = cls._group_offsets(transform)
+        if anchor_override is None:
+            anchor_x += offset_x
+        anchor_y += offset_y
         return anchor_x, anchor_y
 
     @classmethod
@@ -826,7 +830,27 @@ class OverlayWindow(QWidget):
         base_y = remap_axis_value(transform.bounds_min_y, context.axis_y)
         if not (math.isfinite(base_x) and math.isfinite(base_y)):
             return None
+        offset_x, offset_y = cls._group_offsets(transform)
+        if not (use_overlay_bounds_x and overlay_bounds is not None and overlay_bounds.is_valid()):
+            base_x += offset_x
+        base_y += offset_y
         return base_x, base_y
+
+    @staticmethod
+    def _group_offsets(transform: Optional[GroupTransform]) -> Tuple[float, float]:
+        if transform is None:
+            return 0.0, 0.0
+        offset_x = getattr(transform, "dx", 0.0) or 0.0
+        offset_y = getattr(transform, "dy", 0.0) or 0.0
+        try:
+            offset_x = float(offset_x)
+        except (TypeError, ValueError):
+            offset_x = 0.0
+        try:
+            offset_y = float(offset_y)
+        except (TypeError, ValueError):
+            offset_y = 0.0
+        return offset_x, offset_y
 
     @classmethod
     def _map_anchor_to_overlay_bounds(
@@ -3431,6 +3455,11 @@ class OverlayWindow(QWidget):
         scaled_point_size = self._legacy_preset_point_size(size, state, mapper)
         fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
         transform_context = build_payload_transform_context(fill)
+        offset_x, offset_y = self._group_offsets(group_transform)
+        base_width_norm = BASE_WIDTH if BASE_WIDTH > 0.0 else 1.0
+        base_height_norm = BASE_HEIGHT if BASE_HEIGHT > 0.0 else 1.0
+        offset_norm_x = offset_x / base_width_norm
+        offset_norm_y = offset_y / base_height_norm
         scale = fill.scale
         base_offset_x = fill.base_offset_x
         base_offset_y = fill.base_offset_y
@@ -3461,11 +3490,15 @@ class OverlayWindow(QWidget):
                     use_overlay_bounds_x=use_overlay_bounds_x,
                 )
             if group_transform is not None and anchor_for_transform is not None:
+                anchor_norm_override = (
+                    (group_transform.band_min_x or 0.0) + offset_norm_x,
+                    (group_transform.band_min_y or 0.0) + offset_norm_y,
+                )
                 base_translation_dx, base_translation_dy = compute_proportional_translation(
                     fill,
                     group_transform,
                     anchor_for_transform,
-                    anchor_norm_override=(group_transform.band_min_x, group_transform.band_min_y),
+                    anchor_norm_override=anchor_norm_override,
                 )
         transform_meta = item.get("__mo_transform__")
         self._debug_legacy_point_size = scaled_point_size
@@ -3488,6 +3521,9 @@ class OverlayWindow(QWidget):
                 },
             )
         adjusted_left, adjusted_top = remap_point(fill, transform_meta, raw_left, raw_top, context=transform_context)
+        if offset_x or offset_y:
+            adjusted_left += offset_x
+            adjusted_top += offset_y
         if mapper.transform.mode is ScaleMode.FILL:
             adjusted_left, adjusted_top = self._apply_inverse_group_scale(
                 adjusted_left,
@@ -3647,6 +3683,11 @@ class OverlayWindow(QWidget):
         state = self._viewport_state()
         fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
         transform_context = build_payload_transform_context(fill)
+        offset_x, offset_y = self._group_offsets(group_transform)
+        base_width_norm = BASE_WIDTH if BASE_WIDTH > 0.0 else 1.0
+        base_height_norm = BASE_HEIGHT if BASE_HEIGHT > 0.0 else 1.0
+        offset_norm_x = offset_x / base_width_norm
+        offset_norm_y = offset_y / base_height_norm
         scale = fill.scale
         anchor_point: Optional[Tuple[float, float]] = None
         selected_anchor: Optional[Tuple[float, float]] = None
@@ -3677,11 +3718,15 @@ class OverlayWindow(QWidget):
                     use_overlay_bounds_x=use_overlay_bounds_x,
                 )
             if group_transform is not None and anchor_for_transform is not None:
+                anchor_norm_override = (
+                    (group_transform.band_min_x or 0.0) + offset_norm_x,
+                    (group_transform.band_min_y or 0.0) + offset_norm_y,
+                )
                 base_translation_dx, base_translation_dy = compute_proportional_translation(
                     fill,
                     group_transform,
                     anchor_for_transform,
-                    anchor_norm_override=(group_transform.band_min_x, group_transform.band_min_y),
+                    anchor_norm_override=anchor_norm_override,
                 )
         base_offset_x = fill.base_offset_x
         base_offset_y = fill.base_offset_y
@@ -3709,6 +3754,11 @@ class OverlayWindow(QWidget):
                 },
             )
         transformed_overlay = remap_rect_points(fill, transform_meta, raw_x, raw_y, raw_w, raw_h, context=transform_context)
+        if offset_x or offset_y:
+            transformed_overlay = [
+                (px + offset_x, py + offset_y)
+                for px, py in transformed_overlay
+            ]
         base_overlay_points: List[Tuple[float, float]] = []
         reference_overlay_bounds: Optional[Tuple[float, float, float, float]] = None
         if mapper.transform.mode is ScaleMode.FILL:
@@ -3844,6 +3894,11 @@ class OverlayWindow(QWidget):
         state = self._viewport_state()
         fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
         transform_context = build_payload_transform_context(fill)
+        offset_x, offset_y = self._group_offsets(group_transform)
+        base_width_norm = BASE_WIDTH if BASE_WIDTH > 0.0 else 1.0
+        base_height_norm = BASE_HEIGHT if BASE_HEIGHT > 0.0 else 1.0
+        offset_norm_x = offset_x / base_width_norm
+        offset_norm_y = offset_y / base_height_norm
         scale = fill.scale
         selected_anchor: Optional[Tuple[float, float]] = None
         base_anchor_point: Optional[Tuple[float, float]] = None
@@ -3883,11 +3938,15 @@ class OverlayWindow(QWidget):
             base_anchor_effective = base_anchor_point
             anchor_for_transform = base_anchor_point or selected_anchor
             if group_transform is not None and anchor_for_transform is not None:
+                anchor_norm_override = (
+                    (group_transform.band_min_x or 0.0) + offset_norm_x,
+                    (group_transform.band_min_y or 0.0) + offset_norm_y,
+                )
                 base_translation_dx, base_translation_dy = compute_proportional_translation(
                     fill,
                     group_transform,
                     anchor_for_transform,
-                    anchor_norm_override=(group_transform.band_min_x, group_transform.band_min_y),
+                    anchor_norm_override=anchor_norm_override,
                 )
         translation_dx = base_translation_dx
         translation_dy = base_translation_dy
@@ -3931,6 +3990,11 @@ class OverlayWindow(QWidget):
             )
         transformed_points: List[Mapping[str, Any]] = []
         remapped = remap_vector_points(fill, transform_meta, raw_points, context=transform_context)
+        if offset_x or offset_y:
+            remapped = [
+                (ox + offset_x, oy + offset_y, original_point)
+                for ox, oy, original_point in remapped
+            ]
         overlay_min_x = float("inf")
         overlay_min_y = float("inf")
         overlay_max_x = float("-inf")
