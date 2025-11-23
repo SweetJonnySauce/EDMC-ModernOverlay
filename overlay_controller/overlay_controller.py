@@ -1426,10 +1426,7 @@ class OverlayConfigApp(tk.Tk):
             if self._handle_active_widget_key("Left", event):
                 return "break"
             return
-        if self.widget_focus_area == "placement":
-            self.widget_focus_area = "sidebar"
-            self._refresh_widget_focus()
-        elif self.widget_focus_area == "sidebar" and self._placement_open:
+        if self._placement_open:
             self._placement_open = False
             self._apply_placement_state()
             self.widget_focus_area = "sidebar"
@@ -1442,15 +1439,11 @@ class OverlayConfigApp(tk.Tk):
             if self._handle_active_widget_key("Right", event):
                 return "break"
             return
-        if self.widget_focus_area == "sidebar":
-            if not self._placement_open:
-                self._placement_open = True
-                self._apply_placement_state()
-            self.widget_focus_area = "placement"
-            self._refresh_widget_focus()
-        elif self.widget_focus_area == "placement":
-            self.widget_focus_area = "placement"
-            self._refresh_widget_focus()
+        if not self._placement_open:
+            self._placement_open = True
+            self._apply_placement_state()
+        self.widget_focus_area = "sidebar"
+        self._refresh_widget_focus()
 
     def _update_sidebar_highlight(self) -> None:
         if not self.sidebar_cells:
