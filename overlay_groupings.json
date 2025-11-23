@@ -2,12 +2,12 @@
   "BGS-Tally": {
     "idPrefixGroups": {
       "BGS-Tally Colonisation": {
-        "idPrefixGroupAnchor": "nw",
+        "idPrefixGroupAnchor": "center",
         "idPrefixes": [
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
         ],
-        "offsetX": 520.0,
+        "offsetX": 910.0,
         "offsetY": -80.0,
         "payloadJustification": "left"
       },

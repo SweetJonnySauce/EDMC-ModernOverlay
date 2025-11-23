@@ -30,7 +30,8 @@ ABS_MAX_Y = float(ABS_BASE_HEIGHT)
 class _GroupSnapshot:
     plugin: str
     label: str
-    anchor_token: str
+    anchor_token: str  # desired/configured anchor
+    transform_anchor_token: str
     offset_x: float
     offset_y: float
     base_bounds: Tuple[float, float, float, float]
@@ -1761,6 +1762,9 @@ class OverlayConfigApp(tk.Tk):
             or (transformed_payload.get("anchor") if transformed_payload else "nw")
             or "nw"
         ).lower()
+        transform_anchor_token = str(
+            transformed_payload.get("anchor", anchor_token) if isinstance(transformed_payload, dict) else anchor_token
+        ).lower()
         offset_x = float(cfg.get("offsetX", 0.0)) if isinstance(cfg, dict) else 0.0
         offset_y = float(cfg.get("offsetY", 0.0)) if isinstance(cfg, dict) else 0.0
         base_min_x = float(base_payload.get("base_min_x", 0.0))
@@ -1779,11 +1783,14 @@ class OverlayConfigApp(tk.Tk):
             trans_min_x, trans_min_y, trans_max_x, trans_max_y = base_bounds
             has_transform = False
         transform_bounds = (trans_min_x, trans_min_y, trans_max_x, trans_max_y)
-        transform_anchor = self._compute_anchor_point(trans_min_x, trans_max_x, trans_min_y, trans_max_y, anchor_token)
+        transform_anchor = self._compute_anchor_point(
+            trans_min_x, trans_max_x, trans_min_y, trans_max_y, transform_anchor_token
+        )
         return _GroupSnapshot(
             plugin=plugin_name,
             label=label,
             anchor_token=anchor_token,
+             transform_anchor_token=transform_anchor_token,
             offset_x=offset_x,
             offset_y=offset_y,
             base_bounds=base_bounds,
@@ -2041,6 +2048,7 @@ class OverlayConfigApp(tk.Tk):
         base_min_x, base_min_y, base_max_x, base_max_y = snapshot.base_bounds
         trans_min_x, trans_min_y, trans_max_x, trans_max_y = snapshot.transform_bounds or snapshot.base_bounds
         anchor_name = snapshot.anchor_token
+        actual_anchor_token = snapshot.transform_anchor_token or anchor_name
 
         scale = max(0.01, min(inner_w / float(ABS_BASE_WIDTH), inner_h / float(ABS_BASE_HEIGHT)))
         offset_x = padding
@@ -2094,7 +2102,7 @@ class OverlayConfigApp(tk.Tk):
                 trans_max_x,
                 trans_min_y,
                 trans_max_y,
-                anchor_name,
+                actual_anchor_token,
             )
             anchor_screen_x = offset_x + anchor_px * scale
             anchor_screen_y = offset_y + anchor_py * scale
@@ -2117,36 +2125,6 @@ class OverlayConfigApp(tk.Tk):
             fill="#ffffff",
             font=("TkDefaultFont", 9, "bold"),
         )
-    def _update_cache_entry(
-        self,
-        plugin_name: str,
-        label: str,
-        trans_vals: dict[str, float],
-        anchor: str,
-        timestamp: float,
-    ) -> None:
-        if not isinstance(self._groupings_cache, dict):
-            self._groupings_cache = {"groups": {}}
-        groups = self._groupings_cache.setdefault("groups", {})
-        plugin_entry = groups.setdefault(plugin_name, {})
-        entry = plugin_entry.get(label)
-        if not isinstance(entry, dict):
-            entry = {}
-            plugin_entry[label] = entry
-        normalized = entry.get("base") if isinstance(entry, dict) else None
-        if not isinstance(normalized, dict):
-            normalized = {}
-        transformed = entry.get("transformed") if isinstance(entry, dict) else None
-        if not isinstance(transformed, dict):
-            transformed = {}
-        transformed["trans_min_x"] = trans_vals.get("min_x", transformed.get("trans_min_x", 0.0))
-        transformed["trans_max_x"] = trans_vals.get("max_x", transformed.get("trans_max_x", transformed.get("trans_min_x", 0.0)))
-        transformed["trans_min_y"] = trans_vals.get("min_y", transformed.get("trans_min_y", 0.0))
-        transformed["trans_max_y"] = trans_vals.get("max_y", transformed.get("trans_max_y", transformed.get("trans_min_y", 0.0)))
-        transformed["anchor"] = anchor
-        entry["transformed"] = transformed
-        entry["base"] = normalized
-        entry["last_updated"] = timestamp
     def _persist_offsets(
         self, selection: tuple[str, str], offset_x: float, offset_y: float, debounce_ms: int | None = None
     ) -> None:
@@ -2364,11 +2342,13 @@ class OverlayConfigApp(tk.Tk):
             min_y = base_min_y + snapshot.offset_y
             max_x = base_max_x + snapshot.offset_x
             max_y = base_max_y + snapshot.offset_y
+            token = snapshot.anchor_token
         else:
             min_x, min_y, max_x, max_y = bounds
+            token = snapshot.transform_anchor_token or snapshot.anchor_token
         mid_x = (min_x + max_x) / 2.0
         mid_y = (min_y + max_y) / 2.0
-        token = (snapshot.anchor_token or "nw").strip().lower().replace("-", "").replace("_", "")
+        token = (token or "nw").strip().lower().replace("-", "").replace("_", "")
         if token in {"nw", "wn"}:
             return min_x, min_y
         if token in {"top", "n"}:
@@ -2453,10 +2433,6 @@ class OverlayConfigApp(tk.Tk):
         group["idPrefixGroupAnchor"] = anchor
         self._schedule_groupings_config_write()
 
-        norm_vals, trans_vals, _existing_anchor, cache_ts = self._get_cache_entry(plugin_name, label)
-        cache_ts_write = max(cache_ts, time.time())
-        self._update_cache_entry(plugin_name, label, trans_vals, anchor, cache_ts_write)
-        self._schedule_groupings_cache_write()
         self._sync_absolute_for_current_group(force_ui=True, prefer_user=prefer_user)
         self._draw_preview()
         if captured:
