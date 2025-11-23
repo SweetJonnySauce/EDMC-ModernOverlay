@@ -2117,6 +2117,36 @@ class OverlayConfigApp(tk.Tk):
                 width=1,
             )
 
+        target_frame = self._resolve_target_frame(snapshot)
+        if target_frame is not None:
+            (target_min_x, target_min_y, target_max_x, target_max_y), (target_anchor_x, target_anchor_y) = target_frame
+            target_x0 = offset_x + target_min_x * scale
+            target_y0 = offset_y + target_min_y * scale
+            target_x1 = offset_x + target_max_x * scale
+            target_y1 = offset_y + target_max_y * scale
+            target_color = "#ffb347"
+            canvas.create_rectangle(
+                target_x0,
+                target_y0,
+                target_x1,
+                target_y1,
+                outline=target_color,
+                dash=(4, 3),
+                width=2,
+            )
+            target_anchor_screen_x = offset_x + target_anchor_x * scale
+            target_anchor_screen_y = offset_y + target_anchor_y * scale
+            target_anchor_radius = 5
+            canvas.create_oval(
+                target_anchor_screen_x - target_anchor_radius,
+                target_anchor_screen_y - target_anchor_radius,
+                target_anchor_screen_x + target_anchor_radius,
+                target_anchor_screen_y + target_anchor_radius,
+                fill="#ff8800",
+                outline="#5a2d00",
+                width=1,
+            )
+
         canvas.create_text(
             padding + 6,
             padding + 6,
@@ -2371,6 +2401,88 @@ class OverlayConfigApp(tk.Tk):
         ax = min_x if h == "left" else max_x if h == "right" else (min_x + max_x) / 2.0
         ay = min_y if v == "top" else max_y if v == "bottom" else (min_y + max_y) / 2.0
         return ax, ay
+
+    def _get_live_anchor_token(self, snapshot: _GroupSnapshot) -> str:
+        """Best-effort anchor token sourced from the UI."""
+
+        anchor_widget = getattr(self, "anchor_widget", None)
+        anchor_name: str | None = None
+        if anchor_widget is not None:
+            getter = getattr(anchor_widget, "get_anchor", None)
+            if callable(getter):
+                try:
+                    anchor_name = getter()
+                except Exception:
+                    anchor_name = None
+        return (anchor_name or snapshot.anchor_token or "nw").strip().lower()
+
+    def _get_live_absolute_anchor(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
+        """Return anchor coordinates, preferring unsaved widget values when available."""
+
+        default_x, default_y = self._compute_absolute_from_snapshot(snapshot)
+        abs_widget = getattr(self, "absolute_widget", None)
+        if abs_widget is None:
+            return default_x, default_y
+
+        try:
+            user_x, user_y = abs_widget.get_px_values()
+        except Exception:
+            user_x = user_y = None
+
+        resolved_x = default_x if user_x is None else self._clamp_absolute_value(float(user_x), "x")
+        resolved_y = default_y if user_y is None else self._clamp_absolute_value(float(user_y), "y")
+        return resolved_x, resolved_y
+
+    def _get_target_dimensions(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
+        """Use the actual placement bounds as the target frame size."""
+
+        bounds = snapshot.transform_bounds or snapshot.base_bounds
+        min_x, min_y, max_x, max_y = bounds
+        width = max(0.0, float(max_x - min_x))
+        height = max(0.0, float(max_y - min_y))
+        return width, height
+
+    def _bounds_from_anchor_point(
+        self, anchor: str, anchor_x: float, anchor_y: float, width: float, height: float
+    ) -> tuple[float, float, float, float]:
+        """Translate an anchor coordinate into bounding box edges."""
+
+        width = max(width, 0.0)
+        height = max(height, 0.0)
+        horizontal, vertical = self._anchor_sides(anchor)
+
+        if horizontal == "left":
+            min_x = anchor_x
+            max_x = anchor_x + width
+        elif horizontal == "right":
+            max_x = anchor_x
+            min_x = anchor_x - width
+        else:
+            min_x = anchor_x - (width / 2.0)
+            max_x = min_x + width
+
+        if vertical == "top":
+            min_y = anchor_y
+            max_y = anchor_y + height
+        elif vertical == "bottom":
+            max_y = anchor_y
+            min_y = anchor_y - height
+        else:
+            min_y = anchor_y - (height / 2.0)
+            max_y = min_y + height
+
+        return min_x, min_y, max_x, max_y
+
+    def _resolve_target_frame(self, snapshot: _GroupSnapshot) -> tuple[tuple[float, float, float, float], tuple[float, float]] | None:
+        """Return ((min_x, min_y, max_x, max_y), (anchor_x, anchor_y)) for the simulated placement."""
+
+        width, height = self._get_target_dimensions(snapshot)
+        if width <= 0.0 or height <= 0.0:
+            return None
+        anchor_token = self._get_live_anchor_token(snapshot)
+        anchor_x, anchor_y = self._get_live_absolute_anchor(snapshot)
+        bounds = self._bounds_from_anchor_point(anchor_token, anchor_x, anchor_y, width, height)
+        return bounds, (anchor_x, anchor_y)
 
 
     def _get_cache_entry(
