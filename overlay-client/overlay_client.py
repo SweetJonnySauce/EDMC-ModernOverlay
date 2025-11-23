@@ -2994,12 +2994,9 @@ class OverlayWindow(QWidget):
             translations,
             mapper.transform.scale,
         )
-        transformed_overlay_bounds = self._collect_transformed_overlay_bounds(
-            commands,
-            anchor_translation_by_group,
-            translations,
-            mapper.transform.scale,
-        )
+        transformed_overlay_bounds = overlay_bounds_for_draw
+        trace_helper = self._group_trace_helper(transformed_overlay_bounds, commands)
+        trace_helper()
         for key, labels in transform_candidates.items():
             plugin_label, suffix_label = labels
             transformed_bounds = transformed_overlay_bounds.get(key)
@@ -4215,60 +4212,6 @@ class OverlayWindow(QWidget):
         if justification and justification not in {"", "left"}:
             return True
         return False
-
-    def _collect_transformed_overlay_bounds(
-        self,
-        commands: Sequence[_LegacyPaintCommand],
-        anchor_translation_by_group: Mapping[Tuple[str, Optional[str]], Tuple[float, float]],
-        translations: Mapping[Tuple[str, Optional[str]], Tuple[int, int]],
-        base_scale: float,
-    ) -> Dict[Tuple[str, Optional[str]], _OverlayBounds]:
-        bounds_map: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
-        if not commands:
-            return bounds_map
-        if not math.isfinite(base_scale) or math.isclose(base_scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
-            base_scale = 1.0
-        for command in commands:
-            if not command.overlay_bounds:
-                continue
-            key = command.group_key.as_tuple()
-            translation_x, translation_y = anchor_translation_by_group.get(key, (0.0, 0.0))
-            nudge_x, nudge_y = translations.get(key, (0, 0))
-            justification_dx = getattr(command, "justification_dx", 0.0)
-            if isinstance(command, (_RectPaintCommand, _VectorPaintCommand)):
-                base_dx = getattr(command, "_base_justification_dx", None)
-                if base_dx is None:
-                    base_dx = justification_dx
-                justification_dx = base_dx
-            offset_x_overlay = (translation_x + justification_dx + nudge_x) / base_scale
-            offset_y_overlay = (translation_y + nudge_y) / base_scale
-            bounds = bounds_map.setdefault(key, _OverlayBounds())
-            bounds.include_rect(
-                command.overlay_bounds[0] + offset_x_overlay,
-                command.overlay_bounds[1] + offset_y_overlay,
-                command.overlay_bounds[2] + offset_x_overlay,
-                command.overlay_bounds[3] + offset_y_overlay,
-            )
-            legacy_item = getattr(command, "legacy_item", None)
-            if legacy_item is not None and self._should_trace_payload(legacy_item.plugin, legacy_item.item_id):
-                self._log_legacy_trace(
-                    legacy_item.plugin,
-                    legacy_item.item_id,
-                    "group:collect_bounds",
-                    {
-                        "translation_x": translation_x,
-                        "translation_y": translation_y,
-                        "justification_dx": justification_dx,
-                        "nudge_x": nudge_x,
-                        "nudge_y": nudge_y,
-                        "offset_x_overlay": offset_x_overlay,
-                        "offset_y_overlay": offset_y_overlay,
-                        "overlay_bounds": command.overlay_bounds,
-                    },
-                )
-        tracer = self._group_trace_helper(bounds_map, commands)
-        tracer()
-        return bounds_map
 
     def _group_trace_helper(
         self,
