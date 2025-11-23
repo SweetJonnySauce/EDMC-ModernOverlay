@@ -2146,6 +2146,14 @@ class OverlayConfigApp(tk.Tk):
                 outline="#5a2d00",
                 width=1,
             )
+            canvas.create_text(
+                (target_x0 + target_x1) / 2,
+                (target_y0 + target_y1) / 2,
+                text="Target",
+                fill="#ffa94d",
+                font=("TkDefaultFont", 8, "bold"),
+                anchor="center",
+            )
 
         canvas.create_text(
             padding + 6,
