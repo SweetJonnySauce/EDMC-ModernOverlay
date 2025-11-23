@@ -2097,7 +2097,7 @@ class OverlayConfigApp(tk.Tk):
         if not isinstance(entry, dict):
             entry = {}
             plugin_entry[label] = entry
-        normalized = entry.get("normalized") if isinstance(entry, dict) else None
+        normalized = entry.get("base") if isinstance(entry, dict) else None
         if not isinstance(normalized, dict):
             normalized = {}
         transformed = entry.get("transformed") if isinstance(entry, dict) else None
@@ -2109,7 +2109,7 @@ class OverlayConfigApp(tk.Tk):
         transformed["trans_max_y"] = trans_vals.get("max_y", transformed.get("trans_max_y", transformed.get("trans_min_y", 0.0)))
         transformed["anchor"] = anchor
         entry["transformed"] = transformed
-        entry["normalized"] = normalized
+        entry["base"] = normalized
         entry["last_updated"] = timestamp
 
     def _set_config_offsets(self, plugin_name: str, label: str, offset_x: float, offset_y: float) -> None:
@@ -2384,8 +2384,8 @@ class OverlayConfigApp(tk.Tk):
             prefer_user,
         )
 
-        state["x"] = user_x_res
-        state["y"] = user_y_res
+        state["x"] = offset_x_res
+        state["y"] = offset_y_res
         state["x_ts"] = user_ts_x
         state["y_ts"] = user_ts_y
         self._absolute_user_state[selection] = state
@@ -2418,8 +2418,24 @@ class OverlayConfigApp(tk.Tk):
             self._update_cache_entry(plugin_name, label, trans_vals_update, anchor, cache_ts_write)
             self._schedule_groupings_cache_write(debounce_ms)
 
-        if force_ui or cfg_changed or cache_changed or user_x is None or user_y is None:
-            self.absolute_widget.set_px_values(user_x_res, user_y_res)
+        update_ui = True
+        if not update_ui:
+            try:
+                current_x, current_y = self.absolute_widget.get_px_values()
+            except Exception:
+                current_x = current_y = None
+            if offset_x_res is None:
+                if current_x is not None:
+                    update_ui = True
+            elif current_x is None or abs(current_x - offset_x_res) > self._absolute_tolerance_px:
+                update_ui = True
+            if offset_y_res is None:
+                if current_y is not None:
+                    update_ui = True
+            elif current_y is None or abs(current_y - offset_y_res) > self._absolute_tolerance_px:
+                update_ui = True
+        if update_ui:
+            self.absolute_widget.set_px_values(offset_x_res, offset_y_res)
         self._draw_preview()
 
     def _on_configure_activity(self) -> None:

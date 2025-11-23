@@ -185,6 +185,7 @@ class _GroupDebugState:
     justification: str
     use_transformed: bool
     anchor_point: Optional[Tuple[float, float]]
+    anchor_logical: Optional[Tuple[float, float]]
     nudged: bool
 
 
@@ -615,7 +616,7 @@ class OverlayWindow(QWidget):
         self._logged_group_transforms: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
         self._group_cache = GroupPlacementCache(
             resolve_cache_path(ROOT_DIR),
-            debounce_seconds=10.0,
+            debounce_seconds=1.0,
             logger=_CLIENT_LOGGER,
         )
 
@@ -2973,6 +2974,12 @@ class OverlayWindow(QWidget):
                 transform_candidates[key] = (plugin_label or "", suffix or "")
             else:
                 self._group_log_pending_transform.pop(key, None)
+        report_overlay_bounds = self._clone_overlay_bounds_map(overlay_bounds_base)
+        report_overlay_bounds = self._apply_anchor_translations_to_overlay_bounds(
+            report_overlay_bounds,
+            anchor_translation_by_group,
+            mapper.transform.scale,
+        )
         overlay_bounds_for_draw = self._clone_overlay_bounds_map(overlay_bounds_by_group)
         overlay_bounds_for_draw = self._apply_anchor_translations_to_overlay_bounds(
             overlay_bounds_for_draw,
@@ -2995,15 +3002,15 @@ class OverlayWindow(QWidget):
             mapper.transform.scale,
         )
         transformed_overlay_bounds = overlay_bounds_for_draw
-        trace_helper = self._group_trace_helper(transformed_overlay_bounds, commands)
+        trace_helper = self._group_trace_helper(report_overlay_bounds, commands)
         trace_helper()
         for key, labels in transform_candidates.items():
             plugin_label, suffix_label = labels
-            transformed_bounds = transformed_overlay_bounds.get(key)
-            if transformed_bounds is None or not transformed_bounds.is_valid():
+            report_bounds = report_overlay_bounds.get(key)
+            if report_bounds is None or not report_bounds.is_valid():
                 continue
-            width_t = transformed_bounds.max_x - transformed_bounds.min_x
-            height_t = transformed_bounds.max_y - transformed_bounds.min_y
+            width_t = report_bounds.max_x - report_bounds.min_x
+            height_t = report_bounds.max_y - report_bounds.min_y
             group_transform = transform_by_group.get(key)
             offset_x, offset_y = offsets_by_group.get(key, (0.0, 0.0))
             anchor_token = "nw"
@@ -3015,18 +3022,18 @@ class OverlayWindow(QWidget):
             nudge_x, nudge_y = translations.get(key, (0, 0))
             nudged = bool(nudge_x or nudge_y)
             transform_tuple = (
-                transformed_bounds.min_x,
-                transformed_bounds.min_y,
-                transformed_bounds.max_x,
-                transformed_bounds.max_y,
+                report_bounds.min_x,
+                report_bounds.min_y,
+                report_bounds.max_x,
+                report_bounds.max_y,
             )
             transform_payload = {
                 "plugin": plugin_label,
                 "suffix": suffix_label,
-                "min_x": transformed_bounds.min_x,
-                "min_y": transformed_bounds.min_y,
-                "max_x": transformed_bounds.max_x,
-                "max_y": transformed_bounds.max_y,
+                "min_x": report_bounds.min_x,
+                "min_y": report_bounds.min_y,
+                "max_x": report_bounds.max_x,
+                "max_y": report_bounds.max_y,
                 "width": width_t,
                 "height": height_t,
                 "anchor": anchor_token,
@@ -3066,6 +3073,7 @@ class OverlayWindow(QWidget):
                 self._debug_group_bounds_final,
                 transform_by_group,
                 translations,
+                canonical_bounds=report_overlay_bounds,
             )
         else:
             self._debug_group_bounds_final = {}
@@ -4180,6 +4188,7 @@ class OverlayWindow(QWidget):
         final_bounds: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
         transform_by_group: Mapping[Tuple[str, Optional[str]], Optional[GroupTransform]],
         translations: Mapping[Tuple[str, Optional[str]], Tuple[int, int]],
+        canonical_bounds: Optional[Mapping[Tuple[str, Optional[str]], _OverlayBounds]] = None,
     ) -> Dict[Tuple[str, Optional[str]], _GroupDebugState]:
         state: Dict[Tuple[str, Optional[str]], _GroupDebugState] = {}
         for key, bounds in final_bounds.items():
@@ -4192,12 +4201,20 @@ class OverlayWindow(QWidget):
             anchor_point = self._anchor_from_overlay_bounds(bounds, anchor_token)
             if anchor_point is None:
                 anchor_point = (bounds.min_x, bounds.min_y)
+            anchor_logical = anchor_point
+            if canonical_bounds is not None:
+                logical_bounds = canonical_bounds.get(key)
+                if logical_bounds is not None and logical_bounds.is_valid():
+                    logical_anchor = self._anchor_from_overlay_bounds(logical_bounds, anchor_token)
+                    if logical_anchor is not None:
+                        anchor_logical = logical_anchor
             nudged = bool(translations.get(key))
             state[key] = _GroupDebugState(
                 anchor_token=anchor_token or "nw",
                 justification=justification or "left",
                 use_transformed=use_transformed,
                 anchor_point=anchor_point,
+                anchor_logical=anchor_logical,
                 nudged=nudged,
             )
         return state
@@ -4260,14 +4277,14 @@ class OverlayWindow(QWidget):
         except (TypeError, ValueError):
             return 0
 
-    def _normalized_cache_payload(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+    def _base_cache_payload(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         return {
-            "norm_min_x": self._cache_safe_float(payload.get("min_x")),
-            "norm_min_y": self._cache_safe_float(payload.get("min_y")),
-            "norm_width": self._cache_safe_float(payload.get("width")),
-            "norm_height": self._cache_safe_float(payload.get("height")),
-            "norm_max_x": self._cache_safe_float(payload.get("max_x")),
-            "norm_max_y": self._cache_safe_float(payload.get("max_y")),
+            "base_min_x": self._cache_safe_float(payload.get("min_x")),
+            "base_min_y": self._cache_safe_float(payload.get("min_y")),
+            "base_width": self._cache_safe_float(payload.get("width")),
+            "base_height": self._cache_safe_float(payload.get("height")),
+            "base_max_x": self._cache_safe_float(payload.get("max_x")),
+            "base_max_y": self._cache_safe_float(payload.get("max_y")),
             "has_transformed": bool(payload.get("has_transformed", False)),
         }
 
@@ -4301,7 +4318,7 @@ class OverlayWindow(QWidget):
         for key, base_payload in base_payloads.items():
             plugin_label = (base_payload.get("plugin") or "").strip()
             suffix_label = base_payload.get("suffix")
-            normalized = self._normalized_cache_payload(base_payload)
+            normalized = self._base_cache_payload(base_payload)
             transformed_payload = None
             if normalized.get("has_transformed"):
                 raw_transform = transform_payloads.get(key)
@@ -4357,7 +4374,8 @@ class OverlayWindow(QWidget):
             painter.drawEllipse(QPoint(anchor_pixel[0], anchor_pixel[1]), 5, 5)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setPen(text_pen)
-            label = f"{debug_state.anchor_token.upper()} ({anchor_point[0]:.1f}, {anchor_point[1]:.1f})"
+            anchor_label_point = debug_state.anchor_logical or anchor_point
+            label = f"{debug_state.anchor_token.upper()} ({anchor_label_point[0]:.1f}, {anchor_label_point[1]:.1f})"
             if debug_state.nudged:
                 label += " nudged"
             metrics = painter.fontMetrics()
@@ -4403,15 +4421,15 @@ class OverlayWindow(QWidget):
 
     def _emit_group_base_log(self, payload: Mapping[str, Any]) -> None:
         log_parts = [
-            "normalized-group-base-values",
+            "group-base-values",
             f"plugin={payload.get('plugin', '')}",
             f"idPrefix_group={payload.get('suffix', '')}",
-            f"norm_min_x={float(payload.get('min_x', 0.0)):.1f}",
-            f"norm_min_y={float(payload.get('min_y', 0.0)):.1f}",
-            f"norm_width={float(payload.get('width', 0.0)):.1f}",
-            f"norm_height={float(payload.get('height', 0.0)):.1f}",
-            f"norm_max_x={float(payload.get('max_x', 0.0)):.1f}",
-            f"norm_max_y={float(payload.get('max_y', 0.0)):.1f}",
+            f"base_min_x={float(payload.get('min_x', 0.0)):.1f}",
+            f"base_min_y={float(payload.get('min_y', 0.0)):.1f}",
+            f"base_width={float(payload.get('width', 0.0)):.1f}",
+            f"base_height={float(payload.get('height', 0.0)):.1f}",
+            f"base_max_x={float(payload.get('max_x', 0.0)):.1f}",
+            f"base_max_y={float(payload.get('max_y', 0.0)):.1f}",
             f"has_transformed={bool(payload.get('has_transformed', False))}",
             f"offset_x={float(payload.get('offset_x', 0.0)):.1f}",
             f"offset_y={float(payload.get('offset_y', 0.0)):.1f}",
