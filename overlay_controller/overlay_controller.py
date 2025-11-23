@@ -1223,19 +1223,20 @@ class OverlayConfigApp(tk.Tk):
         """Create labeled boxes that will hold future controls."""
 
         sections = [
-            ("idprefix group selector", 0),
-            ("offset selector", 0),
-            ("absolute x/y", 0),
-            ("anchor selector", 0),
-            ("payload justification", 0),
-            ("zoom selector (future implementation)", 1),
+            ("idprefix group selector", 0, True),
+            ("offset selector", 0, True),
+            ("absolute x/y", 0, True),
+            ("anchor selector", 0, True),
+            ("payload justification", 0, True),
+            ("zoom selector (future implementation)", 1, False),
         ]
 
         self.sidebar_cells: list[tk.Frame] = []
         self._sidebar_focus_index = 0
         self.widget_select_mode = True
+        selectable_index = 0
 
-        for index, (label_text, weight) in enumerate(sections):
+        for index, (label_text, weight, is_selectable) in enumerate(sections):
             default_height = 120 if label_text == "anchor selector" else 80
             frame = tk.Frame(
                 self.sidebar,
@@ -1255,52 +1256,83 @@ class OverlayConfigApp(tk.Tk):
                 padx=(self.overlay_padding, self.overlay_padding),
             )
             frame.grid_propagate(True)
+
+            focus_index = selectable_index if is_selectable else None
+            if is_selectable:
+                selectable_index += 1
+
             if index == 0:
                 self.idprefix_widget = IdPrefixGroupWidget(frame, options=self._load_idprefix_options())
-                self.idprefix_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
+                if is_selectable and focus_index is not None:
+                    self.idprefix_widget.set_focus_request_callback(
+                        lambda idx=focus_index: self._handle_sidebar_click(idx)
+                    )
                 self.idprefix_widget.set_selection_change_callback(lambda _sel=None: self._handle_idprefix_selected())
                 self.idprefix_widget.pack(fill="both", expand=True, padx=0, pady=0)
-                self._focus_widgets[("sidebar", index)] = self.idprefix_widget
+                if is_selectable and focus_index is not None:
+                    self._focus_widgets[("sidebar", focus_index)] = self.idprefix_widget
             elif index == 1:
                 self.offset_widget = OffsetSelectorWidget(frame)
-                self.offset_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
+                if is_selectable and focus_index is not None:
+                    self.offset_widget.set_focus_request_callback(
+                        lambda idx=focus_index: self._handle_sidebar_click(idx)
+                    )
                 self.offset_widget.set_change_callback(self._handle_offset_changed)
                 self.offset_widget.pack(expand=True)
-                self._focus_widgets[("sidebar", index)] = self.offset_widget
+                if is_selectable and focus_index is not None:
+                    self._focus_widgets[("sidebar", focus_index)] = self.offset_widget
             elif index == 2:
                 self.absolute_widget = AbsoluteXYWidget(frame)
-                self.absolute_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
+                if is_selectable and focus_index is not None:
+                    self.absolute_widget.set_focus_request_callback(
+                        lambda idx=focus_index: self._handle_sidebar_click(idx)
+                    )
                 self.absolute_widget.set_change_callback(self._handle_absolute_changed)
                 self.absolute_widget.pack(fill="both", expand=True, padx=0, pady=0)
-                self._focus_widgets[("sidebar", index)] = self.absolute_widget
+                if is_selectable and focus_index is not None:
+                    self._focus_widgets[("sidebar", focus_index)] = self.absolute_widget
             elif index == 3:
                 frame.configure(height=140)
                 frame.grid_propagate(False)
                 self.anchor_widget = AnchorSelectorWidget(frame)
-                self.anchor_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
+                if is_selectable and focus_index is not None:
+                    self.anchor_widget.set_focus_request_callback(
+                        lambda idx=focus_index: self._handle_sidebar_click(idx)
+                    )
                 self.anchor_widget.set_change_callback(self._handle_anchor_changed)
                 self.anchor_widget.pack(fill="both", expand=True, padx=4, pady=4)
-                self._focus_widgets[("sidebar", index)] = self.anchor_widget
+                if is_selectable and focus_index is not None:
+                    self._focus_widgets[("sidebar", focus_index)] = self.anchor_widget
             elif index == 4:
                 self.justification_widget = JustificationWidget(frame)
-                self.justification_widget.set_focus_request_callback(lambda idx=index: self._handle_sidebar_click(idx))
+                if is_selectable and focus_index is not None:
+                    self.justification_widget.set_focus_request_callback(
+                        lambda idx=focus_index: self._handle_sidebar_click(idx)
+                    )
                 self.justification_widget.set_change_callback(self._handle_justification_changed)
                 self.justification_widget.pack(fill="both", expand=True, padx=4, pady=4)
-                self._focus_widgets[("sidebar", index)] = self.justification_widget
+                if is_selectable and focus_index is not None:
+                    self._focus_widgets[("sidebar", focus_index)] = self.justification_widget
             else:
                 text_label = tk.Label(frame, text=label_text, anchor="center", padx=6, pady=6)
                 text_label.pack(fill="both", expand=True)
-            frame.bind(
-                "<Button-1>", lambda event, idx=index: self._handle_sidebar_click(idx), add="+"
-            )
-            for child in frame.winfo_children():
-                child.bind("<Button-1>", lambda event, idx=index: self._handle_sidebar_click(idx), add="+")
+
+            if is_selectable and focus_index is not None:
+                frame.bind(
+                    "<Button-1>", lambda event, idx=focus_index: self._handle_sidebar_click(idx), add="+"
+                )
+                for child in frame.winfo_children():
+                    child.bind("<Button-1>", lambda event, idx=focus_index: self._handle_sidebar_click(idx), add="+")
+
             grow_weight = 1 if index == len(sections) - 1 else 0
             row_opts = {"weight": grow_weight}
             if index == 3:
                 row_opts["minsize"] = 220
             self.sidebar.grid_rowconfigure(index, **row_opts)
-            self.sidebar_cells.append(frame)
+            if is_selectable and focus_index is not None:
+                self.sidebar_cells.append(frame)
+            else:
+                self.sidebar_context_frame = frame
 
         self.sidebar.grid_columnconfigure(0, weight=1)
 
