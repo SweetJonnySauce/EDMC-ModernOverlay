@@ -2979,13 +2979,10 @@ class OverlayWindow(QWidget):
             group_transform = transform_by_group.get(key)
             anchor_token = "nw"
             justification_token = "left"
-            offset_dx = 0.0
-            offset_dy = 0.0
             if group_transform is not None:
                 anchor_token = (getattr(group_transform, "anchor_token", "nw") or "nw").strip().lower()
                 raw_just = getattr(group_transform, "payload_justification", "") or "left"
                 justification_token = raw_just.strip().lower() if isinstance(raw_just, str) else "left"
-                offset_dx, offset_dy = self._group_offset_for_transform(group_transform)
             nudge_x, nudge_y = translations.get(key, (0, 0))
             nudged = bool(nudge_x or nudge_y)
             transform_tuple = (
@@ -3005,8 +3002,6 @@ class OverlayWindow(QWidget):
                 "height": height_t,
                 "anchor": anchor_token,
                 "justification": justification_token,
-                "offset_dx": offset_dx,
-                "offset_dy": offset_dy,
                 "nudge_dx": nudge_x,
                 "nudge_dy": nudge_y,
                 "nudged": nudged,
@@ -3375,18 +3370,6 @@ class OverlayWindow(QWidget):
         return min_x, min_y
 
     @staticmethod
-    def _group_offset_for_transform(transform: Optional[GroupTransform]) -> Tuple[float, float]:
-        if transform is None:
-            return 0.0, 0.0
-        dx = getattr(transform, "dx", 0.0)
-        dy = getattr(transform, "dy", 0.0)
-        if not isinstance(dx, (int, float)) or not math.isfinite(dx):
-            dx = 0.0
-        if not isinstance(dy, (int, float)) or not math.isfinite(dy):
-            dy = 0.0
-        return float(dx), float(dy)
-
-    @staticmethod
     def _right_justification_delta(
         transform: Optional[GroupTransform],
         payload_min_x: Optional[float],
@@ -3457,7 +3440,6 @@ class OverlayWindow(QWidget):
         base_translation_dx = 0.0
         base_translation_dy = 0.0
         effective_anchor: Optional[Tuple[float, float]] = None
-        group_offset_dx, group_offset_dy = self._group_offset_for_transform(group_transform)
         if mapper.transform.mode is ScaleMode.FILL:
             use_overlay_bounds_x = (
                 overlay_bounds_hint is not None
@@ -3485,8 +3467,6 @@ class OverlayWindow(QWidget):
                     anchor_for_transform,
                     anchor_norm_override=(group_transform.band_min_x, group_transform.band_min_y),
                 )
-            base_translation_dx += group_offset_dx
-            base_translation_dy += group_offset_dy
         transform_meta = item.get("__mo_transform__")
         self._debug_legacy_point_size = scaled_point_size
         raw_left = float(item.get("x", 0))
@@ -3675,7 +3655,6 @@ class OverlayWindow(QWidget):
         base_translation_dx = 0.0
         base_translation_dy = 0.0
         effective_anchor: Optional[Tuple[float, float]] = None
-        group_offset_dx, group_offset_dy = self._group_offset_for_transform(group_transform)
         right_justification_delta = 0.0
         if mapper.transform.mode is ScaleMode.FILL:
             use_overlay_bounds_x = (
@@ -3704,8 +3683,6 @@ class OverlayWindow(QWidget):
                     anchor_for_transform,
                     anchor_norm_override=(group_transform.band_min_x, group_transform.band_min_y),
                 )
-            base_translation_dx += group_offset_dx
-            base_translation_dy += group_offset_dy
         base_offset_x = fill.base_offset_x
         base_offset_y = fill.base_offset_y
         transform_meta = item.get("__mo_transform__")
@@ -3874,7 +3851,6 @@ class OverlayWindow(QWidget):
         base_translation_dx = 0.0
         base_translation_dy = 0.0
         effective_anchor: Optional[Tuple[float, float]] = None
-        group_offset_dx, group_offset_dy = self._group_offset_for_transform(group_transform)
         raw_points = item.get("points") or []
         raw_min_x: Optional[float] = None
         for point in raw_points:
@@ -3913,8 +3889,6 @@ class OverlayWindow(QWidget):
                     anchor_for_transform,
                     anchor_norm_override=(group_transform.band_min_x, group_transform.band_min_y),
                 )
-            base_translation_dx += group_offset_dx
-            base_translation_dy += group_offset_dy
         translation_dx = base_translation_dx
         translation_dy = base_translation_dy
         justification_delta = 0.0
@@ -4160,13 +4134,8 @@ class OverlayWindow(QWidget):
     def _has_user_group_transform(self, transform: Optional[GroupTransform]) -> bool:
         if transform is None:
             return False
-        dx, dy = self._group_offset_for_transform(transform)
         anchor = (getattr(transform, "anchor_token", "nw") or "nw").strip().lower()
         justification = (getattr(transform, "payload_justification", "left") or "left").strip().lower()
-        if not math.isclose(dx, 0.0, rel_tol=1e-9, abs_tol=1e-9):
-            return True
-        if not math.isclose(dy, 0.0, rel_tol=1e-9, abs_tol=1e-9):
-            return True
         if anchor and anchor != "nw":
             return True
         if justification and justification not in {"", "left"}:
@@ -4297,8 +4266,6 @@ class OverlayWindow(QWidget):
             "trans_max_y": self._cache_safe_float(payload.get("max_y")),
             "anchor": str(anchor_raw).strip().lower(),
             "justification": str(justification_raw).strip().lower(),
-            "offset_dx": self._cache_safe_float(payload.get("offset_dx")),
-            "offset_dy": self._cache_safe_float(payload.get("offset_dy")),
             "nudge_dx": self._cache_safe_int(payload.get("nudge_dx")),
             "nudge_dy": self._cache_safe_int(payload.get("nudge_dy")),
             "nudged": bool(payload.get("nudged", False)),
@@ -4443,8 +4410,6 @@ class OverlayWindow(QWidget):
             f"trans_max_y={float(payload.get('max_y', 0.0)):.1f}",
             f"anchor={payload.get('anchor', 'nw')}",
             f"justification={payload.get('justification', 'left')}",
-            f"offset_dx={float(payload.get('offset_dx', 0.0)):.1f}",
-            f"offset_dy={float(payload.get('offset_dy', 0.0)):.1f}",
             f"nudge_dx={payload.get('nudge_dx', 0)}",
             f"nudge_dy={payload.get('nudge_dy', 0)}",
             f"nudged={payload.get('nudged', False)}",
