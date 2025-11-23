@@ -2054,32 +2054,60 @@ class OverlayConfigApp(tk.Tk):
         norm_x1 = offset_x + base_max_x * scale
         norm_y1 = offset_y + base_max_y * scale
         canvas.create_rectangle(norm_x0, norm_y0, norm_x1, norm_y1, **_rect_color("#66a3ff"))
+        label_text = "Original Placement"
+        label_font = ("TkDefaultFont", 8, "bold")
+        inside = (norm_x1 - norm_x0) >= 110 and (norm_y1 - norm_y0) >= 20
+        label_fill = "#ffffff" if not inside else "#1c2b4a"
+        label_x = norm_x0 + 4 if inside else norm_x1 + 6
+        label_y = norm_y0 + 12 if inside else norm_y0
+        canvas.create_text(
+            label_x,
+            label_y,
+            text=label_text,
+            anchor="nw",
+            fill=label_fill,
+            font=label_font,
+        )
 
         trans_x0 = offset_x + trans_min_x * scale
         trans_y0 = offset_y + trans_min_y * scale
         trans_x1 = offset_x + trans_max_x * scale
         trans_y1 = offset_y + trans_max_y * scale
         canvas.create_rectangle(trans_x0, trans_y0, trans_x1, trans_y1, **_rect_color("#ffa94d"))
+        actual_label = "Actual Placement"
+        actual_inside = (trans_x1 - trans_x0) >= 110 and (trans_y1 - trans_y0) >= 20
+        actual_fill = "#ffffff" if not actual_inside else "#5a2d00"
+        actual_label_x = trans_x0 + 4 if actual_inside else trans_x1 + 6
+        actual_label_y = trans_y0 + 12 if actual_inside else trans_y0
+        canvas.create_text(
+            actual_label_x,
+            actual_label_y,
+            text=actual_label,
+            anchor="nw",
+            fill=actual_fill,
+            font=("TkDefaultFont", 8, "bold"),
+        )
 
-        anchor_px, anchor_py = self._compute_anchor_point(
-            trans_min_x,
-            trans_max_x,
-            trans_min_y,
-            trans_max_y,
-            anchor_name,
-        )
-        anchor_screen_x = offset_x + anchor_px * scale
-        anchor_screen_y = offset_y + anchor_py * scale
-        anchor_radius = 4
-        canvas.create_oval(
-            anchor_screen_x - anchor_radius,
-            anchor_screen_y - anchor_radius,
-            anchor_screen_x + anchor_radius,
-            anchor_screen_y + anchor_radius,
-            fill="#ffffff",
-            outline="#000000",
-            width=1,
-        )
+        if snapshot.transform_bounds is not None:
+            anchor_px, anchor_py = self._compute_anchor_point(
+                trans_min_x,
+                trans_max_x,
+                trans_min_y,
+                trans_max_y,
+                anchor_name,
+            )
+            anchor_screen_x = offset_x + anchor_px * scale
+            anchor_screen_y = offset_y + anchor_py * scale
+            anchor_radius = 4
+            canvas.create_oval(
+                anchor_screen_x - anchor_radius,
+                anchor_screen_y - anchor_radius,
+                anchor_screen_x + anchor_radius,
+                anchor_screen_y + anchor_radius,
+                fill="#ffffff",
+                outline="#000000",
+                width=1,
+            )
 
         canvas.create_text(
             padding + 6,
