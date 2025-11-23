@@ -1729,8 +1729,8 @@ class OverlayConfigApp(tk.Tk):
                     continue
 
     def _compute_absolute_from_snapshot(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
-        anchor_x, anchor_y = snapshot.base_anchor
-        return anchor_x + snapshot.offset_x, anchor_y + snapshot.offset_y
+        base_min_x, base_min_y, _, _ = snapshot.base_bounds
+        return base_min_x + snapshot.offset_x, base_min_y + snapshot.offset_y
 
     def _clamp_absolute_value(self, value: float, axis: str) -> float:
         if axis.lower() == "x":
@@ -1795,9 +1795,9 @@ class OverlayConfigApp(tk.Tk):
         if widget is None:
             return
         color = None
-        if snapshot is not None and snapshot.transform_anchor is not None:
+        if snapshot is not None:
             abs_x, abs_y = self._compute_absolute_from_snapshot(snapshot)
-            trans_x, trans_y = snapshot.transform_anchor
+            trans_x, trans_y = self._expected_transformed_anchor(snapshot)
             if (
                 abs(abs_x - trans_x) > self._absolute_tolerance_px
                 or abs(abs_y - trans_y) > self._absolute_tolerance_px
@@ -2188,8 +2188,9 @@ class OverlayConfigApp(tk.Tk):
         if axis_token in ("y", ""):
             target_y = self._clamp_absolute_value(target_y, "y")
 
-        new_offset_x = target_x - snapshot.base_anchor[0]
-        new_offset_y = target_y - snapshot.base_anchor[1]
+        base_min_x, base_min_y, _, _ = snapshot.base_bounds
+        new_offset_x = target_x - base_min_x
+        new_offset_y = target_y - base_min_y
         if (
             abs(new_offset_x - snapshot.offset_x) <= self._absolute_tolerance_px
             and abs(new_offset_y - snapshot.offset_y) <= self._absolute_tolerance_px
@@ -2239,9 +2240,9 @@ class OverlayConfigApp(tk.Tk):
             else:
                 return
 
-        base_anchor_x, base_anchor_y = snapshot.base_anchor
-        new_offset_x = new_x - base_anchor_x
-        new_offset_y = new_y - base_anchor_y
+        base_min_x, base_min_y, _, _ = snapshot.base_bounds
+        new_offset_x = new_x - base_min_x
+        new_offset_y = new_y - base_min_y
         if (
             abs(new_offset_x - snapshot.offset_x) <= self._absolute_tolerance_px
             and abs(new_offset_y - snapshot.offset_y) <= self._absolute_tolerance_px
@@ -2322,6 +2323,37 @@ class OverlayConfigApp(tk.Tk):
             ("center", "right"): "right",
         }
         return mapping.get((anchor, direction), anchor)
+
+    def _expected_transformed_anchor(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
+        bounds = snapshot.transform_bounds
+        if bounds is None:
+            base_min_x, base_min_y, base_max_x, base_max_y = snapshot.base_bounds
+            min_x = base_min_x + snapshot.offset_x
+            min_y = base_min_y + snapshot.offset_y
+            max_x = base_max_x + snapshot.offset_x
+            max_y = base_max_y + snapshot.offset_y
+        else:
+            min_x, min_y, max_x, max_y = bounds
+        mid_x = (min_x + max_x) / 2.0
+        mid_y = (min_y + max_y) / 2.0
+        token = (snapshot.anchor_token or "nw").strip().lower().replace("-", "").replace("_", "")
+        if token in {"nw", "wn"}:
+            return min_x, min_y
+        if token in {"top", "n"}:
+            return mid_x, min_y
+        if token in {"ne"}:
+            return max_x, min_y
+        if token in {"right", "e"}:
+            return max_x, mid_y
+        if token in {"se"}:
+            return max_x, max_y
+        if token in {"bottom", "s"}:
+            return mid_x, max_y
+        if token in {"sw"}:
+            return min_x, max_y
+        if token in {"left", "w"}:
+            return min_x, mid_y
+        return mid_x, mid_y
     def _compute_anchor_point(self, min_x: float, max_x: float, min_y: float, max_y: float, anchor: str) -> tuple[float, float]:
         h, v = self._anchor_sides(anchor)
         ax = min_x if h == "left" else max_x if h == "right" else (min_x + max_x) / 2.0
