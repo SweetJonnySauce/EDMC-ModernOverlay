@@ -504,13 +504,11 @@ class JustificationWidget(tk.Frame):
     def _handle_click(self, index: int) -> str | None:
         if not self._enabled:
             return "break"
-        if not self._has_focus:
-            if self._request_focus:
-                try:
-                    self._request_focus()
-                except Exception:
-                    pass
-            return "break"
+        if not self._has_focus and self._request_focus:
+            try:
+                self._request_focus()
+            except Exception:
+                pass
         self._active_index = max(0, min(len(self._choices) - 1, index))
         self._apply_styles()
         self._emit_change()
