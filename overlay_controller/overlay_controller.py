@@ -223,7 +223,17 @@ class IdPrefixGroupWidget(tk.Frame):
             return True
 
         key = keysym.lower()
-        if key == "space":
+        if key == "left":
+            return self._advance_selection(-1)
+        if key == "right":
+            return self._advance_selection(1)
+        if key == "down":
+            try:
+                self.dropdown.event_generate("<Down>")
+            except Exception:
+                pass
+            return True
+        if key in {"return", "space"}:
             try:
                 if self._is_dropdown_open():
                     focus_target = self.dropdown.tk.call("focus")
@@ -235,23 +245,6 @@ class IdPrefixGroupWidget(tk.Frame):
                     self.dropdown.event_generate("<Down>")
             except Exception:
                 pass
-            return True
-        if key == "left":
-            return self._advance_selection(-1)
-        if key == "right":
-            return self._advance_selection(1)
-        if key == "down":
-            try:
-                self.dropdown.event_generate("<Down>")
-            except Exception:
-                pass
-            return True
-        if key == "return":
-            if self._is_dropdown_open():
-                try:
-                    self.dropdown.event_generate("<Return>")
-                except Exception:
-                    pass
             return True
         return False
 
