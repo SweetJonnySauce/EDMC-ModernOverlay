@@ -266,6 +266,7 @@ class OffsetSelectorWidget(tk.Frame):
         self._active_color = "#ff9900"
         self._request_focus: callable | None = None
         self._on_change: callable | None = None
+        self._enabled = True
         self._build_grid()
 
     def _build_grid(self) -> None:
@@ -418,8 +419,11 @@ class OffsetSelectorWidget(tk.Frame):
             pass
 
     def set_enabled(self, enabled: bool) -> None:
+        if self._enabled == enabled:
+            return
         self._enabled = enabled
-        self._pinned.clear()
+        if not enabled:
+            self._pinned.clear()
         self._apply_arrow_colors()
 
 
