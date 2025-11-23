@@ -2,13 +2,13 @@
   "BGS-Tally": {
     "idPrefixGroups": {
       "BGS-Tally Colonisation": {
-        "idPrefixGroupAnchor": "nw",
+        "idPrefixGroupAnchor": "sw",
         "idPrefixes": [
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
         ],
-        "offsetX": 570.0,
-        "offsetY": 380.0,
+        "offsetX": 0.0,
+        "offsetY": 660.0,
         "payloadJustification": "left"
       },
       "BGS-Tally Ready": {
@@ -39,8 +39,8 @@
           },
           "bgstally-msg-tick-"
         ],
-        "offsetX": 211.5,
-        "offsetY": -5.0,
+        "offsetX": 190.0,
+        "offsetY": 10.0,
         "payloadJustification": "right"
       },
       "BGS-Tally Tickwarn": {
@@ -52,7 +52,7 @@
           },
           "bgstally-msg-tickwarn"
         ],
-        "offsetX": 200.0,
+        "offsetX": 190.0,
         "offsetY": -10.0,
         "payloadJustification": "right"
       }

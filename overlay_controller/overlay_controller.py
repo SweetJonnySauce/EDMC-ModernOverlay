@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 import traceback
+from math import ceil
 from dataclasses import dataclass
 from pathlib import Path
 from tkinter import ttk
@@ -1026,7 +1027,9 @@ class OverlayConfigApp(tk.Tk):
         self.container_pad_right_open = 12
         self.container_pad_right_closed = 0
         self.container_pad_vertical = 12
-        self.placement_min_width = 450
+        self.placement_overlay_padding = 4
+        self.preview_canvas_padding = 10
+        self.placement_min_width = max(450, self._compute_default_placement_width())
         self.closed_min_width = 0
         self.indicator_width = 12
         self.indicator_height = 72
@@ -1040,11 +1043,9 @@ class OverlayConfigApp(tk.Tk):
         self.widget_focus_area = "sidebar"
         self.widget_select_mode = True
         self.overlay_padding = 8
-        self.placement_overlay_padding = 4
         self.overlay_border_width = 3
         self._focus_widgets: dict[tuple[str, int], object] = {}
         self._current_direction = "right"
-        self._adjusting_geometry = False
         self._groupings_data: dict[str, object] = {}
         self._idprefix_entries: list[tuple[str, str]] = []
         root = Path(__file__).resolve().parents[1]
@@ -1118,6 +1119,18 @@ class OverlayConfigApp(tk.Tk):
         self.bind("<ButtonRelease-1>", self._end_window_drag, add="+")
         self._status_poll_handle = self.after(self._status_poll_interval_ms, self._poll_cache_and_status)
         self.after(0, self._center_and_show)
+
+    def _compute_default_placement_width(self) -> int:
+        """Return column width needed for a 4:3 preview at the base height."""
+
+        canvas_height = self.base_min_height - (self.container_pad_vertical * 2) - (self.placement_overlay_padding * 2)
+        canvas_height = max(1, canvas_height)
+        inner_height = max(1, canvas_height - (self.preview_canvas_padding * 2))
+        target_inner_width = inner_height * (ABS_BASE_WIDTH / ABS_BASE_HEIGHT)
+        horizontal_slack = self.preview_canvas_padding
+        frame_width = target_inner_width + (self.preview_canvas_padding * 2) + horizontal_slack
+        column_width = frame_width + (self.placement_overlay_padding * 2)
+        return int(ceil(column_width))
 
     def report_callback_exception(self, exc, val, tb) -> None:  # type: ignore[override]
         """Ensure Tk errors are printed to stderr instead of being swallowed."""
@@ -2023,17 +2036,9 @@ class OverlayConfigApp(tk.Tk):
         canvas.delete("all")
         width = int(canvas.winfo_width() or canvas["width"])
         height = int(canvas.winfo_height() or canvas["height"])
-        padding = 10
+        padding = getattr(self, "preview_canvas_padding", 10)
         inner_w = max(1, width - 2 * padding)
         inner_h = max(1, height - 2 * padding)
-        canvas.create_rectangle(
-            padding,
-            padding,
-            width - padding,
-            height - padding,
-            outline="#555555",
-            dash=(3, 3),
-        )
 
         selection = self._get_current_group_selection()
         if selection is None:
@@ -2051,8 +2056,19 @@ class OverlayConfigApp(tk.Tk):
         actual_anchor_token = snapshot.transform_anchor_token or anchor_name
 
         scale = max(0.01, min(inner_w / float(ABS_BASE_WIDTH), inner_h / float(ABS_BASE_HEIGHT)))
-        offset_x = padding
-        offset_y = padding
+        content_w = ABS_BASE_WIDTH * scale
+        content_h = ABS_BASE_HEIGHT * scale
+        offset_x = padding + max(0.0, (inner_w - content_w) / 2.0)
+        offset_y = padding + max(0.0, (inner_h - content_h) / 2.0)
+
+        canvas.create_rectangle(
+            offset_x,
+            offset_y,
+            offset_x + content_w,
+            offset_y + content_h,
+            outline="#555555",
+            dash=(3, 3),
+        )
 
         def _rect_color(fill: str) -> dict[str, object]:
             return {"fill": fill, "outline": "#000000", "width": 1}
@@ -2628,7 +2644,6 @@ class OverlayConfigApp(tk.Tk):
             self.minsize(open_min_width, self.base_min_height)
             self.geometry(f"{int(target_width)}x{int(current_height)}")
             self._open_width = max(self._open_width, self.winfo_width(), self.winfo_reqwidth(), open_min_width)
-            self._enforce_placement_aspect()
             self._current_direction = "left"
         else:
             self.container.grid_configure(
@@ -2706,42 +2721,10 @@ class OverlayConfigApp(tk.Tk):
 
         self.indicator_canvas.place_forget()
 
-    def _enforce_placement_aspect(self) -> None:
-        """Keep the placement area near a 4:3 ratio by adjusting height instead of width."""
-
-        if not self._placement_open or self._adjusting_geometry:
-            return
-        self.update_idletasks()
-        sidebar_width = max(self.sidebar_width, self.sidebar.winfo_width())
-        min_height = getattr(self, "base_min_height", 420)
-        current_height = max(min_height, self.winfo_height() or 0)
-        available_height = max(1, current_height - (self.container_pad_vertical * 2))
-        placement_width = max(self.placement_min_width, available_height * (4 / 3))
-        total_width = (
-            self.container_pad_left
-            + self.container_pad_right_open
-            + sidebar_width
-            + self._current_sidebar_pad
-            + placement_width
-        )
-        placement_height = placement_width * (3 / 4)
-        target_height = max(min_height, placement_height + (self.container_pad_vertical * 2))
-        current_width = max(1, self.winfo_width())
-        if abs(target_height - current_height) <= 1 and abs(total_width - current_width) <= 1:
-            return
-        self._adjusting_geometry = True
-        try:
-            self.geometry(f"{int(total_width)}x{int(target_height)}")
-        finally:
-            self._adjusting_geometry = False
-
     def _handle_configure(self, _event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]
         """Re-center the indicator when the window is resized."""
 
-        if self._placement_open:
-            self._enforce_placement_aspect()
-        else:
-            self._show_indicator(direction=self._current_direction)
+        self._show_indicator(direction=self._current_direction)
         self._on_configure_activity()
         self._refresh_widget_focus()
 
