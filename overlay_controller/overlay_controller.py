@@ -2060,16 +2060,16 @@ class OverlayConfigApp(tk.Tk):
         groups = self._groupings_cache.get("groups") if isinstance(self._groupings_cache, dict) else {}
         plugin_entry = groups.get(plugin_name) if isinstance(groups, dict) else {}
         entry = plugin_entry.get(label) if isinstance(plugin_entry, dict) else {}
-        normalized = entry.get("normalized") if isinstance(entry, dict) else {}
+        normalized = entry.get("base") if isinstance(entry, dict) else {}
         transformed = entry.get("transformed") if isinstance(entry, dict) else {}
         norm_vals = {
-            "min_x": float(normalized.get("norm_min_x", 0.0)) if isinstance(normalized, dict) else 0.0,
-            "max_x": float(normalized.get("norm_max_x", 0.0)) if isinstance(normalized, dict) else 0.0,
-            "min_y": float(normalized.get("norm_min_y", 0.0)) if isinstance(normalized, dict) else 0.0,
-            "max_y": float(normalized.get("norm_max_y", 0.0)) if isinstance(normalized, dict) else 0.0,
+            "min_x": float(normalized.get("base_min_x", 0.0)) if isinstance(normalized, dict) else 0.0,
+            "max_x": float(normalized.get("base_max_x", 0.0)) if isinstance(normalized, dict) else 0.0,
+            "min_y": float(normalized.get("base_min_y", 0.0)) if isinstance(normalized, dict) else 0.0,
+            "max_y": float(normalized.get("base_max_y", 0.0)) if isinstance(normalized, dict) else 0.0,
         }
-        norm_vals["width"] = norm_vals["max_x"] - norm_vals["min_x"]
-        norm_vals["height"] = norm_vals["max_y"] - norm_vals["min_y"]
+        norm_vals["width"] = float(normalized.get("base_width", norm_vals["max_x"] - norm_vals["min_x"])) if isinstance(normalized, dict) else (norm_vals["max_x"] - norm_vals["min_x"])
+        norm_vals["height"] = float(normalized.get("base_height", norm_vals["max_y"] - norm_vals["min_y"])) if isinstance(normalized, dict) else (norm_vals["max_y"] - norm_vals["min_y"])
         trans_vals = {
             "min_x": float(transformed.get("trans_min_x", norm_vals["min_x"])) if isinstance(transformed, dict) else norm_vals["min_x"],
             "max_x": float(transformed.get("trans_max_x", norm_vals["max_x"])) if isinstance(transformed, dict) else norm_vals["max_x"],
@@ -2345,10 +2345,10 @@ class OverlayConfigApp(tk.Tk):
         offset_y = float(cfg.get("offsetY", 0.0)) if isinstance(cfg, dict) else 0.0
 
         norm_vals, trans_vals, anchor, cache_ts = self._get_cache_entry(plugin_name, label)
-        base_norm_min_x = norm_vals["min_x"] - offset_x
-        base_norm_max_x = norm_vals["max_x"] - offset_x
-        base_norm_min_y = norm_vals["min_y"] - offset_y
-        base_norm_max_y = norm_vals["max_y"] - offset_y
+        base_norm_min_x = norm_vals["min_x"]
+        base_norm_max_x = norm_vals["max_x"]
+        base_norm_min_y = norm_vals["min_y"]
+        base_norm_max_y = norm_vals["max_y"]
 
         state = self._absolute_user_state.get(selection, {"x": None, "y": None, "x_ts": 0.0, "y_ts": 0.0})
         user_x = state.get("x")

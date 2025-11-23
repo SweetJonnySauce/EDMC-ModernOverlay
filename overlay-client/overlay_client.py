@@ -2936,19 +2936,23 @@ class OverlayWindow(QWidget):
                 or has_offset
             )
             offsets_by_group[key] = (offset_x, offset_y)
+            base_min_x = min_x - offset_x
+            base_max_x = max_x - offset_x
+            base_min_y = min_y - offset_y
+            base_max_y = max_y - offset_y
             bounds_tuple = (
-                logical_bounds.min_x,
-                logical_bounds.min_y,
-                logical_bounds.max_x,
-                logical_bounds.max_y,
+                base_min_x,
+                base_min_y,
+                base_max_x,
+                base_max_y,
             )
             payload_dict = {
                 "plugin": plugin_label or "",
                 "suffix": suffix or "",
-                "min_x": min_x,
-                "min_y": min_y,
-                "max_x": max_x,
-                "max_y": max_y,
+                "min_x": base_min_x,
+                "min_y": base_min_y,
+                "max_x": base_max_x,
+                "max_y": base_max_y,
                 "width": width,
                 "height": height,
                 "has_transformed": has_transformed,
