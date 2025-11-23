@@ -827,7 +827,7 @@ class AbsoluteXYWidget(tk.Frame):
 
         for field, entry in self._entries.items():
             entry.bind("<Button-1>", lambda _e, f=field: self._handle_entry_click(f), add="+")
-            entry.bind("<FocusIn>", lambda _e, f=field: self._set_active_field(f), add="+")
+            entry.bind("<FocusIn>", lambda _e, f=field: self._handle_entry_focus_event(f), add="+")
             entry.bind("<FocusOut>", lambda _e, f=field: self._emit_change(f), add="+")
             entry.bind("<Return>", lambda _e, f=field: self._emit_change(f) or "break", add="+")
 
@@ -846,13 +846,27 @@ class AbsoluteXYWidget(tk.Frame):
             return
         self._active_field = field
 
-    def _focus_field(self, field: str) -> None:
+    def _handle_entry_focus_event(self, field: str) -> None:
+        if field not in ("x", "y"):
+            return
         self._set_active_field(field)
         entry = self._entries.get(field)
         if entry is None:
             return
         try:
+            entry.select_range(0, tk.END)
+            entry.icursor("end")
+        except Exception:
+            pass
+
+    def _focus_field(self, field: str) -> None:
+        entry = self._entries.get(field)
+        if entry is None:
+            return
+        self._set_active_field(field)
+        try:
             entry.focus_set()
+            entry.select_range(0, tk.END)
             entry.icursor("end")
         except Exception:
             pass
@@ -970,6 +984,9 @@ class AbsoluteXYWidget(tk.Frame):
     def handle_key(self, keysym: str, event: object | None = None) -> bool:
         key = keysym.lower()
         if not self._enabled:
+            return False
+        if key in {"tab", "shift_l", "shift_r"}:
+            # Allow native Tab traversal; focus will move to entries and text is selected on entry focus.
             return False
         if key == "down" and self._active_field == "x":
             self._focus_field("y")
@@ -1650,21 +1667,10 @@ class OverlayConfigApp(tk.Tk):
         if widget is None:
             return False
 
-        def select() -> bool:
-            handler = getattr(widget, "handle_key", None)
-            if handler is None:
-                return False
-            try:
-                return bool(handler("space", event))
-            except Exception:
-                return True
-
         lower_keysym = keysym.lower()
-        if lower_keysym == "escape":
+        if lower_keysym in {"escape", "space"}:
             self.exit_focus_mode()
             return True
-        if lower_keysym == "space":
-            return select() or True
 
         handler = getattr(widget, "handle_key", None)
         try:

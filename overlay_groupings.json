@@ -75,8 +75,8 @@
         "idPrefixes": [
           "bioscan_radar_"
         ],
-        "offsetX": -100.0,
-        "offsetY": -20.0,
+        "offsetX": 0.0,
+        "offsetY": 0.0,
         "payloadJustification": "left"
       },
       "Bioscan Summary": {
