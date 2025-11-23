@@ -12,6 +12,7 @@ import time
 import traceback
 from pathlib import Path
 from tkinter import ttk
+from typing import Tuple
 
 from input_bindings import BindingConfig, BindingManager
 from selection_overlay import SelectionOverlay
@@ -1676,7 +1677,7 @@ class OverlayConfigApp(tk.Tk):
     def _capture_anchor_restore_state(self, selection: tuple[str, str]) -> bool:
         if selection is None:
             return False
-        state = self._absolute_user_state.get(selection, {"x": None, "y": None, "x_ts": 0.0, "y_ts": 0.0})
+        state = self._absolute_user_state.get(selection, {"x": None, "y": None, "x_ts": 0.0, "y_ts": 0.0, "x_user": False, "y_user": False})
         x_val = state.get("x")
         y_val = state.get("y")
         if (x_val is None or y_val is None) and hasattr(self, "absolute_widget"):
@@ -1727,7 +1728,7 @@ class OverlayConfigApp(tk.Tk):
         if x_val is None and y_val is None:
             return
         now = time.time()
-        state = self._absolute_user_state.get(selection, {"x": None, "y": None, "x_ts": 0.0, "y_ts": 0.0})
+        state = self._absolute_user_state.get(selection, {"x": None, "y": None, "x_ts": 0.0, "y_ts": 0.0, "x_user": False, "y_user": False})
         if x_val is not None:
             state["x"] = x_val
             state["x_ts"] = max(now, float(snapshot.get("x_ts", now) or now))
@@ -2176,7 +2177,6 @@ class OverlayConfigApp(tk.Tk):
         selection = self._get_current_group_selection()
         if selection is None or not hasattr(self, "absolute_widget"):
             return
-        plugin_name, label = selection
         x_val, y_val = self.absolute_widget.get_px_values()
         state = self._absolute_user_state.get(selection, {"x": None, "y": None, "x_ts": 0.0, "y_ts": 0.0})
         now = time.time()
@@ -2193,7 +2193,619 @@ class OverlayConfigApp(tk.Tk):
         selection = self._get_current_group_selection()
         if selection is None or not hasattr(self, "absolute_widget"):
             return
+        x_val, y_val = self.absolute_widget.get_px_values()
+        x_val = x_val if x_val is not None else 0.0
+        y_val = y_val if y_val is not None else 0.0
+
+        if pinned:
+            current_anchor = "center"
+            if hasattr(self, "anchor_widget"):
+                try:
+                    current_anchor = self.anchor_widget.get_anchor()
+                except Exception:
+                    pass
+            if direction == "left":
+                x_val = ABS_MIN_X
+            elif direction == "right":
+                x_val = ABS_MAX_X
+            elif direction == "up":
+                y_val = ABS_MIN_Y
+            elif direction == "down":
+                y_val = ABS_MAX_Y
+            else:
+                return
+            anchor_target = self._resolve_pinned_anchor(current_anchor, direction)
+        else:
+            step = self._offset_step_px
+            anchor_target = None
+            if direction == "left":
+                x_val = max(ABS_MIN_X, x_val - step)
+            elif direction == "right":
+                x_val = min(ABS_MAX_X, x_val + step)
+            elif direction == "up":
+                y_val = max(ABS_MIN_Y, y_val - step)
+            elif direction == "down":
+                y_val = min(ABS_MAX_Y, y_val + step)
+            else:
+                return
+
+        now = time.time()
+        state = self._absolute_user_state.get(selection, {"x": None, "y": None, "x_ts": 0.0, "y_ts": 0.0})
+        state["x"] = x_val
+        state["y"] = y_val
+        state["x_ts"] = now
+        state["y_ts"] = now
+        self._absolute_user_state[selection] = state
+        self.absolute_widget.set_px_values(x_val, y_val)
+        if pinned and hasattr(self, "anchor_widget"):
+            try:
+                self.anchor_widget.set_anchor(anchor_target)
+            except Exception:
+                pass
+            self._handle_anchor_changed(anchor_target, prefer_user=True)
+        self._sync_absolute_for_current_group(
+            force_ui=False, debounce_ms=self._offset_write_debounce_ms, prefer_user=pinned
+        )
+        self._draw_preview()
+
+    def _handle_anchor_changed(self, anchor: str, prefer_user: bool = False) -> None:
+        selection = self._get_current_group_selection()
+        if selection is None:
+            return
+        captured = self._capture_anchor_restore_state(selection)
         plugin_name, label = selection
+        if not isinstance(self._groupings_data, dict):
+            return
+        entry = self._groupings_data.get(plugin_name)
+        if not isinstance(entry, dict):
+            return
+        groups = entry.get("idPrefixGroups") if isinstance(entry, dict) else None
+        if not isinstance(groups, dict):
+            return
+        group = groups.get(label)
+        if not isinstance(group, dict):
+            return
+        group["idPrefixGroupAnchor"] = anchor
+        self._schedule_groupings_config_write()
+
+        norm_vals, trans_vals, _existing_anchor, cache_ts = self._get_cache_entry(plugin_name, label)
+        cache_ts_write = max(cache_ts, time.time())
+        self._update_cache_entry(plugin_name, label, trans_vals, anchor, cache_ts_write)
+        self._schedule_groupings_cache_write()
+        self._sync_absolute_for_current_group(force_ui=True, prefer_user=prefer_user)
+        self._draw_preview()
+        if captured:
+            self._schedule_anchor_restore(selection)
+
+    def _sync_axis(
+        self,
+        anchor: str,
+        norm_min: float,
+        norm_max: float,
+        trans_min: float,
+        trans_max: float,
+        offset: float,
+        user_val: float | None,
+        user_ts: float,
+        cache_ts: float,
+        axis: str,
+        prefer_user: bool,
+    ) -> tuple[float, float, float, float, float, float, float]:
+        base_val = norm_min
+        current_transformed = self._select_transformed_for_anchor(anchor, trans_min, trans_max, axis)
+
+        resolved_user = user_val if user_val is not None else current_transformed
+        resolved_user_ts = user_ts
+        resolved_offset = offset
+        resolved_cache_val = current_transformed
+        resolved_cache_ts = cache_ts
+
+        if prefer_user and user_val is not None:
+            cache_ts = -1.0
+
+        if cache_ts > user_ts:
+            resolved_user = current_transformed
+            resolved_user_ts = cache_ts
+            resolved_offset = resolved_user - base_val
+        elif cache_ts < user_ts and user_val is not None:
+            resolved_offset = user_val - base_val
+            resolved_cache_val = user_val
+            resolved_cache_ts = time.time()
+        else:
+            expected = base_val + offset
+            if abs(expected - resolved_user) > self._absolute_tolerance_px:
+                resolved_offset = resolved_user - base_val
+
+        norm_span = norm_max - norm_min
+        new_min, new_max = self._rebuild_transformed_span(anchor, resolved_cache_val, norm_span, axis)
+
+        return (
+            resolved_offset,
+            resolved_user,
+            resolved_cache_val,
+            resolved_cache_ts,
+            resolved_user_ts,
+            new_min,
+            new_max,
+        )
+
+    def _sync_absolute_for_current_group(
+        self, force_ui: bool = False, debounce_ms: int | None = None, prefer_user: bool = False
+    ) -> None:
+        if not hasattr(self, "absolute_widget"):
+            return
+        selection = self._get_current_group_selection()
+        if selection is None:
+            return
+        state = self._absolute_user_state.get(selection, {"x": None, "y": None, "x_ts": 0.0, "y_ts": 0.0})
+        x_val = state.get("x")
+        y_val = state.get("y")
+        if x_val is None or y_val is None or force_ui:
+            try:
+                widget_x, widget_y = self.absolute_widget.get_px_values()
+            except Exception:
+                widget_x = widget_y = None
+            if x_val is None:
+                x_val = widget_x if widget_x is not None else 0.0
+            if y_val is None:
+                y_val = widget_y if widget_y is not None else 0.0
+        state["x"] = x_val if x_val is not None else 0.0
+        state["y"] = y_val if y_val is not None else 0.0
+        self._absolute_user_state[selection] = state
+        self.absolute_widget.set_px_values(state["x"], state["y"])
+        self._draw_preview()
+
+
+
+    def _get_current_group_selection(self) -> tuple[str, str] | None:
+        if not hasattr(self, "idprefix_widget"):
+            return None
+        try:
+            idx = int(self.idprefix_widget.dropdown.current())
+        except Exception:
+            return None
+        if not (0 <= idx < len(self._idprefix_entries)):
+            return None
+        return self._idprefix_entries[idx]
+
+    def _select_transformed_for_anchor(self, anchor: str, trans_min: float, trans_max: float, axis: str) -> float:
+        horizontal, vertical = self._anchor_sides(anchor)
+        side = horizontal if (axis or "").lower() == "x" else vertical
+        if side in {"left", "top"}:
+            return trans_min
+        if side in {"right", "bottom"}:
+            return trans_max
+        return (trans_min + trans_max) / 2.0
+
+    def _rebuild_transformed_span(self, anchor: str, user_val: float, norm_span: float, axis: str) -> tuple[float, float]:
+        span = max(0.0, norm_span)
+        horizontal, vertical = self._anchor_sides(anchor)
+        side = horizontal if (axis or "").lower() == "x" else vertical
+        if side in {"left", "top"}:
+            start = user_val
+        elif side in {"right", "bottom"}:
+            start = user_val - span
+        else:
+            start = user_val - (span / 2.0)
+        return start, start + span
+
+    def _split_anchor(self, anchor: str) -> tuple[str, str]:
+        anchor = (anchor or "").lower()
+        x_side = "center"
+        y_side = "center"
+        if "left" in anchor:
+            x_side = "left"
+        elif "right" in anchor:
+            x_side = "right"
+        if "top" in anchor or anchor == "n":
+            y_side = "top"
+        elif "bottom" in anchor or anchor == "s":
+            y_side = "bottom"
+        return x_side, y_side
+
+    def _combine_anchor(self, x_side: str, y_side: str) -> str:
+        x_side = x_side or "center"
+        y_side = y_side or "center"
+        if x_side == "left" and y_side == "top":
+            return "nw"
+        if x_side == "right" and y_side == "top":
+            return "ne"
+        if x_side == "left" and y_side == "bottom":
+            return "sw"
+        if x_side == "right" and y_side == "bottom":
+            return "se"
+        if x_side == "left":
+            return "left"
+        if x_side == "right":
+            return "right"
+        if y_side == "top":
+            return "top"
+        if y_side == "bottom":
+            return "bottom"
+        return "center"
+
+    def _resolve_pinned_anchor(self, current_anchor: str, direction: str) -> str:
+        anchor = (current_anchor or "").lower()
+        direction = (direction or "").lower()
+        mapping = {
+            ("ne", "down"): "se",
+            ("ne", "left"): "nw",
+            ("top", "right"): "ne",
+            ("top", "left"): "nw",
+            ("top", "down"): "bottom",
+            ("nw", "right"): "ne",
+            ("nw", "down"): "sw",
+            ("left", "up"): "nw",
+            ("left", "down"): "sw",
+            ("left", "right"): "right",
+            ("sw", "up"): "nw",
+            ("sw", "right"): "se",
+            ("bottom", "left"): "sw",
+            ("bottom", "right"): "se",
+            ("bottom", "up"): "top",
+            ("se", "left"): "sw",
+            ("se", "up"): "ne",
+            ("center", "up"): "top",
+            ("center", "left"): "left",
+            ("center", "down"): "bottom",
+            ("center", "right"): "right",
+        }
+        return mapping.get((anchor, direction), anchor)
+
+    def _anchor_sides(self, anchor: str) -> tuple[str, str]:
+        token = (anchor or "").lower().replace("-", "").replace("_", "")
+        h = "center"
+        v = "center"
+        if token in {"nw", "w", "sw", "left"} or "left" in token:
+            h = "left"
+        elif token in {"ne", "e", "se", "right"} or "right" in token:
+            h = "right"
+        if token in {"nw", "n", "ne", "top"} or "top" in token:
+            v = "top"
+        elif token in {"sw", "s", "se", "bottom"} or "bottom" in token:
+            v = "bottom"
+        return h, v
+
+    def _compute_anchor_point(self, min_x: float, max_x: float, min_y: float, max_y: float, anchor: str) -> tuple[float, float]:
+        h, v = self._anchor_sides(anchor)
+        ax = min_x if h == "left" else max_x if h == "right" else (min_x + max_x) / 2.0
+        ay = min_y if v == "top" else max_y if v == "bottom" else (min_y + max_y) / 2.0
+        return ax, ay
+
+    def _build_rect_from_anchor(self, anchor: str, width: float, height: float, anchor_x: float, anchor_y: float) -> tuple[float, float, float, float]:
+        h, v = self._anchor_sides(anchor)
+        if h == "left":
+            min_x = anchor_x
+            max_x = anchor_x + width
+        elif h == "right":
+            min_x = anchor_x - width
+            max_x = anchor_x
+        else:
+            min_x = anchor_x - (width / 2.0)
+            max_x = anchor_x + (width / 2.0)
+
+        if v == "top":
+            min_y = anchor_y
+            max_y = anchor_y + height
+        elif v == "bottom":
+            min_y = anchor_y - height
+            max_y = anchor_y
+        else:
+            min_y = anchor_y - (height / 2.0)
+            max_y = anchor_y + (height / 2.0)
+
+        return min_x, min_y, max_x, max_y
+
+    def _draw_preview(self) -> None:
+        canvas = getattr(self, "preview_canvas", None)
+        if canvas is None:
+            return
+        canvas.delete("all")
+        width = int(canvas.winfo_width() or canvas["width"])
+        height = int(canvas.winfo_height() or canvas["height"])
+        padding = 10
+        inner_w = max(1, width - 2 * padding)
+        inner_h = max(1, height - 2 * padding)
+        canvas.create_rectangle(
+            padding,
+            padding,
+            width - padding,
+            height - padding,
+            outline="#555555",
+            dash=(3, 3),
+        )
+
+        selection = self._get_current_group_selection()
+        if selection is None:
+            canvas.create_text(width // 2, height // 2, text="(select a group)", fill="#888888")
+            return
+        plugin_name, label = selection
+        norm_vals, trans_vals, cache_anchor, _ts = self._get_cache_entry(plugin_name, label)
+        cfg = self._get_group_config(plugin_name, label)
+        cfg_anchor = cfg.get("idPrefixGroupAnchor") if isinstance(cfg, dict) else None
+        anchor = None
+        if hasattr(self, "anchor_widget"):
+            try:
+                anchor = self.anchor_widget.get_anchor()
+            except Exception:
+                anchor = None
+        if not anchor:
+            anchor = cache_anchor or cfg_anchor or "nw"
+        offset_x_cfg = float(cfg.get("offsetX", 0.0)) if isinstance(cfg, dict) else 0.0
+        offset_y_cfg = float(cfg.get("offsetY", 0.0)) if isinstance(cfg, dict) else 0.0
+
+        scale = max(0.01, min(inner_w / float(ABS_BASE_WIDTH), inner_h / float(ABS_BASE_HEIGHT)))
+        origin_x = padding
+        origin_y = padding
+
+        def _rect_color(fill: str) -> dict[str, object]:
+            return {"fill": fill, "outline": "#000000", "width": 1}
+
+        norm_x0 = origin_x + norm_vals["min_x"] * scale
+        norm_y0 = origin_y + norm_vals["min_y"] * scale
+        norm_x1 = origin_x + norm_vals["max_x"] * scale
+        norm_y1 = origin_y + norm_vals["max_y"] * scale
+        canvas.create_rectangle(norm_x0, norm_y0, norm_x1, norm_y1, **_rect_color("#66a3ff"))
+
+        norm_width = norm_vals["max_x"] - norm_vals["min_x"]
+        norm_height = norm_vals["max_y"] - norm_vals["min_y"]
+        norm_anchor_x, norm_anchor_y = self._compute_anchor_point(
+            norm_vals["min_x"], norm_vals["max_x"], norm_vals["min_y"], norm_vals["max_y"], anchor
+        )
+
+        # Current transformed anchor from cache, then shift so target anchor = normalized anchor + offsets.
+        trans_anchor_cur_x, trans_anchor_cur_y = self._compute_anchor_point(
+            trans_vals["min_x"], trans_vals["max_x"], trans_vals["min_y"], trans_vals["max_y"], anchor
+        )
+        target_anchor_x = norm_anchor_x + offset_x_cfg
+        target_anchor_y = norm_anchor_y + offset_y_cfg
+        dx = target_anchor_x - trans_anchor_cur_x
+        dy = target_anchor_y - trans_anchor_cur_y
+
+        trans_min_x = trans_vals["min_x"] + dx
+        trans_max_x = trans_vals["max_x"] + dx
+        trans_min_y = trans_vals["min_y"] + dy
+        trans_max_y = trans_vals["max_y"] + dy
+
+        trans_x0 = origin_x + trans_min_x * scale
+        trans_y0 = origin_y + trans_min_y * scale
+        trans_x1 = origin_x + trans_max_x * scale
+        trans_y1 = origin_y + trans_max_y * scale
+        canvas.create_rectangle(trans_x0, trans_y0, trans_x1, trans_y1, **_rect_color("#ffa94d"))
+
+        def _draw_anchor(ax: float, ay: float, color: str) -> None:
+            px = origin_x + ax * scale
+            py = origin_y + ay * scale
+            r = 4
+            canvas.create_oval(px - r, py - r, px + r, py + r, fill=color, outline="#000000")
+
+        _draw_anchor(norm_anchor_x, norm_anchor_y, "#66a3ff")
+        _draw_anchor(target_anchor_x, target_anchor_y, "#ffa94d")
+
+        canvas.create_text(
+            padding + 6,
+            padding + 6,
+            text=f"{label}",
+            anchor="nw",
+            fill="#ffffff",
+            font=("TkDefaultFont", 9, "bold"),
+        )
+
+    def _draw_preview(self) -> None:
+        canvas = getattr(self, "preview_canvas", None)
+        if canvas is None:
+            return
+        canvas.delete("all")
+        width = int(canvas.winfo_width() or canvas["width"])
+        height = int(canvas.winfo_height() or canvas["height"])
+        padding = 10
+        inner_w = max(1, width - 2 * padding)
+        inner_h = max(1, height - 2 * padding)
+        canvas.create_rectangle(
+            padding,
+            padding,
+            width - padding,
+            height - padding,
+            outline="#555555",
+            dash=(3, 3),
+        )
+
+        selection = self._get_current_group_selection()
+        if selection is None:
+            canvas.create_text(width // 2, height // 2, text="(select a group)", fill="#888888")
+            return
+        plugin_name, label = selection
+        norm_vals, trans_vals, anchor_name, _ts = self._get_cache_entry(plugin_name, label)
+
+        scale = max(0.01, min(inner_w / float(ABS_BASE_WIDTH), inner_h / float(ABS_BASE_HEIGHT)))
+        offset_x = padding
+        offset_y = padding
+
+        def _rect_color(fill: str) -> dict[str, object]:
+            return {"fill": fill, "outline": "#000000", "width": 1}
+
+        # Normalized rectangle
+        norm_x0 = offset_x + norm_vals["min_x"] * scale
+        norm_y0 = offset_y + norm_vals["min_y"] * scale
+        norm_x1 = offset_x + norm_vals["max_x"] * scale
+        norm_y1 = offset_y + norm_vals["max_y"] * scale
+        canvas.create_rectangle(norm_x0, norm_y0, norm_x1, norm_y1, **_rect_color("#66a3ff"))
+
+        # Transformed rectangle
+        trans_x0 = offset_x + trans_vals["min_x"] * scale
+        trans_y0 = offset_y + trans_vals["min_y"] * scale
+        trans_x1 = offset_x + trans_vals["max_x"] * scale
+        trans_y1 = offset_y + trans_vals["max_y"] * scale
+        canvas.create_rectangle(trans_x0, trans_y0, trans_x1, trans_y1, **_rect_color("#ffa94d"))
+
+        # Draw anchor indicator on the transformed rectangle.
+        anchor_px, anchor_py = self._compute_anchor_point(
+            trans_vals["min_x"],
+            trans_vals["max_x"],
+            trans_vals["min_y"],
+            trans_vals["max_y"],
+            anchor_name,
+        )
+        anchor_screen_x = offset_x + anchor_px * scale
+        anchor_screen_y = offset_y + anchor_py * scale
+        anchor_radius = 4
+        canvas.create_oval(
+            anchor_screen_x - anchor_radius,
+            anchor_screen_y - anchor_radius,
+            anchor_screen_x + anchor_radius,
+            anchor_screen_y + anchor_radius,
+            fill="#ffffff",
+            outline="#000000",
+            width=1,
+        )
+
+        canvas.create_text(
+            padding + 6,
+            padding + 6,
+            text=f"{label}",
+            anchor="nw",
+            fill="#ffffff",
+            font=("TkDefaultFont", 9, "bold"),
+        )
+
+    def _get_cache_entry(
+        self, plugin_name: str, label: str
+    ) -> tuple[dict[str, float], dict[str, float], str, float]:
+        groups = self._groupings_cache.get("groups") if isinstance(self._groupings_cache, dict) else {}
+        plugin_entry = groups.get(plugin_name) if isinstance(groups, dict) else {}
+        entry = plugin_entry.get(label) if isinstance(plugin_entry, dict) else {}
+        normalized = entry.get("base") if isinstance(entry, dict) else {}
+        transformed = entry.get("transformed") if isinstance(entry, dict) else {}
+        norm_vals = {
+            "min_x": float(normalized.get("base_min_x", 0.0)) if isinstance(normalized, dict) else 0.0,
+            "max_x": float(normalized.get("base_max_x", 0.0)) if isinstance(normalized, dict) else 0.0,
+            "min_y": float(normalized.get("base_min_y", 0.0)) if isinstance(normalized, dict) else 0.0,
+            "max_y": float(normalized.get("base_max_y", 0.0)) if isinstance(normalized, dict) else 0.0,
+        }
+        norm_vals["width"] = float(normalized.get("base_width", norm_vals["max_x"] - norm_vals["min_x"])) if isinstance(normalized, dict) else (norm_vals["max_x"] - norm_vals["min_x"])
+        norm_vals["height"] = float(normalized.get("base_height", norm_vals["max_y"] - norm_vals["min_y"])) if isinstance(normalized, dict) else (norm_vals["max_y"] - norm_vals["min_y"])
+        trans_vals = {
+            "min_x": float(transformed.get("trans_min_x", norm_vals["min_x"])) if isinstance(transformed, dict) else norm_vals["min_x"],
+            "max_x": float(transformed.get("trans_max_x", norm_vals["max_x"])) if isinstance(transformed, dict) else norm_vals["max_x"],
+            "min_y": float(transformed.get("trans_min_y", norm_vals["min_y"])) if isinstance(transformed, dict) else norm_vals["min_y"],
+            "max_y": float(transformed.get("trans_max_y", norm_vals["max_y"])) if isinstance(transformed, dict) else norm_vals["max_y"],
+        }
+        anchor = transformed.get("anchor") if isinstance(transformed, dict) else None
+        anchor_name = str(anchor).lower() if isinstance(anchor, str) else "top-left"
+        timestamp = float(entry.get("last_updated", 0.0)) if isinstance(entry, dict) else 0.0
+        return norm_vals, trans_vals, anchor_name, timestamp
+
+    def _update_cache_entry(
+        self,
+        plugin_name: str,
+        label: str,
+        trans_vals: dict[str, float],
+        anchor: str,
+        timestamp: float,
+    ) -> None:
+        if not isinstance(self._groupings_cache, dict):
+            self._groupings_cache = {"groups": {}}
+        groups = self._groupings_cache.setdefault("groups", {})
+        plugin_entry = groups.setdefault(plugin_name, {})
+        entry = plugin_entry.get(label)
+        if not isinstance(entry, dict):
+            entry = {}
+            plugin_entry[label] = entry
+        normalized = entry.get("base") if isinstance(entry, dict) else None
+        if not isinstance(normalized, dict):
+            normalized = {}
+        transformed = entry.get("transformed") if isinstance(entry, dict) else None
+        if not isinstance(transformed, dict):
+            transformed = {}
+        transformed["trans_min_x"] = trans_vals.get("min_x", transformed.get("trans_min_x", 0.0))
+        transformed["trans_max_x"] = trans_vals.get("max_x", transformed.get("trans_max_x", transformed.get("trans_min_x", 0.0)))
+        transformed["trans_min_y"] = trans_vals.get("min_y", transformed.get("trans_min_y", 0.0))
+        transformed["trans_max_y"] = trans_vals.get("max_y", transformed.get("trans_max_y", transformed.get("trans_min_y", 0.0)))
+        transformed["anchor"] = anchor
+        entry["transformed"] = transformed
+        entry["base"] = normalized
+        entry["last_updated"] = timestamp
+
+    def _set_config_offsets(self, plugin_name: str, label: str, offset_x: float, offset_y: float) -> None:
+        if not isinstance(self._groupings_data, dict):
+            return
+        entry = self._groupings_data.get(plugin_name)
+        if not isinstance(entry, dict):
+            return
+        groups = entry.get("idPrefixGroups") if isinstance(entry, dict) else None
+        if not isinstance(groups, dict):
+            return
+        group = groups.get(label)
+        if not isinstance(group, dict):
+            return
+        group["offsetX"] = offset_x
+        group["offsetY"] = offset_y
+
+    def _handle_idprefix_selected(self, _selection: str | None = None) -> None:
+        if not hasattr(self, "idprefix_widget"):
+            return
+        try:
+            idx = int(self.idprefix_widget.dropdown.current())
+        except Exception:
+            idx = -1
+        if not (0 <= idx < len(self._idprefix_entries)):
+            return
+        plugin_name, label = self._idprefix_entries[idx]
+        cfg = self._get_group_config(plugin_name, label)
+        anchor_name = cfg.get("idPrefixGroupAnchor") if isinstance(cfg, dict) else None
+        if hasattr(self, "anchor_widget"):
+            try:
+                self.anchor_widget.set_anchor(anchor_name)
+            except Exception:
+                pass
+        justification = cfg.get("payloadJustification") if isinstance(cfg, dict) else None
+        if hasattr(self, "justification_widget"):
+            try:
+                self.justification_widget.set_justification(justification)
+            except Exception:
+                pass
+        self._sync_absolute_for_current_group(force_ui=True)
+        self._draw_preview()
+
+    def _handle_justification_changed(self, justification: str) -> None:
+        selection = self._get_current_group_selection()
+        if selection is None:
+            return
+        plugin_name, label = selection
+        if not isinstance(self._groupings_data, dict):
+            return
+        entry = self._groupings_data.get(plugin_name)
+        if not isinstance(entry, dict):
+            return
+        groups = entry.get("idPrefixGroups") if isinstance(entry, dict) else None
+        if not isinstance(groups, dict):
+            return
+        group = groups.get(label)
+        if not isinstance(group, dict):
+            return
+        group["payloadJustification"] = justification
+        self._schedule_groupings_config_write()
+
+    def _handle_absolute_changed(self, axis: str) -> None:
+        selection = self._get_current_group_selection()
+        if selection is None or not hasattr(self, "absolute_widget"):
+            return
+        x_val, y_val = self.absolute_widget.get_px_values()
+        state = self._absolute_user_state.get(selection, {"x": None, "y": None, "x_ts": 0.0, "y_ts": 0.0})
+        now = time.time()
+        if axis == "x" and x_val is not None:
+            state["x"] = x_val
+            state["x_ts"] = now
+        if axis == "y" and y_val is not None:
+            state["y"] = y_val
+            state["y_ts"] = now
+        self._absolute_user_state[selection] = state
+        self._sync_absolute_for_current_group(force_ui=False)
+
+    def _handle_offset_changed(self, direction: str, pinned: bool) -> None:
+        selection = self._get_current_group_selection()
+        if selection is None or not hasattr(self, "absolute_widget"):
+            return
         x_val, y_val = self.absolute_widget.get_px_values()
         x_val = x_val if x_val is not None else 0.0
         y_val = y_val if y_val is not None else 0.0
@@ -2350,11 +2962,13 @@ class OverlayConfigApp(tk.Tk):
         base_norm_min_y = norm_vals["min_y"]
         base_norm_max_y = norm_vals["max_y"]
 
-        state = self._absolute_user_state.get(selection, {"x": None, "y": None, "x_ts": 0.0, "y_ts": 0.0})
+        state = self._absolute_user_state.get(selection, {"x": None, "y": None, "x_ts": 0.0, "y_ts": 0.0, "x_user": False, "y_user": False})
         user_x = state.get("x")
         user_y = state.get("y")
         user_x_ts = float(state.get("x_ts", 0.0) or 0.0)
         user_y_ts = float(state.get("y_ts", 0.0) or 0.0)
+        user_x_flag = bool(state.get("x_user"))
+        user_y_flag = bool(state.get("y_user"))
 
         offset_x_res, user_x_res, cache_x_res, cache_ts_x, user_ts_x, new_tx_min, new_tx_max = self._sync_axis(
             anchor,
@@ -2390,10 +3004,9 @@ class OverlayConfigApp(tk.Tk):
         state["y_ts"] = user_ts_y
         self._absolute_user_state[selection] = state
 
-        cfg_changed = (
-            abs(offset_x_res - offset_x) > self._absolute_tolerance_px
-            or abs(offset_y_res - offset_y) > self._absolute_tolerance_px
-        )
+        cfg_x_changed = user_x_flag and abs(offset_x_res - offset_x) > self._absolute_tolerance_px
+        cfg_y_changed = user_y_flag and abs(offset_y_res - offset_y) > self._absolute_tolerance_px
+        cfg_changed = cfg_x_changed or cfg_y_changed
         cache_changed = (
             abs(cache_ts_x - cache_ts) > 1e-9
             or abs(cache_ts_y - cache_ts) > 1e-9
@@ -2404,8 +3017,14 @@ class OverlayConfigApp(tk.Tk):
         )
 
         if cfg_changed:
-            self._set_config_offsets(plugin_name, label, offset_x_res, offset_y_res)
+            new_offset_x = offset_x_res if cfg_x_changed else offset_x
+            new_offset_y = offset_y_res if cfg_y_changed else offset_y
+            self._set_config_offsets(plugin_name, label, new_offset_x, new_offset_y)
             self._schedule_groupings_config_write(debounce_ms)
+            if cfg_x_changed:
+                state["x_user"] = False
+            if cfg_y_changed:
+                state["y_user"] = False
 
         if cache_changed:
             cache_ts_write = max(cache_ts_x, cache_ts_y, time.time())

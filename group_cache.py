@@ -106,7 +106,7 @@ class GroupPlacementCache:
             if existing_normalized == normalized_payload and existing_transformed == transformed_payload:
                 return
             plugin_entry[suffix_key] = {
-                "normalized": normalized_payload,
+                "base": normalized_payload,
                 "transformed": transformed_payload,
                 "last_updated": time.time(),
             }
