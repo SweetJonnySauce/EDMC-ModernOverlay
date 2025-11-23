@@ -3340,11 +3340,6 @@ class OverlayWindow(QWidget):
                         "right_justification_delta": delta_px,
                     },
                 )
-            if command.justification_dx:
-                overlay_bounds = overlay_bounds_by_group.get(command.group_key.as_tuple())
-                if overlay_bounds is not None and overlay_bounds.is_valid():
-                    dx_overlay = command.justification_dx / base_scale
-                    overlay_bounds.translate(dx_overlay, 0.0)
         return self._rebuild_translated_bounds(commands, anchor_translation_by_group, translated_bounds_by_group)
 
     def _rebuild_translated_bounds(
@@ -3360,8 +3355,11 @@ class OverlayWindow(QWidget):
                 continue
             key = command.group_key.as_tuple()
             translation_x, translation_y = anchor_translation_by_group.get(key, (0.0, 0.0))
+            justification_dx = getattr(command, "justification_dx", 0.0)
             offset_x = translation_x
             offset_y = translation_y
+            if justification_dx:
+                offset_x += justification_dx
             clone = updated.setdefault(key, _ScreenBounds())
             clone.include_rect(
                 float(bounds[0]) + offset_x,

@@ -2,7 +2,7 @@
   "settings": {
     "window_wait_seconds": 2,
     "wait_between_payload_tests": 0,
-    "wait_to_finish_seconds": 1000,
+    "wait_to_finish_seconds": 10,
     "crosshair_x_percent": 71.875,
     "crosshair_y_percent": 34.375
   },
@@ -16,42 +16,42 @@
     {
       "name": "landingpad",
       "source": "payload_store/landingpad.log",
-      "ttl": 1000
+      "ttl": 10
     },
     {
       "name": "Bioscan",
       "source": "payload_store/bioscan_radar.log",
-      "ttl": 1000
+      "ttl": 10
     },
     {
       "name": "Galaxy/System Tick",
       "source": "payload_store/bgstally-tick_wout_frame.log",
-      "ttl": 1000
+      "ttl": 10
     },
     {
       "name": "BGSTally Colonisation",
       "source": "payload_store/bgstally-colonisation_wout_frame.log",
-      "ttl": 1000
+      "ttl": 10
     },
     {
       "name": "edr-docking",
       "source": "payload_store/edr_docking.log",
-      "ttl": 1000
+      "ttl": 10
     },
     {
       "name": "edr-target",
       "source": "payload_store/edr_target.log",
-      "ttl": 1000
+      "ttl": 10
     },
     {
       "name": "edr-intel",
       "source": "payload_store/edr_intel.log",
-      "ttl": 1000
+      "ttl": 10
     },
     {
       "name": "edr-notice",
       "source": "payload_store/edr_notice.log",
-      "ttl": 1000
+      "ttl": 10
     }
   ]
 }
