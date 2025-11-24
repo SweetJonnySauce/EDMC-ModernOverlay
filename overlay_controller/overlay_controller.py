@@ -52,31 +52,50 @@ class _ForceRenderOverrideManager:
         self._port_path = root / "port.json"
         self._active = False
         self._previous_force: Optional[bool] = None
+        self._previous_allow: Optional[bool] = None
 
     def activate(self) -> None:
         if self._active:
             return
-        if self._previous_force is None:
-            self._previous_force = self._read_force_render()
+        current_force, current_allow = self._read_force_settings()
+        self._previous_force = current_force
+        self._previous_allow = current_allow
         response = self._send_override({"cli": "force_render_override", "allow": True, "force_render": True})
         if response is not None:
             previous_force = response.get("previous_force_render")
             if isinstance(previous_force, bool):
                 self._previous_force = previous_force
+            previous_allow = response.get("previous_allow")
+            if isinstance(previous_allow, bool):
+                self._previous_allow = previous_allow
         else:
             if self._previous_force is None:
                 self._previous_force = False
+            if self._previous_allow is None:
+                self._previous_allow = False
             self._update_settings_file(force=True, allow=True)
         self._active = True
 
     def deactivate(self) -> None:
         if not self._active:
             return
-        restore = self._previous_force if self._previous_force is not None else False
-        response = self._send_override({"cli": "force_render_override", "allow": False, "force_render": restore})
+        restore_force = self._previous_force if self._previous_force is not None else False
+        restore_allow = self._previous_allow if self._previous_allow is not None else False
+        response = self._send_override(
+            {
+                "cli": "force_render_override",
+                "allow": restore_allow,
+                "force_render": restore_force,
+            }
+        )
         if response is None:
-            self._update_settings_file(force=restore, allow=False)
+            self._log("Overlay CLI unavailable while restoring force-render override; writing settings file directly.")
+            self._update_settings_file(force=restore_force, allow=restore_allow)
+        else:
+            self._update_settings_file(force=restore_force, allow=restore_allow)
         self._active = False
+        self._previous_force = None
+        self._previous_allow = None
 
     def _send_override(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         port = self._load_port()
@@ -128,14 +147,14 @@ class _ForceRenderOverrideManager:
             return None
         return port
 
-    def _read_force_render(self) -> bool:
+    def _read_force_settings(self) -> tuple[bool, bool]:
         try:
             raw = json.loads(self._settings_path.read_text(encoding="utf-8"))
         except FileNotFoundError:
-            return False
+            return False, False
         except json.JSONDecodeError:
-            return False
-        return bool(raw.get("force_render", False))
+            return False, False
+        return bool(raw.get("force_render", False)), bool(raw.get("allow_force_render_release", False))
 
     def _update_settings_file(self, force: bool, allow: bool) -> None:
         try:
@@ -1145,6 +1164,7 @@ class OverlayConfigApp(tk.Tk):
         self.withdraw()
         self.title("Overlay Controller")
         self.geometry("740x760")
+        self.protocol("WM_DELETE_WINDOW", self.close_application)
         self.base_min_height = 640
         self.minsize(640, self.base_min_height)
         self._closing = False
