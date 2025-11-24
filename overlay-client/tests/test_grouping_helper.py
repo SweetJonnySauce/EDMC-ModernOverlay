@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
-
 from group_transform import GroupBounds
 from grouping_helper import FillGroupingHelper
+
+pytestmark = pytest.mark.pyqt_required
 
 
 def _build_bounds() -> GroupBounds:

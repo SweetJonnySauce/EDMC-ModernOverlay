@@ -2,11 +2,14 @@
 import sys
 from pathlib import Path
 
+import pytest
 from PyQt6.QtCore import QSize
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from overlay_client import OverlayWindow  # noqa: E402
+
+pytestmark = pytest.mark.pyqt_required
 
 
 def test_classifies_layout_when_actual_matches_size_hints() -> None:
