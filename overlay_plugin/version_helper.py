@@ -24,6 +24,11 @@ except Exception:  # pragma: no cover - fallback when unavailable
     _edmc_new_session = None  # type: ignore
 
 try:
+    from config import debug_senders as _edmc_debug_senders  # type: ignore
+except Exception:  # pragma: no cover - running outside EDMC
+    _edmc_debug_senders = None  # type: ignore
+
+try:
     from config import user_agent as _edmc_user_agent  # type: ignore
 except Exception:  # pragma: no cover - running outside EDMC
     _edmc_user_agent = None  # type: ignore
@@ -118,14 +123,36 @@ def _create_http_session(timeout: int):
         try:
             session = _edmc_new_session(timeout=timeout)
             session.headers.setdefault("User-Agent", _build_user_agent())
+            _apply_debug_sender(session)
             return session
         except Exception:
             pass
     if requests is not None:
         session = requests.Session()
         session.headers.setdefault("User-Agent", _build_user_agent())
+        _apply_debug_sender(session)
         return session
     return None
+
+
+def _apply_debug_sender(session) -> None:
+    """Redirect requests through EDMC's debug webserver when configured."""
+
+    debug_target = None
+    try:
+        debug_target = _edmc_debug_senders() if callable(_edmc_debug_senders) else _edmc_debug_senders
+    except Exception:
+        debug_target = None
+    if not debug_target:
+        return
+    try:
+        if hasattr(session, "mount"):
+            adapter = session.get_adapter("http://")
+            session.mount("https://", adapter)
+            session.mount("http://", adapter)
+        session.proxies = {"http": debug_target, "https": debug_target}
+    except Exception:
+        pass
 
 
 def _build_user_agent() -> str:

@@ -55,7 +55,7 @@
           "bgstally-msg-tickwarn"
         ],
         "offsetX": 190.0,
-        "offsetY": -10.0,
+        "offsetY": 0.0,
         "payloadJustification": "right"
       }
     },
