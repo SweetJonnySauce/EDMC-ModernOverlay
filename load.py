@@ -7,6 +7,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -32,6 +33,7 @@ if __package__:
         unregister_grouping_store,
         unregister_publisher,
     )
+    from .overlay_plugin.journal_commands import build_command_helper
     from .EDMCOverlay.edmcoverlay import normalise_legacy_payload
 else:  # pragma: no cover - EDMC loads as top-level module
     from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR, is_dev_build
@@ -47,6 +49,7 @@ else:  # pragma: no cover - EDMC loads as top-level module
         unregister_grouping_store,
         unregister_publisher,
     )
+    from overlay_plugin.journal_commands import build_command_helper
     from EDMCOverlay.edmcoverlay import normalise_legacy_payload
 
 PLUGIN_NAME = "EDMC-ModernOverlay"
@@ -322,6 +325,7 @@ class _PluginRuntime:
             name="ModernOverlayVersionCheck",
             daemon=True,
         ).start()
+        self._command_helper = build_command_helper(self, LOGGER)
 
     # Lifecycle ------------------------------------------------------------
 
@@ -393,6 +397,10 @@ class _PluginRuntime:
         event = entry.get("event")
         if not event:
             return
+        try:
+            self._command_helper.handle_entry(entry)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            LOGGER.debug("Journal command helper failed: %s", exc, exc_info=exc)
 
         self._update_state(cmdr, system, station, entry)
         if event not in self.BROADCAST_EVENTS:
@@ -1125,6 +1133,32 @@ class _PluginRuntime:
 
     def cycle_payload_next(self) -> None:
         self._cycle_payload_step(1)
+
+    def launch_overlay_controller(self) -> None:
+        script_path = self.plugin_dir / "overlay_controller" / "overlay_controller.py"
+        if not script_path.exists():
+            raise RuntimeError("overlay_controller.py not found")
+        command = [*self._controller_python_command(), str(script_path)]
+        kwargs: Dict[str, Any] = {"cwd": str(script_path.parent)}
+        if os.name == "nt":
+            creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            if creation_flags:
+                kwargs["creationflags"] = creation_flags
+        try:
+            process = subprocess.Popen(command, **kwargs)
+        except Exception as exc:
+            raise RuntimeError(str(exc)) from exc
+        LOGGER.debug("Overlay Controller launched via chat command (pid=%s)", getattr(process, "pid", "?"))
+
+    def _controller_python_command(self) -> List[str]:
+        executable = sys.executable
+        if executable:
+            return [executable]
+        for candidate in ("python3", "python"):
+            resolved = shutil.which(candidate)
+            if resolved:
+                return [resolved]
+        raise RuntimeError("no Python interpreter available to launch the overlay controller")
 
     def _cycle_payload_step(self, direction: int) -> None:
         if not self._running:
