@@ -26,8 +26,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p dist/windows_powershell dist/windows_powershell/EDMC-ModernOverlay
-          mkdir -p dist/linux dist/linux/EDMC-ModernOverlay
+          mkdir -p dist/windows_powershell dist/windows_powershell/EDMCModernOverlay
+          mkdir -p dist/linux dist/linux/EDMCModernOverlay
 
           EXCLUDES=(
             '--exclude=.git/'
@@ -46,10 +46,10 @@ jobs:
             '--exclude=*.md'
           )
 
-          # Copy plugin code into EDMC-ModernOverlay directory for both bundles,
+          # Copy plugin code into EDMCModernOverlay directory for both bundles,
           # excluding CI config and the scripts folder (scripts is included separately).
-          rsync -a "${EXCLUDES[@]}" ./ dist/windows_powershell/EDMC-ModernOverlay/
-          rsync -a "${EXCLUDES[@]}" ./ dist/linux/EDMC-ModernOverlay/
+          rsync -a "${EXCLUDES[@]}" ./ dist/windows_powershell/EDMCModernOverlay/
+          rsync -a "${EXCLUDES[@]}" ./ dist/linux/EDMCModernOverlay/
 
           # Windows helper scripts at archive root
           cp scripts/install_windows.ps1 dist/windows_powershell/
@@ -70,9 +70,9 @@ jobs:
             VER="dev-${shortsha}"
           fi
           # Windows PowerShell zip
-          (cd dist/windows_powershell && zip -r "../EDMC-ModernOverlay-windows_powershell-${VER}.zip" EDMC-ModernOverlay install_windows.ps1)
+          (cd dist/windows_powershell && zip -r "../EDMCModernOverlay-windows_powershell-${VER}.zip" EDMCModernOverlay install_windows.ps1)
           # Linux tar.gz
-          (cd dist/linux && tar -czf "../EDMC-ModernOverlay-linux-${VER}.tar.gz" EDMC-ModernOverlay install_linux.sh install_matrix.json)
+          (cd dist/linux && tar -czf "../EDMCModernOverlay-linux-${VER}.tar.gz" EDMCModernOverlay install_linux.sh install_matrix.json)
           ls -al dist
 
       - name: Upload workflow artifacts
@@ -80,8 +80,8 @@ jobs:
         with:
           name: release-bundles
           path: |
-            dist/EDMC-ModernOverlay-windows_powershell-*.zip
-            dist/EDMC-ModernOverlay-linux-*.tar.gz
+            dist/EDMCModernOverlay-windows_powershell-*.zip
+            dist/EDMCModernOverlay-linux-*.tar.gz
           if-no-files-found: error
 
       - name: Attach archives to GitHub Release
@@ -90,8 +90,8 @@ jobs:
         with:
           tag_name: ${{ github.event.release.tag_name || github.ref_name }}
           files: |
-            dist/EDMC-ModernOverlay-windows_powershell-*.zip
-            dist/EDMC-ModernOverlay-linux-*.tar.gz
+            dist/EDMCModernOverlay-windows_powershell-*.zip
+            dist/EDMCModernOverlay-linux-*.tar.gz
 
   windows_installer:
     name: Build Windows installer EXE
@@ -137,7 +137,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $outputDir)) {
               New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
           }
-          $finalExe = Join-Path $outputDir ("EDMC-ModernOverlay-windows-{0}.exe" -f $version)
+          $finalExe = Join-Path $outputDir ("EDMCModernOverlay-windows-{0}.exe" -f $version)
           Copy-Item -LiteralPath $exePath -Destination $finalExe -Force
           Write-Host "Installer copied to '$finalExe'."
 
@@ -145,7 +145,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer-exe
-          path: dist/EDMC-ModernOverlay-windows-*.exe
+          path: dist/EDMCModernOverlay-windows-*.exe
           if-no-files-found: error
 
       - name: Attach EXE to GitHub Release
@@ -154,5 +154,4 @@ jobs:
         with:
           tag_name: ${{ github.event.release.tag_name || github.ref_name }}
           files: |
-            dist/EDMC-ModernOverlay-windows-*.exe
-
+            dist/EDMCModernOverlay-windows-*.exe
