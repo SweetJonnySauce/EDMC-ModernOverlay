@@ -60,6 +60,12 @@ def _config_set_raw(key: str, value: Any) -> None:
         try:
             setter(key, value)
             return
+        except (TypeError, ValueError):
+            try:
+                setter(key, str(value))
+                return
+            except Exception:
+                pass
         except Exception:
             pass
     try:
@@ -447,6 +453,7 @@ class PreferencesPanel:
         self._var_max_font = tk.DoubleVar(value=float(preferences.max_font_point))
         self._var_cycle_payload = tk.BooleanVar(value=preferences.cycle_payload_ids)
         self._var_cycle_copy = tk.BooleanVar(value=preferences.copy_payload_id_on_cycle)
+        self._font_bounds_apply_in_progress = False
         self._scale_mode_options = [
             ("Fit (preserve aspect)", "fit"),
             ("Fill (proportional rescale)", "fill"),
@@ -493,6 +500,8 @@ class PreferencesPanel:
 
         frame = nb.Frame(parent)
 
+        self._var_min_font.trace_add("write", self._on_font_bounds_trace)
+        self._var_max_font.trace_add("write", self._on_font_bounds_trace)
         header_frame = ttk.Frame(frame, style=self._frame_style)
         header_frame.grid(row=0, column=0, sticky="we")
         header_frame.columnconfigure(0, weight=1)
@@ -875,6 +884,8 @@ class PreferencesPanel:
         return self._frame
 
     def apply(self) -> None:
+        # Ensure any pending entry/spinbox values are written back before saving.
+        self._apply_font_bounds(update_remote=False)
         self._preferences.save()
 
     def _display_for_scale_mode(self, mode: str) -> str:
@@ -1235,7 +1246,15 @@ class PreferencesPanel:
     def _on_font_bounds_event(self, _event) -> None:  # pragma: no cover - Tk event
         self._apply_font_bounds()
 
-    def _apply_font_bounds(self) -> None:
+    def _on_font_bounds_trace(self, *_args) -> None:
+        if self._font_bounds_apply_in_progress:
+            return
+        self._apply_font_bounds()
+
+    def _apply_font_bounds(self, update_remote: bool = True) -> None:
+        if self._font_bounds_apply_in_progress:
+            return
+        self._font_bounds_apply_in_progress = True
         try:
             min_value = float(self._var_min_font.get())
         except (TypeError, ValueError):
@@ -1249,23 +1268,25 @@ class PreferencesPanel:
         self._var_min_font.set(min_value)
         self._var_max_font.set(max_value)
         callback_failed = False
-        if self._set_font_min:
+        if update_remote and self._set_font_min:
             try:
                 self._set_font_min(min_value)
             except Exception as exc:
                 self._status_var.set(f"Failed to update minimum font size: {exc}")
                 callback_failed = True
-        if self._set_font_max:
+        if update_remote and self._set_font_max:
             try:
                 self._set_font_max(max_value)
             except Exception as exc:
                 self._status_var.set(f"Failed to update maximum font size: {exc}")
                 callback_failed = True
         if callback_failed:
+            self._font_bounds_apply_in_progress = False
             return
         self._preferences.min_font_point = min_value
         self._preferences.max_font_point = max_value
         self._preferences.save()
+        self._font_bounds_apply_in_progress = False
 
     def _on_send_click(self) -> None:
         message = self._test_var.get().strip()
