@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 import pytest
+
+if not os.getenv("PYQT_TESTS"):
+    pytest.skip("PYQT_TESTS not set; skipping PyQt-dependent test", allow_module_level=True)
 
 from group_transform import GroupBounds
 from grouping_helper import FillGroupingHelper
-
-pytestmark = pytest.mark.pyqt_required
 
 
 def _build_bounds() -> GroupBounds:

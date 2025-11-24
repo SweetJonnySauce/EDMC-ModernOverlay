@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 import pytest
+
+if not os.getenv("PYQT_TESTS"):
+    pytest.skip("PYQT_TESTS not set; skipping PyQt-dependent test", allow_module_level=True)
 
 OVERLAY_ROOT = Path(__file__).resolve().parents[1]
 if str(OVERLAY_ROOT) not in sys.path:
@@ -13,8 +17,6 @@ from group_transform import GroupBounds  # noqa: E402
 from legacy_store import LegacyItem  # noqa: E402
 import payload_transform  # noqa: E402
 from overlay_client import _OverlayBounds  # type: ignore  # noqa: E402
-
-pytestmark = pytest.mark.pyqt_required
 
 
 def _make_message(text: str, scale: float) -> LegacyItem:

@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 import pytest
+
+if not os.getenv("PYQT_TESTS"):
+    pytest.skip("PYQT_TESTS not set; skipping PyQt-dependent test", allow_module_level=True)
 
 OVERLAY_ROOT = Path(__file__).resolve().parents[1]
 if str(OVERLAY_ROOT) not in sys.path:
     sys.path.append(str(OVERLAY_ROOT))
 
 from payload_transform import apply_transform_meta_to_point  # noqa: E402
-
-pytestmark = pytest.mark.pyqt_required
 
 
 def test_transform_meta_applies_fill_translation_before_scaling() -> None:
