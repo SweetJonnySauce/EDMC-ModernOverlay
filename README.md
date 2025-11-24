@@ -5,7 +5,7 @@ EDMC Modern Overlay (packaged as `EDMCModernOverlay`) is a drop-in replacement f
 
 Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping system to precisely control where their overlays appear. By specifying properties like `anchor`, `justify`, and explicit `x`/`y` coordinates in their group definitions, authors can define the placement, alignment, and justification of HUD elements relative to any corner, side, or the center of the screen. The overlay interprets these fields to allow left, right, and center justification, vertical/horizontal anchoring, as well as pixel or percentage-based coordinates for fine-grained positioning—enabling complex, fully-customized HUD layouts for different use cases.
 
-> ⚠️ **Breaking upgrade notice:** Modern Overlay now installs into the `EDMCModernOverlay/` directory. Running the installer will disable any existing `EDMC-ModernOverlay/` folder by renaming it to `EDMC-ModernOverlay.disabled`, `EDMC-ModernOverlay.disabled.1`, etc. Settings are **not** migrated automatically; keep the disabled folder if you need to roll back.
+> ⚠️ **Breaking upgrade notice:** Modern Overlay as of 0.7.4 now installs into the `EDMCModernOverlay/` directory. Running the installer will disable any existing `EDMC-ModernOverlay/` folder by renaming it to `EDMC-ModernOverlay.disabled`, `EDMC-ModernOverlay.disabled.1`, etc. Settings are **not** migrated automatically; keep the disabled folder if you need to roll back.
 
 <img width="1957" height="1260" alt="image" src="https://github.com/user-attachments/assets/f17a2a83-1e5c-4556-af65-1053dba38cff" />
 
