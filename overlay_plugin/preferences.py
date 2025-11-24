@@ -6,7 +6,12 @@ import logging
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Mapping, Optional
+
+try:
+    from config import config as EDMC_CONFIG  # type: ignore
+except Exception:  # pragma: no cover - running outside EDMC
+    EDMC_CONFIG = None
 
 
 PREFERENCES_FILE = "overlay_settings.json"
@@ -15,8 +20,111 @@ LEGACY_STATUS_SLOT_MARGIN = 17
 STATUS_GUTTER_MAX = 500
 STATUS_GUTTER_DEFAULT = 50
 LATEST_RELEASE_URL = "https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest"
+CONFIG_PREFIX = "edmc_modern_overlay."
+CONFIG_STATE_VERSION = 1
+CONFIG_VERSION_KEY = f"{CONFIG_PREFIX}state_version"
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _config_available() -> bool:
+    return EDMC_CONFIG is not None and hasattr(EDMC_CONFIG, "get") and hasattr(EDMC_CONFIG, "set")
+
+
+def _config_key(name: str) -> str:
+    return f"{CONFIG_PREFIX}{name}"
+
+
+def _config_get_raw(key: str, default: Any) -> Any:
+    if not _config_available():
+        return default
+    getter = getattr(EDMC_CONFIG, "get", None)
+    if callable(getter):
+        try:
+            value = getter(key)
+        except TypeError:
+            try:
+                value = getter(key, default)
+            except Exception:
+                value = default
+    else:
+        value = getattr(EDMC_CONFIG, key, default)
+    return default if value is None else value
+
+
+def _config_set_raw(key: str, value: Any) -> None:
+    if not _config_available():
+        return
+    setter = getattr(EDMC_CONFIG, "set", None)
+    if callable(setter):
+        try:
+            setter(key, value)
+            return
+        except Exception:
+            pass
+    try:
+        setattr(EDMC_CONFIG, key, value)
+    except Exception:
+        LOGGER.debug("Failed to persist %s into EDMC config", key)
+
+
+def _coerce_bool(value: Any, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        token = value.strip().lower()
+        if token in {"1", "true", "yes", "on"}:
+            return True
+        if token in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
+def _coerce_int(value: Any, default: int, *, minimum: Optional[int] = None, maximum: Optional[int] = None) -> int:
+    try:
+        numeric = int(value)
+    except (TypeError, ValueError):
+        numeric = default
+    if minimum is not None:
+        numeric = max(minimum, numeric)
+    if maximum is not None:
+        numeric = min(maximum, numeric)
+    return numeric
+
+
+def _coerce_float(value: Any, default: float, *, minimum: Optional[float] = None, maximum: Optional[float] = None) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        numeric = default
+    if minimum is not None:
+        numeric = max(minimum, numeric)
+    if maximum is not None:
+        numeric = min(maximum, numeric)
+    return numeric
+
+
+def _coerce_str(
+    value: Any,
+    default: str,
+    *,
+    allowed: Optional[set[str]] = None,
+    transform: Callable[[str], str] | None = None,
+) -> str:
+    if value is None:
+        return default
+    try:
+        text = str(value)
+    except Exception:
+        return default
+    text = text.strip()
+    if transform:
+        text = transform(text)
+    if allowed and text not in allowed:
+        return default
+    return text or default
 
 
 @dataclass
@@ -51,85 +159,149 @@ class Preferences:
     def __post_init__(self) -> None:
         self.plugin_dir = Path(self.plugin_dir)
         self._path = self.plugin_dir / PREFERENCES_FILE
-        self._load()
+        self._config_enabled = _config_available()
+        if self._config_enabled:
+            self._maybe_import_legacy_json()
+            self._load_from_config()
+            self._ensure_state_version_mark()
+        else:
+            self._load_from_json()
         self.disable_force_render_for_release()
+        try:
+            self._write_shadow_file()
+        except Exception:
+            LOGGER.debug("Unable to write initial overlay_settings.json shadow file.", exc_info=True)
 
     # Persistence ---------------------------------------------------------
 
-    def _load(self) -> None:
+    def _load_from_json(self) -> None:
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return
         except json.JSONDecodeError:
             return
-        self.overlay_opacity = float(data.get("overlay_opacity", 0.0))
-        self.show_connection_status = bool(data.get("show_connection_status", False))
-        corner_value = str(data.get("debug_overlay_corner", "NW")) if data.get("debug_overlay_corner") is not None else "NW"
-        self.debug_overlay_corner = corner_value.strip().upper() if corner_value else "NW"
-        if self.debug_overlay_corner not in {"NW", "NE", "SW", "SE"}:
-            self.debug_overlay_corner = "NW"
+        self._apply_raw_data(data)
+
+    def _maybe_import_legacy_json(self) -> None:
+        current_version = _coerce_int(_config_get_raw(CONFIG_VERSION_KEY, 0), 0)
+        if current_version >= CONFIG_STATE_VERSION:
+            return
         try:
-            retention = int(data.get("client_log_retention", 5))
-        except (TypeError, ValueError):
-            retention = 5
-        self.client_log_retention = max(1, retention)
-        self.gridlines_enabled = bool(data.get("gridlines_enabled", False))
-        try:
-            spacing = int(data.get("gridline_spacing", 120))
-        except (TypeError, ValueError):
-            spacing = 120
-        self.gridline_spacing = max(10, spacing)
-        self.force_render = bool(data.get("force_render", False))
-        if "allow_force_render_release" in data:
-            self.allow_force_render_release = bool(data.get("allow_force_render_release", False))
-        else:
-            self.allow_force_render_release = bool(self.dev_mode)
-        self.force_xwayland = bool(data.get("force_xwayland", False))
-        self.show_debug_overlay = bool(data.get("show_debug_overlay", False))
-        try:
-            min_font = float(data.get("min_font_point", 6.0))
-        except (TypeError, ValueError):
-            min_font = 6.0
-        try:
-            max_font = float(data.get("max_font_point", 24.0))
-        except (TypeError, ValueError):
-            max_font = 24.0
-        self.min_font_point = max(1.0, min(min_font, 48.0))
-        self.max_font_point = max(self.min_font_point, min(max_font, 72.0))
-        self.title_bar_enabled = bool(data.get("title_bar_enabled", False))
-        try:
-            bar_height = int(data.get("title_bar_height", 0))
-        except (TypeError, ValueError):
-            bar_height = 0
-        self.title_bar_height = max(0, bar_height)
-        self.cycle_payload_ids = bool(data.get("cycle_payload_ids", False))
-        self.copy_payload_id_on_cycle = bool(data.get("copy_payload_id_on_cycle", False))
-        mode = str(data.get("scale_mode", "fit") or "fit").strip().lower()
-        self.scale_mode = mode if mode in {"fit", "fill"} else "fit"
-        self.nudge_overflow_payloads = bool(data.get("nudge_overflow_payloads", False))
-        try:
-            gutter = int(data.get("payload_nudge_gutter", 30))
-        except (TypeError, ValueError):
-            gutter = 30
-        self.payload_nudge_gutter = max(0, min(gutter, 500))
-        try:
-            status_gutter = int(data.get("status_message_gutter", STATUS_GUTTER_DEFAULT))
-        except (TypeError, ValueError):
-            status_gutter = STATUS_GUTTER_DEFAULT
+            data = json.loads(self._path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            _config_set_raw(CONFIG_VERSION_KEY, CONFIG_STATE_VERSION)
+            return
+        self._apply_raw_data(data)
+        self._persist_to_config()
+
+    def _load_from_config(self) -> None:
+        payload: Dict[str, Any] = {
+            "overlay_opacity": _config_get_raw(_config_key("overlay_opacity"), self.overlay_opacity),
+            "show_connection_status": _config_get_raw(_config_key("show_connection_status"), self.show_connection_status),
+            "debug_overlay_corner": _config_get_raw(_config_key("debug_overlay_corner"), self.debug_overlay_corner),
+            "client_log_retention": _config_get_raw(_config_key("client_log_retention"), self.client_log_retention),
+            "gridlines_enabled": _config_get_raw(_config_key("gridlines_enabled"), self.gridlines_enabled),
+            "gridline_spacing": _config_get_raw(_config_key("gridline_spacing"), self.gridline_spacing),
+            "force_render": _config_get_raw(_config_key("force_render"), self.force_render),
+            "allow_force_render_release": _config_get_raw(
+                _config_key("allow_force_render_release"),
+                self.allow_force_render_release,
+            ),
+            "force_xwayland": _config_get_raw(_config_key("force_xwayland"), self.force_xwayland),
+            "show_debug_overlay": _config_get_raw(_config_key("show_debug_overlay"), self.show_debug_overlay),
+            "min_font_point": _config_get_raw(_config_key("min_font_point"), self.min_font_point),
+            "max_font_point": _config_get_raw(_config_key("max_font_point"), self.max_font_point),
+            "title_bar_enabled": _config_get_raw(_config_key("title_bar_enabled"), self.title_bar_enabled),
+            "title_bar_height": _config_get_raw(_config_key("title_bar_height"), self.title_bar_height),
+            "cycle_payload_ids": _config_get_raw(_config_key("cycle_payload_ids"), self.cycle_payload_ids),
+            "copy_payload_id_on_cycle": _config_get_raw(
+                _config_key("copy_payload_id_on_cycle"),
+                self.copy_payload_id_on_cycle,
+            ),
+            "scale_mode": _config_get_raw(_config_key("scale_mode"), self.scale_mode),
+            "nudge_overflow_payloads": _config_get_raw(
+                _config_key("nudge_overflow_payloads"),
+                self.nudge_overflow_payloads,
+            ),
+            "payload_nudge_gutter": _config_get_raw(_config_key("payload_nudge_gutter"), self.payload_nudge_gutter),
+            "status_message_gutter": _config_get_raw(
+                _config_key("status_message_gutter"),
+                self.status_message_gutter,
+            ),
+            "log_payloads": _config_get_raw(_config_key("log_payloads"), self.log_payloads),
+            "payload_log_delay_seconds": _config_get_raw(
+                _config_key("payload_log_delay_seconds"),
+                self.payload_log_delay_seconds,
+            ),
+        }
+        self._apply_raw_data(payload)
+
+    def _apply_raw_data(self, data: Mapping[str, Any]) -> None:
+        self.overlay_opacity = _coerce_float(data.get("overlay_opacity"), self.overlay_opacity, minimum=0.0, maximum=1.0)
+        self.show_connection_status = _coerce_bool(data.get("show_connection_status"), self.show_connection_status)
+        self.debug_overlay_corner = _coerce_str(
+            data.get("debug_overlay_corner"),
+            self.debug_overlay_corner,
+            allowed={"NW", "NE", "SW", "SE"},
+            transform=str.upper,
+        )
+        self.client_log_retention = _coerce_int(
+            data.get("client_log_retention"),
+            self.client_log_retention,
+            minimum=1,
+        )
+        self.gridlines_enabled = _coerce_bool(data.get("gridlines_enabled"), self.gridlines_enabled)
+        self.gridline_spacing = _coerce_int(data.get("gridline_spacing"), self.gridline_spacing, minimum=10)
+        self.force_render = _coerce_bool(data.get("force_render"), self.force_render)
+        allow_raw = data.get(
+            "allow_force_render_release",
+            self.allow_force_render_release if "allow_force_render_release" in data else self.dev_mode,
+        )
+        self.allow_force_render_release = _coerce_bool(allow_raw, bool(self.dev_mode))
+        self.force_xwayland = _coerce_bool(data.get("force_xwayland"), self.force_xwayland)
+        self.show_debug_overlay = _coerce_bool(data.get("show_debug_overlay"), self.show_debug_overlay)
+        self.min_font_point = _coerce_float(data.get("min_font_point"), self.min_font_point, minimum=1.0, maximum=48.0)
+        self.max_font_point = _coerce_float(
+            data.get("max_font_point"), self.max_font_point, minimum=self.min_font_point, maximum=72.0
+        )
+        self.title_bar_enabled = _coerce_bool(data.get("title_bar_enabled"), self.title_bar_enabled)
+        self.title_bar_height = _coerce_int(data.get("title_bar_height"), self.title_bar_height, minimum=0)
+        self.cycle_payload_ids = _coerce_bool(data.get("cycle_payload_ids"), self.cycle_payload_ids)
+        self.copy_payload_id_on_cycle = _coerce_bool(data.get("copy_payload_id_on_cycle"), self.copy_payload_id_on_cycle)
+        self.scale_mode = _coerce_str(
+            data.get("scale_mode"),
+            self.scale_mode,
+            allowed={"fit", "fill"},
+            transform=str.lower,
+        )
+        self.nudge_overflow_payloads = _coerce_bool(data.get("nudge_overflow_payloads"), self.nudge_overflow_payloads)
+        self.payload_nudge_gutter = _coerce_int(
+            data.get("payload_nudge_gutter"),
+            self.payload_nudge_gutter,
+            minimum=0,
+            maximum=500,
+        )
+        status_default = data.get("status_message_gutter", self.status_message_gutter)
+        status_gutter = _coerce_int(status_default, self.status_message_gutter, minimum=0, maximum=STATUS_GUTTER_MAX)
         if "status_message_gutter" not in data:
             legacy_slots = int(bool(data.get("show_ed_bandwidth"))) + int(bool(data.get("show_ed_fps")))
             status_gutter = max(status_gutter, LEGACY_STATUS_SLOT_MARGIN * legacy_slots)
-        self.status_message_gutter = max(0, min(status_gutter, STATUS_GUTTER_MAX))
-        self.log_payloads = bool(data.get("log_payloads", self.log_payloads))
-        try:
-            delay_value = float(data.get("payload_log_delay_seconds", self.payload_log_delay_seconds))
-        except (TypeError, ValueError):
-            delay_value = self.payload_log_delay_seconds
-        self.payload_log_delay_seconds = max(0.0, delay_value)
+        self.status_message_gutter = status_gutter
+        self.log_payloads = _coerce_bool(data.get("log_payloads"), self.log_payloads)
+        self.payload_log_delay_seconds = _coerce_float(
+            data.get("payload_log_delay_seconds"),
+            self.payload_log_delay_seconds,
+            minimum=0.0,
+        )
 
     def save(self) -> None:
-        payload: Dict[str, Any] = {
+        if self._config_enabled:
+            self._persist_to_config()
+        self._write_shadow_file()
+
+    def _shadow_payload(self) -> Dict[str, Any]:
+        return {
             "overlay_opacity": float(self.overlay_opacity),
             "show_connection_status": bool(self.show_connection_status),
             "debug_overlay_corner": str(self.debug_overlay_corner or "NW"),
@@ -154,7 +326,44 @@ class Preferences:
             "log_payloads": bool(self.log_payloads),
             "payload_log_delay_seconds": float(self.payload_log_delay_seconds),
         }
+
+    def _write_shadow_file(self) -> None:
+        payload = self._shadow_payload()
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def _persist_to_config(self) -> None:
+        if not self._config_enabled:
+            return
+        _config_set_raw(_config_key("overlay_opacity"), float(self.overlay_opacity))
+        _config_set_raw(_config_key("show_connection_status"), bool(self.show_connection_status))
+        _config_set_raw(_config_key("debug_overlay_corner"), str(self.debug_overlay_corner or "NW"))
+        _config_set_raw(_config_key("client_log_retention"), int(self.client_log_retention))
+        _config_set_raw(_config_key("gridlines_enabled"), bool(self.gridlines_enabled))
+        _config_set_raw(_config_key("gridline_spacing"), int(self.gridline_spacing))
+        _config_set_raw(_config_key("force_render"), bool(self.force_render))
+        _config_set_raw(_config_key("allow_force_render_release"), bool(self.allow_force_render_release))
+        _config_set_raw(_config_key("force_xwayland"), bool(self.force_xwayland))
+        _config_set_raw(_config_key("show_debug_overlay"), bool(self.show_debug_overlay))
+        _config_set_raw(_config_key("min_font_point"), float(self.min_font_point))
+        _config_set_raw(_config_key("max_font_point"), float(self.max_font_point))
+        _config_set_raw(_config_key("title_bar_enabled"), bool(self.title_bar_enabled))
+        _config_set_raw(_config_key("title_bar_height"), int(self.title_bar_height))
+        _config_set_raw(_config_key("cycle_payload_ids"), bool(self.cycle_payload_ids))
+        _config_set_raw(_config_key("copy_payload_id_on_cycle"), bool(self.copy_payload_id_on_cycle))
+        _config_set_raw(_config_key("scale_mode"), str(self.scale_mode or "fit"))
+        _config_set_raw(_config_key("nudge_overflow_payloads"), bool(self.nudge_overflow_payloads))
+        _config_set_raw(_config_key("payload_nudge_gutter"), int(self.payload_nudge_gutter))
+        _config_set_raw(_config_key("status_message_gutter"), int(self.status_message_gutter))
+        _config_set_raw(_config_key("log_payloads"), bool(self.log_payloads))
+        _config_set_raw(_config_key("payload_log_delay_seconds"), float(self.payload_log_delay_seconds))
+        _config_set_raw(CONFIG_VERSION_KEY, CONFIG_STATE_VERSION)
+
+    def _ensure_state_version_mark(self) -> None:
+        if not self._config_enabled:
+            return
+        current_version = _coerce_int(_config_get_raw(CONFIG_VERSION_KEY, 0), 0)
+        if current_version < CONFIG_STATE_VERSION:
+            _config_set_raw(CONFIG_VERSION_KEY, CONFIG_STATE_VERSION)
 
     def disable_force_render_for_release(self) -> bool:
         """Ensure release builds cannot persist the developer-only override."""

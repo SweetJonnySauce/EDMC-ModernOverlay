@@ -1035,6 +1035,7 @@ class _PluginRuntime:
     def set_gridlines_enabled_preference(self, value: bool) -> None:
         self._preferences.gridlines_enabled = bool(value)
         LOGGER.debug("Overlay gridlines %s", "enabled" if self._preferences.gridlines_enabled else "disabled")
+        self._preferences.save()
         self._send_overlay_config()
 
     def set_gridline_spacing_preference(self, value: int) -> None:
@@ -1045,12 +1046,14 @@ class _PluginRuntime:
         spacing = max(10, spacing)
         self._preferences.gridline_spacing = spacing
         LOGGER.debug("Overlay gridline spacing set to %d px", spacing)
+        self._preferences.save()
         self._send_overlay_config()
 
     def set_payload_nudge_preference(self, value: bool) -> None:
         enabled = bool(value)
         self._preferences.nudge_overflow_payloads = enabled
         LOGGER.debug("Payload overflow nudging %s", "enabled" if enabled else "disabled")
+        self._preferences.save()
         self._send_overlay_config()
 
     def set_payload_nudge_gutter_preference(self, value: int) -> None:
@@ -1061,6 +1064,7 @@ class _PluginRuntime:
         gutter = max(0, min(gutter, 500))
         self._preferences.payload_nudge_gutter = gutter
         LOGGER.debug("Payload overflow gutter set to %d px", gutter)
+        self._preferences.save()
         self._send_overlay_config()
 
     def set_force_render_preference(self, value: bool) -> None:
@@ -1076,6 +1080,7 @@ class _PluginRuntime:
             "Overlay force-render %s",
             "enabled" if _is_force_render_enabled(self._preferences) else "disabled",
         )
+        self._preferences.save()
         self._send_overlay_config()
 
     def set_title_bar_compensation_preference(self, enabled: bool, height: int) -> None:
@@ -1091,11 +1096,13 @@ class _PluginRuntime:
             self._preferences.title_bar_enabled,
             self._preferences.title_bar_height,
         )
+        self._preferences.save()
         self._send_overlay_config()
 
     def set_debug_overlay_preference(self, value: bool) -> None:
         self._preferences.show_debug_overlay = bool(value)
         LOGGER.debug("Overlay debug overlay %s", "enabled" if self._preferences.show_debug_overlay else "disabled")
+        self._preferences.save()
         self._send_overlay_config()
 
     def set_payload_logging_preference(self, value: bool) -> None:
@@ -1277,6 +1284,7 @@ class _PluginRuntime:
                 self._preferences.max_font_point = minimum
             self._preferences.min_font_point = minimum
             LOGGER.debug("Overlay minimum font point set to %.1f", minimum)
+            self._preferences.save()
             self._send_overlay_config()
 
     def set_max_font_preference(self, value: float) -> None:
@@ -1288,6 +1296,7 @@ class _PluginRuntime:
         if maximum != self._preferences.max_font_point:
             self._preferences.max_font_point = maximum
             LOGGER.debug("Overlay maximum font point set to %.1f", maximum)
+            self._preferences.save()
             self._send_overlay_config()
 
     def _publish_external(self, payload: Mapping[str, Any]) -> bool:
