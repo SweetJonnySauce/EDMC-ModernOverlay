@@ -829,21 +829,6 @@ class AbsoluteXYWidget(tk.Frame):
             entry.bind("<Button-1>", lambda _e, f=field: self._handle_entry_click(f), add="+")
             entry.bind("<FocusIn>", lambda _e, f=field: self._handle_entry_focus_event(f), add="+")
             entry.bind("<FocusOut>", lambda _e, f=field: self._emit_change(f), add="+")
-            entry.bind("<Return>", lambda _e, f=field: self._handle_entry_tab(f, reverse=False), add="+")
-            entry.bind("<KP_Enter>", lambda _e, f=field: self._handle_entry_tab(f, reverse=False), add="+")
-            entry.bind(
-                "<Tab>", lambda _e, f=field: self._handle_entry_tab(f, reverse=False), add="+"
-            )
-            entry.bind(
-                "<ISO_Left_Tab>",
-                lambda _e, f=field: self._handle_entry_tab(f, reverse=True),
-                add="+",
-            )
-            entry.bind(
-                "<Shift-Tab>",
-                lambda _e, f=field: self._handle_entry_tab(f, reverse=True),
-                add="+",
-            )
 
     def set_focus_request_callback(self, callback: callable | None) -> None:
         """Register a callback that requests host focus when a control is clicked."""
@@ -885,18 +870,26 @@ class AbsoluteXYWidget(tk.Frame):
         except Exception:
             pass
 
-    def _handle_entry_tab(self, field: str, reverse: bool) -> str:
-        order = ["x", "y"]
-        if reverse:
-            order = list(reversed(order))
-        try:
-            current_index = order.index(field)
-        except ValueError:
+    def focus_next_field(self, _event: object | None = None) -> str:
+        if not self._enabled:
             return "break"
-        self._emit_change(field)
-        next_index = (current_index + 1) % len(order)
-        self._focus_field(order[next_index])
+        current = self._active_field
+        self._emit_change(current)
+        next_field = "y" if current == "x" else "x"
+        self._focus_field(next_field)
         return "break"
+
+    def focus_previous_field(self, _event: object | None = None) -> str:
+        if not self._enabled:
+            return "break"
+        current = self._active_field
+        self._emit_change(current)
+        prev_field = "x" if current == "y" else "y"
+        self._focus_field(prev_field)
+        return "break"
+
+    def get_binding_targets(self) -> list[tk.Widget]:  # type: ignore[name-defined]
+        return [self._entries["x"], self._entries["y"]]
 
     def _handle_entry_click(self, field: str) -> str:
         if not self._enabled:
@@ -1012,20 +1005,11 @@ class AbsoluteXYWidget(tk.Frame):
         key = keysym.lower()
         if not self._enabled:
             return False
-        if key in {"tab", "return", "kp_enter"}:
-            current = self._active_field
-            self._emit_change(current)
-            self._focus_field("y" if current == "x" else "x")
+        if key in {"tab", "return", "kp_enter", "down"}:
+            self.focus_next_field()
             return True
-        if key in {"shift_l", "shift_r"}:
-            return False
-        if key == "down" and self._active_field == "x":
-            self._emit_change("x")
-            self._focus_field("y")
-            return True
-        if key == "up" and self._active_field == "y":
-            self._emit_change("y")
-            self._focus_field("x")
+        if key in {"iso_left_tab", "shift-tab", "up"}:
+            self.focus_previous_field()
             return True
         return False
 
@@ -1151,6 +1135,7 @@ class OverlayConfigApp(tk.Tk):
         self._binding_manager.register_action("widget_activate", self._handle_return_key)
         self._binding_manager.register_action("exit_focus", self.exit_focus_mode)
         self._binding_manager.register_action("close_app", self.close_application)
+        self._register_widget_specific_bindings()
         self._binding_manager.activate()
         self.bind("<Configure>", self._handle_configure)
         self.bind("<FocusIn>", self._handle_focus_in)
@@ -1172,6 +1157,21 @@ class OverlayConfigApp(tk.Tk):
         frame_width = target_inner_width + (self.preview_canvas_padding * 2) + horizontal_slack
         column_width = frame_width + (self.placement_overlay_padding * 2)
         return int(ceil(column_width))
+
+    def _register_widget_specific_bindings(self) -> None:
+        absolute_widget = getattr(self, "absolute_widget", None)
+        if absolute_widget is not None:
+            targets = absolute_widget.get_binding_targets()
+            self._binding_manager.register_action(
+                "absolute_focus_next",
+                absolute_widget.focus_next_field,
+                widgets=targets,
+            )
+            self._binding_manager.register_action(
+                "absolute_focus_prev",
+                absolute_widget.focus_previous_field,
+                widgets=targets,
+            )
 
     def report_callback_exception(self, exc, val, tb) -> None:  # type: ignore[override]
         """Ensure Tk errors are printed to stderr instead of being swallowed."""

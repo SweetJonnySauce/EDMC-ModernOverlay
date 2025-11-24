@@ -34,6 +34,8 @@ DEFAULT_CONFIG = {
         "enter_focus": ["<space>"],
         "widget_activate": ["<Return>"],
         "exit_focus": ["<Control-w>", "<Escape>"],
+        "absolute_focus_next": ["<Tab>", "<Return>", "<KP_Enter>", "<Down>"],
+        "absolute_focus_prev": ["<Shift-Tab>", "<ISO_Left_Tab>", "<Up>"],
     },
 }
     },
