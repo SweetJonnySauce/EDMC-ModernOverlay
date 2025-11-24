@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from overlay_client import OverlayWindow
 
 
-_LOG_DIR_NAME = "EDMC-ModernOverlay"
+_LOG_DIR_NAME = "EDMCModernOverlay"
 _LOG_FILE_NAME = "overlay-client.log"
 _MAX_LOG_BYTES = 512 * 1024
 

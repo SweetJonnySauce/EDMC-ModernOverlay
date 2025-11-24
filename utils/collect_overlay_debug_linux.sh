@@ -225,7 +225,7 @@ done
 SCRIPT_PATH="$(resolve_realpath "${BASH_SOURCE[0]}")" || fail "unable to resolve script path."
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)" || fail "unable to determine script directory."
 DETECTED_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)" || fail "unable to determine plugin root."
-DEFAULT_PLUGIN_ROOT="${HOME}/.local/share/EDMarketConnector/plugins/EDMC-ModernOverlay"
+DEFAULT_PLUGIN_ROOT="${HOME}/.local/share/EDMarketConnector/plugins/EDMCModernOverlay"
 ROOT_DIR="$(confirm_plugin_root "$DETECTED_ROOT" "$DEFAULT_PLUGIN_ROOT")" || fail "unable to confirm plugin root."
 plugin_root_is_valid "$ROOT_DIR" || fail "unable to locate a valid EDMC Modern Overlay installation."
 OVERLAY_CLIENT_DIR="${ROOT_DIR}/overlay-client"
@@ -515,17 +515,17 @@ PY
 
 gather_overlay_log_candidates() {
     local search_roots=(
-        "${OVERLAY_CLIENT_DIR}/logs/EDMC-ModernOverlay"
-        "${ROOT_DIR}/logs/EDMC-ModernOverlay"
+        "${OVERLAY_CLIENT_DIR}/logs/EDMCModernOverlay"
+        "${ROOT_DIR}/logs/EDMCModernOverlay"
     )
     local parent_logs=""
     if parent_logs=$(cd "${ROOT_DIR}/../.." 2>/dev/null && pwd); then
-        search_roots+=("${parent_logs}/logs/EDMC-ModernOverlay")
+        search_roots+=("${parent_logs}/logs/EDMCModernOverlay")
     fi
     search_roots+=(
-        "${ROOT_DIR%/*}/logs/EDMC-ModernOverlay"
-        "${HOME}/EDMC-ModernOverlay"
-        "${HOME}/EDMarketConnector/logs/EDMC-ModernOverlay"
+        "${ROOT_DIR%/*}/logs/EDMCModernOverlay"
+        "${HOME}/EDMCModernOverlay"
+        "${HOME}/EDMarketConnector/logs/EDMCModernOverlay"
     )
 
     shopt -s nullglob

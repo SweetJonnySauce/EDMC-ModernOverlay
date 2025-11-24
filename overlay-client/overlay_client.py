@@ -1818,7 +1818,7 @@ class OverlayWindow(QWidget):
             "y": y_pos,
             "ttl": 0,
             "size": "normal",
-            "plugin": "EDMC-ModernOverlay",
+            "plugin": "EDMCModernOverlay",
         }
         _CLIENT_LOGGER.debug(
             "Legacy status message dispatched: text='%s' ttl=%s x=%s y=%s",
@@ -1835,7 +1835,7 @@ class OverlayWindow(QWidget):
             "id": "__status_banner__",
             "text": "",
             "ttl": 0,
-            "plugin": "EDMC-ModernOverlay",
+            "plugin": "EDMCModernOverlay",
         }
         self.handle_legacy_payload(payload)
 

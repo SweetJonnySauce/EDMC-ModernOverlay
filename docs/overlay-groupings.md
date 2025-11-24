@@ -265,4 +265,4 @@ The full Plugin Group Manager remains available for exploratory work:
 | Override parser | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_override_grouping.py` | Ensures `overlay_groupings.json` is parsed into runtime grouping metadata correctly (matching, anchors, grouping keys). |
 | Manual sanity | `python3 utils/plugin_group_manager.py` | Exercise the UI, verify anchors/bounds, and ensure new groups behave correctly with live payloads. |
 
-Before shipping new prefixes, capture representative payloads (in DEV MODE from the EDMC Logs directory `cat ./EDMC-ModernOverlay/overlay-payloads.log | grep 'mypluginspec' > mypluginspec.log` and test with `tests/send_overlay_from_log.py`) to verify that Fill mode keeps the new groups rigid. 
+Before shipping new prefixes, capture representative payloads (in DEV MODE from the EDMC Logs directory `cat ./EDMCModernOverlay/overlay-payloads.log | grep 'mypluginspec' > mypluginspec.log` and test with `tests/send_overlay_from_log.py`) to verify that Fill mode keeps the new groups rigid. 

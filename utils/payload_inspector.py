@@ -33,7 +33,7 @@ LOG = logging.getLogger("payload-inspector")
 LOG.addHandler(logging.NullHandler())
 
 GROUPINGS_PATH = ROOT_DIR / "overlay_groupings.json"
-PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
+PAYLOAD_LOG_DIR_NAME = "EDMCModernOverlay"
 PAYLOAD_LOG_BASENAMES = ("overlay-payloads.log", "overlay_payloads.log")
 MAX_ROWS = 500
 CONFIG_DIR = Path.home() / ".config" / "edmc_modern_overlay"

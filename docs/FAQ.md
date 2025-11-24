@@ -3,7 +3,7 @@
 ## How is the Project Laid Out?
 
 ```
-EDMC-ModernOverlay/
+EDMCModernOverlay/
 ├── README.md                       # Install & usage guide
 ├── docs/
 │   ├── FAQ.md                      # Expanded setup and troubleshooting notes
@@ -90,8 +90,8 @@ These options avoid permanently lowering your global execution-policy settings.
 
 Run these checks after the installer finishes (replace paths if you customised the plugin directory):
 
-- `Test-Path "$env:LOCALAPPDATA\EDMarketConnector\plugins\EDMC-ModernOverlay\overlay-client\.venv\Scripts\python.exe"`
-- `Get-Content "$env:LOCALAPPDATA\EDMarketConnector\plugins\EDMC-ModernOverlay\port.json"` while EDMC is running the plugin.
+- `Test-Path "$env:LOCALAPPDATA\EDMarketConnector\plugins\EDMCModernOverlay\overlay-client\.venv\Scripts\python.exe"`
+- `Get-Content "$env:LOCALAPPDATA\EDMarketConnector\plugins\EDMCModernOverlay\port.json"` while EDMC is running the plugin.
 
 ## How does the overlay client pick up changes to preferences set in EDMC?
 
@@ -121,7 +121,7 @@ Modern Overlay now ships with compositor-aware helpers and multiple fallbacks. T
 
 - **wlroots compositors (Sway, Wayfire, Hyprland):** Install `pywayland>=0.4.15` inside `overlay-client/.venv` and ensure `swaymsg`/`hyprctl` are available on `PATH`. The client requests a layer-shell surface so the HUD stays above fullscreen apps and uses compositor-side input suppression.
   ```bash
-  cd /path/to/EDMC-ModernOverlay
+  cd /path/to/EDMCModernOverlay
   source overlay-client/.venv/bin/activate
   pip install pywayland
   # swaymsg/hyprctl live under /usr/bin after installing sway or hyprland.
@@ -133,7 +133,7 @@ Modern Overlay now ships with compositor-aware helpers and multiple fallbacks. T
   ```
 - **KDE Plasma (KWin):** Install `pydbus>=0.6.0` in the client venv so the overlay can talk to KWin’s DBus scripting API when toggling click-through behaviour.
   ```bash
-  cd /path/to/EDMC-ModernOverlay
+  cd /path/to/EDMCModernOverlay
   source overlay-client/.venv/bin/activate
   pip install pydbus
   ```

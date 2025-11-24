@@ -10,6 +10,8 @@ readonly SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 readonly MATRIX_FILE="${SCRIPT_DIR}/install_matrix.json"
 readonly EUROCAPS_FONT_URL="https://raw.githubusercontent.com/inorton/EDMCOverlay/master/EDMCOverlay/EDMCOverlay/EUROCAPS.TTF"
 readonly EUROCAPS_FONT_NAME="Eurocaps.ttf"
+readonly MODERN_PLUGIN_DIR_NAME="EDMCModernOverlay"
+readonly LEGACY_PLUGIN_DIR_NAME="EDMC-ModernOverlay"
 
 ASSUME_YES=false
 DRY_RUN=false
@@ -142,6 +144,16 @@ format_list_or_none() {
     fi
     local IFS=' '
     printf '%s' "$*"
+}
+
+print_breaking_change_warning() {
+    cat <<'EOF'
+⚠️  Breaking upgrade notice
+    Modern Overlay now installs under the 'EDMCModernOverlay' directory. Any existing
+    'EDMC-ModernOverlay' folder will be renamed to 'EDMC-ModernOverlay.disabled',
+    'EDMC-ModernOverlay.disabled.1', etc., before the new version is copied. Settings
+    are not migrated automatically. Re-enable the previous plugin manually if needed.
+EOF
 }
 
 matrix_helper() {
@@ -762,12 +774,12 @@ maybe_install_eurocaps() {
 }
 
 find_release_root() {
-    if [[ -d "${SCRIPT_DIR}/EDMC-ModernOverlay" ]]; then
+    if [[ -d "${SCRIPT_DIR}/${MODERN_PLUGIN_DIR_NAME}" ]]; then
         RELEASE_ROOT="${SCRIPT_DIR}"
-    elif [[ -d "${SCRIPT_DIR}/../EDMC-ModernOverlay" ]]; then
+    elif [[ -d "${SCRIPT_DIR}/../${MODERN_PLUGIN_DIR_NAME}" ]]; then
         RELEASE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
     else
-        echo "❌ Could not find EDMC-ModernOverlay directory alongside install script." >&2
+        echo "❌ Could not find ${MODERN_PLUGIN_DIR_NAME} directory alongside install script." >&2
         exit 1
     fi
 }
@@ -1064,6 +1076,38 @@ disable_conflicting_plugins() {
     fi
 }
 
+disable_legacy_modern_overlay() {
+    if [[ -z "${PLUGIN_DIR:-}" ]]; then
+        echo "❌ Plugin directory is not set. Run detect_plugins_dir first." >&2
+        exit 1
+    fi
+    local legacy_path="${PLUGIN_DIR}/${LEGACY_PLUGIN_DIR_NAME}"
+    if [[ ! -d "$legacy_path" ]]; then
+        return
+    fi
+    echo "⚠️  Found existing ${LEGACY_PLUGIN_DIR_NAME} installation."
+    echo "    It will be disabled before installing ${MODERN_PLUGIN_DIR_NAME}."
+    local suffix=0
+    local target
+    while :; do
+        if (( suffix == 0 )); then
+            target="${legacy_path}.disabled"
+        else
+            target="${legacy_path}.disabled.${suffix}"
+        fi
+        if [[ ! -e "$target" ]]; then
+            break
+        fi
+        ((suffix++))
+    done
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "📝 [dry-run] Would rename '$(basename "$legacy_path")' to '$(basename "$target")'."
+    else
+        mv "$legacy_path" "$target"
+        echo "   - Legacy plugin renamed to '$(basename "$target")'."
+    fi
+}
+
 ensure_system_packages() {
     ensure_distro_profile
     local session_stack
@@ -1256,6 +1300,7 @@ main() {
     find_release_root
     require_command python3 "python3"
     init_logging
+    print_breaking_change_warning
     if ((${#ORIGINAL_ARGS[@]} > 0)); then
         log_verbose "Command-line arguments: $(format_list_or_none "${ORIGINAL_ARGS[@]}")"
     else
@@ -1272,14 +1317,15 @@ main() {
     log_verbose "Confirmed EDMarketConnector is not running."
     ensure_system_packages
     disable_conflicting_plugins
+    disable_legacy_modern_overlay
 
-    local src_dir="${RELEASE_ROOT}/EDMC-ModernOverlay"
+    local src_dir="${RELEASE_ROOT}/${MODERN_PLUGIN_DIR_NAME}"
     if [[ ! -d "$src_dir" ]]; then
         echo "❌ Source directory '$src_dir' not found. Aborting." >&2
         exit 1
     fi
 
-    local dest_dir="${PLUGIN_DIR}/EDMC-ModernOverlay"
+    local dest_dir="${PLUGIN_DIR}/${MODERN_PLUGIN_DIR_NAME}"
 
     if [[ ! -d "$dest_dir" ]]; then
         copy_initial_install "$src_dir" "$PLUGIN_DIR"

@@ -126,7 +126,7 @@ function Write-EmbeddedInstaller {
     Set-Content -LiteralPath $DestinationScript -Value $updatedContent -Encoding UTF8
 }
 
-$payloadDestination = Join-Path $resolvedStaging 'EDMC-ModernOverlay'
+$payloadDestination = Join-Path $resolvedStaging 'EDMCModernOverlay'
 
 if ($resolvedSource) {
     if (Test-Path -LiteralPath $payloadDestination) {

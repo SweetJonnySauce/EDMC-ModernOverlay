@@ -1,9 +1,11 @@
 # EDMC Modern Overlay (beta)
 [![Github All Releases](https://img.shields.io/github/downloads/SweetJonnySauce/EDMC-ModernOverlay/total.svg)](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest)
 
-EDMC-ModernOverlay is a drop-in replacement for [EDMCOverlay](https://github.com/inorton/EDMCOverlay) and [edmcoverlay2](https://github.com/pan-mroku/edmcoverlay2). It is a cross-platform (Windows and Linux), two-part implementation (plugin and overlay-client) for Elite Dangerous Market Connector ([EDMC](https://github.com/EDCD/EDMarketConnector)). It streams data from EDMC plugins over a lightweight TCP socket and displays a transparent, click-through PyQt6 heads-up display on the Elite Dangrous game. It runs in both fullscreen borderless and windowed mode on any dispaly size. The [plugin releases](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest) ship with both Windows and Linux installers.
+EDMC Modern Overlay (packaged as `EDMCModernOverlay`) is a drop-in replacement for [EDMCOverlay](https://github.com/inorton/EDMCOverlay) and [edmcoverlay2](https://github.com/pan-mroku/edmcoverlay2). It is a cross-platform (Windows and Linux), two-part implementation (plugin and overlay-client) for Elite Dangerous Market Connector ([EDMC](https://github.com/EDCD/EDMarketConnector)). It streams data from EDMC plugins over a lightweight TCP socket and displays a transparent, click-through PyQt6 heads-up display on the Elite Dangerous game. It runs in both fullscreen borderless and windowed mode on any display size. The [plugin releases](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest) ship with both Windows and Linux installers.
 
-Plugin authors can leverage EDMC-ModernOverlay's flexible payload grouping system to precisely control where their overlays appear. By specifying properties like `anchor`, `justify`, and explicit `x`/`y` coordinates in their group definitions, authors can define the placement, alignment, and justification of HUD elements relative to any corner, side, or the center of the screen. The overlay interprets these fields to allow left, right, and center justification, vertical/horizontal anchoring, as well as pixel or percentage-based coordinates for fine-grained positioning—enabling complex, fully-customized HUD layouts for different use cases.
+Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping system to precisely control where their overlays appear. By specifying properties like `anchor`, `justify`, and explicit `x`/`y` coordinates in their group definitions, authors can define the placement, alignment, and justification of HUD elements relative to any corner, side, or the center of the screen. The overlay interprets these fields to allow left, right, and center justification, vertical/horizontal anchoring, as well as pixel or percentage-based coordinates for fine-grained positioning—enabling complex, fully-customized HUD layouts for different use cases.
+
+> ⚠️ **Breaking upgrade notice:** Modern Overlay now installs into the `EDMCModernOverlay/` directory. Running the installer will disable any existing `EDMC-ModernOverlay/` folder by renaming it to `EDMC-ModernOverlay.disabled`, `EDMC-ModernOverlay.disabled.1`, etc. Settings are **not** migrated automatically; keep the disabled folder if you need to roll back.
 
 <img width="1957" height="1260" alt="image" src="https://github.com/user-attachments/assets/f17a2a83-1e5c-4556-af65-1053dba38cff" />
 
@@ -27,12 +29,12 @@ Plugin authors can leverage EDMC-ModernOverlay's flexible payload grouping syste
 
 ## Installation
 - Grab the latest OS-specific release asset from [GitHub Releases](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest):
-  - Windows (PowerShell script bundle): `EDMC-ModernOverlay-windows_powershell-<version>.zip` – includes `EDMC-ModernOverlay/` plus `install_windows.ps1` so you can inspect and run the script directly. Extract the files and run `install_windows.ps1` in Powershell
-  - Windows (standalone EXE): `EDMC-ModernOverlay-windows-<version>.exe`. Download the exe and run it. You will need to accept the "Microsoft Defender SmartScreen prevented an unrecognized app from starting." warning when installing by clicking on "More info..."
-  - Linux (distro aware): `EDMC-ModernOverlay-linux-<version>.tar.gz` – includes `EDMC-ModernOverlay/`, `install_linux.sh`, and the distro manifest `install_matrix.json`. Extract the archive and run `install_linux.sh` from the terminal
+  - Windows (PowerShell script bundle): `EDMCModernOverlay-windows_powershell-<version>.zip` – includes `EDMCModernOverlay/` plus `install_windows.ps1` so you can inspect and run the script directly. Extract the files and run `install_windows.ps1` in PowerShell.
+  - Windows (standalone EXE): `EDMCModernOverlay-windows-<version>.exe`. Download the EXE and run it. You will need to accept the "Microsoft Defender SmartScreen prevented an unrecognized app from starting." warning when installing by clicking on "More info..."
+  - Linux (distro aware): `EDMCModernOverlay-linux-<version>.tar.gz` – includes `EDMCModernOverlay/`, `install_linux.sh`, and the distro manifest `install_matrix.json`. Extract the archive and run `install_linux.sh` from the terminal.
 
 ## Upgrades
-- Grab the latest OS-speific release asset from [GitHub Releases](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest) and re-run the install script (or double click on the exe file). The install file will walk you through the upgrade options.
+- Grab the latest OS-specific release asset from [GitHub Releases](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest) and re-run the install script (or double click on the EXE file). The installer disables the old `EDMC-ModernOverlay` directory and deploys a fresh `EDMCModernOverlay` folder with no automatic settings migration.
 
 ## Installation Notes
 - **Python Environment:** All installations require the overlay-client to have its own python environment. This is required for PyQt support. The installations will automatically build the environment for you. In the case of upgrades, you can chose rebuild the python environment or skip it.
@@ -73,11 +75,11 @@ Plugin authors can leverage EDMC-ModernOverlay's flexible payload grouping syste
 - Public helper API (`overlay_plugin.overlay_api.send_overlay_message`) that validates and forwards payloads from other plugins.
 - Drop-in `edmcoverlay` compatibility module for legacy callers.
 
-# Using EDMC-ModernOverlay
+# Using EDMC Modern Overlay
 
 ## Everyday workflow
-1. **Enable the plugin in EDMC.** Install the plugin and resstart EDMC. In EDMC, open `File → Settings → Plugins`, and navigate to `EDMC-ModernOverlay` for user settings
-2. **Configure the HUD from EDMC.** Go to `File → Settings → EDMC-ModernOverlay` and adjust:
+1. **Enable the plugin in EDMC.** Install the plugin and restart EDMC. In EDMC, open `File → Settings → Plugins`, and navigate to `EDMCModernOverlay` for user settings.
+2. **Configure the HUD from EDMC.** Go to `File → Settings → EDMCModernOverlay` and adjust:
    - Scaling (`Fit` keeps the original aspect ratio, `Fill` stretches groups proportionally).
    - Whether to show the connection status banner in lower left hand corner plus its gutter/margin in pixels.
    - Debug overlay metrics and the corner they appear in.

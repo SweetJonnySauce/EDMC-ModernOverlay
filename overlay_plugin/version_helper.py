@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 LATEST_RELEASE_API = "https://api.github.com/repos/SweetJonnySauce/EDMC-ModernOverlay/releases/latest"
-_DEFAULT_USER_AGENT = "EDMC-ModernOverlay/version-check"
+_DEFAULT_USER_AGENT = "EDMCModernOverlay/version-check"
 _TOKEN_SPLIT = re.compile(r"[.\-+_]")
 
 try:  # Optional dependency; fall back to lightweight comparator when unavailable.

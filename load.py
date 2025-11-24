@@ -52,16 +52,16 @@ else:  # pragma: no cover - EDMC loads as top-level module
     from overlay_plugin.journal_commands import build_command_helper
     from EDMCOverlay.edmcoverlay import normalise_legacy_payload
 
-PLUGIN_NAME = "EDMC-ModernOverlay"
+PLUGIN_NAME = "EDMCModernOverlay"
 PLUGIN_VERSION = MODERN_OVERLAY_VERSION
 DEV_BUILD = is_dev_build(MODERN_OVERLAY_VERSION)
 LOGGER_NAME = "EDMC.ModernOverlay"
-LOG_TAG = "EDMC-ModernOverlay"
+LOG_TAG = PLUGIN_NAME
 
 DEFAULT_WINDOW_BASE_WIDTH = 1280
 DEFAULT_WINDOW_BASE_HEIGHT = 960
 
-VERSION_UPDATE_NOTICE_TEXT = "A newer version of EDMC-ModernOverlay is available"
+VERSION_UPDATE_NOTICE_TEXT = "A newer version of EDMC Modern Overlay is available"
 VERSION_UPDATE_NOTICE_COLOR = "#ff3333"
 VERSION_UPDATE_NOTICE_TTL = 10
 VERSION_UPDATE_NOTICE_POSITION_X = 20
@@ -217,7 +217,7 @@ if DEV_BUILD:
     )
 PAYLOAD_LOGGER_NAME = f"{LOGGER_NAME}.payloads"
 PAYLOAD_LOG_FILE_NAME = "overlay-payloads.log"
-PAYLOAD_LOG_DIR_NAME = "EDMC-ModernOverlay"
+PAYLOAD_LOG_DIR_NAME = PLUGIN_NAME
 PAYLOAD_LOG_MAX_BYTES = 512 * 1024
 DEFAULT_CLIENT_LOG_RETENTION = 5
 CLIENT_LOG_RETENTION_MIN = 1
@@ -816,7 +816,7 @@ class _PluginRuntime:
         python_command = self._locate_overlay_python(launch_env)
         if python_command is None:
             _log(
-                "Overlay client environment not found. Create overlay-client/.venv (or set EDMC_OVERLAY_PYTHON) and restart EDMC-ModernOverlay."
+                "Overlay client environment not found. Create overlay-client/.venv (or set EDMC_OVERLAY_PYTHON) and restart EDMC Modern Overlay."
             )
             LOGGER.error(
                 "Overlay launch aborted: no overlay Python interpreter available under overlay-client/.venv or EDMC_OVERLAY_PYTHON."

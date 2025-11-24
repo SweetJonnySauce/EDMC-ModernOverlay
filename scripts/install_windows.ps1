@@ -8,9 +8,10 @@ The script mirrors the workflow used by install_linux.sh:
 1. Detect (or prompt for) the EDMC plugins directory.
 2. Ensure EDMarketConnector is not running.
 3. Disable legacy EDMCOverlay plugins.
-4. Copy the EDMC-ModernOverlay payload alongside this script into the plugins directory.
-5. Create overlay-client\.venv (or reuse an existing one) and install requirements.
-6. Optionally download the Eurocaps font for the authentic Elite Dangerous HUD look.
+4. Disable any existing EDMC-ModernOverlay installation by renaming it to EDMC-ModernOverlay.disabled (or .disabled.N).
+5. Copy the EDMCModernOverlay payload alongside this script into the plugins directory.
+6. Create overlay-client\.venv (or reuse an existing one) and install requirements.
+7. Optionally download the Eurocaps font for the authentic Elite Dangerous HUD look.
 
 .PARAMETER PluginDir
 Overrides the detected EDMarketConnector plugins directory.
@@ -93,6 +94,14 @@ $PayloadDir = $null
 $PythonSpec = $null
 $FontUrl = 'https://raw.githubusercontent.com/inorton/EDMCOverlay/master/EDMCOverlay/EDMCOverlay/EUROCAPS.TTF'
 $FontName = 'Eurocaps.ttf'
+$ModernPluginDirName = 'EDMCModernOverlay'
+$LegacyPluginDirName = 'EDMC-ModernOverlay'
+
+function Show-BreakingChangeWarning {
+    Write-Warn 'Breaking upgrade notice: Modern Overlay now installs under the EDMCModernOverlay directory.'
+    Write-Warn "Any existing $LegacyPluginDirName folder will be renamed to $LegacyPluginDirName.disabled (or .disabled.N) before installation."
+    Write-Warn 'Settings are not migrated automatically; re-enable the prior plugin manually if needed.'
+}
 
 function Write-Info {
     param([string]$Message)
@@ -203,12 +212,12 @@ function Initialize-EmbeddedPayload {
     $archivePath = Join-Path $tempRoot 'payload.zip'
     Write-Info "Extracting embedded payload to '$tempRoot'."
     [IO.File]::WriteAllBytes($archivePath, [Convert]::FromBase64String($EmbeddedPayloadBase64))
-    Expand-ArchiveWithFallback -LiteralPath $archivePath -DestinationPath $tempRoot -ExpectedRoot 'EDMC-ModernOverlay'
+    Expand-ArchiveWithFallback -LiteralPath $archivePath -DestinationPath $tempRoot -ExpectedRoot $ModernPluginDirName
     Remove-Item -LiteralPath $archivePath -Force
 
-    $expectedDir = Join-Path $tempRoot 'EDMC-ModernOverlay'
+    $expectedDir = Join-Path $tempRoot $ModernPluginDirName
     if (-not (Test-Path -LiteralPath $expectedDir)) {
-        Fail-Install "Embedded payload missing 'EDMC-ModernOverlay' directory."
+        Fail-Install "Embedded payload missing '$ModernPluginDirName' directory."
     }
 
     $script:EmbeddedPayloadTempRoot = $tempRoot
@@ -319,24 +328,24 @@ function Ensure-Directory {
 
 function Find-ReleaseRoot {
     if ($EmbeddedPayloadTempRoot) {
-        $payloadPath = Join-Path $EmbeddedPayloadTempRoot 'EDMC-ModernOverlay'
+        $payloadPath = Join-Path $EmbeddedPayloadTempRoot $ModernPluginDirName
         if (Test-Path -LiteralPath $payloadPath) {
             return (Get-Item -LiteralPath $EmbeddedPayloadTempRoot).FullName
         }
         Write-Warn "Embedded payload directory missing expected content, falling back to disk-based payload."
     }
 
-    if (Test-Path -LiteralPath (Join-Path $ScriptDir 'EDMC-ModernOverlay')) {
+    if (Test-Path -LiteralPath (Join-Path $ScriptDir $ModernPluginDirName)) {
         return (Get-Item -LiteralPath $ScriptDir).FullName
     }
 
     $parent = Split-Path -Parent $ScriptDir
     if (-not [string]::IsNullOrWhiteSpace($parent) -and
-        (Test-Path -LiteralPath (Join-Path $parent 'EDMC-ModernOverlay'))) {
+        (Test-Path -LiteralPath (Join-Path $parent $ModernPluginDirName))) {
         return (Get-Item -LiteralPath $parent).FullName
     }
 
-    Fail-Install "Could not find 'EDMC-ModernOverlay' directory alongside install_windows.ps1."
+    Fail-Install "Could not find '$ModernPluginDirName' directory alongside install_windows.ps1."
 }
 
 function Get-DefaultPluginRoot {
@@ -445,7 +454,7 @@ function Disable-ConflictingPlugins {
     param([string]$PluginRoot)
 
     $conflicts = Get-ChildItem -Path $PluginRoot -Directory -ErrorAction SilentlyContinue | Where-Object {
-        $_.Name -like 'EDMCOverlay*' -and $_.Name -notmatch '\.disabled$' -and $_.Name -notlike 'EDMC-ModernOverlay*'
+        $_.Name -like 'EDMCOverlay*' -and $_.Name -notmatch '\.disabled$' -and $_.Name -notlike ("$ModernPluginDirName*")
     }
 
     if (-not $conflicts) {
@@ -472,6 +481,35 @@ function Disable-ConflictingPlugins {
         Rename-Item -LiteralPath $item.FullName -NewName ("$($item.Name).disabled")
         Write-Info "Disabled legacy plugin '$($item.Name)'."
     }
+}
+
+function Disable-LegacyModernOverlay {
+    param([string]$PluginRoot)
+
+    $legacyPath = Join-Path $PluginRoot $LegacyPluginDirName
+    if (-not (Test-Path -LiteralPath $legacyPath)) {
+        return
+    }
+
+    Write-Warn "Existing $LegacyPluginDirName installation detected. It will be disabled before deploying $ModernPluginDirName."
+    $suffix = 0
+    do {
+        if ($suffix -eq 0) {
+            $targetPath = "$legacyPath.disabled"
+        } else {
+            $targetPath = "$legacyPath.disabled.$suffix"
+        }
+        $suffix++
+    } while (Test-Path -LiteralPath $targetPath)
+
+    if ($DryRun) {
+        Write-Info "[dry-run] Would rename '$legacyPath' to '$targetPath'."
+        return
+    }
+
+    $targetName = Split-Path -Path $targetPath -Leaf
+    Rename-Item -LiteralPath $legacyPath -NewName $targetName
+    Write-Info "Legacy Modern Overlay disabled (moved to '$targetName')."
 }
 
 function Invoke-Python {
@@ -543,7 +581,7 @@ function Copy-InitialInstall {
         [string]$PluginRoot
     )
 
-    $dest = Join-Path $PluginRoot 'EDMC-ModernOverlay'
+    $dest = Join-Path $PluginRoot $ModernPluginDirName
     Write-Info "Copying Modern Overlay into '$PluginRoot'."
     if ($DryRun) {
         Write-Info "[dry-run] Would copy '$SourceDir' to '$dest'."
@@ -729,7 +767,8 @@ function Final-Notes {
 
 function Main {
     $script:ReleaseRoot = Find-ReleaseRoot
-    $script:PayloadDir = Join-Path $ReleaseRoot 'EDMC-ModernOverlay'
+    Show-BreakingChangeWarning
+    $script:PayloadDir = Join-Path $ReleaseRoot $ModernPluginDirName
     if (-not (Test-Path -LiteralPath $PayloadDir)) {
         Fail-Install "Source payload '$PayloadDir' not found."
     }
@@ -741,8 +780,9 @@ function Main {
 
     Ensure-EdmcNotRunning
     Disable-ConflictingPlugins -PluginRoot $pluginsRoot
+    Disable-LegacyModernOverlay -PluginRoot $pluginsRoot
 
-    $installDir = Join-Path $pluginsRoot 'EDMC-ModernOverlay'
+    $installDir = Join-Path $pluginsRoot $ModernPluginDirName
 
     if (-not (Test-Path -LiteralPath $installDir)) {
         Copy-InitialInstall -SourceDir $PayloadDir -PluginRoot $pluginsRoot

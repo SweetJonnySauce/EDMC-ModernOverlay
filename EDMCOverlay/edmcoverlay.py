@@ -5,7 +5,7 @@ import logging
 from collections.abc import Iterable, Sequence
 from typing import Any, Dict, Mapping, Optional
 
-try:  # Import relative to package when bundled within EDMC-ModernOverlay
+try:  # Import relative to package when bundled within EDMCModernOverlay
     from ..version import __version__ as _MODERN_OVERLAY_VERSION
 except Exception:  # pragma: no cover - fallback when running directly from checkout
     from version import __version__ as _MODERN_OVERLAY_VERSION
@@ -18,7 +18,7 @@ except Exception:  # pragma: no cover - EDMC will make this available at runtime
 
 LOGGER = logging.getLogger("EDMC.ModernOverlay.Legacy")
 MODERN_OVERLAY_IDENTITY: Dict[str, str] = {
-    "plugin": "EDMC-ModernOverlay",
+    "plugin": "EDMCModernOverlay",
     "version": _MODERN_OVERLAY_VERSION,
 }
 """Public marker advertised to other plugins to detect Modern Overlay."""
@@ -308,7 +308,7 @@ class Overlay:
             **payload,
         }
         if not send_overlay_message(message):
-            raise RuntimeError("EDMC-ModernOverlay is not available to accept messages")
+            raise RuntimeError("EDMCModernOverlay is not available to accept messages")
 
     @staticmethod
     def _coerce_int(value: Any, default: int = 0) -> int:

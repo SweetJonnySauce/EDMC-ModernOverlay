@@ -1,4 +1,4 @@
-"""Public helper API for interacting with EDMC-ModernOverlay."""
+"""Public helper API for interacting with EDMC Modern Overlay."""
 from __future__ import annotations
 
 import json
@@ -28,7 +28,7 @@ class PluginGroupingError(ValueError):
 def register_publisher(publisher: Callable[[Mapping[str, Any]], bool]) -> None:
     """Register a callable that delivers overlay payloads.
 
-    The EDMC-ModernOverlay plugin calls this during startup so other plugins can
+    The EDMC Modern Overlay plugin calls this during startup so other plugins can
     publish messages without depending on transport details.
     """
 
@@ -302,7 +302,7 @@ def _emit(level: int, message: str, *args: Any) -> None:
 
         logger_obj = getattr(edmc_config, "logger", None)
         if logger_obj:
-            logger_obj.log(level, f"[EDMC-ModernOverlay] {message % args if args else message}")
+            logger_obj.log(level, f"[EDMCModernOverlay] {message % args if args else message}")
             return
     except Exception:
         pass

@@ -263,7 +263,7 @@ class OverlayWatchdog:
                 daemon=True,
             )
             self._stderr_thread.start()
-        self._log_capture_chunk("stdout", "[EDMC-ModernOverlay] stdout capture check")
+        self._log_capture_chunk("stdout", "[EDMCModernOverlay] stdout capture check")
 
     def _stop_output_readers(self) -> None:
         for thread in (self._stdout_thread, self._stderr_thread):
