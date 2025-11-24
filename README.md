@@ -124,6 +124,12 @@ overlay.send_shape("demo-frame", "rect", "#ffffff", "#40000000", 80, 120, 420, 1
 
 Under the hood the compatibility layer forwards payloads through `send_overlay_message`, so no socket management or process monitoring is required. The overlay client understands the legacy message/rectangle schema, making migration from the original EDMCOverlay plugin largely turnkey.
 
+# Development
+
+- Install dev dependencies: `python -m pip install -r requirements/dev.txt`
+- Run checks locally: `make check` (runs lint, mypy, pytest)
+- Individual commands: `make lint`, `make typecheck`, `make test`
+
 # Support
 
 Best way to get support for this plugin is to create a github issue in this repo. This is a side project for me. As such, support is best effort only and there is no guarantee I'll be able to fix or fully address your issue/request. You can occassionally find me on [EDCD Discord](https://edcd.github.io/) in the `#edmc-plugins` channel.

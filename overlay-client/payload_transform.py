@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Callable, Iterable, List, Mapping, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from PyQt6.QtGui import QFont, QFontMetrics
 
@@ -13,6 +13,7 @@ from viewport_helper import BASE_HEIGHT, BASE_WIDTH
 
 if TYPE_CHECKING:  # pragma: no cover
     from overlay_client import FillViewport
+    from group_transform import GroupBounds
 
 
 class PayloadAxisContext:

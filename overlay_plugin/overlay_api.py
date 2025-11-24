@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
-from typing import Any, Callable, Dict, Mapping, MutableMapping, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Mapping, MutableMapping, Optional, Sequence, Tuple, Union, cast
 
 from prefix_entries import PrefixEntry, parse_prefix_entries, serialise_prefix_entries
 
@@ -337,6 +337,7 @@ class _PluginGroupingStore:
             if not isinstance(plugin_block, dict):
                 plugin_block = {}
                 attach_plugin_block = True
+            plugin_block = cast(Dict[str, Any], plugin_block)
             mutated = False
 
             if update.matching_prefixes is not None:
@@ -350,6 +351,7 @@ class _PluginGroupingStore:
                 groups_missing = not isinstance(groups, dict)
                 if groups_missing:
                     groups = {}
+                groups = cast(Dict[str, Any], groups)
                 group_entry = groups.get(update.id_prefix_group)
                 group_missing = not isinstance(group_entry, dict)
                 if group_missing and update.id_prefixes is None:
@@ -358,6 +360,7 @@ class _PluginGroupingStore:
                     )
                 if group_missing:
                     group_entry = {}
+                group_entry = cast(Dict[str, Any], group_entry)
 
                 if update.id_prefixes is not None:
                     prefix_entries = list(update.id_prefixes)
