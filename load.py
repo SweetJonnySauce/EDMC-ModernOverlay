@@ -1334,6 +1334,8 @@ class _PluginRuntime:
             self._controller_process = process
             self._controller_launch_thread = None
 
+        self._emit_controller_active_notice()
+
         try:
             process.wait()
         finally:
@@ -1375,6 +1377,17 @@ class _PluginRuntime:
             "ttl": 0 if persistent else max(1.0, float(ttl or 2.0)),
         }
         self._publish_payload(payload)
+
+    def _emit_controller_active_notice(self) -> None:
+        pid = self._read_controller_pid_file()
+        if pid is None:
+            with self._controller_launch_lock:
+                handle = self._controller_process
+            if handle and handle.poll() is None:
+                pid = handle.pid
+        if pid is None:
+            return
+        self._emit_controller_message("Overlay Controller is Active", ttl=0, persistent=True)
 
     def _clear_controller_message(self) -> None:
         payload = {
