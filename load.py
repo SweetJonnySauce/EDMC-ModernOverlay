@@ -241,7 +241,11 @@ DEFAULT_DEBUG_CONFIG: Dict[str, Any] = {
 def _is_force_render_enabled(preferences: Optional[Preferences]) -> bool:
     if preferences is None:
         return False
-    return bool(getattr(preferences, "force_render", False)) if DEV_BUILD else False
+    flag = bool(getattr(preferences, "force_render", False))
+    if DEV_BUILD:
+        return flag
+    allow_flag = bool(getattr(preferences, "allow_force_render_release", False))
+    return flag and allow_flag
 
 
 FLATPAK_ENV_FORWARD_KEYS: Tuple[str, ...] = (
@@ -1061,8 +1065,11 @@ class _PluginRuntime:
 
     def set_force_render_preference(self, value: bool) -> None:
         flag = bool(value)
-        if not DEV_BUILD and flag:
-            LOGGER.warning("Ignoring force-render toggle; this option is restricted to developer builds.")
+        allow_override = bool(getattr(self._preferences, "allow_force_render_release", False))
+        if not DEV_BUILD and flag and not allow_override:
+            LOGGER.warning(
+                "Ignoring force-render toggle; this option is restricted to developer builds (override disabled)."
+            )
             flag = False
         self._preferences.force_render = flag
         LOGGER.debug(
@@ -1400,6 +1407,41 @@ class _PluginRuntime:
                 if not applied:
                     raise ValueError("Overlay config payload did not include any recognised directives")
                 return {"status": "ok"}
+            if command == "force_render_override":
+                preferences = self._preferences
+                if preferences is None:
+                    raise RuntimeError("Preferences are not initialised; cannot apply force-render override")
+                if "allow" not in payload:
+                    raise ValueError("force_render_override payload requires 'allow'")
+                allow_flag = bool(payload.get("allow"))
+                desired_force_raw = payload.get("force_render")
+                previous_force = bool(getattr(preferences, "force_render", False))
+                previous_allow = bool(getattr(preferences, "allow_force_render_release", False))
+                dirty = False
+                if allow_flag != previous_allow:
+                    preferences.allow_force_render_release = allow_flag
+                    dirty = True
+                force_broadcasted = False
+                if desired_force_raw is not None:
+                    desired_force = bool(desired_force_raw)
+                    if desired_force != previous_force:
+                        self.set_force_render_preference(desired_force)
+                        force_broadcasted = True
+                    dirty = True
+                if dirty:
+                    try:
+                        preferences.save()
+                    except Exception as exc:
+                        LOGGER.warning("Failed to persist force-render override preference: %s", exc)
+                    if not force_broadcasted:
+                        self._send_overlay_config()
+                return {
+                    "status": "ok",
+                    "force_render": _is_force_render_enabled(preferences),
+                    "previous_force_render": previous_force,
+                    "previous_allow": previous_allow,
+                    "allow_force_render_release": bool(preferences.allow_force_render_release),
+                }
             if command == "legacy_overlay":
                 legacy_payload = payload.get("payload")
                 if not isinstance(legacy_payload, Mapping):

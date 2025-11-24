@@ -6,6 +6,7 @@ import json
 import tkinter as tk
 import platform
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -14,7 +15,7 @@ from math import ceil
 from dataclasses import dataclass
 from pathlib import Path
 from tkinter import ttk
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from input_bindings import BindingConfig, BindingManager
 from selection_overlay import SelectionOverlay
@@ -41,6 +42,118 @@ class _GroupSnapshot:
     transform_anchor: Optional[Tuple[float, float]]
     has_transform: bool = False
     cache_timestamp: float = 0.0
+
+
+class _ForceRenderOverrideManager:
+    """Manages temporary force-render overrides while the controller is open."""
+
+    def __init__(self, root: Path) -> None:
+        self._settings_path = root / "overlay_settings.json"
+        self._port_path = root / "port.json"
+        self._active = False
+        self._previous_force: Optional[bool] = None
+
+    def activate(self) -> None:
+        if self._active:
+            return
+        if self._previous_force is None:
+            self._previous_force = self._read_force_render()
+        response = self._send_override({"cli": "force_render_override", "allow": True, "force_render": True})
+        if response is not None:
+            previous_force = response.get("previous_force_render")
+            if isinstance(previous_force, bool):
+                self._previous_force = previous_force
+        else:
+            if self._previous_force is None:
+                self._previous_force = False
+            self._update_settings_file(force=True, allow=True)
+        self._active = True
+
+    def deactivate(self) -> None:
+        if not self._active:
+            return
+        restore = self._previous_force if self._previous_force is not None else False
+        response = self._send_override({"cli": "force_render_override", "allow": False, "force_render": restore})
+        if response is None:
+            self._update_settings_file(force=restore, allow=False)
+        self._active = False
+
+    def _send_override(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        port = self._load_port()
+        if port is None:
+            return None
+        message = json.dumps(payload, ensure_ascii=False)
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=2.0) as sock:
+                sock.settimeout(2.0)
+                writer = sock.makefile("w", encoding="utf-8", newline="\n")
+                reader = sock.makefile("r", encoding="utf-8")
+                writer.write(message)
+                writer.write("\n")
+                writer.flush()
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
+                    line = reader.readline()
+                    if not line:
+                        break
+                    try:
+                        response = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(response, dict):
+                        status = response.get("status")
+                        if status == "ok":
+                            return response
+                        if status == "error":
+                            error_msg = response.get("error")
+                            if error_msg:
+                                self._log(f"Overlay client rejected force-render override: {error_msg}")
+                            return None
+        except OSError:
+            return None
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
+            return None
+        return None
+
+    def _load_port(self) -> Optional[int]:
+        try:
+            data = json.loads(self._port_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+        except json.JSONDecodeError:
+            return None
+        port = data.get("port")
+        if not isinstance(port, int) or port <= 0:
+            return None
+        return port
+
+    def _read_force_render(self) -> bool:
+        try:
+            raw = json.loads(self._settings_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return False
+        except json.JSONDecodeError:
+            return False
+        return bool(raw.get("force_render", False))
+
+    def _update_settings_file(self, force: bool, allow: bool) -> None:
+        try:
+            raw = json.loads(self._settings_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            raw = {}
+        except json.JSONDecodeError:
+            raw = {}
+        raw["force_render"] = bool(force)
+        raw["allow_force_render_release"] = bool(allow)
+        try:
+            self._settings_path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+
+    @staticmethod
+    def _log(message: str) -> None:
+        print(f"[overlay-controller] {message}", file=sys.stderr)
 
 
 class IdPrefixGroupWidget(tk.Frame):
@@ -1077,6 +1190,7 @@ class OverlayConfigApp(tk.Tk):
         self._groupings_path = root / "overlay_groupings.json"
         self._groupings_cache_path = root / "overlay_group_cache.json"
         self._groupings_cache: dict[str, object] = {}
+        self._force_render_override = _ForceRenderOverrideManager(root)
         self._absolute_user_state: dict[tuple[str, str], dict[str, float | None]] = {}
         self._group_snapshots: dict[tuple[str, str], _GroupSnapshot] = {}
         self._anchor_restore_state: dict[tuple[str, str], dict[str, float | None]] = {}
@@ -1144,6 +1258,7 @@ class OverlayConfigApp(tk.Tk):
         self.bind("<B1-Motion>", self._on_window_drag, add="+")
         self.bind("<ButtonRelease-1>", self._end_window_drag, add="+")
         self._status_poll_handle = self.after(self._status_poll_interval_ms, self._poll_cache_and_status)
+        self.after(0, self._activate_force_render_override)
         self.after(0, self._center_and_show)
 
     def _compute_default_placement_width(self) -> int:
@@ -1377,6 +1492,24 @@ class OverlayConfigApp(tk.Tk):
 
         self.sidebar.grid_columnconfigure(0, weight=1)
 
+    def _activate_force_render_override(self) -> None:
+        manager = getattr(self, "_force_render_override", None)
+        if manager is None:
+            return
+        try:
+            manager.activate()
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
+
+    def _deactivate_force_render_override(self) -> None:
+        manager = getattr(self, "_force_render_override", None)
+        if manager is None:
+            return
+        try:
+            manager.deactivate()
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
+
     def toggle_placement_window(self) -> None:
         """Switch between the open and closed placement window layouts."""
 
@@ -1540,6 +1673,7 @@ class OverlayConfigApp(tk.Tk):
         self._pending_focus_out = False
         self._closing = True
         self._cancel_status_poll()
+        self._deactivate_force_render_override()
         self.destroy()
 
     def _handle_focus_in(self, _event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]

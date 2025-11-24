@@ -13,6 +13,7 @@ class InitialClientSettings:
 
     client_log_retention: int = 5
     force_render: bool = False
+    allow_force_render_release: bool = False
     force_xwayland: bool = False
     show_debug_overlay: bool = False
     min_font_point: float = 6.0
@@ -147,7 +148,10 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         retention = int(data.get("client_log_retention", retention))
     except (TypeError, ValueError):
         retention = defaults.client_log_retention
+    allow_force_release = bool(data.get("allow_force_render_release", defaults.allow_force_render_release))
     force_render = bool(data.get("force_render", defaults.force_render))
+    if not allow_force_release:
+        force_render = False
     force_xwayland = bool(data.get("force_xwayland", defaults.force_xwayland))
     show_debug_overlay = bool(data.get("show_debug_overlay", defaults.show_debug_overlay))
     try:
@@ -208,4 +212,5 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         nudge_overflow_payloads=nudge_overflow,
         payload_nudge_gutter=gutter,
         payload_log_delay_seconds=log_delay,
+        allow_force_render_release=allow_force_release,
     )

@@ -32,6 +32,7 @@ class Preferences:
     gridlines_enabled: bool = False
     gridline_spacing: int = 120
     force_render: bool = False
+    allow_force_render_release: bool = False
     force_xwayland: bool = False
     show_debug_overlay: bool = False
     min_font_point: float = 6.0
@@ -80,6 +81,10 @@ class Preferences:
             spacing = 120
         self.gridline_spacing = max(10, spacing)
         self.force_render = bool(data.get("force_render", False))
+        if "allow_force_render_release" in data:
+            self.allow_force_render_release = bool(data.get("allow_force_render_release", False))
+        else:
+            self.allow_force_render_release = bool(self.dev_mode)
         self.force_xwayland = bool(data.get("force_xwayland", False))
         self.show_debug_overlay = bool(data.get("show_debug_overlay", False))
         try:
@@ -132,6 +137,7 @@ class Preferences:
             "gridlines_enabled": bool(self.gridlines_enabled),
             "gridline_spacing": int(self.gridline_spacing),
             "force_render": bool(self.force_render),
+            "allow_force_render_release": bool(self.allow_force_render_release),
             "force_xwayland": bool(self.force_xwayland),
             "show_debug_overlay": bool(self.show_debug_overlay),
             "min_font_point": float(self.min_font_point),
@@ -153,7 +159,7 @@ class Preferences:
     def disable_force_render_for_release(self) -> bool:
         """Ensure release builds cannot persist the developer-only override."""
 
-        if self.dev_mode:
+        if self.dev_mode or getattr(self, "allow_force_render_release", False):
             return False
         if not getattr(self, "force_render", False):
             return False
