@@ -829,7 +829,21 @@ class AbsoluteXYWidget(tk.Frame):
             entry.bind("<Button-1>", lambda _e, f=field: self._handle_entry_click(f), add="+")
             entry.bind("<FocusIn>", lambda _e, f=field: self._handle_entry_focus_event(f), add="+")
             entry.bind("<FocusOut>", lambda _e, f=field: self._emit_change(f), add="+")
-            entry.bind("<Return>", lambda _e, f=field: self._emit_change(f) or "break", add="+")
+            entry.bind("<Return>", lambda _e, f=field: self._handle_entry_tab(f, reverse=False), add="+")
+            entry.bind("<KP_Enter>", lambda _e, f=field: self._handle_entry_tab(f, reverse=False), add="+")
+            entry.bind(
+                "<Tab>", lambda _e, f=field: self._handle_entry_tab(f, reverse=False), add="+"
+            )
+            entry.bind(
+                "<ISO_Left_Tab>",
+                lambda _e, f=field: self._handle_entry_tab(f, reverse=True),
+                add="+",
+            )
+            entry.bind(
+                "<Shift-Tab>",
+                lambda _e, f=field: self._handle_entry_tab(f, reverse=True),
+                add="+",
+            )
 
     def set_focus_request_callback(self, callback: callable | None) -> None:
         """Register a callback that requests host focus when a control is clicked."""
@@ -870,6 +884,19 @@ class AbsoluteXYWidget(tk.Frame):
             entry.icursor("end")
         except Exception:
             pass
+
+    def _handle_entry_tab(self, field: str, reverse: bool) -> str:
+        order = ["x", "y"]
+        if reverse:
+            order = list(reversed(order))
+        try:
+            current_index = order.index(field)
+        except ValueError:
+            return "break"
+        self._emit_change(field)
+        next_index = (current_index + 1) % len(order)
+        self._focus_field(order[next_index])
+        return "break"
 
     def _handle_entry_click(self, field: str) -> str:
         if not self._enabled:
@@ -985,13 +1012,19 @@ class AbsoluteXYWidget(tk.Frame):
         key = keysym.lower()
         if not self._enabled:
             return False
-        if key in {"tab", "shift_l", "shift_r"}:
-            # Allow native Tab traversal; focus will move to entries and text is selected on entry focus.
+        if key in {"tab", "return", "kp_enter"}:
+            current = self._active_field
+            self._emit_change(current)
+            self._focus_field("y" if current == "x" else "x")
+            return True
+        if key in {"shift_l", "shift_r"}:
             return False
         if key == "down" and self._active_field == "x":
+            self._emit_change("x")
             self._focus_field("y")
             return True
         if key == "up" and self._active_field == "y":
+            self._emit_change("y")
             self._focus_field("x")
             return True
         return False
