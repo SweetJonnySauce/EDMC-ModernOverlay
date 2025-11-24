@@ -1098,7 +1098,7 @@ disable_legacy_modern_overlay() {
         if [[ ! -e "$target" ]]; then
             break
         fi
-        ((suffix++))
+        ((++suffix))
     done
     if [[ "$DRY_RUN" == true ]]; then
         echo "📝 [dry-run] Would rename '$(basename "$legacy_path")' to '$(basename "$target")'."
