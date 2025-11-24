@@ -151,7 +151,7 @@ print_breaking_change_warning() {
 ⚠️  Breaking upgrade notice
     Modern Overlay now installs under the 'EDMCModernOverlay' directory. Any existing
     'EDMC-ModernOverlay' folder will be renamed to 'EDMC-ModernOverlay.disabled',
-    'EDMC-ModernOverlay.disabled.1', etc., before the new version is copied. Settings
+    'EDMC-ModernOverlay.1.disabled', etc., before the new version is copied. Settings
     are not migrated automatically. Re-enable the previous plugin manually if needed.
 EOF
 }
@@ -1076,6 +1076,40 @@ disable_conflicting_plugins() {
     fi
 }
 
+normalize_disabled_suffixes() {
+    local base_path="$1"
+    local label="$2"
+    shopt -s nullglob
+    local old_variants=( "${base_path}.disabled."* )
+    shopt -u nullglob
+    if (( ${#old_variants[@]} == 0 )); then
+        return
+    fi
+    if [[ -n "$label" ]]; then
+        echo "ℹ️  Normalizing disabled ${label} directories so they end with '.disabled'."
+    else
+        echo "ℹ️  Normalizing disabled plugin directories so they end with '.disabled'."
+    fi
+    for old_path in "${old_variants[@]}"; do
+        [[ -d "$old_path" ]] || continue
+        local suffix="${old_path#${base_path}.disabled.}"
+        if [[ -z "$suffix" ]]; then
+            continue
+        fi
+        local target="${base_path}.${suffix}.disabled"
+        if [[ -e "$target" ]]; then
+            echo "   - Skipping '$(basename "$old_path")'; target '$(basename "$target")' already exists."
+            continue
+        fi
+        if [[ "$DRY_RUN" == true ]]; then
+            echo "📝 [dry-run] Would rename '$(basename "$old_path")' to '$(basename "$target")'."
+        else
+            mv "$old_path" "$target"
+            echo "   - Renamed '$(basename "$old_path")' to '$(basename "$target")'."
+        fi
+    done
+}
+
 disable_legacy_modern_overlay() {
     if [[ -z "${PLUGIN_DIR:-}" ]]; then
         echo "❌ Plugin directory is not set. Run detect_plugins_dir first." >&2
@@ -1093,7 +1127,7 @@ disable_legacy_modern_overlay() {
         if (( suffix == 0 )); then
             target="${legacy_path}.disabled"
         else
-            target="${legacy_path}.disabled.${suffix}"
+            target="${legacy_path}.${suffix}.disabled"
         fi
         if [[ ! -e "$target" ]]; then
             break
@@ -1317,6 +1351,8 @@ main() {
     log_verbose "Confirmed EDMarketConnector is not running."
     ensure_system_packages
     disable_conflicting_plugins
+    normalize_disabled_suffixes "${PLUGIN_DIR}/${LEGACY_PLUGIN_DIR_NAME}" "${LEGACY_PLUGIN_DIR_NAME}"
+    normalize_disabled_suffixes "${PLUGIN_DIR}/${MODERN_PLUGIN_DIR_NAME}" "${MODERN_PLUGIN_DIR_NAME}"
     disable_legacy_modern_overlay
 
     local src_dir="${RELEASE_ROOT}/${MODERN_PLUGIN_DIR_NAME}"

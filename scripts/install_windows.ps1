@@ -8,7 +8,7 @@ The script mirrors the workflow used by install_linux.sh:
 1. Detect (or prompt for) the EDMC plugins directory.
 2. Ensure EDMarketConnector is not running.
 3. Disable legacy EDMCOverlay plugins.
-4. Disable any existing EDMC-ModernOverlay installation by renaming it to EDMC-ModernOverlay.disabled (or .disabled.N).
+4. Disable any existing EDMC-ModernOverlay installation by renaming it to EDMC-ModernOverlay.disabled (or .N.disabled).
 5. Copy the EDMCModernOverlay payload alongside this script into the plugins directory.
 6. Create overlay-client\.venv (or reuse an existing one) and install requirements.
 7. Optionally download the Eurocaps font for the authentic Elite Dangerous HUD look.
@@ -99,7 +99,7 @@ $LegacyPluginDirName = 'EDMC-ModernOverlay'
 
 function Show-BreakingChangeWarning {
     Write-Warn 'Breaking upgrade notice: Modern Overlay now installs under the EDMCModernOverlay directory.'
-    Write-Warn "Any existing $LegacyPluginDirName folder will be renamed to $LegacyPluginDirName.disabled (or .disabled.N) before installation."
+    Write-Warn "Any existing $LegacyPluginDirName folder will be renamed to $LegacyPluginDirName.disabled (or .N.disabled) before installation."
     Write-Warn 'Settings are not migrated automatically; re-enable the prior plugin manually if needed.'
 }
 
@@ -483,6 +483,43 @@ function Disable-ConflictingPlugins {
     }
 }
 
+function Normalize-DisabledSuffixes {
+    param(
+        [Parameter(Mandatory = $true)][string]$PluginRoot,
+        [Parameter(Mandatory = $true)][string]$PluginName
+    )
+
+    $basePath = Join-Path $PluginRoot $PluginName
+    $candidates = Get-ChildItem -Path "$basePath.disabled.*" -Directory -ErrorAction SilentlyContinue
+    if (-not $candidates) {
+        return
+    }
+
+    Write-Info "Normalizing disabled $PluginName directories so they end with '.disabled'."
+    foreach ($item in $candidates) {
+        $prefixLength = ("$basePath.disabled.").Length
+        if ($item.FullName.Length -le $prefixLength) {
+            continue
+        }
+        $suffix = $item.FullName.Substring($prefixLength)
+        if ([string]::IsNullOrWhiteSpace($suffix)) {
+            continue
+        }
+        $target = "$basePath.$suffix.disabled"
+        $targetLeaf = Split-Path -Path $target -Leaf
+        if (Test-Path -LiteralPath $target) {
+            Write-Warn "Skipping '$($item.Name)' because '$targetLeaf' already exists."
+            continue
+        }
+        if ($DryRun) {
+            Write-Info "[dry-run] Would rename '$($item.Name)' to '$targetLeaf'."
+            continue
+        }
+        Rename-Item -LiteralPath $item.FullName -NewName $targetLeaf
+        Write-Info "Renamed '$($item.Name)' to '$targetLeaf'."
+    }
+}
+
 function Disable-LegacyModernOverlay {
     param([string]$PluginRoot)
 
@@ -497,7 +534,7 @@ function Disable-LegacyModernOverlay {
         if ($suffix -eq 0) {
             $targetPath = "$legacyPath.disabled"
         } else {
-            $targetPath = "$legacyPath.disabled.$suffix"
+            $targetPath = "$legacyPath.$suffix.disabled"
         }
         $suffix++
     } while (Test-Path -LiteralPath $targetPath)
@@ -780,6 +817,8 @@ function Main {
 
     Ensure-EdmcNotRunning
     Disable-ConflictingPlugins -PluginRoot $pluginsRoot
+    Normalize-DisabledSuffixes -PluginRoot $pluginsRoot -PluginName $LegacyPluginDirName
+    Normalize-DisabledSuffixes -PluginRoot $pluginsRoot -PluginName $ModernPluginDirName
     Disable-LegacyModernOverlay -PluginRoot $pluginsRoot
 
     $installDir = Join-Path $pluginsRoot $ModernPluginDirName
