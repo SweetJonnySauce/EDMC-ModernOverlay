@@ -62,7 +62,7 @@ def test_overlay_launch_command():
     runtime, helper = build_helper()
     assert helper.handle_entry({"event": "SendText", "Message": "!overlay"}) is True
     assert runtime.controller_launches == 1
-    assert "launching" in runtime.messages[-1].lower()
+    assert runtime.messages == []
 
 
 def test_overlay_next_command():

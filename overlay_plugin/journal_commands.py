@@ -111,8 +111,6 @@ class JournalCommandHelper:
         except Exception as exc:  # pragma: no cover - defensive guard
             _LOGGER.warning("Overlay Controller callback failed: %s", exc)
             self._ctx.send_message("Overlay Controller launch failed; see EDMC log.")
-        else:
-            self._ctx.send_message("Overlay Controller launching...")
         return True
 
     def _invoke_cycle(self, callback: Optional[Callable[[], None]], *, success_message: str) -> None:

@@ -326,6 +326,10 @@ class _PluginRuntime:
             daemon=True,
         ).start()
         self._command_helper = build_command_helper(self, LOGGER)
+        self._controller_launch_lock = threading.Lock()
+        self._controller_launch_thread: Optional[threading.Thread] = None
+        self._controller_process: Optional[subprocess.Popen] = None
+        self._controller_status_id = "overlay-controller-status"
 
     # Lifecycle ------------------------------------------------------------
 
@@ -1135,20 +1139,18 @@ class _PluginRuntime:
         self._cycle_payload_step(1)
 
     def launch_overlay_controller(self) -> None:
-        script_path = self.plugin_dir / "overlay_controller" / "overlay_controller.py"
-        if not script_path.exists():
-            raise RuntimeError("overlay_controller.py not found")
-        command = [*self._controller_python_command(), str(script_path)]
-        kwargs: Dict[str, Any] = {"cwd": str(script_path.parent)}
-        if os.name == "nt":
-            creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            if creation_flags:
-                kwargs["creationflags"] = creation_flags
-        try:
-            process = subprocess.Popen(command, **kwargs)
-        except Exception as exc:
-            raise RuntimeError(str(exc)) from exc
-        LOGGER.debug("Overlay Controller launched via chat command (pid=%s)", getattr(process, "pid", "?"))
+        with self._controller_launch_lock:
+            if self._controller_launch_thread and self._controller_launch_thread.is_alive():
+                raise RuntimeError("Overlay Controller launch already in progress.")
+            if self._controller_process and self._controller_process.poll() is None:
+                raise RuntimeError("Overlay Controller is already running.")
+            thread = threading.Thread(
+                target=self._overlay_controller_launch_sequence,
+                name="OverlayControllerLaunch",
+                daemon=True,
+            )
+            self._controller_launch_thread = thread
+        thread.start()
 
     def _controller_python_command(self) -> List[str]:
         executable = sys.executable
@@ -1159,6 +1161,73 @@ class _PluginRuntime:
             if resolved:
                 return [resolved]
         raise RuntimeError("no Python interpreter available to launch the overlay controller")
+
+    def _overlay_controller_launch_sequence(self) -> None:
+        try:
+            self._controller_countdown()
+            process = self._spawn_overlay_controller_process()
+        except Exception as exc:
+            LOGGER.error("Overlay Controller launch failed: %s", exc, exc_info=exc)
+            self._emit_controller_message(f"Overlay Controller launch failed: {exc}", ttl=6.0)
+            with self._controller_launch_lock:
+                self._controller_launch_thread = None
+            return
+
+        with self._controller_launch_lock:
+            self._controller_process = process
+            self._controller_launch_thread = None
+
+        try:
+            process.wait()
+        finally:
+            with self._controller_launch_lock:
+                self._controller_process = None
+            self._clear_controller_message()
+
+    def _controller_countdown(self) -> None:
+        for remaining in (5, 4, 3, 2, 1):
+            text = f"Overlay Controller opening in {remaining}... back out of comms panel now."
+            self._emit_controller_message(text, ttl=1.25)
+            time.sleep(1)
+
+    def _spawn_overlay_controller_process(self) -> subprocess.Popen:
+        script_path = self.plugin_dir / "overlay_controller" / "overlay_controller.py"
+        if not script_path.exists():
+            raise RuntimeError("overlay_controller.py not found")
+        command = [*self._controller_python_command(), str(script_path)]
+        kwargs: Dict[str, Any] = {"cwd": str(script_path.parent)}
+        if os.name == "nt":
+            creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            if creation_flags:
+                kwargs["creationflags"] = creation_flags
+        process = subprocess.Popen(command, **kwargs)
+        LOGGER.debug("Overlay Controller launched via chat command (pid=%s)", getattr(process, "pid", "?"))
+        return process
+
+    def _emit_controller_message(self, text: str, ttl: Optional[float] = None, persistent: bool = False) -> None:
+        payload = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "event": "LegacyOverlay",
+            "type": "message",
+            "id": self._controller_status_id,
+            "text": text,
+            "color": "#ff8c00",
+            "x": 40,
+            "y": 40,
+            "size": "normal",
+            "ttl": 0 if persistent else max(1.0, float(ttl or 2.0)),
+        }
+        self._publish_payload(payload)
+
+    def _clear_controller_message(self) -> None:
+        payload = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "event": "LegacyOverlay",
+            "type": "legacy_clear",
+            "id": self._controller_status_id,
+            "ttl": 0,
+        }
+        self._publish_payload(payload)
 
     def _cycle_payload_step(self, direction: int) -> None:
         if not self._running:
