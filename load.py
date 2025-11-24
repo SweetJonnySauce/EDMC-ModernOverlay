@@ -2105,8 +2105,8 @@ def get_version_status() -> Optional[VersionStatus]:
     return _plugin.get_version_status()
 
 
-def plugin_prefs_save(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - save hook
-    LOGGER.debug("plugin_prefs_save invoked: cmdr=%r is_beta=%s", cmdr, is_beta)
+def prefs_changed(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - save hook
+    LOGGER.debug("prefs_changed invoked: cmdr=%r is_beta=%s", cmdr, is_beta)
     if _prefs_panel is None:
         LOGGER.debug("No preferences panel to save")
         return
