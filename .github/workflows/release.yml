@@ -36,13 +36,16 @@ jobs:
             '--exclude=scripts/'
             '--exclude=dist/'
             '--exclude=docs/'
+            '--exclude=requirements/'
             '--exclude=tests/'
             '--exclude=schemas/'
             '--exclude=.codex/'
             '--exclude=.vscode/'
+            '--exclude=pyproject.toml'
             '--exclude=debug.json'
             '--exclude=conftest.py'
-            '--exclude=EDMC-ModernOverlay.code-workspace'
+            '--exclude=EDMCModernOverlay.code-workspace'
+            '--exclude=Makefile'
             '--exclude=*.md'
           )
 
