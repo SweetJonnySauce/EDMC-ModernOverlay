@@ -3,6 +3,7 @@
 __pycache__/
 *.py[cod]
 port.json
+overlay_controller.pid
 payload_store/new-payloads.json
 overlay_group_cache.json
 overlay_group_cache.json.tmp

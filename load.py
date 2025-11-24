@@ -7,6 +7,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 import queue
+import signal
 import shutil
 import subprocess
 import sys
@@ -344,6 +345,7 @@ class _PluginRuntime:
         self._controller_launch_thread: Optional[threading.Thread] = None
         self._controller_process: Optional[subprocess.Popen] = None
         self._controller_status_id = "overlay-controller-status"
+        self._controller_pid_path = self.plugin_dir / "overlay_controller.pid"
 
     # Lifecycle ------------------------------------------------------------
 
@@ -408,6 +410,7 @@ class _PluginRuntime:
                 pass
             self._payload_log_handler = None
         self._force_monitor_stop.set()
+        self._terminate_controller_process()
         self._stop_prefs_worker()
 
     # Journal handling -----------------------------------------------------
@@ -1382,6 +1385,72 @@ class _PluginRuntime:
             "ttl": 0,
         }
         self._publish_payload(payload)
+
+    def _read_controller_pid_file(self) -> Optional[int]:
+        try:
+            raw = self._controller_pid_path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            return None
+        except OSError:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    def _cleanup_controller_pid_file(self) -> None:
+        try:
+            self._controller_pid_path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+
+    def _terminate_controller_process(self) -> None:
+        handle: Optional[subprocess.Popen] = None
+        with self._controller_launch_lock:
+            handle = self._controller_process
+        pid_from_file = self._read_controller_pid_file()
+        target_pid = None
+        if handle and handle.poll() is None:
+            target_pid = handle.pid
+        elif pid_from_file and (handle is None or pid_from_file != getattr(handle, "pid", None)):
+            target_pid = pid_from_file
+        if target_pid is None:
+            self._cleanup_controller_pid_file()
+            return
+        LOGGER.debug("Attempting to stop Overlay Controller (pid=%s)", target_pid)
+        terminated = False
+        try:
+            try:
+                import psutil  # type: ignore
+            except Exception:
+                psutil = None  # type: ignore
+            if psutil is not None:
+                try:
+                    proc = psutil.Process(target_pid)
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=3.0)
+                    except psutil.TimeoutExpired:
+                        proc.kill()
+                        proc.wait(timeout=2.0)
+                    terminated = True
+                except psutil.NoSuchProcess:
+                    terminated = True
+                except Exception:
+                    pass
+            if not terminated:
+                try:
+                    os.kill(target_pid, signal.SIGTERM)
+                    terminated = True
+                except Exception:
+                    pass
+        finally:
+            self._cleanup_controller_pid_file()
+            with self._controller_launch_lock:
+                if self._controller_process and getattr(self._controller_process, "pid", None) == target_pid:
+                    self._controller_process = None
 
     def _cycle_payload_step(self, direction: int) -> None:
         if not self._running:

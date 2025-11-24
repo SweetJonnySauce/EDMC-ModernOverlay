@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import atexit
 import json
+import os
 import tkinter as tk
 import platform
 import re
@@ -3035,6 +3037,15 @@ class OverlayConfigApp(tk.Tk):
 
 def launch() -> None:
     """Entry point used by other modules."""
+
+    root_path = Path(__file__).resolve().parents[1]
+    pid_path = root_path / "overlay_controller.pid"
+    try:
+        pid_path.write_text(str(os.getpid()), encoding="utf-8")
+    except Exception:
+        pass
+    else:
+        atexit.register(lambda: pid_path.unlink(missing_ok=True))
 
     app = OverlayConfigApp()
     app.mainloop()
