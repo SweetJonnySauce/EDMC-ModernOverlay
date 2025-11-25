@@ -1505,7 +1505,7 @@ class OverlayConfigApp(tk.Tk):
             ("absolute x/y", 0, True),
             ("anchor selector", 0, True),
             ("payload justification", 0, True),
-            ("zoom selector (future implementation)", 1, False),
+            ("Handy tips will show up here in the future", 1, False),
         ]
 
         self.sidebar_cells: list[tk.Frame] = []
