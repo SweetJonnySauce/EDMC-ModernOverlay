@@ -557,7 +557,7 @@ class OffsetSelectorWidget(tk.Frame):
             points = (inset, inset, inset, size - inset, size - inset, size / 2)
         polygon_id = canvas.create_polygon(*points, fill=self._default_color, outline=self._default_color)
         canvas.grid(row=row, column=column, padx=4, pady=4)
-        canvas.bind("<Button-1>", lambda _e, d=direction: self._handle_click(d))
+        canvas.bind("<Button-1>", lambda event, d=direction: self._handle_click(d, event))
         self._arrows[direction] = (canvas, polygon_id)
 
     def _opposite(self, direction: str) -> str:
@@ -604,7 +604,7 @@ class OffsetSelectorWidget(tk.Frame):
         except Exception:
             pass
 
-    def _handle_click(self, direction: str) -> None:
+    def _handle_click(self, direction: str, event: object | None = None) -> None:
         """Handle mouse click on an arrow, ensuring focus is acquired first."""
 
         if not self._enabled:
@@ -625,7 +625,7 @@ class OffsetSelectorWidget(tk.Frame):
             self.focus_set()
         except Exception:
             pass
-        self.handle_key(direction)
+        self.handle_key(direction, event)
 
     def on_focus_enter(self) -> None:
         if not self._enabled:
@@ -1883,11 +1883,17 @@ class OverlayConfigApp(tk.Tk):
             return
 
         select_mode = self.widget_select_mode
-        focus_hint = "Press Enter to edit; arrows move the selection." if select_mode else None
+        if select_mode:
+            focus_hint = "Press Space to edit; arrows move the selection."
+        else:
+            focus_hint = "Press Space to exit."
 
         if idx == 0:
             primary = "Pick an ID prefix group to adjust."
-            secondary = "Groups mirror cached overlay payloads."
+            secondary = "Select the overlay group you want to adjust."
+            if select_mode:
+                secondary = "Select the overlay group you want to adjust; arrows move the selection."
+                focus_hint = "Press Space to edit."
         elif idx == 1:
             primary = "Use Alt-click / Alt-arrow to move the overlay group to the screen edge."
         elif idx == 2:
