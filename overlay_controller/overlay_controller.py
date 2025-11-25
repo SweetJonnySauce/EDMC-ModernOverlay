@@ -465,6 +465,47 @@ class IdPrefixGroupWidget(tk.Frame):
         return self.handle_key(event.keysym, event)
 
 
+class SidebarTipHelper(tk.Frame):
+    """Lightweight helper that shows context-aware tips for the sidebar widgets."""
+
+    def __init__(self, parent: tk.Widget) -> None:
+        super().__init__(parent, bd=0, highlightthickness=0, bg=parent.cget("background"))
+        self._default_primary = "Handy tips will show up here in the future."
+        self._primary_var = tk.StringVar(value=self._default_primary)
+        self._secondary_var = tk.StringVar(value="")
+
+        primary = tk.Label(
+            self,
+            textvariable=self._primary_var,
+            justify="left",
+            anchor="nw",
+            wraplength=220,
+            padx=6,
+            pady=4,
+            bg=self.cget("background"),
+            fg="#1f1f1f",
+        )
+        secondary = tk.Label(
+            self,
+            textvariable=self._secondary_var,
+            justify="left",
+            anchor="nw",
+            wraplength=220,
+            padx=6,
+            pady=2,
+            bg=self.cget("background"),
+            fg="#555555",
+            font=("TkDefaultFont", 8),
+        )
+
+        primary.pack(fill="x")
+        secondary.pack(fill="x")
+
+    def set_context(self, primary: str | None = None, secondary: str | None = None) -> None:
+        self._primary_var.set(primary or self._default_primary)
+        self._secondary_var.set(secondary or "")
+
+
 class OffsetSelectorWidget(tk.Frame):
     """Simple four-way offset selector with triangular arrow buttons."""
 
@@ -1332,6 +1373,7 @@ class OverlayConfigApp(tk.Tk):
         self.overlay_border_width = 3
         self._focus_widgets: dict[tuple[str, int], object] = {}
         self._group_controls_enabled = True
+        self._absolute_warn = False
         self._current_direction = "right"
         self._groupings_data: dict[str, object] = {}
         self._idprefix_entries: list[tuple[str, str]] = []
@@ -1630,8 +1672,8 @@ class OverlayConfigApp(tk.Tk):
                 if is_selectable and focus_index is not None:
                     self._focus_widgets[("sidebar", focus_index)] = self.justification_widget
             else:
-                text_label = tk.Label(frame, text=label_text, anchor="center", padx=6, pady=6)
-                text_label.pack(fill="both", expand=True)
+                self.tip_helper = SidebarTipHelper(frame)
+                self.tip_helper.pack(fill="both", expand=True, padx=2, pady=2)
 
             if is_selectable and focus_index is not None:
                 frame.bind(
@@ -1814,6 +1856,54 @@ class OverlayConfigApp(tk.Tk):
         color = "#888888" if self.widget_select_mode else "#000000"
         self.placement_overlay.show(self.placement_frame, color)
 
+    def _update_contextual_tip(self) -> None:
+        helper = getattr(self, "tip_helper", None)
+        if helper is None:
+            return
+        primary: str | None = None
+        secondary: str | None = None
+        controls_enabled = getattr(self, "_group_controls_enabled", True)
+        in_sidebar = self.widget_focus_area == "sidebar" and bool(getattr(self, "sidebar_cells", None))
+
+        if not in_sidebar:
+            primary = "Use arrow keys to move between controls."
+            secondary = "Press Enter to focus a control; Esc exits focus mode."
+            helper.set_context(primary, secondary)
+            return
+
+        idx = max(0, min(getattr(self, "_sidebar_focus_index", 0), len(self.sidebar_cells) - 1))
+        if not controls_enabled and idx > 0:
+            primary = "Waiting for overlay cache to populate this group."
+            secondary = "Controls unlock once the latest payload arrives."
+            helper.set_context(primary, secondary)
+            return
+
+        select_mode = self.widget_select_mode
+        focus_hint = "Press Enter to edit; arrows move the selection." if select_mode else None
+
+        if idx == 0:
+            primary = "Pick an ID prefix group to adjust."
+            secondary = "Groups mirror cached overlay payloads."
+        elif idx == 1:
+            primary = "Use Alt-click / Alt-arrow to move the overlay group to the screen edge."
+        elif idx == 2:
+            primary = "Set exact coordinates for this group."
+            if (not select_mode) and getattr(self, "_absolute_warn", False):
+                secondary = "Payload group is catching up—red values may change once cache updates."
+            else:
+                secondary = "Enter px or % values; Tab switches fields."
+        elif idx == 3:
+            primary = "Choose the anchor point used for transforms."
+            secondary = "Use arrows or click dots to move the highlight."
+        elif idx == 4:
+            primary = "Set payload justification."
+            secondary = "Left/Center/Right controls text alignment."
+
+        if focus_hint:
+            secondary = f"{secondary} {focus_hint}" if secondary else focus_hint
+
+        helper.set_context(primary, secondary)
+
     def _refresh_widget_focus(self) -> None:
         if hasattr(self, "sidebar_cells"):
             self._update_sidebar_highlight()
@@ -1822,6 +1912,7 @@ class OverlayConfigApp(tk.Tk):
             self.indicator_wrapper.lift()
         except Exception:
             pass
+        self._update_contextual_tip()
 
     def close_application(self, event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Close the Overlay Controller window."""
@@ -2118,6 +2209,7 @@ class OverlayConfigApp(tk.Tk):
         if not enabled and not self.widget_select_mode and self.widget_focus_area == "sidebar":
             if getattr(self, "_sidebar_focus_index", 0) > 0:
                 self.exit_focus_mode()
+        self._update_contextual_tip()
 
     def _compute_absolute_from_snapshot(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
         base_min_x, base_min_y, _, _ = snapshot.base_bounds
@@ -2190,6 +2282,7 @@ class OverlayConfigApp(tk.Tk):
     def _update_absolute_widget_color(self, snapshot: _GroupSnapshot | None) -> None:
         widget = getattr(self, "absolute_widget", None)
         if widget is None:
+            self._absolute_warn = False
             return
         color = None
         if snapshot is not None:
@@ -2200,10 +2293,12 @@ class OverlayConfigApp(tk.Tk):
                 or abs(abs_y - trans_y) > self._absolute_tolerance_px
             ):
                 color = "#cc3333"
+        self._absolute_warn = bool(color)
         try:
             widget.set_text_color(color)
         except Exception:
             pass
+        self._update_contextual_tip()
 
     def _apply_snapshot_to_absolute_widget(
         self, selection: tuple[str, str], snapshot: _GroupSnapshot, force_ui: bool = True
