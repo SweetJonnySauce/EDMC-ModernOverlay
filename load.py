@@ -1301,6 +1301,7 @@ class _PluginRuntime:
                 raise RuntimeError("Overlay Controller launch already in progress.")
             if self._controller_process and self._controller_process.poll() is None:
                 raise RuntimeError("Overlay Controller is already running.")
+            LOGGER.debug("Overlay Controller launch requested; preparing launch thread.")
             thread = threading.Thread(
                 target=self._overlay_controller_launch_sequence,
                 name="OverlayControllerLaunch",
@@ -1320,34 +1321,22 @@ class _PluginRuntime:
 
         candidate = self._locate_overlay_python(overlay_env)
         if candidate:
+            LOGGER.debug("Using controller Python from overlay client environment: %s", candidate[0])
             return candidate
         raise RuntimeError(
             "No Python interpreter available to launch the Overlay Controller. "
             "Create overlay-client/.venv or set EDMC_OVERLAY_CONTROLLER_PYTHON."
         )
 
-    def _verify_tk_available(self, python_command: List[str], env: Dict[str, str]) -> None:
-        """Ensure the selected interpreter can import tkinter."""
-
-        try:
-            subprocess.check_call(
-                [*python_command, "-c", "import tkinter"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                env=env,
-                timeout=5,
-            )
-        except Exception as exc:
-            raise RuntimeError(
-                "Overlay Controller interpreter is missing Tk (tkinter). "
-                "Install a Python with Tk or set EDMC_OVERLAY_CONTROLLER_PYTHON."
-            ) from exc
-
     def _overlay_controller_launch_sequence(self) -> None:
         try:
             launch_env = self._build_overlay_environment()
             python_command = self._controller_python_command(launch_env)
-            self._verify_tk_available(python_command, launch_env)
+            LOGGER.debug("Overlay Controller launch sequence starting with interpreter=%s", python_command[0])
+            for key in ("TCL_LIBRARY", "TK_LIBRARY"):
+                if key in launch_env:
+                    LOGGER.debug("Removing %s from controller environment to avoid Tcl/Tk conflicts", key)
+                    launch_env.pop(key, None)
             self._controller_countdown()
             process = self._spawn_overlay_controller_process(python_command, launch_env)
         except Exception as exc:
@@ -1360,21 +1349,43 @@ class _PluginRuntime:
         with self._controller_launch_lock:
             self._controller_process = process
             self._controller_launch_thread = None
+        LOGGER.debug("Overlay Controller process handle stored (pid=%s)", getattr(process, "pid", "?"))
 
         self._emit_controller_active_notice()
 
         try:
-            process.wait()
+            stdout: str = ""
+            stderr: str = ""
+            exit_code: Optional[int] = None
+            try:
+                stdout, stderr = process.communicate()
+                exit_code = process.returncode
+            except Exception as exc:
+                LOGGER.debug("Overlay Controller communicate() failed: %s", exc)
+                try:
+                    exit_code = process.wait(timeout=1.0)
+                except Exception:
+                    exit_code = process.poll()
+            LOGGER.debug("Overlay Controller process exited with code %s", exit_code)
+            if exit_code not in (0, None):
+                LOGGER.warning(
+                    "Overlay Controller exited abnormally (code=%s). stdout=%r stderr=%r",
+                    exit_code,
+                    (stdout or "").strip(),
+                    (stderr or "").strip(),
+                )
         finally:
             with self._controller_launch_lock:
                 self._controller_process = None
             self._clear_controller_message()
 
     def _controller_countdown(self) -> None:
+        LOGGER.debug("Overlay Controller countdown started.")
         for remaining in (5, 4, 3, 2, 1):
             text = f"Overlay Controller opening in {remaining}... back out of comms panel now."
             self._emit_controller_message(text, ttl=1.25)
             time.sleep(1)
+        LOGGER.debug("Overlay Controller countdown completed.")
 
     def _spawn_overlay_controller_process(
         self,
@@ -1385,12 +1396,20 @@ class _PluginRuntime:
         if not script_path.exists():
             raise RuntimeError("overlay_controller.py not found")
         command = [*python_command, str(script_path)]
+        LOGGER.debug("Spawning Overlay Controller via %s", command)
         kwargs: Dict[str, Any] = {"cwd": str(script_path.parent), "env": launch_env}
         if os.name == "nt":
             creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             if creation_flags:
                 kwargs["creationflags"] = creation_flags
-        process = subprocess.Popen(command, **kwargs)
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            **kwargs,
+        )
         LOGGER.debug("Overlay Controller launched via chat command (pid=%s)", getattr(process, "pid", "?"))
         return process
 
