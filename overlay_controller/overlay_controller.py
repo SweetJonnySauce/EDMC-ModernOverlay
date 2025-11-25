@@ -3044,6 +3044,7 @@ class OverlayConfigApp(tk.Tk):
             pass
         # Ensure indicator is positioned after the first real layout pass.
         try:
+            self.after_idle(self._apply_placement_state)
             self.after_idle(lambda: self._show_indicator(direction=self._current_direction))
         except Exception:
             pass
