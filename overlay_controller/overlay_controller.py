@@ -372,6 +372,33 @@ class IdPrefixGroupWidget(tk.Frame):
                 self._on_selection_changed(self.dropdown.get())
             except Exception:
                 pass
+
+    def _post_dropdown(self) -> None:
+        """Open the combobox dropdown without synthesizing key events."""
+
+        try:
+            self.dropdown.tk.call("ttk::combobox::Post", self.dropdown)
+        except Exception:
+            pass
+
+    def _navigate(self, step: int) -> bool:
+        """Advance selection and sync an open dropdown listbox if present."""
+
+        changed = self._advance_selection(step)
+        if changed and self._is_dropdown_open():
+            try:
+                popdown = self.dropdown.tk.call("ttk::combobox::PopdownWindow", self.dropdown)
+                listbox = f"{popdown}.f.l"
+                exists = bool(int(self.dropdown.tk.call("winfo", "exists", listbox)))
+                if exists:
+                    current = self.dropdown.current()
+                    self.dropdown.tk.call(listbox, "selection", "clear", 0, "end")
+                    self.dropdown.tk.call(listbox, "selection", "set", current)
+                    self.dropdown.tk.call(listbox, "see", current)
+            except Exception:
+                pass
+        return changed
+
     def handle_key(self, keysym: str, event: tk.Event[tk.Misc] | None = None) -> str | None:  # type: ignore[name-defined]
         """Process keys while this widget has focus mode active."""
 
@@ -386,10 +413,12 @@ class IdPrefixGroupWidget(tk.Frame):
             self._advance_selection(1)
             return "break"
         elif key == "down":
-            try:
-                self.dropdown.event_generate("<Down>")
-            except Exception:
-                pass
+            if not self._is_dropdown_open():
+                self._post_dropdown()
+            self._navigate(1)
+            return "break"
+        elif key == "up":
+            self._navigate(-1)
             return "break"
         elif key in {"return", "space"}:
             try:
@@ -400,7 +429,7 @@ class IdPrefixGroupWidget(tk.Frame):
                     else:
                         self.dropdown.event_generate("<Return>")
                 else:
-                    self.dropdown.event_generate("<Down>")
+                    self._post_dropdown()
             except Exception:
                 pass
             return "break"
