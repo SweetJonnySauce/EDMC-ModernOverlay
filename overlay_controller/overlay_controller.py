@@ -214,6 +214,9 @@ class IdPrefixGroupWidget(tk.Frame):
                     self.dropdown.bind_class(class_name, seq, lambda _e: "break")
                 except Exception:
                     continue
+        # Ensure left/right arrows stay local to this widget.
+        self.dropdown.bind("<Left>", self._handle_lr_key, add="+")
+        self.dropdown.bind("<Right>", self._handle_lr_key, add="+")
         self._build_triangles()
         self.dropdown.bind("<Button-1>", self._handle_dropdown_click, add="+")
         self.dropdown.bind("<<ComboboxSelected>>", self._handle_selection_change, add="+")
@@ -265,9 +268,6 @@ class IdPrefixGroupWidget(tk.Frame):
             current_index = 0
 
         target_index = (current_index + step) % count
-        if target_index == current_index:
-            return False
-
         try:
             self.dropdown.current(target_index)
             self.dropdown.event_generate("<<ComboboxSelected>>")
@@ -346,7 +346,7 @@ class IdPrefixGroupWidget(tk.Frame):
                 self._on_selection_changed(self.dropdown.get())
             except Exception:
                 pass
-    def handle_key(self, keysym: str, event: tk.Event[tk.Misc] | None = None) -> bool:  # type: ignore[name-defined]
+    def handle_key(self, keysym: str, event: tk.Event[tk.Misc] | None = None) -> str | None:  # type: ignore[name-defined]
         """Process keys while this widget has focus mode active."""
 
         def _alt_pressed(evt: object | None) -> bool:
@@ -354,20 +354,22 @@ class IdPrefixGroupWidget(tk.Frame):
             return bool(state & 0x0008) or bool(state & 0x20000)
 
         if _alt_pressed(event):
-            return True
+            return "break"
 
         key = keysym.lower()
         if key == "left":
-            return self._advance_selection(-1)
-        if key == "right":
-            return self._advance_selection(1)
-        if key == "down":
+            self._advance_selection(-1)
+            return "break"
+        elif key == "right":
+            self._advance_selection(1)
+            return "break"
+        elif key == "down":
             try:
                 self.dropdown.event_generate("<Down>")
             except Exception:
                 pass
-            return True
-        if key in {"return", "space"}:
+            return "break"
+        elif key in {"return", "space"}:
             try:
                 if self._is_dropdown_open():
                     focus_target = self.dropdown.tk.call("focus")
@@ -379,8 +381,13 @@ class IdPrefixGroupWidget(tk.Frame):
                     self.dropdown.event_generate("<Down>")
             except Exception:
                 pass
-            return True
-        return False
+            return "break"
+        return None
+
+    def _handle_lr_key(self, event: tk.Event[tk.Misc]) -> str | None:  # type: ignore[name-defined]
+        """Capture left/right arrow while focused to avoid bubbling to parent bindings."""
+
+        return self.handle_key(event.keysym, event)
 
 
 class OffsetSelectorWidget(tk.Frame):
@@ -478,6 +485,13 @@ class OffsetSelectorWidget(tk.Frame):
 
         if not self._enabled:
             return
+        if sys.platform.startswith("win"):
+            try:
+                root = self.winfo_toplevel()
+                if root is not None and hasattr(root, "_alt_active"):
+                    root._alt_active = False  # type: ignore[attr-defined]
+            except Exception:
+                pass
         if self._request_focus:
             try:
                 self._request_focus()
@@ -504,6 +518,22 @@ class OffsetSelectorWidget(tk.Frame):
     def _is_alt_pressed(self, event: object | None) -> bool:
         """Best-effort check for an active Alt/Mod1 modifier."""
 
+        if sys.platform.startswith("win"):
+            try:
+                root = self.winfo_toplevel()
+            except Exception:
+                root = None
+            state = getattr(event, "state", 0) or 0
+            alt_mask = bool(state & 0x0008) or bool(state & 0x20000)
+            if root is not None and hasattr(root, "_alt_active"):
+                if not alt_mask:
+                    try:
+                        root._alt_active = False  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                    return False
+                return bool(getattr(root, "_alt_active", False))
+            return alt_mask
         state = getattr(event, "state", 0) or 0
         return bool(state & 0x0008) or bool(state & 0x20000)
 
@@ -842,14 +872,14 @@ class AnchorSelectorWidget(tk.Frame):
         except Exception:
             pass
 
-    def handle_key(self, keysym: str, _event: object | None = None) -> bool:
+    def handle_key(self, keysym: str, _event: object | None = None) -> str | None:
         if not self._has_focus or not self._enabled:
-            return False
+            return None
         # Ignore modified arrows (e.g., Alt+Arrow) to keep behavior consistent with bindings.
         state = getattr(_event, "state", 0) or 0
         alt_pressed = bool(state & 0x0008) or bool(state & 0x20000)
         if alt_pressed:
-            return False
+            return None
 
         key = keysym.lower()
         row, col = divmod(self._active_index, 3)
@@ -862,11 +892,11 @@ class AnchorSelectorWidget(tk.Frame):
         elif key == "down" and row < 2:
             row += 1
         else:
-            return False
+            return None
         self._active_index = row * 3 + col
         self._draw()
         self._emit_change()
-        return True
+        return "break"
 
     def set_anchor(self, name: str | None) -> None:
         mapping = {
@@ -1166,6 +1196,7 @@ class OverlayConfigApp(tk.Tk):
         self.withdraw()
         self.title("Overlay Controller")
         self.geometry("740x760")
+        self._alt_active = False
         self.protocol("WM_DELETE_WINDOW", self.close_application)
         self.base_min_height = 640
         self.minsize(640, self.base_min_height)
@@ -1229,6 +1260,14 @@ class OverlayConfigApp(tk.Tk):
         self._groupings_cache = self._load_groupings_cache()
         self._handle_idprefix_selected()
         self._binding_config = BindingConfig.load()
+        if sys.platform.startswith("win"):
+            for scheme in self._binding_config.schemes.values():
+                scheme.bindings["widget_move_left"] = []
+                scheme.bindings["widget_move_right"] = []
+            self.bind_all("<KeyPress-Alt_L>", self._handle_alt_press, add="+")
+            self.bind_all("<KeyPress-Alt_R>", self._handle_alt_press, add="+")
+            self.bind_all("<KeyRelease-Alt_L>", self._handle_alt_release, add="+")
+            self.bind_all("<KeyRelease-Alt_R>", self._handle_alt_release, add="+")
         self._binding_manager = BindingManager(self, self._binding_config)
         self._binding_manager.register_action(
             "indicator_toggle",
@@ -1276,6 +1315,11 @@ class OverlayConfigApp(tk.Tk):
         self.bind("<Configure>", self._handle_configure)
         self.bind("<FocusIn>", self._handle_focus_in)
         self.bind("<space>", self._handle_space_key, add="+")
+        if sys.platform.startswith("win"):
+            self.bind_all("<KeyPress-Alt_L>", self._handle_alt_press, add="+")
+            self.bind_all("<KeyPress-Alt_R>", self._handle_alt_press, add="+")
+            self.bind_all("<KeyRelease-Alt_L>", self._handle_alt_release, add="+")
+            self.bind_all("<KeyRelease-Alt_R>", self._handle_alt_release, add="+")
         self.bind("<ButtonPress-1>", self._start_window_drag, add="+")
         self.bind("<B1-Motion>", self._on_window_drag, add="+")
         self.bind("<ButtonRelease-1>", self._end_window_drag, add="+")
@@ -1704,6 +1748,14 @@ class OverlayConfigApp(tk.Tk):
         self._cancel_pending_close()
         self._pending_focus_out = False
         self._drag_offset = None
+
+    def _handle_alt_press(self, _event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]
+        if sys.platform.startswith("win"):
+            self._alt_active = True
+
+    def _handle_alt_release(self, _event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]
+        if sys.platform.startswith("win"):
+            self._alt_active = False
 
     def _start_window_drag(self, event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]
         """Begin window drag tracking when a mouse button is pressed."""
