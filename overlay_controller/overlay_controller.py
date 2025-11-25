@@ -1288,6 +1288,7 @@ class OverlayConfigApp(tk.Tk):
         self._write_debounce_ms = 300
         self._offset_write_debounce_ms = 600
         self._offset_step_px = 10.0
+        self._initial_geometry_applied = False
 
         self._build_layout()
         self._groupings_cache = self._load_groupings_cache()
@@ -2909,7 +2910,16 @@ class OverlayConfigApp(tk.Tk):
         """Show the correct placement frame for the current state."""
 
         self.update_idletasks()
-        current_height = max(self.winfo_height(), self.base_min_height)
+        viewable = False
+        try:
+            viewable = bool(self.winfo_viewable())
+        except Exception:
+            viewable = False
+        if viewable and not self._initial_geometry_applied:
+            current_height = max(self.base_min_height, self.winfo_reqheight())
+            self._initial_geometry_applied = True
+        else:
+            current_height = max(self.winfo_height(), self.base_min_height)
         open_outer_padding = self.container_pad_left + self.container_pad_right_open
         closed_outer_padding = self.container_pad_left + self.container_pad_right_closed
         sidebar_total_open = self.sidebar_width + self.sidebar_pad
