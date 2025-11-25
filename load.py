@@ -1310,24 +1310,46 @@ class _PluginRuntime:
         thread.start()
 
     def _controller_python_command(self, overlay_env: Dict[str, str]) -> List[str]:
-        if self._flatpak_context.get("is_flatpak"):
-            host_command = self._flatpak_host_command(overlay_env)
-            if host_command:
-                return host_command
-        executable = sys.executable
-        if executable:
-            return [executable]
-        for candidate in ("python3", "python"):
-            resolved = shutil.which(candidate)
-            if resolved:
-                return [resolved]
-        raise RuntimeError("no Python interpreter available to launch the overlay controller")
+        override = os.getenv("EDMC_OVERLAY_CONTROLLER_PYTHON")
+        if override:
+            override_path = Path(override).expanduser()
+            if override_path.exists():
+                LOGGER.debug("Using controller Python from EDMC_OVERLAY_CONTROLLER_PYTHON=%s", override_path)
+                return [str(override_path)]
+            LOGGER.debug("EDMC_OVERLAY_CONTROLLER_PYTHON=%s not found; falling back to overlay client interpreter", override_path)
+
+        candidate = self._locate_overlay_python(overlay_env)
+        if candidate:
+            return candidate
+        raise RuntimeError(
+            "No Python interpreter available to launch the Overlay Controller. "
+            "Create overlay-client/.venv or set EDMC_OVERLAY_CONTROLLER_PYTHON."
+        )
+
+    def _verify_tk_available(self, python_command: List[str], env: Dict[str, str]) -> None:
+        """Ensure the selected interpreter can import tkinter."""
+
+        try:
+            subprocess.check_call(
+                [*python_command, "-c", "import tkinter"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=env,
+                timeout=5,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "Overlay Controller interpreter is missing Tk (tkinter). "
+                "Install a Python with Tk or set EDMC_OVERLAY_CONTROLLER_PYTHON."
+            ) from exc
 
     def _overlay_controller_launch_sequence(self) -> None:
         try:
-            self._controller_countdown()
             launch_env = self._build_overlay_environment()
-            process = self._spawn_overlay_controller_process(launch_env)
+            python_command = self._controller_python_command(launch_env)
+            self._verify_tk_available(python_command, launch_env)
+            self._controller_countdown()
+            process = self._spawn_overlay_controller_process(python_command, launch_env)
         except Exception as exc:
             LOGGER.error("Overlay Controller launch failed: %s", exc, exc_info=exc)
             self._emit_controller_message(f"Overlay Controller launch failed: {exc}", ttl=6.0)
@@ -1354,11 +1376,15 @@ class _PluginRuntime:
             self._emit_controller_message(text, ttl=1.25)
             time.sleep(1)
 
-    def _spawn_overlay_controller_process(self, launch_env: Dict[str, str]) -> subprocess.Popen:
+    def _spawn_overlay_controller_process(
+        self,
+        python_command: List[str],
+        launch_env: Dict[str, str],
+    ) -> subprocess.Popen:
         script_path = self.plugin_dir / "overlay_controller" / "overlay_controller.py"
         if not script_path.exists():
             raise RuntimeError("overlay_controller.py not found")
-        command = [*self._controller_python_command(launch_env), str(script_path)]
+        command = [*python_command, str(script_path)]
         kwargs: Dict[str, Any] = {"cwd": str(script_path.parent), "env": launch_env}
         if os.name == "nt":
             creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
