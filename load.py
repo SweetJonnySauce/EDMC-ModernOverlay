@@ -1309,7 +1309,11 @@ class _PluginRuntime:
             self._controller_launch_thread = thread
         thread.start()
 
-    def _controller_python_command(self) -> List[str]:
+    def _controller_python_command(self, overlay_env: Dict[str, str]) -> List[str]:
+        if self._flatpak_context.get("is_flatpak"):
+            host_command = self._flatpak_host_command(overlay_env)
+            if host_command:
+                return host_command
         executable = sys.executable
         if executable:
             return [executable]
@@ -1322,7 +1326,8 @@ class _PluginRuntime:
     def _overlay_controller_launch_sequence(self) -> None:
         try:
             self._controller_countdown()
-            process = self._spawn_overlay_controller_process()
+            launch_env = self._build_overlay_environment()
+            process = self._spawn_overlay_controller_process(launch_env)
         except Exception as exc:
             LOGGER.error("Overlay Controller launch failed: %s", exc, exc_info=exc)
             self._emit_controller_message(f"Overlay Controller launch failed: {exc}", ttl=6.0)
@@ -1349,12 +1354,12 @@ class _PluginRuntime:
             self._emit_controller_message(text, ttl=1.25)
             time.sleep(1)
 
-    def _spawn_overlay_controller_process(self) -> subprocess.Popen:
+    def _spawn_overlay_controller_process(self, launch_env: Dict[str, str]) -> subprocess.Popen:
         script_path = self.plugin_dir / "overlay_controller" / "overlay_controller.py"
         if not script_path.exists():
             raise RuntimeError("overlay_controller.py not found")
-        command = [*self._controller_python_command(), str(script_path)]
-        kwargs: Dict[str, Any] = {"cwd": str(script_path.parent)}
+        command = [*self._controller_python_command(launch_env), str(script_path)]
+        kwargs: Dict[str, Any] = {"cwd": str(script_path.parent), "env": launch_env}
         if os.name == "nt":
             creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             if creation_flags:
@@ -2018,7 +2023,7 @@ class _PluginRuntime:
             LOGGER.debug("Overlay Python override %s not found, falling back", override_path)
 
         if self._flatpak_context.get("is_flatpak"):
-            command = self._flatpak_python_command(overlay_env)
+            command = self._flatpak_host_command(overlay_env)
             if command:
                 return command
 
@@ -2035,7 +2040,7 @@ class _PluginRuntime:
 
         return None
 
-    def _flatpak_python_command(self, overlay_env: Optional[Dict[str, str]]) -> Optional[List[str]]:
+    def _flatpak_host_command(self, overlay_env: Optional[Dict[str, str]]) -> Optional[List[str]]:
         spawn_path = shutil.which("flatpak-spawn")
         if not spawn_path:
             if not self._flatpak_spawn_warning_emitted:
@@ -2053,6 +2058,10 @@ class _PluginRuntime:
         LOGGER.info("Launching overlay client via flatpak-spawn host interpreter at %s", host_python)
         env_args = self._flatpak_env_arguments(overlay_env)
         return [spawn_path, "--host", *env_args, host_python]
+
+    def _flatpak_python_command(self, overlay_env: Optional[Dict[str, str]]) -> Optional[List[str]]:
+        """Compat shim for legacy callers; delegates to _flatpak_host_command."""
+        return self._flatpak_host_command(overlay_env)
 
     def _flatpak_env_arguments(self, overlay_env: Optional[Dict[str, str]]) -> List[str]:
         args: List[str] = []
