@@ -9,7 +9,7 @@
         ],
         "offsetX": 0.0,
         "offsetY": 0.0,
-        "payloadJustification": "right"
+        "payloadJustification": "center"
       },
       "BGS-Tally Ready": {
         "idPrefixGroupAnchor": "nw",

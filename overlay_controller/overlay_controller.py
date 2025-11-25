@@ -3038,6 +3038,8 @@ class OverlayConfigApp(tk.Tk):
         try:
             self.deiconify()
             self.lift()
+            self._raise_on_windows()
+            self._focus_on_show()
         except Exception:
             pass
         # Ensure indicator is positioned after the first real layout pass.
@@ -3115,6 +3117,72 @@ class OverlayConfigApp(tk.Tk):
             return x, y, width, height
 
         return None
+
+    def _raise_on_windows(self) -> None:
+        """Best-effort bring-to-front for Windows without staying always-on-top."""
+
+        if platform.system() != "Windows":
+            return
+        try:
+            self.attributes("-topmost", True)
+            self.after(200, lambda: self.attributes("-topmost", False))
+        except Exception:
+            pass
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            hwnd = self.winfo_id()
+
+            SW_SHOW = 5
+            SWP_NOMOVE = 0x0002
+            SWP_NOSIZE = 0x0001
+            SWP_SHOWWINDOW = 0x0040
+            HWND_TOPMOST = -1
+            HWND_NOTOPMOST = -2
+
+            fg_hwnd = user32.GetForegroundWindow()
+            fg_tid = user32.GetWindowThreadProcessId(fg_hwnd, 0)
+            cur_tid = kernel32.GetCurrentThreadId()
+
+            attached = False
+            try:
+                if fg_tid and fg_tid != cur_tid:
+                    attached = bool(user32.AttachThreadInput(fg_tid, cur_tid, True))
+
+                user32.ShowWindow(hwnd, SW_SHOW)
+                user32.BringWindowToTop(hwnd)
+                user32.SetForegroundWindow(hwnd)
+                user32.SetActiveWindow(hwnd)
+                user32.SetFocus(hwnd)
+                user32.SetWindowPos(
+                    hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW
+                )
+                user32.SetWindowPos(
+                    hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW
+                )
+            finally:
+                if attached:
+                    try:
+                        user32.AttachThreadInput(fg_tid, cur_tid, False)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def _focus_on_show(self) -> None:
+        """Attempt to give the controller focus after showing it."""
+
+        try:
+            if platform.system() == "Windows":
+                self.focus_force()
+                self.after_idle(lambda: self.focus_force())
+            else:
+                self.focus_set()
+                self.after_idle(lambda: self.focus_set())
+        except Exception:
+            pass
 
 
 def launch() -> None:
