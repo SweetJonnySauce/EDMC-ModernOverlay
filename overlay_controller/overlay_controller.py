@@ -475,6 +475,7 @@ class OffsetSelectorWidget(tk.Frame):
         self._pinned: set[str] = set()
         self._default_color = "black"
         self._active_color = "#ff9900"
+        self._disabled_color = "#b0b0b0"
         self._request_focus: callable | None = None
         self._on_change: callable | None = None
         self._enabled = True
@@ -523,9 +524,12 @@ class OffsetSelectorWidget(tk.Frame):
         return mapping.get(direction, "")
 
     def _apply_arrow_colors(self) -> None:
+        base_color = self._disabled_color if not self._enabled else self._default_color
+        active_color = self._disabled_color if not self._enabled else self._active_color
         for direction, (canvas, poly_id) in self._arrows.items():
-            color = self._active_color if direction in self._pinned else self._default_color
+            color = active_color if direction in self._pinned else base_color
             try:
+                canvas.configure(highlightbackground=base_color, highlightcolor=base_color)
                 canvas.itemconfigure(poly_id, fill=color, outline=color)
             except Exception:
                 continue
@@ -579,6 +583,8 @@ class OffsetSelectorWidget(tk.Frame):
         self.handle_key(direction)
 
     def on_focus_enter(self) -> None:
+        if not self._enabled:
+            return
         try:
             self.focus_set()
         except Exception:
@@ -677,10 +683,12 @@ class JustificationWidget(tk.Frame):
         self._apply_styles()
 
     def _apply_styles(self) -> None:
-        active_bg = "#dce6ff" if self._has_focus else self.cget("background")
-        inactive_bg = self.cget("background")
-        outline_color = "#4a4a4a" if self._has_focus else "#9a9a9a"
-        bar_color = "#1c1c1c" if self._has_focus else "#555555"
+        disabled = not self._enabled
+        base_bg = self.cget("background")
+        active_bg = "#e6e6e6" if disabled else ("#dce6ff" if self._has_focus else base_bg)
+        inactive_bg = "#e6e6e6" if disabled else base_bg
+        outline_color = "#b5b5b5" if disabled else ("#4a4a4a" if self._has_focus else "#9a9a9a")
+        bar_color = "#9a9a9a" if disabled else ("#1c1c1c" if self._has_focus else "#555555")
         for idx, canvas in enumerate(self._icons):
             is_active = idx == self._active_index
             canvas.configure(bg=active_bg if is_active else inactive_bg)
@@ -834,9 +842,12 @@ class AnchorSelectorWidget(tk.Frame):
         offset_y = (h - grid_extent) / 2
         xs = [offset_x + spacing * i for i in range(3)]
         ys = [offset_y + spacing * i for i in range(3)]
-        line_color = "#2b2b2b" if self._has_focus else "#888888"
-        dot_color = "#000000"
-        highlight_color = "#000000"
+        disabled = not self._enabled
+        line_color = "#a0a0a0" if disabled else ("#2b2b2b" if self._has_focus else "#888888")
+        dot_color = "#8a8a8a" if disabled else "#000000"
+        highlight_color = "#707070" if disabled else "#000000"
+        focus_fill = "#dcdcdc" if disabled else "#cfe6ff"
+        focus_outline = "#b5b5b5" if disabled else "#5a7cae"
 
         # Outer square (dashed)
         self.canvas.create_line(xs[0], ys[0], xs[2], ys[0], fill=line_color, dash=(2, 3))
@@ -860,7 +871,7 @@ class AnchorSelectorWidget(tk.Frame):
         hx1 = hx0 + highlight_size
         hy1 = hy0 + highlight_size
         if self._has_focus:
-            self.canvas.create_rectangle(hx0, hy0, hx1, hy1, fill="#cfe6ff", outline="#5a7cae", width=1.2)
+            self.canvas.create_rectangle(hx0, hy0, hx1, hy1, fill=focus_fill, outline=focus_outline, width=1.2)
         else:
             self.canvas.create_rectangle(hx0, hy0, hx1, hy1, outline=line_color, width=1)
 
@@ -1040,11 +1051,17 @@ class AbsoluteXYWidget(tk.Frame):
         y_entry.grid(row=1, column=2, padx=(2, 24))
 
         self._entries = {"x": x_entry, "y": y_entry}
+        self._labels = (x_label, y_label)
         self._enabled = True
         try:
             self._default_fg = str(x_entry.cget("fg"))
         except Exception:
             self._default_fg = "black"
+        try:
+            self._label_default_fg = str(x_label.cget("fg"))
+        except Exception:
+            self._label_default_fg = "black"
+        self._disabled_fg = "#7a7a7a"
 
         for field, entry in self._entries.items():
             entry.bind("<Button-1>", lambda _e, f=field: self._handle_entry_click(f), add="+")
@@ -1067,6 +1084,8 @@ class AbsoluteXYWidget(tk.Frame):
         self._active_field = field
 
     def _handle_entry_focus_event(self, field: str) -> None:
+        if not self._enabled:
+            return
         if field not in ("x", "y"):
             return
         self._set_active_field(field)
@@ -1080,6 +1099,8 @@ class AbsoluteXYWidget(tk.Frame):
             pass
 
     def _focus_field(self, field: str) -> None:
+        if not self._enabled:
+            return
         entry = self._entries.get(field)
         if entry is None:
             return
@@ -1134,6 +1155,8 @@ class AbsoluteXYWidget(tk.Frame):
             pass
 
     def on_focus_enter(self) -> None:
+        if not self._enabled:
+            return
         self._focus_field(self._active_field)
         entry = self._entries.get(self._active_field)
         if entry is not None:
@@ -1151,6 +1174,8 @@ class AbsoluteXYWidget(tk.Frame):
     def focus_set(self) -> None:  # type: ignore[override]
         """Forward focus to the active entry so typing works immediately."""
 
+        if not self._enabled:
+            return
         self._focus_field(self._active_field)
 
     def _parse_value(self, raw: str, axis: str) -> float:
@@ -1237,8 +1262,21 @@ class AbsoluteXYWidget(tk.Frame):
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = enabled
         state = "normal" if enabled else "disabled"
+        label_fg = self._label_default_fg if enabled else self._disabled_fg
+        for label in self._labels:
+            try:
+                label.configure(fg=label_fg)
+            except Exception:
+                pass
         for entry in self._entries.values():
-            entry.configure(state=state)
+            try:
+                entry.configure(
+                    state=state,
+                    fg=self._default_fg if enabled else self._disabled_fg,
+                    disabledforeground=self._disabled_fg,
+                )
+            except Exception:
+                pass
 
     def set_text_color(self, color: str | None) -> None:
         fg = color or self._default_fg
@@ -1293,6 +1331,7 @@ class OverlayConfigApp(tk.Tk):
         self.overlay_padding = 8
         self.overlay_border_width = 3
         self._focus_widgets: dict[tuple[str, int], object] = {}
+        self._group_controls_enabled = True
         self._current_direction = "right"
         self._groupings_data: dict[str, object] = {}
         self._idprefix_entries: list[tuple[str, str]] = []
@@ -1679,6 +1718,18 @@ class OverlayConfigApp(tk.Tk):
             return
         if not (0 <= index < len(self.sidebar_cells)):
             return
+        block_focus = (not getattr(self, "_group_controls_enabled", True)) and index > 0
+        if block_focus:
+            if not self.widget_select_mode:
+                self.exit_focus_mode()
+            self.widget_focus_area = "sidebar"
+            self._set_sidebar_focus(index)
+            self._refresh_widget_focus()
+            try:
+                self.focus_set()
+            except Exception:
+                pass
+            return
         if not self.widget_select_mode and index != getattr(self, "_sidebar_focus_index", -1):
             self._on_focus_mode_exited()
         self.widget_focus_area = "sidebar"
@@ -2054,6 +2105,7 @@ class OverlayConfigApp(tk.Tk):
         return normalized, transformed, timestamp
 
     def _set_group_controls_enabled(self, enabled: bool) -> None:
+        self._group_controls_enabled = bool(enabled)
         widget_names = ("offset_widget", "absolute_widget", "anchor_widget", "justification_widget")
         for name in widget_names:
             widget = getattr(self, name, None)
@@ -2063,6 +2115,9 @@ class OverlayConfigApp(tk.Tk):
                     setter(enabled)
                 except Exception:
                     continue
+        if not enabled and not self.widget_select_mode and self.widget_focus_area == "sidebar":
+            if getattr(self, "_sidebar_focus_index", 0) > 0:
+                self.exit_focus_mode()
 
     def _compute_absolute_from_snapshot(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
         base_min_x, base_min_y, _, _ = snapshot.base_bounds
@@ -2121,7 +2176,7 @@ class OverlayConfigApp(tk.Tk):
             plugin=plugin_name,
             label=label,
             anchor_token=anchor_token,
-             transform_anchor_token=transform_anchor_token,
+            transform_anchor_token=transform_anchor_token,
             offset_x=offset_x,
             offset_y=offset_y,
             base_bounds=base_bounds,
@@ -2916,6 +2971,9 @@ class OverlayConfigApp(tk.Tk):
 
         if not self.widget_select_mode:
             return
+        if self.widget_focus_area == "sidebar" and not getattr(self, "_group_controls_enabled", True):
+            if getattr(self, "_sidebar_focus_index", 0) > 0:
+                return "break"
         self.widget_select_mode = False
         self._on_focus_mode_entered()
         self._refresh_widget_focus()

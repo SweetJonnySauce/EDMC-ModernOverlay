@@ -45,7 +45,7 @@
         ],
         "offsetX": 190.0,
         "offsetY": 10.0,
-        "payloadJustification": "right"
+        "payloadJustification": "left"
       },
       "BGS-Tally Tickwarn": {
         "idPrefixGroupAnchor": "ne",
