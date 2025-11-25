@@ -5,7 +5,7 @@
   "client_log_retention": 1,
   "gridlines_enabled": false,
   "gridline_spacing": 10,
-  "force_render": false,
+  "force_render": true,
   "allow_force_render_release": false,
   "force_xwayland": false,
   "show_debug_overlay": false,

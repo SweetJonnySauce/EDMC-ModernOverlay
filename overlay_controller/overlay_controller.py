@@ -215,8 +215,13 @@ class IdPrefixGroupWidget(tk.Frame):
                 except Exception:
                     continue
         # Ensure left/right arrows stay local to this widget.
-        self.dropdown.bind("<Left>", self._handle_lr_key, add="+")
-        self.dropdown.bind("<Right>", self._handle_lr_key, add="+")
+        for seq in ("<Left>", "<Right>"):
+            self.dropdown.bind(seq, self._handle_lr_key, add="+")
+            for class_name in block_classes:
+                try:
+                    self.dropdown.bind_class(class_name, seq, self._handle_lr_key, add="+")
+                except Exception:
+                    continue
         self._build_triangles()
         self.dropdown.bind("<Button-1>", self._handle_dropdown_click, add="+")
         self.dropdown.bind("<<ComboboxSelected>>", self._handle_selection_change, add="+")
@@ -1261,9 +1266,6 @@ class OverlayConfigApp(tk.Tk):
         self._handle_idprefix_selected()
         self._binding_config = BindingConfig.load()
         if sys.platform.startswith("win"):
-            for scheme in self._binding_config.schemes.values():
-                scheme.bindings["widget_move_left"] = []
-                scheme.bindings["widget_move_right"] = []
             self.bind_all("<KeyPress-Alt_L>", self._handle_alt_press, add="+")
             self.bind_all("<KeyPress-Alt_R>", self._handle_alt_press, add="+")
             self.bind_all("<KeyRelease-Alt_L>", self._handle_alt_release, add="+")
