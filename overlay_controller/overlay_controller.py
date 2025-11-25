@@ -46,6 +46,27 @@ class _GroupSnapshot:
     cache_timestamp: float = 0.0
 
 
+def _alt_modifier_active(widget: tk.Misc | None, event: object | None) -> bool:  # type: ignore[name-defined]
+    """Return True when Alt is genuinely held down, with Windows-friendly detection."""
+
+    state = getattr(event, "state", 0) or 0
+    alt_mask = bool(state & 0x0008) or bool(state & 0x20000)
+    if sys.platform.startswith("win"):
+        try:
+            root = widget.winfo_toplevel() if widget is not None else None
+        except Exception:
+            root = None
+        if root is not None and hasattr(root, "_alt_active"):
+            if not alt_mask:
+                try:
+                    root._alt_active = False  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                return False
+            return bool(getattr(root, "_alt_active", False))
+    return alt_mask
+
+
 class _ForceRenderOverrideManager:
     """Manages temporary force-render overrides while the controller is open."""
 
@@ -354,11 +375,7 @@ class IdPrefixGroupWidget(tk.Frame):
     def handle_key(self, keysym: str, event: tk.Event[tk.Misc] | None = None) -> str | None:  # type: ignore[name-defined]
         """Process keys while this widget has focus mode active."""
 
-        def _alt_pressed(evt: object | None) -> bool:
-            state = getattr(evt, "state", 0) or 0
-            return bool(state & 0x0008) or bool(state & 0x20000)
-
-        if _alt_pressed(event):
+        if _alt_modifier_active(self, event):
             return "break"
 
         key = keysym.lower()
@@ -523,24 +540,7 @@ class OffsetSelectorWidget(tk.Frame):
     def _is_alt_pressed(self, event: object | None) -> bool:
         """Best-effort check for an active Alt/Mod1 modifier."""
 
-        if sys.platform.startswith("win"):
-            try:
-                root = self.winfo_toplevel()
-            except Exception:
-                root = None
-            state = getattr(event, "state", 0) or 0
-            alt_mask = bool(state & 0x0008) or bool(state & 0x20000)
-            if root is not None and hasattr(root, "_alt_active"):
-                if not alt_mask:
-                    try:
-                        root._alt_active = False  # type: ignore[attr-defined]
-                    except Exception:
-                        pass
-                    return False
-                return bool(getattr(root, "_alt_active", False))
-            return alt_mask
-        state = getattr(event, "state", 0) or 0
-        return bool(state & 0x0008) or bool(state & 0x20000)
+        return _alt_modifier_active(self, event)
 
     def set_focus_request_callback(self, callback: callable | None) -> None:
         """Register a callback that requests host focus when a control is clicked."""
@@ -881,8 +881,7 @@ class AnchorSelectorWidget(tk.Frame):
         if not self._has_focus or not self._enabled:
             return None
         # Ignore modified arrows (e.g., Alt+Arrow) to keep behavior consistent with bindings.
-        state = getattr(_event, "state", 0) or 0
-        alt_pressed = bool(state & 0x0008) or bool(state & 0x20000)
+        alt_pressed = _alt_modifier_active(self, _event)
         if alt_pressed:
             return None
 
