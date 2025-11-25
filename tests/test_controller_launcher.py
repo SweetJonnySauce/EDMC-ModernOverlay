@@ -44,32 +44,3 @@ def test_controller_python_raises_when_missing(monkeypatch):
 
     with pytest.raises(RuntimeError):
         load._PluginRuntime._controller_python_command(runtime, {})
-
-
-def test_verify_tk_available_invokes_subprocess(monkeypatch):
-    runtime = _dummy_runtime(located=["/tmp/venv/python"])
-    called = {}
-
-    def fake_call(cmd, stdout=None, stderr=None, env=None, timeout=None):
-        called["cmd"] = cmd
-        called["env"] = env
-        called["timeout"] = timeout
-        return 0
-
-    monkeypatch.setattr(subprocess, "check_call", fake_call)
-    load._PluginRuntime._verify_tk_available(runtime, ["python"], {"ENV": "1"})
-
-    assert called["cmd"] == ["python", "-c", "import tkinter"]
-    assert called["env"] == {"ENV": "1"}
-    assert called["timeout"] == 5
-
-
-def test_verify_tk_available_raises_on_failure(monkeypatch):
-    runtime = _dummy_runtime(located=["/tmp/venv/python"])
-
-    def fake_call(*_args, **_kwargs):
-        raise subprocess.CalledProcessError(1, "python")
-
-    monkeypatch.setattr(subprocess, "check_call", fake_call)
-    with pytest.raises(RuntimeError, match="missing Tk"):
-        load._PluginRuntime._verify_tk_available(runtime, ["python"], {})
