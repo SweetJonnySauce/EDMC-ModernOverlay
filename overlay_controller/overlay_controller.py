@@ -541,8 +541,8 @@ class OffsetSelectorWidget(tk.Frame):
             width=self.button_size,
             height=self.button_size,
             bd=0,
-            highlightthickness=1,
-            relief="solid",
+            highlightthickness=0,
+            relief="flat",
             bg=self.cget("background"),
         )
         size = self.button_size
@@ -570,7 +570,11 @@ class OffsetSelectorWidget(tk.Frame):
         for direction, (canvas, poly_id) in self._arrows.items():
             color = active_color if direction in self._pinned else base_color
             try:
-                canvas.configure(highlightbackground=base_color, highlightcolor=base_color)
+                canvas.configure(
+                    highlightbackground=canvas.cget("bg"),
+                    highlightcolor=canvas.cget("bg"),
+                    highlightthickness=0,
+                )
                 canvas.itemconfigure(poly_id, fill=color, outline=color)
             except Exception:
                 continue
