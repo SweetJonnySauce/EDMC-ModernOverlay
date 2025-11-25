@@ -205,6 +205,7 @@ class IdPrefixGroupWidget(tk.Frame):
         super().__init__(parent, bd=0, highlightthickness=0, bg=parent.cget("background"))
         self._choices = options or []
         self._selection = tk.StringVar()
+        self._dropdown_posted = False
         self._request_focus: callable | None = None
         self._on_selection_changed: callable | None = None
 
@@ -235,12 +236,12 @@ class IdPrefixGroupWidget(tk.Frame):
                     self.dropdown.bind_class(class_name, seq, lambda _e: "break")
                 except Exception:
                     continue
-        # Ensure left/right arrows stay local to this widget.
-        for seq in ("<Left>", "<Right>"):
-            self.dropdown.bind(seq, self._handle_lr_key, add="+")
+        # Ensure arrow keys stay local to this widget/popdown so we can handle navigation ourselves.
+        for seq in ("<Left>", "<Right>", "<Up>", "<Down>"):
+            self.dropdown.bind(seq, self._handle_arrow_key, add="+")
             for class_name in block_classes:
                 try:
-                    self.dropdown.bind_class(class_name, seq, self._handle_lr_key, add="+")
+                    self.dropdown.bind_class(class_name, seq, self._handle_arrow_key, add="+")
                 except Exception:
                     continue
         self._build_triangles()
@@ -372,12 +373,28 @@ class IdPrefixGroupWidget(tk.Frame):
                 self._on_selection_changed(self.dropdown.get())
             except Exception:
                 pass
+        self._dropdown_posted = False
 
     def _post_dropdown(self) -> None:
         """Open the combobox dropdown without synthesizing key events."""
 
         try:
             self.dropdown.tk.call("ttk::combobox::Post", self.dropdown)
+            self._dropdown_posted = True
+            try:
+                popdown = self.dropdown.tk.call("ttk::combobox::PopdownWindow", self.dropdown)
+                listbox = f"{popdown}.f.l"
+                exists = bool(int(self.dropdown.tk.call("winfo", "exists", listbox)))
+                if exists:
+                    current = self.dropdown.current()
+                    self.dropdown.tk.call(listbox, "activate", current)
+                    self.dropdown.tk.call("focus", listbox)
+            except Exception:
+                pass
+            try:
+                self.update_idletasks()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -414,7 +431,14 @@ class IdPrefixGroupWidget(tk.Frame):
             return "break"
         elif key == "down":
             if not self._is_dropdown_open():
-                self._post_dropdown()
+                if self._dropdown_posted:
+                    self._dropdown_posted = False
+                    self._navigate(1)
+                    return "break"
+                else:
+                    self._post_dropdown()
+                    return "break"
+            self._dropdown_posted = False
             self._navigate(1)
             return "break"
         elif key == "up":
@@ -435,8 +459,8 @@ class IdPrefixGroupWidget(tk.Frame):
             return "break"
         return None
 
-    def _handle_lr_key(self, event: tk.Event[tk.Misc]) -> str | None:  # type: ignore[name-defined]
-        """Capture left/right arrow while focused to avoid bubbling to parent bindings."""
+    def _handle_arrow_key(self, event: tk.Event[tk.Misc]) -> str | None:  # type: ignore[name-defined]
+        """Capture arrow keys while focused to avoid bubbling to parent bindings."""
 
         return self.handle_key(event.keysym, event)
 
