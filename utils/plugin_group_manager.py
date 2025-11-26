@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import argparse
 import json
 import logging
@@ -10,7 +12,6 @@ import math
 import os
 import queue
 import re
-import shutil
 import socket
 import subprocess
 import sys

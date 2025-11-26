@@ -584,25 +584,37 @@ class PayloadInspectorApp:
             if lowered in self._suppressed_plugins:
                 return
             self._suppressed_plugins.add(lowered)
-            predicate = lambda item: (item.get("plugin") or "").strip().casefold() == lowered
+
+            def predicate(item: Mapping[str, Any]) -> bool:
+                return (item.get("plugin") or "").strip().casefold() == lowered
+
             self.status_var.set(f"Suppressed plugin '{token}'.")
         elif kind == "plugin_group":
             if lowered in self._suppressed_plugin_groups:
                 return
             self._suppressed_plugin_groups.add(lowered)
-            predicate = lambda item: (item.get("plugin_group") or "").strip().casefold() == lowered
+
+            def predicate(item: Mapping[str, Any]) -> bool:
+                return (item.get("plugin_group") or "").strip().casefold() == lowered
+
             self.status_var.set(f"Suppressed plugin group '{token}'.")
         elif kind == "group_label":
             if lowered in self._suppressed_group_labels:
                 return
             self._suppressed_group_labels.add(lowered)
-            predicate = lambda item: (item.get("group_label") or "").strip().casefold() == lowered
+
+            def predicate(item: Mapping[str, Any]) -> bool:
+                return (item.get("group_label") or "").strip().casefold() == lowered
+
             self.status_var.set(f"Suppressed ID prefix group '{token}'.")
         elif kind == "payload_id":
             if token in self._suppressed_payload_ids:
                 return
             self._suppressed_payload_ids.add(token)
-            predicate = lambda item: (item.get("payload_id") or "").strip() == token
+
+            def predicate(item: Mapping[str, Any]) -> bool:
+                return (item.get("payload_id") or "").strip() == token
+
             self.status_var.set(f"Suppressed payload id '{token}'.")
         else:
             return

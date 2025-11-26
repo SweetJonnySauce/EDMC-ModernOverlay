@@ -2,10 +2,12 @@
 """GUI helper for registering plugin group metadata via the overlay API."""
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import sys
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import ttk
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
