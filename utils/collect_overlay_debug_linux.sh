@@ -184,7 +184,7 @@ SHOW_LOGS=0
 
 usage() {
     cat <<'EOF'
-Usage: collect_overlay_debug.sh [--log-lines N]
+Usage: collect_overlay_debug.sh [--log-lines N] [--show-logs]
 
 Gather environment details, dependency checks, and recent overlay logs.
 
@@ -532,7 +532,7 @@ gather_overlay_log_candidates() {
     local candidates=()
     for dir in "${search_roots[@]}"; do
         if [[ -d "$dir" ]]; then
-            for file in "$dir"/overlay_client.log*; do
+        for file in "$dir"/overlay_client.log*; do
                 [[ -f "$file" ]] && candidates+=("$file")
             done
         fi

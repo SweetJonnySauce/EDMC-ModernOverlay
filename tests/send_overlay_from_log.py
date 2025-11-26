@@ -97,12 +97,18 @@ def _ensure_overlay_client_running() -> None:
     if pgrep is None:
         _print_step("pgrep not available; skipping process check for overlay client.")
         return
-    result = subprocess.run([pgrep, "-f", "overlay_client.py"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if result.returncode != 0:
-        _fail(
-            "Could not find the overlay client process. Ensure the ModernOverlay window is running before sending messages."
-        )
-    _print_step("Overlay client process detected (overlay_client.py).")
+    patterns = [
+        "overlay_client.py",  # direct script invocation
+        "overlay_client.overlay_client",  # module invocation
+    ]
+    for pattern in patterns:
+        result = subprocess.run([pgrep, "-f", pattern], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if result.returncode == 0:
+            _print_step(f"Overlay client process detected (pattern: {pattern}).")
+            return
+    _fail(
+        "Could not find the overlay client process. Ensure the ModernOverlay window is running before sending messages."
+    )
 
 
 def _send_payload(port: int, payload: Dict[str, Any], *, timeout: float = 5.0) -> Dict[str, Any]:

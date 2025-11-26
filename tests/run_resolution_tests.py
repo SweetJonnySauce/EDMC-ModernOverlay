@@ -48,15 +48,23 @@ def _ensure_overlay_running() -> None:
     if not pgrep:
         _log("pgrep not found; skipping overlay client process check.")
         return
-    result = subprocess.run(
-        [pgrep, "-f", "overlay_client.py"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
+    patterns = [
+        "overlay_client.py",  # direct script invocation
+        "overlay_client.overlay_client",  # module invocation
+    ]
+    for pattern in patterns:
+        result = subprocess.run(
+            [pgrep, "-f", pattern],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode == 0:
+            _log(f"Overlay client process detected (pattern: {pattern}).")
+            return
+    raise DriverError(
+        "Could not find overlay client process. Launch the overlay (e.g., `python -m overlay_client.overlay_client`) before running tests."
     )
-    if result.returncode != 0:
-        raise DriverError("Could not find overlay_client.py process. Launch the overlay before running tests.")
-    _log("Overlay client process detected.")
 
 
 def _resolve_port() -> int:

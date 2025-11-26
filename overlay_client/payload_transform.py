@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Callable, List, Mapping, Optional, Sequen
 
 from PyQt6.QtGui import QFont, QFontMetrics
 
-from font_utils import apply_font_fallbacks
+from overlay_client.font_utils import apply_font_fallbacks
 
 from overlay_client.legacy_store import LegacyItem
 from overlay_client.viewport_helper import BASE_HEIGHT, BASE_WIDTH
