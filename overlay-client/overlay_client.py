@@ -2887,6 +2887,132 @@ class OverlayWindow(QWidget):
         )
         snapshot = PayloadSnapshot(items_count=len(list(self._payload_model.store.items())))
         self._render_pipeline.paint(painter, context, snapshot)
+        payload_results = getattr(self._render_pipeline, "_last_payload_results", None)
+        if payload_results:
+            latest_base_payload = payload_results.get("latest_base_payload") or {}
+            transform_candidates = payload_results.get("transform_candidates") or {}
+            translations = payload_results.get("translations") or {}
+            report_overlay_bounds = payload_results.get("report_overlay_bounds") or {}
+            transform_by_group = payload_results.get("transform_by_group") or {}
+            overlay_bounds_for_draw = payload_results.get("overlay_bounds_for_draw") or {}
+            overlay_bounds_base = payload_results.get("overlay_bounds_base") or {}
+            commands = payload_results.get("commands") or []
+            # Preserve existing behavior for log buffers/trace helper.
+            self._apply_group_logging_payloads(
+                latest_base_payload,
+                transform_candidates,
+                translations,
+                report_overlay_bounds,
+            )
+            # Preserve debug helpers/logging behavior.
+            self._maybe_collect_debug_helpers(
+                commands,
+                overlay_bounds_for_draw,
+                overlay_bounds_base,
+                transform_by_group,
+                translations,
+                report_overlay_bounds,
+                mapper,
+            )
+
+    def _apply_group_logging_payloads(
+        self,
+        latest_base_payload: Mapping[Tuple[str, Optional[str]], Mapping[str, Any]],
+        transform_candidates: Mapping[Tuple[str, Optional[str]], Tuple[str, Optional[str]]],
+        translations: Mapping[Tuple[str, Optional[str]], Tuple[int, int]],
+        report_overlay_bounds: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+    ) -> None:
+        """Apply group logging/cache updates using payload data returned by the render pipeline."""
+        payload_results = getattr(self._render_pipeline, "_last_payload_results", {}) or {}
+        cache_base_payloads = payload_results.get("cache_base_payloads") or {}
+        cache_transform_payloads = payload_results.get("cache_transform_payloads") or {}
+        active_group_keys: Set[Tuple[str, Optional[str]]] = payload_results.get("active_group_keys") or set()
+        now_monotonic = self._monotonic_now() if hasattr(self, "_monotonic_now") else time.monotonic()
+
+        for key, payload in latest_base_payload.items():
+            bounds_tuple = payload.get("bounds_tuple")
+            pending_payload = self._group_log_pending_base.get(key)
+            pending_tuple = pending_payload.get("bounds_tuple") if pending_payload else None
+            last_logged = self._logged_group_bounds.get(key)
+            should_schedule = pending_payload is not None or last_logged != bounds_tuple
+            if should_schedule:
+                if pending_payload is None or pending_tuple != bounds_tuple:
+                    self._group_log_pending_base[key] = dict(payload)
+                    delay_target = (
+                        now_monotonic
+                        if self._payload_log_delay <= 0.0
+                        else (now_monotonic or 0.0) + self._payload_log_delay
+                    )
+                    self._group_log_next_allowed[key] = delay_target
+            else:
+                self._group_log_pending_base.pop(key, None)
+                self._group_log_next_allowed.pop(key, None)
+            if not payload.get("has_transformed"):
+                self._group_log_pending_transform.pop(key, None)
+
+        for key, _labels in transform_candidates.items():
+            report_bounds = report_overlay_bounds.get(key)
+            if report_bounds is None or not report_bounds.is_valid():
+                self._group_log_pending_transform.pop(key, None)
+                continue
+            transform_payload = cache_transform_payloads.get(key)
+            if transform_payload is None:
+                continue
+            transform_tuple = (
+                report_bounds.min_x,
+                report_bounds.min_y,
+                report_bounds.max_x,
+                report_bounds.max_y,
+            )
+            pending_payload = self._group_log_pending_transform.get(key)
+            pending_tuple = pending_payload.get("bounds_tuple") if pending_payload else None
+            last_logged = self._logged_group_transforms.get(key)
+            should_schedule = pending_payload is not None or last_logged != transform_tuple
+            if not should_schedule:
+                self._group_log_pending_transform.pop(key, None)
+                continue
+            if pending_payload is None or pending_tuple != transform_tuple:
+                self._group_log_pending_transform[key] = {
+                    **transform_payload,
+                    "bounds_tuple": transform_tuple,
+                }
+                if key not in self._group_log_pending_base:
+                    base_snapshot = latest_base_payload.get(key)
+                    if base_snapshot is not None:
+                        self._group_log_pending_base[key] = dict(base_snapshot)
+                delay_target = (
+                    now_monotonic
+                    if self._payload_log_delay <= 0.0
+                    else (now_monotonic or 0.0) + self._payload_log_delay
+                )
+                self._group_log_next_allowed[key] = delay_target
+
+        self._update_group_cache_from_payloads(cache_base_payloads, cache_transform_payloads)
+        self._flush_group_log_entries(active_group_keys)
+
+    def _maybe_collect_debug_helpers(
+        self,
+        commands: Sequence[Any],
+        overlay_bounds_for_draw: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+        overlay_bounds_base: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+        transform_by_group: Mapping[Tuple[str, Optional[str]], Optional[GroupTransform]],
+        translations: Mapping[Tuple[str, Optional[str]], Tuple[int, int]],
+        report_overlay_bounds: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+        mapper: LegacyMapper,
+    ) -> None:
+        collect_debug_helpers = self._dev_mode_enabled and self._debug_config.group_bounds_outline
+        if collect_debug_helpers:
+            final_bounds_map = overlay_bounds_for_draw if overlay_bounds_for_draw else overlay_bounds_base
+            self._debug_group_bounds_final = self._clone_overlay_bounds_map(final_bounds_map)
+            self._debug_group_state = self._build_group_debug_state(
+                self._debug_group_bounds_final,
+                transform_by_group,
+                translations,
+                canonical_bounds=report_overlay_bounds,
+            )
+        else:
+            self._debug_group_bounds_final = {}
+            self._debug_group_state = {}
 
     def _build_legacy_commands_for_pass(
         self,

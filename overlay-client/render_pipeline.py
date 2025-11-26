@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Set, Tuple, List, Callable
 
@@ -35,6 +34,7 @@ class LegacyRenderPipeline:
         self._legacy_cache_dirty: bool = True
         self._legacy_cache_signature: Optional[Tuple[Any, ...]] = None
         self._legacy_render_cache: Optional[Dict[str, Any]] = None
+        self._last_payload_results: Optional[Dict[str, Any]] = None
 
     def mark_dirty(self) -> None:
         self._legacy_cache_dirty = True
@@ -80,7 +80,6 @@ class LegacyRenderPipeline:
         overlay_bounds_by_group: Dict[Tuple[str, Optional[str]], Any] = {}
         effective_anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         transform_by_group: Dict[Tuple[str, Optional[str]], Optional[GroupTransform]] = {}
-        now_monotonic = owner._monotonic_now() if hasattr(owner, "_monotonic_now") else time.monotonic()
         legacy_items = getattr(owner, "_payload_model").store
         passes = 2 if legacy_items else 1
         for pass_index in range(passes):
@@ -171,26 +170,8 @@ class LegacyRenderPipeline:
             }
             latest_base_payload[key] = payload_dict
             cache_base_payloads[key] = dict(payload_dict)
-            pending_payload = owner._group_log_pending_base.get(key)
-            pending_tuple = pending_payload.get("bounds_tuple") if pending_payload else None
-            last_logged = owner._logged_group_bounds.get(key)
-            should_schedule = pending_payload is not None or last_logged != bounds_tuple
-            if should_schedule:
-                if pending_tuple != bounds_tuple or pending_payload is None:
-                    owner._group_log_pending_base[key] = payload_dict
-                    delay_target = (
-                        now_monotonic
-                        if getattr(owner, "_payload_log_delay", 0.0) <= 0.0
-                        else (now_monotonic or 0.0) + getattr(owner, "_payload_log_delay", 0.0)
-                    )
-                    owner._group_log_next_allowed[key] = delay_target
-            else:
-                owner._group_log_pending_base.pop(key, None)
-                owner._group_log_next_allowed.pop(key, None)
             if has_transformed:
                 transform_candidates[key] = (plugin_label or "", suffix or "")
-            else:
-                owner._group_log_pending_transform.pop(key, None)
         report_overlay_bounds = owner._clone_overlay_bounds_map(overlay_bounds_base)
         report_overlay_bounds = owner._apply_anchor_translations_to_overlay_bounds(
             report_overlay_bounds,
@@ -237,12 +218,6 @@ class LegacyRenderPipeline:
                 justification_token = raw_just.strip().lower() if isinstance(raw_just, str) else "left"
             nudge_x, nudge_y = translations.get(key, (0, 0))
             nudged = bool(nudge_x or nudge_y)
-            transform_tuple = (
-                report_bounds.min_x,
-                report_bounds.min_y,
-                report_bounds.max_x,
-                report_bounds.max_y,
-            )
             transform_payload = {
                 "plugin": plugin_label,
                 "suffix": suffix_label,
@@ -261,30 +236,19 @@ class LegacyRenderPipeline:
                 "offset_dy": offset_y,
             }
             cache_transform_payloads[key] = dict(transform_payload)
-            pending_payload = owner._group_log_pending_transform.get(key)
-            pending_tuple = pending_payload.get("bounds_tuple") if pending_payload else None
-            last_logged = owner._logged_group_transforms.get(key)
-            should_schedule = pending_payload is not None or last_logged != transform_tuple
-            if not should_schedule:
-                owner._group_log_pending_transform.pop(key, None)
-                continue
-            if pending_payload is None or pending_tuple != transform_tuple:
-                owner._group_log_pending_transform[key] = {
-                    **transform_payload,
-                    "bounds_tuple": transform_tuple,
-                }
-                if key not in owner._group_log_pending_base:
-                    base_snapshot = latest_base_payload.get(key)
-                    if base_snapshot is not None:
-                        owner._group_log_pending_base[key] = base_snapshot
-                    delay_target = (
-                        now_monotonic
-                        if getattr(owner, "_payload_log_delay", 0.0) <= 0.0
-                        else (now_monotonic or 0.0) + getattr(owner, "_payload_log_delay", 0.0)
-                    )
-                    owner._group_log_next_allowed[key] = delay_target
-        owner._update_group_cache_from_payloads(cache_base_payloads, cache_transform_payloads)
-        owner._flush_group_log_entries(active_group_keys)
+        self._last_payload_results = {
+            "cache_base_payloads": cache_base_payloads,
+            "cache_transform_payloads": cache_transform_payloads,
+            "active_group_keys": active_group_keys,
+            "latest_base_payload": latest_base_payload,
+            "transform_candidates": transform_candidates,
+            "translations": translations,
+            "report_overlay_bounds": report_overlay_bounds,
+            "transform_by_group": transform_by_group,
+            "overlay_bounds_for_draw": overlay_bounds_for_draw,
+            "overlay_bounds_base": overlay_bounds_base,
+            "commands": commands,
+        }
         self._legacy_render_cache = {
             "commands": commands,
             "anchor_translation_by_group": anchor_translation_by_group,

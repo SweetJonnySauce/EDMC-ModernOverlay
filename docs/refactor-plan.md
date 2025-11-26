@@ -1,4 +1,4 @@
-> This file tracks the ongoing refactor of `overlay_client.py` (and related modules) into smaller, testable components while preserving behavior and cross-platform support. Use it to rebuild context after interruptions: it summarizes what has been done and what remains.
+> This file tracks the ongoing refactor of `overlay_client.py` (and related modules) into smaller, testable components while preserving behavior and cross-platform support. Use it to rebuild context after interruptions: it summarizes what has been done and what remains. Keep an eye on safety: make sure the chunks of work are small enough that we can easily test them and back them out if needed, document the plan with additional steps if needed (1 row per step), and ensure testing is completed and clearly called out.
 
 # Overlay Client Refactor Plan
 
@@ -14,7 +14,10 @@ This document tracks the staged refactor of `overlay-client/overlay_client.py` i
 | C1 | Introduce grouping adapter that wraps `FillGroupingHelper` + payload snapshot; pipeline calls adapter instead of `OverlayWindow` for grouping prep. | Completed |
 | C2 | Remove remaining direct payload/grouping accesses from pipeline; build commands/bounds from context + snapshot + adapter only. | In progress (substeps below) |
 | C2.1 | Move grouping prep/command building into the adapter: pipeline calls adapter to build commands/bounds instead of `_build_legacy_commands_for_pass`/`_grouping_helper`. | Completed |
-| C2.2 | Decouple group logging/state updates: pipeline returns payloads/updates; window handles `_group_log_pending_*`, cache writes, and trace helper calls. | Pending |
+| C2.2 | Decouple group logging/state updates (see substeps) | In progress |
+| C2.2.1 | Have pipeline return base/transform payloads and active keys instead of mutating `_group_log_pending_*` and cache directly; window applies existing logging/cache functions. | Completed |
+| C2.2.2 | Move cache updates out: window calls `_update_group_cache_from_payloads` based on pipeline results. | Completed |
+| C2.2.3 | Move log buffer mutations/trace helper calls to window: pipeline only reports what changed. | Pending |
 | C2.3 | Decouple debug state/offscreen logging: pipeline reports debug data; window handles `_debug_group_*` and logging helpers. | Pending |
 | D | Decouple logging/trace and debug state: pass logging callbacks or result objects so pipeline stops mutating `_group_log_*` and debug caches directly. | Pending |
 | E | Cleanup: remove remaining back-references, drop `sys.path` hacks in favor of package imports, and run full test suite + manual smoke. | Pending |
