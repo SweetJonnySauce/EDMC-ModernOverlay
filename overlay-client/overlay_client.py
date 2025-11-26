@@ -2897,6 +2897,8 @@ class OverlayWindow(QWidget):
             overlay_bounds_for_draw = payload_results.get("overlay_bounds_for_draw") or {}
             overlay_bounds_base = payload_results.get("overlay_bounds_base") or {}
             commands = payload_results.get("commands") or []
+            trace_helper = self._group_trace_helper(report_overlay_bounds, commands)
+            trace_helper()
             # Preserve existing behavior for log buffers/trace helper.
             self._apply_group_logging_payloads(
                 latest_base_payload,

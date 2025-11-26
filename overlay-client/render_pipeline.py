@@ -199,8 +199,6 @@ class LegacyRenderPipeline:
             translations,
             mapper.transform.scale,
         )
-        trace_helper = owner._group_trace_helper(report_overlay_bounds, commands)
-        trace_helper()
         for key, labels in transform_candidates.items():
             plugin_label, suffix_label = labels
             report_bounds = report_overlay_bounds.get(key)
