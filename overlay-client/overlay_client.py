@@ -58,8 +58,8 @@ from client_config import InitialClientSettings, load_initial_settings  # type: 
 from developer_helpers import DeveloperHelperController  # type: ignore  # noqa: E402
 from platform_integration import MonitorSnapshot, PlatformContext, PlatformController  # type: ignore  # noqa: E402
 from window_tracking import WindowState, WindowTracker, create_elite_window_tracker  # type: ignore  # noqa: E402
-from legacy_store import LegacyItem, LegacyItemStore  # type: ignore  # noqa: E402
-from legacy_processor import TraceCallback, process_legacy_payload  # type: ignore  # noqa: E402
+from legacy_store import LegacyItem  # type: ignore  # noqa: E402
+from legacy_processor import TraceCallback  # type: ignore  # noqa: E402
 from vector_renderer import render_vector, VectorPainterAdapter  # type: ignore  # noqa: E402
 from plugin_overrides import PluginOverrideManager  # type: ignore  # noqa: E402
 from debug_config import DEBUG_CONFIG_ENABLED, DebugConfig, load_debug_config  # type: ignore  # noqa: E402
