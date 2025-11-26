@@ -609,13 +609,6 @@ class OffsetSelectorWidget(tk.Frame):
 
         if not self._enabled:
             return
-        if sys.platform.startswith("win"):
-            try:
-                root = self.winfo_toplevel()
-                if root is not None and hasattr(root, "_alt_active"):
-                    root._alt_active = False  # type: ignore[attr-defined]
-            except Exception:
-                pass
         if self._request_focus:
             try:
                 self._request_focus()
@@ -625,7 +618,17 @@ class OffsetSelectorWidget(tk.Frame):
             self.focus_set()
         except Exception:
             pass
+
         self.handle_key(direction, event)
+
+        # Clear any stale Alt flag after processing the click so Alt+click still pins.
+        if sys.platform.startswith("win"):
+            try:
+                root = self.winfo_toplevel()
+                if root is not None and hasattr(root, "_alt_active"):
+                    root._alt_active = False  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
     def on_focus_enter(self) -> None:
         if not self._enabled:
