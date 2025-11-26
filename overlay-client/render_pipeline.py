@@ -19,6 +19,7 @@ class RenderContext:
     debug_bounds: bool
     debug_vertices: bool
     settings: "RenderSettings"
+    grouping: Any
 
 
 @dataclass(frozen=True)
@@ -60,11 +61,13 @@ class LegacyRenderPipeline:
         mapper: Any,
         signature: Tuple[Any, ...],
         settings: RenderSettings,
+        grouping: Any,
     ) -> Optional[Dict[str, Any]]:
         owner = self._owner
-        grouping_helper = getattr(owner, "_grouping_helper")
+        grouping_helper = grouping or getattr(self._owner, "_grouping_helper")
         try:
-            grouping_helper.set_render_settings(settings)
+            if hasattr(grouping_helper, "set_render_settings"):
+                grouping_helper.set_render_settings(settings)
         except Exception:
             pass
         if mapper.transform.mode is ScaleMode.FILL:
@@ -289,7 +292,7 @@ class LegacyRenderPipeline:
         signature = self._legacy_render_signature(context, snapshot)
         cache = self._legacy_render_cache
         if cache is None or self._legacy_cache_dirty or signature != self._legacy_cache_signature:
-            cache = self._rebuild_legacy_render_cache(mapper, signature, context.settings)
+            cache = self._rebuild_legacy_render_cache(mapper, signature, context.settings, context.grouping)
         if cache is None:
             return
 

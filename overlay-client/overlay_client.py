@@ -19,6 +19,14 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Set
 
+CLIENT_DIR = Path(__file__).resolve().parent
+if str(CLIENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CLIENT_DIR))
+
+ROOT_DIR = CLIENT_DIR.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect, QSize
 from PyQt6.QtGui import (
     QColor,
@@ -39,14 +47,7 @@ from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 from follow_controller import FollowController  # type: ignore
 from payload_model import PayloadModel  # type: ignore
 from render_pipeline import LegacyRenderPipeline, PayloadSnapshot, RenderContext, RenderSettings  # type: ignore
-
-CLIENT_DIR = Path(__file__).resolve().parent
-if str(CLIENT_DIR) not in sys.path:
-    sys.path.insert(0, str(CLIENT_DIR))
-
-ROOT_DIR = CLIENT_DIR.parent
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
+from grouping_adapter import GroupingAdapter  # type: ignore
 
 try:  # pragma: no cover - defensive fallback when running standalone
     from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR
@@ -602,6 +603,14 @@ class OverlayWindow(QWidget):
             or debug_config.trace_enabled
         )
         self._dev_mode_enabled: bool = dev_mode_active
+        _CLIENT_LOGGER.debug(
+            "Debug config loaded: dev_mode_enabled=%s group_bounds_outline=%s overlay_outline=%s payload_vertex_markers=%s (DEBUG_CONFIG_ENABLED=%s)",
+            self._dev_mode_enabled,
+            getattr(self._debug_config, "group_bounds_outline", False),
+            getattr(self._debug_config, "overlay_outline", False),
+            getattr(self._debug_config, "payload_vertex_markers", False),
+            DEBUG_CONFIG_ENABLED,
+        )
         self._debug_group_filter: Optional[Tuple[str, Optional[str]]] = None
         self._debug_group_bounds_final: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
         self._debug_group_state: Dict[Tuple[str, Optional[str]], _GroupDebugState] = {}
@@ -688,6 +697,7 @@ class OverlayWindow(QWidget):
             _CLIENT_LOGGER,
             self._debug_config,
         )
+        self._grouping_adapter = GroupingAdapter(self._grouping_helper)
         layout = QVBoxLayout()
         layout.addWidget(self.message_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         layout.addStretch(1)
@@ -2858,16 +2868,6 @@ class OverlayWindow(QWidget):
             self._logged_group_bounds.clear()
             self._logged_group_transforms.clear()
 
-    def _legacy_render_signature(self, mapper: LegacyMapper) -> Tuple[Any, ...]:
-        return self._render_pipeline._legacy_render_signature(mapper)
-
-    def _rebuild_legacy_render_cache(
-        self,
-        mapper: LegacyMapper,
-        signature: Tuple[Any, ...],
-    ) -> Optional[Dict[str, Any]]:
-        return self._render_pipeline._rebuild_legacy_render_cache(mapper, signature)
-
     def _paint_legacy(self, painter: QPainter) -> None:
         mapper = self._compute_legacy_mapper()
         state = self._viewport_state()
@@ -2883,6 +2883,7 @@ class OverlayWindow(QWidget):
                 font_fallbacks=self._font_fallbacks,
                 preset_point_size=lambda label, s=state, m=mapper: self._legacy_preset_point_size(label, s, m),
             ),
+            grouping=self._grouping_adapter,
         )
         snapshot = PayloadSnapshot(items_count=len(list(self._payload_model.store.items())))
         self._render_pipeline.paint(painter, context, snapshot)

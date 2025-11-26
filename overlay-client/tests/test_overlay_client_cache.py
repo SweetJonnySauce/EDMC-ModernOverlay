@@ -69,10 +69,10 @@ def test_legacy_render_cache_reuse_and_invalidate(monkeypatch, qt_app):
     rebuilds = 0
     original = window._render_pipeline._rebuild_legacy_render_cache
 
-    def _wrapper(mapper, signature, settings):
+    def _wrapper(mapper, signature, settings, grouping):
         nonlocal rebuilds
         rebuilds += 1
-        return original(mapper, signature, settings)
+        return original(mapper, signature, settings, grouping)
 
     monkeypatch.setattr(window._render_pipeline, "_rebuild_legacy_render_cache", _wrapper)
 
