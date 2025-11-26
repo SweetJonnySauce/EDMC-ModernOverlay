@@ -2906,6 +2906,7 @@ class OverlayWindow(QWidget):
                 translations,
                 report_overlay_bounds,
             )
+            anchor_translations = payload_results.get("anchor_translation_by_group") or {}
             # Preserve debug helpers/logging behavior.
             self._maybe_collect_debug_helpers(
                 commands,
@@ -2914,6 +2915,18 @@ class OverlayWindow(QWidget):
                 transform_by_group,
                 translations,
                 report_overlay_bounds,
+                mapper,
+            )
+            # Paint commands and collect offscreen/debug helpers.
+            self._render_commands(
+                painter,
+                commands,
+                anchor_translations,
+                translations,
+                overlay_bounds_for_draw,
+                overlay_bounds_base,
+                report_overlay_bounds,
+                transform_by_group,
                 mapper,
             )
 
@@ -3015,6 +3028,64 @@ class OverlayWindow(QWidget):
         else:
             self._debug_group_bounds_final = {}
             self._debug_group_state = {}
+
+    def _render_commands(
+        self,
+        painter: QPainter,
+        commands: Sequence[Any],
+        anchor_translation_by_group: Mapping[Tuple[str, Optional[str]], Tuple[float, float]],
+        translations: Mapping[Tuple[str, Optional[str]], Tuple[int, int]],
+        overlay_bounds_for_draw: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+        overlay_bounds_base: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+        report_overlay_bounds: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+        transform_by_group: Mapping[Tuple[str, Optional[str]], Optional[GroupTransform]],
+        mapper: LegacyMapper,
+    ) -> None:
+        collect_debug_helpers = self._dev_mode_enabled and self._debug_config.group_bounds_outline
+        window_width = max(self.width(), 0)
+        window_height = max(self.height(), 0)
+        draw_vertex_markers = self._dev_mode_enabled and self._debug_config.payload_vertex_markers
+        vertex_points: List[Tuple[int, int]] = []
+        for command in commands:
+            key_tuple = command.group_key.as_tuple()
+            translation_x, translation_y = anchor_translation_by_group.get(key_tuple, (0.0, 0.0))
+            nudge_x, nudge_y = translations.get(key_tuple, (0, 0))
+            justification_dx = getattr(command, "justification_dx", 0.0)
+            payload_offset_x = translation_x + justification_dx + nudge_x
+            payload_offset_y = translation_y + nudge_y
+            self._log_offscreen_payload(command, payload_offset_x, payload_offset_y, window_width, window_height)
+            command.paint(self, painter, payload_offset_x, payload_offset_y)
+            if draw_vertex_markers and command.bounds:
+                left, top, right, bottom = command.bounds
+                group_corners = [
+                    (left, top),
+                    (right, top),
+                    (left, bottom),
+                    (right, bottom),
+                ]
+                trace_vertices = self._should_trace_payload(
+                    getattr(command.legacy_item, "plugin", None),
+                    command.legacy_item.item_id,
+                )
+                for px, py in group_corners:
+                    adjusted_x = int(round(float(px) + payload_offset_x))
+                    adjusted_y = int(round(float(py) + payload_offset_y))
+                    vertex_points.append((adjusted_x, adjusted_y))
+                    if trace_vertices:
+                        self._log_legacy_trace(
+                            command.legacy_item.plugin,
+                            command.legacy_item.item_id,
+                            "debug:payload_vertex",
+                            {
+                                "pixel_x": adjusted_x,
+                                "pixel_y": adjusted_y,
+                                "payload_kind": getattr(command.legacy_item, "kind", "unknown"),
+                            },
+                        )
+        if draw_vertex_markers and vertex_points:
+            self._draw_payload_vertex_markers(painter, vertex_points)
+        if collect_debug_helpers:
+            self._draw_group_debug_helpers(painter, mapper)
 
     def _build_legacy_commands_for_pass(
         self,

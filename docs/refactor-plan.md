@@ -29,7 +29,9 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 | C2.2.1 | Have pipeline return base/transform payloads and active keys instead of mutating `_group_log_pending_*` and cache directly; window applies existing logging/cache functions. | Completed |
 | C2.2.2 | Move cache updates out: window calls `_update_group_cache_from_payloads` based on pipeline results. | Completed |
 | C2.2.3 | Move log buffer mutations/trace helper calls to window: pipeline only reports what changed. | Completed |
-| C2.3 | Decouple debug state/offscreen logging: pipeline reports debug data; window handles `_debug_group_*` and logging helpers. | Pending |
+| C2.3 | Decouple debug state/offscreen logging: pipeline reports debug data; window handles `_debug_group_*` and logging helpers. | In progress |
+| C2.3.1 | Move debug-state construction/offscreen logging triggers to window; pipeline only returns data (commands/bounds/transforms/translations). | Completed |
+| C2.3.2 | Verify dev/debug behaviors (outlines, anchor labels, vertex markers) in dev mode; run lint and `PYQT_TESTS=1 pytest overlay-client/tests`. | Pending |
 | D | Decouple logging/trace and debug state: pass logging callbacks or result objects so pipeline stops mutating `_group_log_*` and debug caches directly. | Pending |
 | E | Cleanup: remove remaining back-references, drop `sys.path` hacks in favor of package imports, and run full test suite + manual smoke. | Pending |
 

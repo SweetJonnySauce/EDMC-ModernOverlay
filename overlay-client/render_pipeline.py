@@ -245,6 +245,7 @@ class LegacyRenderPipeline:
             "transform_by_group": transform_by_group,
             "overlay_bounds_for_draw": overlay_bounds_for_draw,
             "overlay_bounds_base": overlay_bounds_base,
+            "anchor_translation_by_group": anchor_translation_by_group,
             "commands": commands,
         }
         self._legacy_render_cache = {
@@ -270,73 +271,7 @@ class LegacyRenderPipeline:
             cache = self._rebuild_legacy_render_cache(mapper, signature, context.settings, context.grouping)
         if cache is None:
             return
-
-        commands = cache.get("commands") or []
-        anchor_translation_by_group = cache.get("anchor_translation_by_group") or {}
-        translations = cache.get("translations") or {}
-        overlay_bounds_for_draw = cache.get("overlay_bounds_for_draw") or {}
-        overlay_bounds_base = cache.get("overlay_bounds_base") or {}
-        report_overlay_bounds = cache.get("report_overlay_bounds") or {}
-        transform_by_group = cache.get("transform_by_group") or {}
-
-        collect_debug_helpers = owner._dev_mode_enabled and owner._debug_config.group_bounds_outline
-        if collect_debug_helpers:
-            final_bounds_map = overlay_bounds_for_draw if overlay_bounds_for_draw else overlay_bounds_base
-            owner._debug_group_bounds_final = owner._clone_overlay_bounds_map(final_bounds_map)
-            owner._debug_group_state = owner._build_group_debug_state(
-                owner._debug_group_bounds_final,
-                transform_by_group,
-                translations,
-                canonical_bounds=report_overlay_bounds,
-            )
-        else:
-            owner._debug_group_bounds_final = {}
-            owner._debug_group_state = {}
-
-        window_width = max(owner.width(), 0)
-        window_height = max(owner.height(), 0)
-        draw_vertex_markers = owner._dev_mode_enabled and owner._debug_config.payload_vertex_markers
-        vertex_points: List[Tuple[int, int]] = []
-        for command in commands:
-            key_tuple = command.group_key.as_tuple()
-            translation_x, translation_y = anchor_translation_by_group.get(key_tuple, (0.0, 0.0))
-            nudge_x, nudge_y = translations.get(key_tuple, (0, 0))
-            justification_dx = getattr(command, "justification_dx", 0.0)
-            payload_offset_x = translation_x + justification_dx + nudge_x
-            payload_offset_y = translation_y + nudge_y
-            owner._log_offscreen_payload(command, payload_offset_x, payload_offset_y, window_width, window_height)
-            command.paint(owner, painter, payload_offset_x, payload_offset_y)
-            if draw_vertex_markers and command.bounds:
-                left, top, right, bottom = command.bounds
-                group_corners = [
-                    (left, top),
-                    (right, top),
-                    (left, bottom),
-                    (right, bottom),
-                ]
-                trace_vertices = owner._should_trace_payload(
-                    getattr(command.legacy_item, "plugin", None),
-                    command.legacy_item.item_id,
-                )
-                for px, py in group_corners:
-                    adjusted_x = int(round(float(px) + payload_offset_x))
-                    adjusted_y = int(round(float(py) + payload_offset_y))
-                    vertex_points.append((adjusted_x, adjusted_y))
-                    if trace_vertices:
-                        owner._log_legacy_trace(
-                            command.legacy_item.plugin,
-                            command.legacy_item.item_id,
-                            "debug:payload_vertex",
-                            {
-                                "pixel_x": adjusted_x,
-                                "pixel_y": adjusted_y,
-                                "payload_kind": getattr(command.legacy_item, "kind", "unknown"),
-                            },
-                        )
-        if draw_vertex_markers and vertex_points:
-            owner._draw_payload_vertex_markers(painter, vertex_points)
-        if collect_debug_helpers:
-            owner._draw_group_debug_helpers(painter, mapper)
+        # Rendering is handled by the owner; pipeline only prepares data and caches.
 @dataclass(frozen=True)
 class RenderSettings:
     font_family: str
