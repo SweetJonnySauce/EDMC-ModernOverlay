@@ -3,7 +3,7 @@ target-version = "py311"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E9", "F63", "F7", "F82"]
+select = ["E", "F"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -12,4 +12,4 @@ warn_unused_ignores = false
 show_error_codes = true
 explicit_package_bases = true
 disable_error_code = "arg-type,attr-defined,call-arg,operator,no-redef,var-annotated,union-attr"
-files = "overlay_plugin/overlay_api.py, overlay_plugin/legacy_tcp_server.py, prefix_entries.py"
+files = "overlay_plugin, overlay_controller, load.py, group_cache.py, prefix_entries.py"
