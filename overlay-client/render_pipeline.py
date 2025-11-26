@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Mapping, Optional, Set, Tuple, List
+from typing import Any, Dict, Optional, Set, Tuple, List
 
 from PyQt6.QtGui import QPainter
 
