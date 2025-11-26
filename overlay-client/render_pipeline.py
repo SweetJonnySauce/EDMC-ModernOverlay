@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Set, Tuple, List
+from typing import Any, Dict, Optional, Set, Tuple, List, Callable
 
 from PyQt6.QtGui import QPainter
 
@@ -18,6 +18,7 @@ class RenderContext:
     dev_mode: bool
     debug_bounds: bool
     debug_vertices: bool
+    settings: "RenderSettings"
 
 
 @dataclass(frozen=True)
@@ -58,9 +59,14 @@ class LegacyRenderPipeline:
         self,
         mapper: Any,
         signature: Tuple[Any, ...],
+        settings: RenderSettings,
     ) -> Optional[Dict[str, Any]]:
         owner = self._owner
         grouping_helper = getattr(owner, "_grouping_helper")
+        try:
+            grouping_helper.set_render_settings(settings)
+        except Exception:
+            pass
         if mapper.transform.mode is ScaleMode.FILL:
             grouping_helper.prepare(mapper)
         else:
@@ -283,7 +289,7 @@ class LegacyRenderPipeline:
         signature = self._legacy_render_signature(context, snapshot)
         cache = self._legacy_render_cache
         if cache is None or self._legacy_cache_dirty or signature != self._legacy_cache_signature:
-            cache = self._rebuild_legacy_render_cache(mapper, signature)
+            cache = self._rebuild_legacy_render_cache(mapper, signature, context.settings)
         if cache is None:
             return
 
@@ -353,3 +359,8 @@ class LegacyRenderPipeline:
             owner._draw_payload_vertex_markers(painter, vertex_points)
         if collect_debug_helpers:
             owner._draw_group_debug_helpers(painter, mapper)
+@dataclass(frozen=True)
+class RenderSettings:
+    font_family: str
+    font_fallbacks: Tuple[str, ...]
+    preset_point_size: Callable[[str], float]

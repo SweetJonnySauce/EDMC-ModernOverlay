@@ -8,6 +8,7 @@ from group_transform import GroupBounds, GroupKey, GroupTransform, GroupTransfor
 from plugin_overrides import PluginOverrideManager
 from viewport_helper import BASE_HEIGHT, BASE_WIDTH, ScaleMode
 from payload_transform import accumulate_group_bounds
+from render_pipeline import RenderSettings
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard
     from overlay_client import OverlayWindow, _LegacyMapper
@@ -28,9 +29,14 @@ class FillGroupingHelper:
         self._logger = logger
         self._debug_config = debug_config
         self._cache = GroupTransformCache()
+        self._render_settings: Optional[RenderSettings] = None
 
     def reset(self) -> None:
         self._cache.reset()
+        self._render_settings = None
+
+    def set_render_settings(self, settings: RenderSettings) -> None:
+        self._render_settings = settings
 
     def prepare(self, mapper: "_LegacyMapper") -> None:
         self._cache.reset()
@@ -40,9 +46,15 @@ class FillGroupingHelper:
         # counter-scaling around the anchor, so one overlay unit maps to one
         # on-screen pixel regardless of the viewport scale.
         pixel_scale = 1.0
-        state = self._owner._viewport_state()
+        settings = self._render_settings
 
         def preset_point_size(label: str) -> float:
+            if settings is not None:
+                try:
+                    return settings.preset_point_size(label)
+                except Exception:
+                    pass
+            state = self._owner._viewport_state()
             return self._owner._legacy_preset_point_size(label, state, mapper)
 
         store = getattr(self._owner, "_payload_model").store
@@ -55,9 +67,9 @@ class FillGroupingHelper:
                 bounds,
                 legacy_item,
                 pixel_scale,
-                self._owner._font_family,
+                settings.font_family if settings is not None else self._owner._font_family,
                 preset_point_size,
-                font_fallbacks=self._owner._font_fallbacks,
+                font_fallbacks=settings.font_fallbacks if settings is not None else self._owner._font_fallbacks,
             )
 
         base_width = BASE_WIDTH if BASE_WIDTH > 0.0 else 1.0
