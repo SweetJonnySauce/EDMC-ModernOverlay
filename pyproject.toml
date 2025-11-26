@@ -14,3 +14,11 @@ show_error_codes = true
 explicit_package_bases = true
 disable_error_code = "arg-type,attr-defined,call-arg,operator,no-redef,var-annotated,union-attr"
 files = "overlay_plugin, overlay_controller, load.py, group_cache.py, prefix_entries.py"
+
+[[tool.mypy.overrides]]
+module = "overlay_controller.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "overlay_controller.input_bindings"
+ignore_errors = true

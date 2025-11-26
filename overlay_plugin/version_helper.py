@@ -247,7 +247,7 @@ def _fallback_compare(current: str, latest: str) -> int:
 
 
 def _tokenize(value: str) -> list[tuple[str, object]]:
-    tokens = []
+    tokens: list[tuple[str, object]] = []
     for part in _TOKEN_SPLIT.split(value):
         if not part:
             continue

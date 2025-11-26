@@ -2180,7 +2180,7 @@ class _PluginRuntime:
             is_flatpak = True
             if not flatpak_id and relative.parts:
                 flatpak_id = relative.parts[0]
-        context = {"is_flatpak": is_flatpak}
+        context: Dict[str, object] = {"is_flatpak": is_flatpak}
         if flatpak_id:
             context["app_id"] = flatpak_id
         return context
