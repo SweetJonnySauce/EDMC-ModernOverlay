@@ -1337,8 +1337,9 @@ class _PluginRuntime:
                 if key in launch_env:
                     LOGGER.debug("Removing %s from controller environment to avoid Tcl/Tk conflicts", key)
                     launch_env.pop(key, None)
+            capture_output = self._capture_enabled()
             self._controller_countdown()
-            process = self._spawn_overlay_controller_process(python_command, launch_env)
+            process = self._spawn_overlay_controller_process(python_command, launch_env, capture_output=capture_output)
         except Exception as exc:
             LOGGER.error("Overlay Controller launch failed: %s", exc, exc_info=exc)
             self._emit_controller_message(f"Overlay Controller launch failed: {exc}", ttl=6.0)
@@ -1354,20 +1355,23 @@ class _PluginRuntime:
         self._emit_controller_active_notice()
 
         try:
+            exit_code: Optional[int] = None
             stdout: str = ""
             stderr: str = ""
-            exit_code: Optional[int] = None
             try:
-                stdout, stderr = process.communicate()
-                exit_code = process.returncode
+                if self._capture_enabled():
+                    stdout, stderr = process.communicate()
+                    exit_code = process.returncode
+                else:
+                    exit_code = process.wait()
             except Exception as exc:
-                LOGGER.debug("Overlay Controller communicate() failed: %s", exc)
+                LOGGER.debug("Overlay Controller process wait failed: %s", exc)
                 try:
-                    exit_code = process.wait(timeout=1.0)
-                except Exception:
                     exit_code = process.poll()
+                except Exception:
+                    exit_code = None
             LOGGER.debug("Overlay Controller process exited with code %s", exit_code)
-            if exit_code not in (0, None):
+            if exit_code not in (0, None) and self._capture_enabled():
                 LOGGER.warning(
                     "Overlay Controller exited abnormally (code=%s). stdout=%r stderr=%r",
                     exit_code,
@@ -1391,6 +1395,7 @@ class _PluginRuntime:
         self,
         python_command: List[str],
         launch_env: Dict[str, str],
+        capture_output: bool,
     ) -> subprocess.Popen:
         script_path = self.plugin_dir / "overlay_controller" / "overlay_controller.py"
         if not script_path.exists():
@@ -1402,14 +1407,14 @@ class _PluginRuntime:
             creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             if creation_flags:
                 kwargs["creationflags"] = creation_flags
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            **kwargs,
-        )
+        if capture_output:
+            kwargs.update(
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+            )
+        process = subprocess.Popen(command, **kwargs)
         LOGGER.debug("Overlay Controller launched via chat command (pid=%s)", getattr(process, "pid", "?"))
         return process
 
