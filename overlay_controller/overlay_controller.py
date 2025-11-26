@@ -2874,30 +2874,26 @@ class OverlayConfigApp(tk.Tk):
     def _resolve_pinned_anchor(self, current_anchor: str, direction: str) -> str:
         anchor = (current_anchor or "").lower()
         direction = (direction or "").lower()
-        mapping = {
-            ("ne", "down"): "se",
-            ("ne", "left"): "nw",
-            ("top", "right"): "ne",
-            ("top", "left"): "nw",
-            ("top", "down"): "bottom",
-            ("nw", "right"): "ne",
-            ("nw", "down"): "sw",
-            ("left", "up"): "nw",
-            ("left", "down"): "sw",
-            ("left", "right"): "right",
-            ("sw", "up"): "nw",
-            ("sw", "right"): "se",
-            ("bottom", "left"): "sw",
-            ("bottom", "right"): "se",
-            ("bottom", "up"): "top",
-            ("se", "left"): "sw",
-            ("se", "up"): "ne",
-            ("center", "up"): "top",
-            ("center", "left"): "left",
-            ("center", "down"): "bottom",
-            ("center", "right"): "right",
-        }
-        return mapping.get((anchor, direction), anchor)
+        horizontal, vertical = self._anchor_sides(anchor)
+
+        if direction in {"left", "right"}:
+            horizontal = direction
+        elif direction in {"up", "down"}:
+            vertical = "top" if direction == "up" else "bottom"
+
+        resolved = {
+            ("left", "top"): "nw",
+            ("center", "top"): "top",
+            ("right", "top"): "ne",
+            ("left", "center"): "left",
+            ("center", "center"): "center",
+            ("right", "center"): "right",
+            ("left", "bottom"): "sw",
+            ("center", "bottom"): "bottom",
+            ("right", "bottom"): "se",
+        }.get((horizontal, vertical))
+
+        return resolved or anchor
 
     def _expected_transformed_anchor(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
         bounds = snapshot.transform_bounds
