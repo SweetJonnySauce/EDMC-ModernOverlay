@@ -6,7 +6,7 @@
   "gridlines_enabled": false,
   "gridline_spacing": 120,
   "force_render": true,
-  "allow_force_render_release": true,
+  "allow_force_render_release": false,
   "force_xwayland": false,
   "show_debug_overlay": true,
   "min_font_point": 6.0,
