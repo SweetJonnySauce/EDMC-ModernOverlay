@@ -1391,11 +1391,12 @@ class OverlayConfigApp(tk.Tk):
         self._anchor_restore_state: dict[tuple[str, str], dict[str, float | None]] = {}
         self._anchor_restore_handles: dict[tuple[str, str], str | None] = {}
         self._absolute_tolerance_px = 0.5
+        self._last_preview_signature: tuple[object, ...] | None = None
         self._status_poll_interval_ms = 2500
         self._status_poll_handle: str | None = None
         self._debounce_handles: dict[str, str | None] = {}
-        self._write_debounce_ms = 300
-        self._offset_write_debounce_ms = 600
+        self._write_debounce_ms = 200
+        self._offset_write_debounce_ms = 200
         self._offset_step_px = 10.0
         self._initial_geometry_applied = False
 
@@ -2511,7 +2512,6 @@ class OverlayConfigApp(tk.Tk):
         canvas = getattr(self, "preview_canvas", None)
         if canvas is None:
             return
-        canvas.delete("all")
         width = int(canvas.winfo_width() or canvas["width"])
         height = int(canvas.winfo_height() or canvas["height"])
         padding = getattr(self, "preview_canvas_padding", 10)
@@ -2519,10 +2519,43 @@ class OverlayConfigApp(tk.Tk):
         inner_h = max(1, height - 2 * padding)
 
         selection = self._get_current_group_selection()
+        snapshot = self._get_group_snapshot(selection) if selection is not None else None
+        if snapshot is None:
+            live_anchor_token = None
+            live_anchor_abs = None
+            target_frame = None
+        else:
+            live_anchor_token = self._get_live_anchor_token(snapshot)
+            live_anchor_abs = self._get_live_absolute_anchor(snapshot)
+            target_frame = self._resolve_target_frame(snapshot)
+
+        signature_snapshot = (
+            snapshot.base_bounds if snapshot is not None else None,
+            snapshot.transform_bounds if snapshot is not None else None,
+            snapshot.anchor_token if snapshot is not None else None,
+            snapshot.transform_anchor_token if snapshot is not None else None,
+            snapshot.offset_x if snapshot is not None else None,
+            snapshot.offset_y if snapshot is not None else None,
+            snapshot.cache_timestamp if snapshot is not None else None,
+        )
+        current_signature = (
+            width,
+            height,
+            padding,
+            selection,
+            signature_snapshot,
+            live_anchor_token,
+            live_anchor_abs,
+            target_frame,
+        )
+        if self._last_preview_signature == current_signature:
+            return
+        self._last_preview_signature = current_signature
+
+        canvas.delete("all")
         if selection is None:
             canvas.create_text(width // 2, height // 2, text="(select a group)", fill="#888888")
             return
-        snapshot = self._get_group_snapshot(selection)
         if snapshot is None:
             canvas.create_text(width // 2, height // 2, text="(awaiting cache)", fill="#888888")
             return
