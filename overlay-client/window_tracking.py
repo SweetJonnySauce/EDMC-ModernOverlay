@@ -437,7 +437,7 @@ class _WmctrlTracker:
         state: WindowState,
         monitor_offsets: List[MonitorSnapshot],
     ) -> WindowState:
-        geometry = self._absolute_geometry(state.identifier)
+        geometry = self._absolute_geometry(state.identifier) if monitor_offsets else None
         return _augment_state_with_monitors(
             state,
             monitor_offsets,

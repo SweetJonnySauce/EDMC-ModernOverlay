@@ -93,7 +93,7 @@ from viewport_transform import (  # type: ignore  # noqa: E402
 
 _LOGGER_NAME = "EDMC.ModernOverlay.Client"
 _CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
-_CLIENT_LOGGER.setLevel(logging.DEBUG)
+_CLIENT_LOGGER.setLevel(logging.DEBUG if DEBUG_CONFIG_ENABLED else logging.INFO)
 _CLIENT_LOGGER.propagate = False
 
 
@@ -629,7 +629,7 @@ class OverlayWindow(QWidget):
         self._modifier_timer.start()
 
         self._tracking_timer = QTimer(self)
-        self._tracking_timer.setInterval(250)
+        self._tracking_timer.setInterval(500)
         self._tracking_timer.timeout.connect(self._refresh_follow_geometry)
 
         self._message_clear_timer = QTimer(self)
