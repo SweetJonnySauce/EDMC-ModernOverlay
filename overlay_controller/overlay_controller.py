@@ -694,6 +694,24 @@ class OffsetSelectorWidget(tk.Frame):
             self._pinned.clear()
         self._apply_arrow_colors()
 
+    def clear_pins(self, axis: str | None = None) -> bool:
+        """Clear pinned highlights for the given axis ('x' or 'y') or both."""
+
+        removed = False
+        if axis == "x":
+            removed = bool(self._pinned.intersection({"left", "right"}))
+            self._pinned.difference_update({"left", "right"})
+        elif axis == "y":
+            removed = bool(self._pinned.intersection({"up", "down"}))
+            self._pinned.difference_update({"up", "down"})
+        else:
+            removed = bool(self._pinned)
+            self._pinned.clear()
+
+        if removed:
+            self._apply_arrow_colors()
+        return removed
+
 
 class JustificationWidget(tk.Frame):
     """Three-option justification selector with focus-aware navigation."""
@@ -2763,6 +2781,8 @@ class OverlayConfigApp(tk.Tk):
         if axis_token in ("y", ""):
             target_y = self._clamp_absolute_value(target_y, "y")
 
+        self._unpin_offset_if_moved(target_x, target_y)
+
         base_min_x, base_min_y, _, _ = snapshot.base_bounds
         new_offset_x = target_x - base_min_x
         new_offset_y = target_y - base_min_y
@@ -2775,6 +2795,19 @@ class OverlayConfigApp(tk.Tk):
 
         self._persist_offsets(selection, new_offset_x, new_offset_y, debounce_ms=self._offset_write_debounce_ms)
         self._refresh_current_group_snapshot(force_ui=True)
+
+    def _unpin_offset_if_moved(self, abs_x: float, abs_y: float) -> None:
+        widget = getattr(self, "offset_widget", None)
+        if widget is None:
+            return
+        tol = getattr(self, "_absolute_tolerance_px", 0.0) or 0.0
+        try:
+            if abs(abs_x - ABS_MIN_X) > tol and abs(abs_x - ABS_MAX_X) > tol:
+                widget.clear_pins(axis="x")
+            if abs(abs_y - ABS_MIN_Y) > tol and abs(abs_y - ABS_MAX_Y) > tol:
+                widget.clear_pins(axis="y")
+        except Exception:
+            pass
 
     def _handle_offset_changed(self, direction: str, pinned: bool) -> None:
         selection = self._get_current_group_selection()

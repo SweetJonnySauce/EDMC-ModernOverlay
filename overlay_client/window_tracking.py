@@ -31,6 +31,7 @@ MonitorSnapshot = Tuple[str, int, int, int, int]
 MonitorProvider = Callable[[], List[MonitorSnapshot]]
 
 _TITLE_PATTERN = re.compile(r"elite\s*-\s*dangerous", re.IGNORECASE)
+_DWMWA_EXTENDED_FRAME_BOUNDS = 9
 
 
 def _matches_window_title(title: str, hint: str) -> bool:
@@ -252,6 +253,18 @@ class _WindowsTracker:
         self._logger = logger
         self._title_hint = title_hint.lower()
         self._user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        try:
+            dwmapi = ctypes.windll.dwmapi  # type: ignore[attr-defined]
+            self._dwm_get_window_attribute = dwmapi.DwmGetWindowAttribute
+            self._dwm_get_window_attribute.argtypes = [  # type: ignore[attr-defined]
+                wintypes.HWND,
+                ctypes.c_uint,
+                ctypes.POINTER(_RECT),
+                ctypes.c_uint,
+            ]
+            self._dwm_get_window_attribute.restype = ctypes.c_int  # type: ignore[attr-defined]
+        except Exception:
+            self._dwm_get_window_attribute = None
         self._last_hwnd: Optional[int] = None
         self._enum_proc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)(self._enum_windows)
 
@@ -259,9 +272,8 @@ class _WindowsTracker:
         hwnd = self._resolve_window()
         if hwnd is None:
             return None
-        rect = _RECT()
-        if not self._user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-            self._logger.debug("GetWindowRect failed for hwnd=%s", hex(hwnd))
+        rect = self._window_bounds(hwnd)
+        if rect is None:
             return None
         left, top, right, bottom = rect.left, rect.top, rect.right, rect.bottom
         width = max(0, right - left)
@@ -297,6 +309,23 @@ class _WindowsTracker:
             self._last_hwnd = hwnd
             return False
         return True
+
+    def _window_bounds(self, hwnd: int) -> Optional[_RECT]:
+        rect = _RECT()
+        if self._dwm_get_window_attribute is not None:
+            result = self._dwm_get_window_attribute(
+                hwnd,
+                ctypes.c_uint(_DWMWA_EXTENDED_FRAME_BOUNDS),
+                ctypes.byref(rect),
+                ctypes.sizeof(rect),
+            )
+            if result == 0:
+                return rect
+            self._logger.debug("DwmGetWindowAttribute failed with %s; falling back to GetWindowRect", result)
+        if not self._user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            self._logger.debug("GetWindowRect failed for hwnd=%s", hex(hwnd))
+            return None
+        return rect
 
     def _is_target(self, hwnd: int) -> bool:
         if not self._user32.IsWindow(hwnd):
