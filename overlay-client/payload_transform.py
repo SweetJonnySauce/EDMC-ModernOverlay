@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any, Callable, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Callable, List, Mapping, Optional, Sequence, Tuple
 
 from PyQt6.QtGui import QFont, QFontMetrics
 

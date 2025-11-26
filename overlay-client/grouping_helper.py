@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Mapping, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
 
 from debug_config import DebugConfig
 from group_transform import GroupBounds, GroupKey, GroupTransform, GroupTransformCache
-from legacy_store import LegacyItem
 from plugin_overrides import PluginOverrideManager
 from viewport_helper import BASE_HEIGHT, BASE_WIDTH, ScaleMode
 from payload_transform import accumulate_group_bounds

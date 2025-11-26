@@ -3,7 +3,6 @@ from __future__ import annotations
 # ruff: noqa: E402
 
 import sys
-import time
 from pathlib import Path
 
 import pytest

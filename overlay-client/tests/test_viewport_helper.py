@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import math
 import sys
 from pathlib import Path
-
-import pytest
 
 OVERLAY_ROOT = Path(__file__).resolve().parents[1]
 if str(OVERLAY_ROOT) not in sys.path:

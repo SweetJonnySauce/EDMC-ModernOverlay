@@ -1,6 +1,8 @@
 """Standalone PyQt6 overlay client for EDMC Modern Overlay."""
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import argparse
 import asyncio
 import json
@@ -31,7 +33,7 @@ from PyQt6.QtGui import (
     QScreen,
     QWindow,
 )
-from PyQt6.QtWidgets import QApplication, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 
 CLIENT_DIR = Path(__file__).resolve().parent
@@ -64,14 +66,11 @@ from viewport_helper import (
     BASE_HEIGHT,
     BASE_WIDTH,
     ScaleMode,
-    ViewportTransform,
     compute_viewport_transform,
 )  # type: ignore  # noqa: E402
 from grouping_helper import FillGroupingHelper  # type: ignore  # noqa: E402
-from group_transform import GroupBounds  # type: ignore  # noqa: E402
 from payload_justifier import JustificationRequest, calculate_offsets  # type: ignore  # noqa: E402
 from payload_transform import (
-    accumulate_group_bounds,
     build_payload_transform_context,
     PayloadTransformContext,
     remap_axis_value,
@@ -413,7 +412,6 @@ class OverlayDataClient(QObject):
                 await asyncio.sleep(self._loop_sleep)
                 continue
             port = metadata["port"]
-            plugin_version = metadata.get("version") or MODERN_OVERLAY_VERSION
             reader = None
             writer = None
             try:
@@ -1486,7 +1484,6 @@ class OverlayWindow(QWidget):
         transform_context = build_payload_transform_context(fill)
         transform_context = build_payload_transform_context(fill)
         transform_context = build_payload_transform_context(fill)
-        scale_value = fill.scale
 
         if mapper.transform.mode is ScaleMode.FILL:
             lines.append(
@@ -3581,7 +3578,7 @@ class OverlayWindow(QWidget):
                     transformed_anchor[1] + base_translation_dy,
                 )
         else:
-            base_anchor_effective = base_anchor_point
+            pass
         text = str(item.get("text", ""))
         metrics_font = QFont(self._font_family)
         self._apply_font_fallbacks(metrics_font)
@@ -3706,7 +3703,6 @@ class OverlayWindow(QWidget):
         offset_norm_x = offset_x / base_width_norm
         offset_norm_y = offset_y / base_height_norm
         scale = fill.scale
-        anchor_point: Optional[Tuple[float, float]] = None
         selected_anchor: Optional[Tuple[float, float]] = None
         base_anchor_point: Optional[Tuple[float, float]] = None
         anchor_for_transform: Optional[Tuple[float, float]] = None
@@ -3825,7 +3821,6 @@ class OverlayWindow(QWidget):
                     transformed_anchor[1] + base_translation_dy,
                 )
         else:
-            base_anchor_effective = base_anchor_point
             base_overlay_points = [tuple(pt) for pt in transformed_overlay]
         xs_overlay = [pt[0] for pt in transformed_overlay]
         ys_overlay = [pt[1] for pt in transformed_overlay]
@@ -3952,7 +3947,6 @@ class OverlayWindow(QWidget):
                 overlay_bounds_hint,
                 use_overlay_bounds_x=use_overlay_bounds_x,
             )
-            base_anchor_effective = base_anchor_point
             anchor_for_transform = base_anchor_point or selected_anchor
             if group_transform is not None and anchor_for_transform is not None:
                 anchor_norm_override = (
