@@ -38,7 +38,7 @@ from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 from follow_controller import FollowController  # type: ignore
 from payload_model import PayloadModel  # type: ignore
-from render_pipeline import LegacyRenderPipeline  # type: ignore
+from render_pipeline import LegacyRenderPipeline, PayloadSnapshot, RenderContext  # type: ignore
 
 CLIENT_DIR = Path(__file__).resolve().parent
 if str(CLIENT_DIR) not in sys.path:
@@ -2869,7 +2869,17 @@ class OverlayWindow(QWidget):
         return self._render_pipeline._rebuild_legacy_render_cache(mapper, signature)
 
     def _paint_legacy(self, painter: QPainter) -> None:
-        self._render_pipeline.paint(painter)
+        mapper = self._compute_legacy_mapper()
+        context = RenderContext(
+            width=max(self.width(), 0),
+            height=max(self.height(), 0),
+            mapper=mapper,
+            dev_mode=self._dev_mode_enabled,
+            debug_bounds=self._debug_config.group_bounds_outline,
+            debug_vertices=self._debug_config.payload_vertex_markers,
+        )
+        snapshot = PayloadSnapshot(items_count=len(list(self._payload_model.store.items())))
+        self._render_pipeline.paint(painter, context, snapshot)
 
     def _build_legacy_commands_for_pass(
         self,

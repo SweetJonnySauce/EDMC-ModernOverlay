@@ -1,12 +1,28 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import Any, Dict, Optional, Set, Tuple, List
 
 from PyQt6.QtGui import QPainter
 
 from viewport_helper import ScaleMode  # type: ignore
 from group_transform import GroupTransform  # type: ignore
+
+
+@dataclass(frozen=True)
+class RenderContext:
+    width: int
+    height: int
+    mapper: Any
+    dev_mode: bool
+    debug_bounds: bool
+    debug_vertices: bool
+
+
+@dataclass(frozen=True)
+class PayloadSnapshot:
+    items_count: int
 
 
 class LegacyRenderPipeline:
@@ -22,21 +38,20 @@ class LegacyRenderPipeline:
         self._legacy_cache_dirty = True
         self._legacy_cache_signature = None
 
-    def _legacy_render_signature(self, mapper: Any) -> Tuple[Any, ...]:
-        transform = mapper.transform
-        legacy_items = getattr(self._owner, "_payload_model").store
+    def _legacy_render_signature(self, context: RenderContext, snapshot: PayloadSnapshot) -> Tuple[Any, ...]:
+        transform = context.mapper.transform
         return (
-            self._owner.width(),
-            self._owner.height(),
+            context.width,
+            context.height,
             getattr(transform, "mode", None),
             getattr(transform, "scale", None),
             getattr(transform, "offset", None),
             getattr(transform, "overflow_x", None),
             getattr(transform, "overflow_y", None),
-            len(list(legacy_items.items())),
-            getattr(self._owner, "_dev_mode_enabled", False),
-            getattr(self._owner, "_debug_config", None).group_bounds_outline,
-            getattr(self._owner, "_debug_config", None).payload_vertex_markers,
+            snapshot.items_count,
+            context.dev_mode,
+            context.debug_bounds,
+            context.debug_vertices,
         )
 
     def _rebuild_legacy_render_cache(
@@ -261,11 +276,11 @@ class LegacyRenderPipeline:
         self._legacy_cache_dirty = False
         return self._legacy_render_cache
 
-    def paint(self, painter: QPainter) -> None:
+    def paint(self, painter: QPainter, context: RenderContext, snapshot: PayloadSnapshot) -> None:
         owner = self._owner
         owner._cycle_anchor_points = {}
-        mapper = owner._compute_legacy_mapper()
-        signature = self._legacy_render_signature(mapper)
+        mapper = context.mapper
+        signature = self._legacy_render_signature(context, snapshot)
         cache = self._legacy_render_cache
         if cache is None or self._legacy_cache_dirty or signature != self._legacy_cache_signature:
             cache = self._rebuild_legacy_render_cache(mapper, signature)
