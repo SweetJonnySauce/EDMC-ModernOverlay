@@ -32,7 +32,10 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 | C2.3 | Decouple debug state/offscreen logging: pipeline reports debug data; window handles `_debug_group_*` and logging helpers. | Completed |
 | C2.3.1 | Move debug-state construction/offscreen logging triggers to window; pipeline only returns data (commands/bounds/transforms/translations). | Completed |
 | C2.3.2 | Verify dev/debug behaviors (outlines, anchor labels, vertex markers) in dev mode; run lint and `PYQT_TESTS=1 pytest overlay-client/tests`. | Completed |
-| D | Decouple logging/trace and debug state: pass logging callbacks or result objects so pipeline stops mutating `_group_log_*` and debug caches directly. | Pending |
+| D | Decouple logging/trace and debug state: pass logging callbacks or result objects so pipeline stops mutating `_group_log_*` and debug caches directly. | Completed (mostly achieved during C2.2/C2.3) |
+| D1 | Move group logging buffers fully out of pipeline: introduce callbacks/result structs for group base/transform logging, invoked by window. | Completed (implemented during C2.2.x) |
+| D2 | Extract trace helper wiring: pipeline emits trace data via callback; window handles `_group_trace_helper` and related logging. | Completed (implemented during C2.2.3) |
+| D3 | Move remaining debug state hooks (if any) to window via callbacks/result structs; ensure no pipeline mutation of debug caches. | Completed |
 | E | Cleanup: remove remaining back-references, drop `sys.path` hacks in favor of package imports, and run full test suite + manual smoke. | Pending |
 
 ## Details
@@ -45,13 +48,12 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   - Geometry/helpers: `width/height`, `_compute_group_nudges`, `_apply_anchor_translations_to_overlay_bounds`, `_apply_payload_justification`, `_clone_overlay_bounds_map`, `_build_group_debug_state`, `_log_offscreen_payload`, `_draw_group_debug_helpers`, `_draw_payload_vertex_markers`, `_legacy_preset_point_size`.
   - Time helper: `_monotonic_now` fallback.
 
-- **Phase B (Pending):** Add `RenderSettings` to `RenderContext` and thread it through pipeline/grouping helper; stop reading font/preset data from the window.
-- **Phase B (Completed):** Added `RenderSettings` to `RenderContext`, passed font/fallbacks/preset callback through to the pipeline, and updated grouping helper to consume settings instead of window attributes.
+- **Phase B (Completed):** Added `RenderSettings` to `RenderContext`, passed font/fallbacks/preset callback through to the pipeline, and updated grouping helper to consume settings instead of window attributes (no remaining window font/preset reads).
 
 - **Phase C (Completed):** Defined a narrow grouping interface, moved grouping prep into an adapter, pulled logging/cache/debug/offscreen effects back into the window, and ensured commands/bounds are built from context + snapshot + adapter only.
   - Substep C1: Introduce a grouping adapter interface that wraps `FillGroupingHelper` and the payload snapshot; adjust the pipeline to call the adapter instead of reaching into `OverlayWindow` for grouping/transform prep.
   - Substep C2: Remove remaining direct payload/grouping accesses from the pipeline; ensure commands/bounds are built purely from context + snapshot + grouping adapter.
 
-- **Phase D (Pending):** Provide logging/debug callbacks or result structures to eliminate direct mutation of window log/debug state from the pipeline.
+- **Phase D (Completed):** Logging/trace/debug mutations were already moved out of the pipeline during C2.2/C2.3. The pipeline now only returns data; the window handles logging buffers, trace helper, and debug state. Nothing further to do here.
 
 - **Phase E (Pending):** Final cleanup, import hygiene, full test run (`PYQT_TESTS=1 pytest`), and a quick manual smoke.
