@@ -11,6 +11,7 @@ This guide documents the automated suites and manual spot checks that keep the F
 | Group transform cache | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_group_transform.py` | Confirms `GroupTransformCache` tracks bounds per plugin/prefix and resets cleanly between frames. |
 | Override grouping parser | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_override_grouping.py` | Guards the JSON parser that turns `overlay_groupings.json` into grouping metadata (prefix matching, anchors, plugin-level group detection). |
 | Plugin group API | `overlay-client/.venv/bin/python -m pytest tests/test_overlay_api.py` | Ensures the public API enforces schema rules (required prefixes, anchors) while updating `overlay_groupings.json`. |
+| Overlay render cache (PyQt) | `PYQT_TESTS=1 overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_overlay_client_cache.py` | Verifies grid pixmap reuse and legacy render caching aren’t rebuilt every paint; requires PyQt6. |
 | Payload bounds (PyQt) | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_payload_bounds.py` | Uses PyQt’s font metrics to prove that message/rect bounds scale correctly before grouping. Skipped automatically if PyQt6 is missing. |
 | Payload text metrics (PyQt) | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_payload_text_metrics.py` | Tests `_measure_text_block` so multi-line labels produce consistent bounds. Requires PyQt6. |
 | Renderer transform order (PyQt) | `overlay-client/.venv/bin/python -m pytest overlay-client/tests/test_renderer_transform_order.py` | Ensures Fill translations are applied before scaling when `__mo_transform__` metadata is present. Requires PyQt6. |
@@ -34,6 +35,12 @@ All of the above assume a local venv:
    pip install -e .[dev]
    ```
 3. Run whichever test target you need. `overlay-client/.venv/bin/python -m pytest` without arguments executes everything that does not require PyQt, while adding `-k` filters narrows the run.
+
+For PyQt-dependent suites, ensure PyQt6 is installed and set `PYQT_TESTS=1`:
+```bash
+source overlay-client/.venv/bin/activate
+PYQT_TESTS=1 overlay-client/.venv/bin/python -m pytest overlay-client/tests  # runs PyQt-required tests too
+```
 
 > PyQt-dependent suites (`test_geometry_override`, `test_payload_bounds`, `test_payload_text_metrics`, `test_renderer_transform_order`) will skip automatically when Qt is missing, but you should run them on a workstation that has PyQt6 installed before releasing.
 

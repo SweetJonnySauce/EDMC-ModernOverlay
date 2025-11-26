@@ -29,6 +29,7 @@ from PyQt6.QtGui import (
     QBrush,
     QCursor,
     QFontDatabase,
+    QPixmap,
     QGuiApplication,
     QScreen,
     QWindow,
@@ -533,6 +534,8 @@ class OverlayWindow(QWidget):
         self._background_opacity: float = 0.0
         self._gridlines_enabled: bool = False
         self._gridline_spacing: int = 120
+        self._grid_pixmap: Optional[QPixmap] = None
+        self._grid_pixmap_params: Optional[Tuple[int, int, int, int]] = None
         self._drag_enabled: bool = False
         self._drag_active: bool = False
         self._drag_offset: QPoint = QPoint()
@@ -612,9 +615,12 @@ class OverlayWindow(QWidget):
         self._group_log_next_allowed: Dict[Tuple[str, Optional[str]], float] = {}
         self._logged_group_bounds: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
         self._logged_group_transforms: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
+        self._legacy_cache_dirty: bool = True
+        self._legacy_cache_signature: Optional[Tuple[Any, ...]] = None
+        self._legacy_render_cache: Optional[Dict[str, Any]] = None
         self._group_cache = GroupPlacementCache(
             resolve_cache_path(ROOT_DIR),
-            debounce_seconds=1.0,
+            debounce_seconds=1.0 if DEBUG_CONFIG_ENABLED else 5.0,
             logger=_CLIENT_LOGGER,
         )
 
@@ -940,6 +946,7 @@ class OverlayWindow(QWidget):
         """Touch stored legacy items so repaints pick up new scaling bounds."""
         for item_id, item in list(self._legacy_items.items()):
             self._legacy_items.set(item_id, item)
+        self._mark_legacy_cache_dirty()
 
     def _notify_font_bounds_changed(self) -> None:
         current = (self._font_min_point, self._font_max_point)
@@ -1030,42 +1037,10 @@ class OverlayWindow(QWidget):
         grid_alpha = int(255 * max(0.0, min(1.0, self._background_opacity)))
         render_grid = self._gridlines_enabled and self._gridline_spacing > 0 and grid_alpha > 0
         if render_grid:
-            grid_color = QColor(200, 200, 200, grid_alpha)
-            grid_pen = QPen(grid_color)
-            grid_pen.setWidth(self._line_width("grid"))
-            painter.setPen(grid_pen)
             spacing = self._gridline_spacing
-            width = self.width()
-            height = self.height()
-            for x in range(spacing, width, spacing):
-                painter.drawLine(x, 0, x, height)
-            for y in range(spacing, height, spacing):
-                painter.drawLine(0, y, width, y)
-
-            painter.save()
-            label_font = painter.font()
-            label_font.setPointSizeF(max(6.0, label_font.pointSizeF() * 0.8))
-            painter.setFont(label_font)
-            painter.setPen(grid_color)
-            metrics = painter.fontMetrics()
-            top_baseline = metrics.ascent() + 2
-            # Origin label
-            painter.drawText(2, top_baseline, "0")
-            for x in range(spacing, width, spacing):
-                text = str(x)
-                text_rect = metrics.boundingRect(text)
-                text_x = x + 2
-                if text_x + text_rect.width() > width - 2:
-                    text_x = max(2, x - text_rect.width() - 2)
-                painter.drawText(text_x, top_baseline, text)
-            for y in range(spacing, height, spacing):
-                text = str(y)
-                text_rect = metrics.boundingRect(text)
-                baseline = y + metrics.ascent()
-                if baseline + 2 > height:
-                    baseline = y - 2
-                painter.drawText(2, baseline, text)
-            painter.restore()
+            grid_pixmap = self._grid_pixmap_for(self.width(), self.height(), spacing, grid_alpha)
+            if grid_pixmap is not None:
+                painter.drawPixmap(0, 0, grid_pixmap)
         self._paint_legacy(painter)
         self._paint_overlay_outline(painter)
         self._paint_cycle_overlay(painter)
@@ -1074,10 +1049,62 @@ class OverlayWindow(QWidget):
         painter.end()
         super().paintEvent(event)
 
+    def _grid_pixmap_for(self, width: int, height: int, spacing: int, grid_alpha: int) -> Optional[QPixmap]:
+        if width <= 0 or height <= 0 or spacing <= 0 or grid_alpha <= 0:
+            return None
+        line_width = self._line_width("grid")
+        params = (width, height, spacing, grid_alpha, line_width)
+        if self._grid_pixmap is not None and self._grid_pixmap_params == params:
+            return self._grid_pixmap
+
+        pixmap = QPixmap(width, height)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(pixmap)
+        grid_color = QColor(200, 200, 200, grid_alpha)
+        grid_pen = QPen(grid_color)
+        grid_pen.setWidth(line_width)
+        painter.setPen(grid_pen)
+
+        for x in range(spacing, width, spacing):
+            painter.drawLine(x, 0, x, height)
+        for y in range(spacing, height, spacing):
+            painter.drawLine(0, y, width, y)
+
+        painter.save()
+        label_font = painter.font()
+        label_font.setPointSizeF(max(6.0, label_font.pointSizeF() * 0.8))
+        painter.setFont(label_font)
+        painter.setPen(grid_color)
+        metrics = painter.fontMetrics()
+        top_baseline = metrics.ascent() + 2
+        painter.drawText(2, top_baseline, "0")
+        for x in range(spacing, width, spacing):
+            text = str(x)
+            text_rect = metrics.boundingRect(text)
+            text_x = x + 2
+            if text_x + text_rect.width() > width - 2:
+                text_x = max(2, x - text_rect.width() - 2)
+            painter.drawText(text_x, top_baseline, text)
+        for y in range(spacing, height, spacing):
+            text = str(y)
+            text_rect = metrics.boundingRect(text)
+            baseline = y + metrics.ascent()
+            if baseline + 2 > height:
+                baseline = y - 2
+            painter.drawText(2, baseline, text)
+        painter.restore()
+        painter.end()
+
+        self._grid_pixmap = pixmap
+        self._grid_pixmap_params = params
+        return pixmap
+
     # Interaction -------------------------------------------------
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
+        self._invalidate_grid_cache()
         size = event.size()
         if self._enforcing_follow_size:
             self._enforcing_follow_size = False
@@ -1850,6 +1877,14 @@ class OverlayWindow(QWidget):
             numeric = default
         return max(0, numeric)
 
+    def _invalidate_grid_cache(self) -> None:
+        self._grid_pixmap = None
+        self._grid_pixmap_params = None
+
+    def _mark_legacy_cache_dirty(self) -> None:
+        self._legacy_cache_dirty = True
+        self._legacy_cache_signature = None
+
     def set_background_opacity(self, opacity: float) -> None:
         try:
             value = float(opacity)
@@ -1858,6 +1893,7 @@ class OverlayWindow(QWidget):
         value = max(0.0, min(1.0, value))
         if value != self._background_opacity:
             self._background_opacity = value
+            self._invalidate_grid_cache()
             self.update()
 
     def set_drag_enabled(self, enabled: bool) -> None:
@@ -1886,6 +1922,7 @@ class OverlayWindow(QWidget):
             except (TypeError, ValueError):
                 numeric = self._gridline_spacing
             self._gridline_spacing = max(10, numeric)
+        self._invalidate_grid_cache()
         self.update()
 
     def set_title_bar_compensation(self, enabled: Optional[bool], height: Optional[int]) -> None:
@@ -2859,6 +2896,7 @@ class OverlayWindow(QWidget):
         if process_legacy_payload(self._legacy_items, payload, trace_fn=trace_fn):
             if self._cycle_payload_enabled:
                 self._sync_cycle_items()
+            self._mark_legacy_cache_dirty()
             self.update()
 
     def _purge_legacy(self) -> None:
@@ -2866,6 +2904,7 @@ class OverlayWindow(QWidget):
         if self._legacy_items.purge_expired(now):
             if self._cycle_payload_enabled:
                 self._sync_cycle_items()
+            self._mark_legacy_cache_dirty()
             self.update()
         if not self._legacy_items:
             self._group_log_pending_base.clear()
@@ -2874,9 +2913,27 @@ class OverlayWindow(QWidget):
             self._logged_group_bounds.clear()
             self._logged_group_transforms.clear()
 
-    def _paint_legacy(self, painter: QPainter) -> None:
-        self._cycle_anchor_points = {}
-        mapper = self._compute_legacy_mapper()
+    def _legacy_render_signature(self, mapper: LegacyMapper) -> Tuple[Any, ...]:
+        transform = mapper.transform
+        return (
+            self.width(),
+            self.height(),
+            getattr(transform, "mode", None),
+            getattr(transform, "scale", None),
+            getattr(transform, "offset", None),
+            getattr(transform, "overflow_x", None),
+            getattr(transform, "overflow_y", None),
+            len(list(self._legacy_items.items())),
+            self._dev_mode_enabled,
+            self._debug_config.group_bounds_outline,
+            self._debug_config.payload_vertex_markers,
+        )
+
+    def _rebuild_legacy_render_cache(
+        self,
+        mapper: LegacyMapper,
+        signature: Tuple[Any, ...],
+    ) -> Optional[Dict[str, Any]]:
         if mapper.transform.mode is ScaleMode.FILL:
             self._grouping_helper.prepare(mapper)
         else:
@@ -2887,7 +2944,6 @@ class OverlayWindow(QWidget):
         overlay_bounds_by_group: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
         effective_anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         transform_by_group: Dict[Tuple[str, Optional[str]], Optional[GroupTransform]] = {}
-        effective_anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         now_monotonic = time.monotonic()
         passes = 2 if self._legacy_items else 1
         for pass_index in range(passes):
@@ -3002,7 +3058,6 @@ class OverlayWindow(QWidget):
             translations,
             mapper.transform.scale,
         )
-        transformed_overlay_bounds = overlay_bounds_for_draw
         trace_helper = self._group_trace_helper(report_overlay_bounds, commands)
         trace_helper()
         for key, labels in transform_candidates.items():
@@ -3066,9 +3121,40 @@ class OverlayWindow(QWidget):
                     self._group_log_next_allowed[key] = delay_target
         self._update_group_cache_from_payloads(cache_base_payloads, cache_transform_payloads)
         self._flush_group_log_entries(active_group_keys)
+        self._legacy_render_cache = {
+            "commands": commands,
+            "anchor_translation_by_group": anchor_translation_by_group,
+            "translations": translations,
+            "overlay_bounds_for_draw": overlay_bounds_for_draw,
+            "overlay_bounds_base": overlay_bounds_base,
+            "report_overlay_bounds": report_overlay_bounds,
+            "transform_by_group": transform_by_group,
+        }
+        self._legacy_cache_signature = signature
+        self._legacy_cache_dirty = False
+        return self._legacy_render_cache
+
+    def _paint_legacy(self, painter: QPainter) -> None:
+        self._cycle_anchor_points = {}
+        mapper = self._compute_legacy_mapper()
+        signature = self._legacy_render_signature(mapper)
+        cache = self._legacy_render_cache
+        if cache is None or self._legacy_cache_dirty or signature != self._legacy_cache_signature:
+            cache = self._rebuild_legacy_render_cache(mapper, signature)
+        if cache is None:
+            return
+
+        commands = cache.get("commands") or []
+        anchor_translation_by_group = cache.get("anchor_translation_by_group") or {}
+        translations = cache.get("translations") or {}
+        overlay_bounds_for_draw = cache.get("overlay_bounds_for_draw") or {}
+        overlay_bounds_base = cache.get("overlay_bounds_base") or {}
+        report_overlay_bounds = cache.get("report_overlay_bounds") or {}
+        transform_by_group = cache.get("transform_by_group") or {}
+
         collect_debug_helpers = self._dev_mode_enabled and self._debug_config.group_bounds_outline
         if collect_debug_helpers:
-            final_bounds_map = transformed_overlay_bounds if transformed_overlay_bounds else overlay_bounds_base
+            final_bounds_map = overlay_bounds_for_draw if overlay_bounds_for_draw else overlay_bounds_base
             self._debug_group_bounds_final = self._clone_overlay_bounds_map(final_bounds_map)
             self._debug_group_state = self._build_group_debug_state(
                 self._debug_group_bounds_final,
@@ -3079,6 +3165,7 @@ class OverlayWindow(QWidget):
         else:
             self._debug_group_bounds_final = {}
             self._debug_group_state = {}
+
         window_width = max(self.width(), 0)
         window_height = max(self.height(), 0)
         draw_vertex_markers = self._dev_mode_enabled and self._debug_config.payload_vertex_markers

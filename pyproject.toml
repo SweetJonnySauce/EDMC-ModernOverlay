@@ -22,3 +22,8 @@ ignore_errors = true
 [[tool.mypy.overrides]]
 module = "overlay_controller.input_bindings"
 ignore_errors = true
+
+[tool.pytest.ini_options]
+markers = [
+    "pyqt_required: marks tests that require PyQt and PYQT_TESTS=1",
+]
