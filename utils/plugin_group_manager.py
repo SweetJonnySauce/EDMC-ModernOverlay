@@ -25,7 +25,7 @@ from tkinter import messagebox, simpledialog, ttk
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-OVERLAY_CLIENT_DIR = ROOT_DIR / "overlay-client"
+OVERLAY_CLIENT_DIR = ROOT_DIR / "overlay_client"
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 if str(OVERLAY_CLIENT_DIR) not in sys.path:

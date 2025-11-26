@@ -20,12 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Set
 
 CLIENT_DIR = Path(__file__).resolve().parent
-if str(CLIENT_DIR) not in sys.path:
-    sys.path.insert(0, str(CLIENT_DIR))
-
 ROOT_DIR = CLIENT_DIR.parent
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
 
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect, QSize
 from PyQt6.QtGui import (
@@ -44,10 +39,10 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
-from follow_controller import FollowController  # type: ignore
-from payload_model import PayloadModel  # type: ignore
-from render_pipeline import LegacyRenderPipeline, PayloadSnapshot, RenderContext, RenderSettings  # type: ignore
-from grouping_adapter import GroupingAdapter  # type: ignore
+from overlay_client.follow_controller import FollowController  # type: ignore
+from overlay_client.payload_model import PayloadModel  # type: ignore
+from overlay_client.render_pipeline import LegacyRenderPipeline, PayloadSnapshot, RenderContext, RenderSettings  # type: ignore
+from overlay_client.grouping_adapter import GroupingAdapter  # type: ignore
 
 try:  # pragma: no cover - defensive fallback when running standalone
     from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR
@@ -55,27 +50,27 @@ except Exception:  # pragma: no cover - fallback when module unavailable
     MODERN_OVERLAY_VERSION = "unknown"
     DEV_MODE_ENV_VAR = "MODERN_OVERLAY_DEV_MODE"
 
-from client_config import InitialClientSettings, load_initial_settings  # type: ignore  # noqa: E402
-from developer_helpers import DeveloperHelperController  # type: ignore  # noqa: E402
-from platform_integration import MonitorSnapshot, PlatformContext, PlatformController  # type: ignore  # noqa: E402
-from window_tracking import WindowState, WindowTracker, create_elite_window_tracker  # type: ignore  # noqa: E402
-from legacy_store import LegacyItem  # type: ignore  # noqa: E402
-from legacy_processor import TraceCallback  # type: ignore  # noqa: E402
-from vector_renderer import render_vector, VectorPainterAdapter  # type: ignore  # noqa: E402
-from plugin_overrides import PluginOverrideManager  # type: ignore  # noqa: E402
-from debug_config import DEBUG_CONFIG_ENABLED, DebugConfig, load_debug_config  # type: ignore  # noqa: E402
-from group_transform import GroupTransform, GroupKey  # type: ignore  # noqa: E402
+from overlay_client.client_config import InitialClientSettings, load_initial_settings  # type: ignore  # noqa: E402
+from overlay_client.developer_helpers import DeveloperHelperController  # type: ignore  # noqa: E402
+from overlay_client.platform_integration import MonitorSnapshot, PlatformContext, PlatformController  # type: ignore  # noqa: E402
+from overlay_client.window_tracking import WindowState, WindowTracker, create_elite_window_tracker  # type: ignore  # noqa: E402
+from overlay_client.legacy_store import LegacyItem  # type: ignore  # noqa: E402
+from overlay_client.legacy_processor import TraceCallback  # type: ignore  # noqa: E402
+from overlay_client.vector_renderer import render_vector, VectorPainterAdapter  # type: ignore  # noqa: E402
+from overlay_client.plugin_overrides import PluginOverrideManager  # type: ignore  # noqa: E402
+from overlay_client.debug_config import DEBUG_CONFIG_ENABLED, DebugConfig, load_debug_config  # type: ignore  # noqa: E402
+from overlay_client.group_transform import GroupTransform, GroupKey  # type: ignore  # noqa: E402
 from group_cache import GroupPlacementCache, resolve_cache_path  # type: ignore  # noqa: E402
-from font_utils import apply_font_fallbacks  # type: ignore  # noqa: E402
-from viewport_helper import (
+from overlay_client.font_utils import apply_font_fallbacks  # type: ignore  # noqa: E402
+from overlay_client.viewport_helper import (
     BASE_HEIGHT,
     BASE_WIDTH,
     ScaleMode,
     compute_viewport_transform,
 )  # type: ignore  # noqa: E402
-from grouping_helper import FillGroupingHelper  # type: ignore  # noqa: E402
-from payload_justifier import JustificationRequest, calculate_offsets  # type: ignore  # noqa: E402
-from payload_transform import (
+from overlay_client.grouping_helper import FillGroupingHelper  # type: ignore  # noqa: E402
+from overlay_client.payload_justifier import JustificationRequest, calculate_offsets  # type: ignore  # noqa: E402
+from overlay_client.payload_transform import (
     build_payload_transform_context,
     PayloadTransformContext,
     remap_axis_value,
@@ -84,7 +79,7 @@ from payload_transform import (
     remap_vector_points,
     transform_components,
 )  # type: ignore  # noqa: E402
-from viewport_transform import (  # type: ignore  # noqa: E402
+from overlay_client.viewport_transform import (  # type: ignore  # noqa: E402
     FillViewport,
     LegacyMapper,
     ViewportState,

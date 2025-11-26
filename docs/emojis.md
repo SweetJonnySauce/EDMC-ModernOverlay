@@ -7,16 +7,16 @@ is wired up and how to exercise it with both the Modern API and the legacy
 
 ## Bundled Fonts
 
-- `overlay-client/fonts/NotoColorEmoji.ttf` and `NotoColorEmoji-OFL.txt` ship with the repo
+- `overlay_client/fonts/NotoColorEmoji.ttf` and `NotoColorEmoji-OFL.txt` ship with the repo
   under the SIL Open Font License. The client registers the font on startup and uses it
   as the first emoji fallback, so 📝 and other glyphs render even on systems that don’t
   have an emoji font installed globally.
-- `overlay-client/fonts/emoji_fallbacks.txt` lists additional fallback fonts. Each entry
-  can be either a font file name living in `overlay-client/fonts/` or an installed family
+- `overlay_client/fonts/emoji_fallbacks.txt` lists additional fallback fonts. Each entry
+  can be either a font file name living in `overlay_client/fonts/` or an installed family
   name such as `Segoe UI Emoji`. The overlay tries each entry in order and appends any
   successful registrations to the fallback chain. To add another font, drop the `.ttf`
   into the directory, list it in `emoji_fallbacks.txt`, and restart the client.
-- Regular HUD fonts are still controlled via `overlay-client/fonts/preferred_fonts.txt`.
+- Regular HUD fonts are still controlled via `overlay_client/fonts/preferred_fonts.txt`.
   The first font that loads becomes the primary face; emoji fallbacks kick in only
   when the primary font lacks the requested glyph.
 
@@ -73,7 +73,7 @@ overlay.send_message(
 
 ## Troubleshooting
 
-- **Squares instead of emoji:** confirm `overlay-client/fonts/NotoColorEmoji.ttf` exists and
+- **Squares instead of emoji:** confirm `overlay_client/fonts/NotoColorEmoji.ttf` exists and
   isn’t corrupted. If you replaced `emoji_fallbacks.txt`, make sure at least one entry resolves
   to a font on the current machine. The client logs its discovered fallback list at startup.
 - **Emoji Colors:** Qt renders emoji using whatever color-font support the host build provides. PyQt6

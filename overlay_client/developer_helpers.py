@@ -6,14 +6,14 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
-from client_config import DeveloperHelperConfig, InitialClientSettings
+from overlay_client.client_config import DeveloperHelperConfig, InitialClientSettings
 
 if TYPE_CHECKING:
     from overlay_client import OverlayWindow
 
 
 _LOG_DIR_NAME = "EDMCModernOverlay"
-_LOG_FILE_NAME = "overlay-client.log"
+_LOG_FILE_NAME = "overlay_client.log"
 _MAX_LOG_BYTES = 512 * 1024
 
 

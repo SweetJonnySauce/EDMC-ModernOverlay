@@ -7,7 +7,7 @@ OVERLAY_ROOT = Path(__file__).resolve().parents[1]
 if str(OVERLAY_ROOT) not in sys.path:
     sys.path.append(str(OVERLAY_ROOT))
 
-from group_transform import GroupBounds, GroupKey, GroupTransform, GroupTransformCache  # noqa: E402
+from overlay_client.group_transform import GroupBounds, GroupKey, GroupTransform, GroupTransformCache  # noqa: E402
 
 
 def test_group_bounds_update_point_and_rect():

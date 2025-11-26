@@ -19,7 +19,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-OVERLAY_CLIENT_DIR = ROOT_DIR / "overlay-client"
+OVERLAY_CLIENT_DIR = ROOT_DIR / "overlay_client"
 if str(OVERLAY_CLIENT_DIR) not in sys.path:
     sys.path.insert(0, str(OVERLAY_CLIENT_DIR))
 

@@ -751,7 +751,7 @@ install_eurocaps_font() {
 
 maybe_install_eurocaps() {
     local plugin_home="$1"
-    local fonts_dir="${plugin_home}/overlay-client/fonts"
+    local fonts_dir="${plugin_home}/overlay_client/fonts"
     local font_path="${fonts_dir}/${EUROCAPS_FONT_NAME}"
     if [[ ! -d "$fonts_dir" ]]; then
         echo "ℹ️  Font directory '$fonts_dir' not found; skipping Eurocaps font installation."
@@ -1228,9 +1228,9 @@ ensure_system_packages() {
 
 create_venv_and_install() {
     local target="$1"
-    log_verbose "Ensuring overlay-client virtualenv inside '$target' (dry-run=${DRY_RUN})."
+    log_verbose "Ensuring overlay_client virtualenv inside '$target' (dry-run=${DRY_RUN})."
     if [[ "$DRY_RUN" == true ]]; then
-        echo "📝 [dry-run] Would ensure Python virtual environment at '$target/overlay-client/.venv' and install overlay-client requirements."
+        echo "📝 [dry-run] Would ensure Python virtual environment at '$target/overlay_client/.venv' and install overlay_client requirements."
         return
     fi
     if [[ ! -d "$target" ]]; then
@@ -1238,39 +1238,39 @@ create_venv_and_install() {
         exit 1
     fi
     pushd "$target" >/dev/null
-    if [[ ! -d overlay-client ]]; then
-        echo "❌ Missing overlay-client directory in $target. Aborting." >&2
+    if [[ ! -d overlay_client ]]; then
+        echo "❌ Missing overlay_client directory in $target. Aborting." >&2
         popd >/dev/null
         exit 1
     fi
 
     local rebuild_requested=0
-    if [[ -d overlay-client/.venv ]]; then
-        echo "ℹ️  Existing Python virtual environment detected at overlay-client/.venv."
-        if prompt_yes_no "Rebuild the overlay-client virtual environment?"; then
+    if [[ -d overlay_client/.venv ]]; then
+        echo "ℹ️  Existing Python virtual environment detected at overlay_client/.venv."
+        if prompt_yes_no "Rebuild the overlay_client virtual environment?"; then
             rebuild_requested=1
         fi
     fi
 
     if (( rebuild_requested )); then
         echo "🧹 Removing existing virtual environment before rebuilding..."
-        rm -rf overlay-client/.venv
+        rm -rf overlay_client/.venv
     fi
 
-    if [[ ! -d overlay-client/.venv ]]; then
+    if [[ ! -d overlay_client/.venv ]]; then
         echo "🐍 Creating Python virtual environment..."
-        python3 -m venv overlay-client/.venv
+        python3 -m venv overlay_client/.venv
     fi
 
     # shellcheck disable=SC1091
-    source overlay-client/.venv/bin/activate
+    source overlay_client/.venv/bin/activate
     echo "📦 Installing overlay client requirements..."
     pip install --upgrade pip >/dev/null
-    pip install -r overlay-client/requirements.txt
+    pip install -r overlay_client/requirements.txt
     deactivate
 
     popd >/dev/null
-    log_verbose "overlay-client virtualenv ready at '$target/overlay-client/.venv'."
+    log_verbose "overlay_client virtualenv ready at '$target/overlay_client/.venv'."
 }
 
 copy_initial_install() {
@@ -1279,7 +1279,7 @@ copy_initial_install() {
     echo "📁 Copying Modern Overlay into plugins directory..."
     log_verbose "Copying initial install from '$src' to '$plugin_root' (dry-run=${DRY_RUN})."
     if [[ "$DRY_RUN" == true ]]; then
-        echo "📝 [dry-run] Would copy '$(basename "$src")' into '$plugin_root' and set up overlay-client/.venv."
+        echo "📝 [dry-run] Would copy '$(basename "$src")' into '$plugin_root' and set up overlay_client/.venv."
         return
     fi
     cp -a "$src" "$plugin_root"
@@ -1292,7 +1292,7 @@ rsync_update_plugin() {
     local dest="$2"
     log_verbose "Updating existing installation at '$dest' from '$src' (dry-run=${DRY_RUN})."
     if [[ "$DRY_RUN" == true ]]; then
-        echo "📝 [dry-run] Would update existing installation in '$dest' using rsync while preserving overlay-client/.venv."
+        echo "📝 [dry-run] Would update existing installation in '$dest' using rsync while preserving overlay_client/.venv."
         return
     fi
     if ! command -v rsync >/dev/null 2>&1; then
@@ -1301,8 +1301,8 @@ rsync_update_plugin() {
     fi
 
     local excludes=(
-        "--exclude" "overlay-client/.venv/"
-        "--exclude" "overlay-client/fonts/[Ee][Uu][Rr][Oo][Cc][Aa][Pp][Ss].ttf"
+        "--exclude" "overlay_client/.venv/"
+        "--exclude" "overlay_client/fonts/[Ee][Uu][Rr][Oo][Cc][Aa][Pp][Ss].ttf"
     )
 
     echo "🔄 Updating existing Modern Overlay installation..."
@@ -1367,7 +1367,7 @@ main() {
         copy_initial_install "$src_dir" "$PLUGIN_DIR"
     else
         echo "⚠️  An existing installation was detected at '$dest_dir'."
-        echo "    Plugin files will be replaced; you'll be prompted whether to rebuild overlay-client/.venv afterwards."
+        echo "    Plugin files will be replaced; you'll be prompted whether to rebuild overlay_client/.venv afterwards."
         if ! prompt_yes_no "Proceed with updating the installation?"; then
             echo "❌ Installation aborted by user to protect the existing virtual environment." >&2
             exit 1

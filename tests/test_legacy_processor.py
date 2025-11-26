@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-OVERLAY_DIR = ROOT_DIR / "overlay-client"
+OVERLAY_DIR = ROOT_DIR / "overlay_client"
 if str(OVERLAY_DIR) not in sys.path:
     sys.path.insert(0, str(OVERLAY_DIR))
 

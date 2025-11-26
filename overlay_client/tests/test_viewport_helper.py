@@ -12,7 +12,7 @@ OVERLAY_ROOT = Path(__file__).resolve().parents[1]
 if str(OVERLAY_ROOT) not in sys.path:
     sys.path.append(str(OVERLAY_ROOT))
 
-from viewport_helper import BASE_HEIGHT, BASE_WIDTH, ScaleMode, compute_viewport_transform
+from overlay_client.viewport_helper import BASE_HEIGHT, BASE_WIDTH, ScaleMode, compute_viewport_transform
 
 
 def test_fit_mode_baseline():

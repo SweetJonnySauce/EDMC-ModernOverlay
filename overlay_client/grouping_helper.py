@@ -3,12 +3,12 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
 
-from debug_config import DebugConfig
-from group_transform import GroupBounds, GroupKey, GroupTransform, GroupTransformCache
-from plugin_overrides import PluginOverrideManager
-from viewport_helper import BASE_HEIGHT, BASE_WIDTH, ScaleMode
-from payload_transform import accumulate_group_bounds
-from render_pipeline import RenderSettings
+from overlay_client.debug_config import DebugConfig
+from overlay_client.group_transform import GroupBounds, GroupKey, GroupTransform, GroupTransformCache
+from overlay_client.plugin_overrides import PluginOverrideManager
+from overlay_client.viewport_helper import BASE_HEIGHT, BASE_WIDTH, ScaleMode
+from overlay_client.payload_transform import accumulate_group_bounds
+from overlay_client.render_pipeline import RenderSettings
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard
     from overlay_client import OverlayWindow, _LegacyMapper

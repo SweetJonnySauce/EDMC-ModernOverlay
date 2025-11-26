@@ -16,9 +16,9 @@ try:
 except Exception:  # pragma: no cover - import guard for environments without PyQt6
     pytest.skip("PyQt6 not available", allow_module_level=True)
 
-from client_config import InitialClientSettings  # noqa: E402
-from debug_config import DebugConfig  # noqa: E402
-from legacy_store import LegacyItem  # noqa: E402
+from overlay_client.client_config import InitialClientSettings  # noqa: E402
+from overlay_client.debug_config import DebugConfig  # noqa: E402
+from overlay_client.legacy_store import LegacyItem  # noqa: E402
 from overlay_client import OverlayWindow  # noqa: E402
 
 

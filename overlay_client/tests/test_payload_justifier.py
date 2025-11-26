@@ -9,7 +9,7 @@ OVERLAY_ROOT = Path(__file__).resolve().parents[1]
 if str(OVERLAY_ROOT) not in sys.path:
     sys.path.append(str(OVERLAY_ROOT))
 
-from payload_justifier import JustificationRequest, calculate_offsets
+from overlay_client.payload_justifier import JustificationRequest, calculate_offsets
 
 
 def _request(identifier: str, width: float, justification: str = "right", suffix: str = "group"):

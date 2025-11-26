@@ -5,8 +5,8 @@ from typing import Any, Dict, Optional, Set, Tuple, List, Callable
 
 from PyQt6.QtGui import QPainter
 
-from viewport_helper import ScaleMode  # type: ignore
-from group_transform import GroupTransform  # type: ignore
+from overlay_client.viewport_helper import ScaleMode  # type: ignore
+from overlay_client.group_transform import GroupTransform  # type: ignore
 
 
 @dataclass(frozen=True)

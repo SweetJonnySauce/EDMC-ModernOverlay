@@ -13,7 +13,7 @@ OVERLAY_ROOT = Path(__file__).resolve().parents[1]
 if str(OVERLAY_ROOT) not in sys.path:
     sys.path.append(str(OVERLAY_ROOT))
 
-from payload_transform import _measure_text_block  # noqa: E402
+from overlay_client.payload_transform import _measure_text_block  # noqa: E402
 
 
 class _FakeMetrics:

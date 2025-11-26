@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import Callable, Optional, Tuple
 
-from window_tracking import WindowState  # type: ignore
+from overlay_client.window_tracking import WindowState  # type: ignore
 
 
 class FollowController:

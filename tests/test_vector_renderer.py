@@ -6,7 +6,7 @@ import importlib.util
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT_DIR / "overlay-client" / "vector_renderer.py"
+MODULE_PATH = ROOT_DIR / "overlay_client" / "vector_renderer.py"
 spec = importlib.util.spec_from_file_location("vector_renderer_test", MODULE_PATH)
 assert spec and spec.loader
 vector_renderer = importlib.util.module_from_spec(spec)

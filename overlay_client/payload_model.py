@@ -3,8 +3,8 @@ from __future__ import annotations
 import time
 from typing import Callable, Dict, Mapping, Optional
 
-from legacy_processor import TraceCallback, process_legacy_payload  # type: ignore
-from legacy_store import LegacyItem, LegacyItemStore  # type: ignore
+from overlay_client.legacy_processor import TraceCallback, process_legacy_payload  # type: ignore
+from overlay_client.legacy_store import LegacyItem, LegacyItemStore  # type: ignore
 
 
 class PayloadModel:

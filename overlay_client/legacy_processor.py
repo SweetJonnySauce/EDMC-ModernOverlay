@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from collections.abc import Iterable, Sequence
 from typing import Any, Callable, Mapping, MutableMapping, Optional
 
-from legacy_store import LegacyItem, LegacyItemStore
+from overlay_client.legacy_store import LegacyItem, LegacyItemStore
 
 
 TraceCallback = Callable[[str, Mapping[str, Any], Mapping[str, Any]], None]

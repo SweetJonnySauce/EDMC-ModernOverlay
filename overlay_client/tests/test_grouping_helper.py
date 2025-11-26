@@ -6,8 +6,8 @@ import pytest
 if not os.getenv("PYQT_TESTS"):
     pytest.skip("PYQT_TESTS not set; skipping PyQt-dependent test", allow_module_level=True)
 
-from group_transform import GroupBounds
-from grouping_helper import FillGroupingHelper
+from overlay_client.group_transform import GroupBounds
+from overlay_client.grouping_helper import FillGroupingHelper
 
 
 def _build_bounds() -> GroupBounds:

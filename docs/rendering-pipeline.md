@@ -4,7 +4,7 @@ This document explains how a payload travels from EDMC into the Modern Overlay c
 
 ## 1. Configuration & gating
 
-1. `debug.json` is read by both the EDMC plugin (`load.py`) and the overlay client (`overlay-client/debug_config.py`).  
+1. `debug.json` is read by both the EDMC plugin (`load.py`) and the overlay client (`overlay_client/debug_config.py`).  
 2. Dev builds (or `MODERN_OVERLAY_DEV_MODE=1`) enable the debug configuration.  
 3. `tracing.enabled` gates all subsequent trace output; `tracing.payload_ids` is interpreted as `str.startswith` prefixes. When the list is empty, every payload can emit traces.  
 4. Payload logging and tracing can be toggled independently.  
@@ -25,7 +25,7 @@ This document explains how a payload travels from EDMC into the Modern Overlay c
 
 ## 4. Legacy processing & storage
 
-1. `process_legacy_payload()` (in `overlay-client/legacy_processor.py`) normalises each payload type:
+1. `process_legacy_payload()` (in `overlay_client/legacy_processor.py`) normalises each payload type:
    - `message` → text payload with color/position/size metadata.
    - `shape:rect` → rectangle payload with fill/border data.
    - `shape:vect` → vector payload with ordered points, optional markers/text.

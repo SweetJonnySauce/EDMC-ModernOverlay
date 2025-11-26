@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, Optional, Tuple
 
-from grouping_helper import FillGroupingHelper  # type: ignore
-from group_transform import GroupKey, GroupTransform  # type: ignore
-from render_pipeline import RenderSettings  # type: ignore
+from overlay_client.grouping_helper import FillGroupingHelper  # type: ignore
+from overlay_client.group_transform import GroupKey, GroupTransform  # type: ignore
+from overlay_client.render_pipeline import RenderSettings  # type: ignore
 
 
 class GroupingAdapter:
