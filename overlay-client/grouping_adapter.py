@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional, Tuple
+from typing import Any, Dict, Iterable, Optional, Tuple
 
 from grouping_helper import FillGroupingHelper  # type: ignore
 from group_transform import GroupKey, GroupTransform  # type: ignore

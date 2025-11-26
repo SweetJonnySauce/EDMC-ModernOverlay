@@ -84,17 +84,30 @@ class LegacyRenderPipeline:
         legacy_items = getattr(owner, "_payload_model").store
         passes = 2 if legacy_items else 1
         for pass_index in range(passes):
-            (
-                commands,
-                bounds_by_group,
-                overlay_bounds_by_group,
-                effective_anchor_by_group,
-                transform_by_group,
-            ) = owner._build_legacy_commands_for_pass(
-                mapper,
-                overlay_bounds_hint,
-                collect_only=(pass_index == 0 and passes > 1),
-            )
+            if hasattr(grouping_helper, "build_commands_for_pass"):
+                (
+                    commands,
+                    bounds_by_group,
+                    overlay_bounds_by_group,
+                    effective_anchor_by_group,
+                    transform_by_group,
+                ) = grouping_helper.build_commands_for_pass(
+                    mapper,
+                    overlay_bounds_hint,
+                    collect_only=(pass_index == 0 and passes > 1),
+                )
+            else:
+                (
+                    commands,
+                    bounds_by_group,
+                    overlay_bounds_by_group,
+                    effective_anchor_by_group,
+                    transform_by_group,
+                ) = owner._build_legacy_commands_for_pass(  # type: ignore[attr-defined]
+                    mapper,
+                    overlay_bounds_hint,
+                    collect_only=(pass_index == 0 and passes > 1),
+                )
             overlay_bounds_hint = overlay_bounds_by_group
             if not legacy_items:
                 break

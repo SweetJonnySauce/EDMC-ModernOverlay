@@ -13,7 +13,7 @@ This document tracks the staged refactor of `overlay-client/overlay_client.py` i
 | C | Grouping refactor (see substeps) | In progress |
 | C1 | Introduce grouping adapter that wraps `FillGroupingHelper` + payload snapshot; pipeline calls adapter instead of `OverlayWindow` for grouping prep. | Completed |
 | C2 | Remove remaining direct payload/grouping accesses from pipeline; build commands/bounds from context + snapshot + adapter only. | In progress (substeps below) |
-| C2.1 | Move grouping prep/command building into the adapter: pipeline calls adapter to build commands/bounds instead of `_build_legacy_commands_for_pass`/`_grouping_helper`. | Pending |
+| C2.1 | Move grouping prep/command building into the adapter: pipeline calls adapter to build commands/bounds instead of `_build_legacy_commands_for_pass`/`_grouping_helper`. | Completed |
 | C2.2 | Decouple group logging/state updates: pipeline returns payloads/updates; window handles `_group_log_pending_*`, cache writes, and trace helper calls. | Pending |
 | C2.3 | Decouple debug state/offscreen logging: pipeline reports debug data; window handles `_debug_group_*` and logging helpers. | Pending |
 | D | Decouple logging/trace and debug state: pass logging callbacks or result objects so pipeline stops mutating `_group_log_*` and debug caches directly. | Pending |

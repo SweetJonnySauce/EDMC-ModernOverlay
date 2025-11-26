@@ -697,7 +697,7 @@ class OverlayWindow(QWidget):
             _CLIENT_LOGGER,
             self._debug_config,
         )
-        self._grouping_adapter = GroupingAdapter(self._grouping_helper)
+        self._grouping_adapter = GroupingAdapter(self._grouping_helper, self)
         layout = QVBoxLayout()
         layout.addWidget(self.message_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         layout.addStretch(1)
