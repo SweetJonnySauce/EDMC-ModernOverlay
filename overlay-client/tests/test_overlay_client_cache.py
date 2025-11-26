@@ -68,14 +68,14 @@ def test_legacy_render_cache_reuse_and_invalidate(monkeypatch, qt_app):
     painter = QPainter(pixmap)
 
     rebuilds = 0
-    original = window._rebuild_legacy_render_cache
+    original = window._render_pipeline._rebuild_legacy_render_cache
 
     def _wrapper(mapper, signature):
         nonlocal rebuilds
         rebuilds += 1
         return original(mapper, signature)
 
-    monkeypatch.setattr(window, "_rebuild_legacy_render_cache", _wrapper)
+    monkeypatch.setattr(window._render_pipeline, "_rebuild_legacy_render_cache", _wrapper)
 
     window._paint_legacy(painter)
     window._paint_legacy(painter)
@@ -86,4 +86,3 @@ def test_legacy_render_cache_reuse_and_invalidate(monkeypatch, qt_app):
     assert rebuilds == 2  # cache rebuilt after dirty flag
 
     painter.end()
-
