@@ -57,7 +57,7 @@ else:  # pragma: no cover - EDMC loads as top-level module
 PLUGIN_NAME = "EDMCModernOverlay"
 PLUGIN_VERSION = MODERN_OVERLAY_VERSION
 DEV_BUILD = is_dev_build(MODERN_OVERLAY_VERSION)
-LOGGER_NAME = "EDMC.ModernOverlay"
+LOGGER_NAME = PLUGIN_NAME
 LOG_TAG = PLUGIN_NAME
 
 DEFAULT_WINDOW_BASE_WIDTH = 1280
@@ -2522,5 +2522,6 @@ def journal_entry(
 
 # Metadata expected by some plugin loaders
 name = PLUGIN_NAME
+plugin_name = PLUGIN_NAME
 version = PLUGIN_VERSION
 cmdr = ""

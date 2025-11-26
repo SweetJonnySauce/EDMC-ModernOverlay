@@ -80,6 +80,34 @@ def evaluate_version_status(current_version: str, timeout: float = 2.0) -> Versi
     )
 
 
+def _appversion_tuple() -> tuple[int, ...]:
+    """Best-effort parse of EDMC's appversion into a numeric tuple."""
+
+    try:
+        import config as edmc_config  # type: ignore
+
+        raw = getattr(edmc_config, "appversion", None)
+    except Exception:
+        return ()
+    pieces: list[int] = []
+    for token in str(raw).split("."):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            pieces.append(int(token))
+        except Exception:
+            break
+    return tuple(pieces)
+
+
+def _has_min_appversion(major: int, minor: int = 0) -> bool:
+    version = _appversion_tuple()
+    if not version:
+        return True  # default to permissive when unknown
+    return version >= (major, minor)
+
+
 def _fetch_latest_release_version(timeout: float = 2.0) -> Optional[str]:
     headers = {
         "Accept": "application/vnd.github+json",
@@ -119,7 +147,7 @@ def _request_latest_release(*, headers: dict[str, str], timeout: float) -> dict[
 
 
 def _create_http_session(timeout: int):
-    if _edmc_new_session is not None:
+    if _has_min_appversion(5, 0) and _edmc_new_session is not None:
         try:
             session = _edmc_new_session(timeout=timeout)
             session.headers.setdefault("User-Agent", _build_user_agent())
@@ -138,6 +166,8 @@ def _create_http_session(timeout: int):
 def _apply_debug_sender(session) -> None:
     """Redirect requests through EDMC's debug webserver when configured."""
 
+    if not _has_min_appversion(5, 0):
+        return
     debug_target = None
     try:
         debug_target = _edmc_debug_senders() if callable(_edmc_debug_senders) else _edmc_debug_senders
