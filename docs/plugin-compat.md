@@ -8,7 +8,7 @@
 ## BGS-Tally
 | Issue | Remediation | 
 |:---------------------------|:----------------------------------------------------|
-| Green background on BGS Ready message doesn't expand to the text. | EDMCModernOverlay scales the fonts with the window size. Either decrease max font bounds in EDMCModernOverlay preferences or adjust the BGS-Tally message background per [Advanced instructions](https://github.com/aussig/BGS-Tally/wiki/Advanced |)
+| Green background on BGS Ready message doesn't expand to the text. | EDMCModernOverlay scales the fonts with the window size. Either decrease max font bounds in EDMCModernOverlay preferences or adjust the BGS-Tally message background per [Advanced instructions](https://github.com/aussig/BGS-Tally/wiki/Advanced)|
 
 ## ED Recon
 | Issue | Remediation | 
