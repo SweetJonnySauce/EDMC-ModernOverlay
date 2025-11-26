@@ -34,9 +34,10 @@ from PyQt6.QtGui import (
     QScreen,
     QWindow,
 )
-from render_pipeline import LegacyRenderPipeline  # type: ignore
 from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
+from follow_controller import FollowController  # type: ignore
+from render_pipeline import LegacyRenderPipeline  # type: ignore
 
 CLIENT_DIR = Path(__file__).resolve().parent
 if str(CLIENT_DIR) not in sys.path:
@@ -552,7 +553,6 @@ class OverlayWindow(QWidget):
         self._window_tracker: Optional[WindowTracker] = None
         self._data_client: Optional[OverlayDataClient] = None
         self._last_follow_state: Optional[WindowState] = None
-        self._follow_resume_at: float = 0.0
         self._lost_window_logged: bool = False
         self._last_tracker_state: Optional[Tuple[str, int, int, int, int]] = None
         self._last_geometry_log: Optional[Tuple[int, int, int, int]] = None
@@ -565,11 +565,6 @@ class OverlayWindow(QWidget):
             Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int], str, float, float]
         ] = None
         self._last_device_ratio_log: Optional[Tuple[str, float, float, float]] = None
-        self._wm_authoritative_rect: Optional[Tuple[int, int, int, int]] = None
-        self._wm_override_tracker: Optional[Tuple[int, int, int, int]] = None
-        self._wm_override_timestamp: float = 0.0
-        self._wm_override_reason: Optional[str] = None
-        self._wm_override_classification: Optional[str] = None
         self._enforcing_follow_size: bool = False
         self._transient_parent_id: Optional[str] = None
         self._transient_parent_window: Optional[QWindow] = None
@@ -635,6 +630,12 @@ class OverlayWindow(QWidget):
 
         self._tracking_timer = QTimer(self)
         self._tracking_timer.setInterval(500)
+        self._follow_controller = FollowController(
+            poll_fn=lambda: self._window_tracker.poll() if self._window_tracker else None,
+            logger=_CLIENT_LOGGER,
+            tracking_timer=self._tracking_timer,
+            debug_suffix=self.format_scale_debug,
+        )
         self._tracking_timer.timeout.connect(self._refresh_follow_geometry)
 
         self._message_clear_timer = QTimer(self)
@@ -1131,6 +1132,7 @@ class OverlayWindow(QWidget):
             and self._move_mode
         ):
             self._drag_active = True
+            self._follow_controller.set_drag_state(self._drag_active, self._move_mode)
             self._suspend_follow(1.0)
             self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             if not self._cursor_saved:
@@ -1159,6 +1161,7 @@ class OverlayWindow(QWidget):
     def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
         if self._drag_active and event.button() == Qt.MouseButton.LeftButton:
             self._drag_active = False
+            self._follow_controller.set_drag_state(self._drag_active, self._move_mode)
             self._suspend_follow(0.5)
             self.raise_()
             if self._cursor_saved:
@@ -1940,14 +1943,14 @@ class OverlayWindow(QWidget):
                 self._title_bar_height = numeric
                 changed = True
         if changed:
-            if self._wm_authoritative_rect is not None:
+            if self._follow_controller.wm_override is not None:
                 self._clear_wm_override(reason="title_bar_compensation_changed")
             _CLIENT_LOGGER.debug(
                 "Title bar compensation updated: enabled=%s height=%d",
                 self._title_bar_enabled,
                 self._title_bar_height,
             )
-            self._follow_resume_at = 0.0
+            self._follow_controller.reset_resume_window()
             if self._follow_enabled and self._window_tracker is not None:
                 self._refresh_follow_geometry()
             elif self._last_follow_state is not None:
@@ -2034,6 +2037,7 @@ class OverlayWindow(QWidget):
         if not self._drag_enabled:
             self._move_mode = False
             self._drag_active = False
+            self._follow_controller.set_drag_state(self._drag_active, self._move_mode)
             if self._cursor_saved:
                 self.setCursor(self._saved_cursor)
                 self._cursor_saved = False
@@ -2100,12 +2104,12 @@ class OverlayWindow(QWidget):
     def _start_tracking(self) -> None:
         if not self._window_tracker or not self._follow_enabled:
             return
-        if not self._tracking_timer.isActive():
-            self._tracking_timer.start()
+        self._follow_controller.set_follow_enabled(True)
+        self._follow_controller.set_drag_state(self._drag_active, self._move_mode)
+        self._follow_controller.start()
 
     def _stop_tracking(self) -> None:
-        if self._tracking_timer.isActive():
-            self._tracking_timer.stop()
+        self._follow_controller.stop()
 
     def _set_wm_override(
         self,
@@ -2114,72 +2118,21 @@ class OverlayWindow(QWidget):
         reason: str,
         classification: str = "wm_intervention",
     ) -> None:
-        self._wm_authoritative_rect = rect
-        self._wm_override_tracker = tracker_tuple
-        self._wm_override_timestamp = time.monotonic()
-        self._wm_override_reason = reason
-        self._wm_override_classification = classification
-        _CLIENT_LOGGER.debug(
-            "Recorded WM authoritative rect (%s, classification=%s): actual=%s tracker=%s; %s",
-            reason,
-            classification,
-            rect,
-            tracker_tuple,
-            self.format_scale_debug(),
-        )
+        self._follow_controller.record_override(rect, tracker_tuple, reason, classification)
 
     def _clear_wm_override(self, reason: str) -> None:
-        if self._wm_authoritative_rect is None:
-            return
-        _CLIENT_LOGGER.debug(
-            "Clearing WM authoritative rect (%s); %s",
-            reason,
-            self.format_scale_debug(),
-        )
-        self._wm_authoritative_rect = None
-        self._wm_override_tracker = None
-        self._wm_override_timestamp = 0.0
-        self._wm_override_reason = None
-        self._wm_override_classification = None
+        self._follow_controller.clear_override(reason)
 
     def _suspend_follow(self, delay: float = 0.75) -> None:
-        self._follow_resume_at = max(self._follow_resume_at, time.monotonic() + max(0.0, delay))
+        self._follow_controller.suspend(delay)
 
     def _refresh_follow_geometry(self) -> None:
-        if not self._follow_enabled or self._window_tracker is None:
-            return
-        now = time.monotonic()
-        if self._drag_active or self._move_mode:
-            self._suspend_follow(0.75)
-            _CLIENT_LOGGER.debug("Skipping follow refresh: drag/move active; %s", self.format_scale_debug())
-            return
-        if now < self._follow_resume_at:
-            _CLIENT_LOGGER.debug("Skipping follow refresh: awaiting resume window; %s", self.format_scale_debug())
-            return
-        try:
-            state = self._window_tracker.poll()
-        except Exception as exc:  # pragma: no cover - defensive guard
-            _CLIENT_LOGGER.debug("Window tracker poll failed: %s; %s", exc, self.format_scale_debug())
-            return
+        state = self._follow_controller.refresh()
         if state is None:
-            self._handle_missing_follow_state()
+            if self._follow_controller.last_poll_attempted and self._follow_controller.last_state_missing:
+                self._handle_missing_follow_state()
             return
-        global_x = state.global_x if state.global_x is not None else state.x
-        global_y = state.global_y if state.global_y is not None else state.y
-        tracker_key = (state.identifier, global_x, global_y, state.width, state.height)
-        if tracker_key != self._last_tracker_state:
-            _CLIENT_LOGGER.debug(
-                "Tracker state: id=%s global=(%d,%d) size=%dx%d foreground=%s visible=%s; %s",
-                state.identifier,
-                global_x,
-                global_y,
-                state.width,
-                state.height,
-                state.is_foreground,
-                state.is_visible,
-                self.format_scale_debug(),
-            )
-            self._last_tracker_state = tracker_key
+        self._last_tracker_state = self._follow_controller.last_tracker_state
         self._apply_follow_state(state)
 
     def _apply_title_bar_offset(
@@ -2307,25 +2260,19 @@ class OverlayWindow(QWidget):
             applied_title_offset=applied_title_offset,
         )
 
-        now = time.monotonic()
         target_tuple = desired_tuple
-        if self._wm_authoritative_rect is not None:
-            tracker_changed = (
-                self._wm_override_tracker is not None
-                and tracker_qt_tuple != self._wm_override_tracker
-            )
-            override_expired = (
-                self._wm_override_classification not in ("layout", "layout_constraint")
-                and (now - self._wm_override_timestamp) >= self._WM_OVERRIDE_TTL
-            )
-            if tracker_qt_tuple == self._wm_authoritative_rect:
+        override_rect = self._follow_controller.wm_override
+        override_tracker = self._follow_controller.wm_override_tracker
+        override_expired = self._follow_controller.override_expired()
+        if override_rect is not None:
+            if tracker_qt_tuple == override_rect:
                 self._clear_wm_override(reason="tracker realigned with WM")
-            elif tracker_changed:
+            elif override_tracker is not None and tracker_qt_tuple != override_tracker:
                 self._clear_wm_override(reason="tracker changed")
             elif override_expired:
                 self._clear_wm_override(reason="override timeout")
             else:
-                target_tuple = self._wm_authoritative_rect
+                target_tuple = override_rect
 
         target_rect = QRect(*target_tuple)
         current_rect = self.frameGeometry()
@@ -2402,7 +2349,7 @@ class OverlayWindow(QWidget):
             )
             target_tuple = actual_tuple
             target_rect = QRect(*target_tuple)
-        elif self._wm_authoritative_rect and tracker_qt_tuple == target_tuple:
+        elif override_rect and tracker_qt_tuple == target_tuple:
             self._clear_wm_override(reason="tracker matched actual")
 
         self._last_geometry_log = target_tuple
@@ -4489,15 +4436,17 @@ class OverlayWindow(QWidget):
             if tracker_ratio:
                 tracker_line += f" ({tracker_ratio})"
             monitor_lines.append(tracker_line)
-        if self._wm_authoritative_rect is not None and self._wm_override_classification is not None:
-            rect = self._wm_authoritative_rect
+        override_rect = self._follow_controller.wm_override
+        override_class = self._follow_controller.wm_override_classification
+        if override_rect is not None and override_class is not None:
+            rect = override_rect
             monitor_lines.append(
                 "  wm_rect=({},{}) {}x{} [{}]".format(
                     rect[0],
                     rect[1],
                     rect[2],
                     rect[3],
-                    self._wm_override_classification,
+                    override_class,
                 )
             )
 
