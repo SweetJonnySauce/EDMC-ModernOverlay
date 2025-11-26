@@ -61,7 +61,7 @@ def test_grid_pixmap_cached_and_invalidated(qt_app):
 def test_legacy_render_cache_reuse_and_invalidate(monkeypatch, qt_app):
     window = OverlayWindow(InitialClientSettings(), DebugConfig())
     window.resize(200, 200)
-    window._legacy_items.set("msg1", LegacyItem("msg1", "message", {"text": "hi"}, plugin="tester"))
+    window._payload_model.set("msg1", LegacyItem("msg1", "message", {"text": "hi"}, plugin="tester"))
 
     pixmap = QPixmap(200, 200)
     painter = QPainter(pixmap)

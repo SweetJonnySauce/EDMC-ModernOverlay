@@ -45,8 +45,9 @@ class FillGroupingHelper:
         def preset_point_size(label: str) -> float:
             return self._owner._legacy_preset_point_size(label, state, mapper)
 
+        store = getattr(self._owner, "_payload_model").store
         group_bounds: Dict[Tuple[str, Optional[str]], GroupBounds] = {}
-        for item_id, legacy_item in self._owner._legacy_items.items():
+        for item_id, legacy_item in store.items():
             group_key = self.group_key_for(item_id, legacy_item.plugin)
             key_tuple = group_key.as_tuple()
             bounds = group_bounds.setdefault(key_tuple, GroupBounds())

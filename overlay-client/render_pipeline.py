@@ -24,7 +24,7 @@ class LegacyRenderPipeline:
 
     def _legacy_render_signature(self, mapper: Any) -> Tuple[Any, ...]:
         transform = mapper.transform
-        legacy_items = getattr(self._owner, "_legacy_items")
+        legacy_items = getattr(self._owner, "_payload_model").store
         return (
             self._owner.width(),
             self._owner.height(),
@@ -57,7 +57,7 @@ class LegacyRenderPipeline:
         effective_anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         transform_by_group: Dict[Tuple[str, Optional[str]], Optional[GroupTransform]] = {}
         now_monotonic = owner._monotonic_now() if hasattr(owner, "_monotonic_now") else time.monotonic()
-        legacy_items = getattr(owner, "_legacy_items")
+        legacy_items = getattr(owner, "_payload_model").store
         passes = 2 if legacy_items else 1
         for pass_index in range(passes):
             (

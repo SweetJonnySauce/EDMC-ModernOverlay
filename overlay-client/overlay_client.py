@@ -37,6 +37,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 from follow_controller import FollowController  # type: ignore
+from payload_model import PayloadModel  # type: ignore
 from render_pipeline import LegacyRenderPipeline  # type: ignore
 
 CLIENT_DIR = Path(__file__).resolve().parent
@@ -531,8 +532,7 @@ class OverlayWindow(QWidget):
             "message": "",
         }
         self._debug_config = debug_config
-        self._legacy_items = LegacyItemStore()
-        setattr(self._legacy_items, "_trace_callback", self._trace_legacy_store_event)
+        self._payload_model = PayloadModel(self._trace_legacy_store_event)
         self._background_opacity: float = 0.0
         self._gridlines_enabled: bool = False
         self._gridline_spacing: int = 120
@@ -944,8 +944,8 @@ class OverlayWindow(QWidget):
 
     def _refresh_legacy_items(self) -> None:
         """Touch stored legacy items so repaints pick up new scaling bounds."""
-        for item_id, item in list(self._legacy_items.items()):
-            self._legacy_items.set(item_id, item)
+        for item_id, item in list(self._payload_model.store.items()):
+            self._payload_model.set(item_id, item)
         self._mark_legacy_cache_dirty()
 
     def _notify_font_bounds_changed(self) -> None:
@@ -1419,7 +1419,7 @@ class OverlayWindow(QWidget):
     def _sync_cycle_items(self) -> None:
         if not self._cycle_payload_enabled:
             return
-        ids = [item_id for item_id, _ in self._legacy_items.items()]
+        ids = [item_id for item_id, _ in self._payload_model.store.items()]
         previous_id = self._cycle_current_id
         self._cycle_payload_ids = ids
         if not ids:
@@ -1572,7 +1572,7 @@ class OverlayWindow(QWidget):
         mapper = self._compute_legacy_mapper()
         anchor = self._cycle_anchor_points.get(self._cycle_current_id)
         plugin_name = "unknown"
-        current_item = self._legacy_items.get(self._cycle_current_id)
+        current_item = self._payload_model.get(self._cycle_current_id) if self._cycle_current_id else None
         if current_item is not None:
             name = current_item.plugin
             if isinstance(name, str) and name:
@@ -2838,7 +2838,7 @@ class OverlayWindow(QWidget):
             def trace_fn(stage: str, _payload: Mapping[str, Any], extra: Mapping[str, Any]) -> None:
                 self._log_legacy_trace(plugin_name, message_id, stage, extra)
 
-        if process_legacy_payload(self._legacy_items, payload, trace_fn=trace_fn):
+        if self._payload_model.ingest(payload, trace_fn=trace_fn):
             if self._cycle_payload_enabled:
                 self._sync_cycle_items()
             self._mark_legacy_cache_dirty()
@@ -2846,12 +2846,12 @@ class OverlayWindow(QWidget):
 
     def _purge_legacy(self) -> None:
         now = time.monotonic()
-        if self._legacy_items.purge_expired(now):
+        if self._payload_model.purge_expired(now):
             if self._cycle_payload_enabled:
                 self._sync_cycle_items()
             self._mark_legacy_cache_dirty()
             self.update()
-        if not self._legacy_items:
+        if not len(self._payload_model):
             self._group_log_pending_base.clear()
             self._group_log_pending_transform.clear()
             self._group_log_next_allowed.clear()
@@ -2888,7 +2888,7 @@ class OverlayWindow(QWidget):
         overlay_bounds_by_group: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
         effective_anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         transform_by_group: Dict[Tuple[str, Optional[str]], Optional[GroupTransform]] = {}
-        for item_id, legacy_item in self._legacy_items.items():
+        for item_id, legacy_item in self._payload_model.store.items():
             group_key = self._grouping_helper.group_key_for(item_id, legacy_item.plugin)
             group_transform = self._grouping_helper.get_transform(group_key)
             transform_by_group[group_key.as_tuple()] = group_transform
