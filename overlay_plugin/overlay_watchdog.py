@@ -234,13 +234,13 @@ class OverlayWatchdog:
 
     def set_environment(self, env: Optional[Mapping[str, str]]) -> None:
         self._env = dict(env) if env is not None else None
-        self._debug(
-            "Overlay environment overrides updated (%s); restart overlay to apply",
+        overrides = (
             ", ".join(
                 key for key in sorted((self._env or {}).keys()) if key.startswith("QT_") or key.startswith("EDMC_OVERLAY")
             )
-            or "no overrides",
+            or "no overrides"
         )
+        self._debug(f"Overlay environment overrides updated ({overrides}); restart overlay to apply")
 
     def _start_output_readers(self, proc: subprocess.Popen[str]) -> None:
         if not self._capture_output:
