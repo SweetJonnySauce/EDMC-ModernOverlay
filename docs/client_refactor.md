@@ -75,8 +75,8 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 8 | Split builder methods (`_build_message_command`, `_build_rect_command`, `_build_vector_command`) into calculation/render sub-helpers; keep font metrics/painter setup intact. | In progress |
   | 8.1 | Refactor `_build_message_command`: extract calculation helpers (transforms, offsets, anchors, bounds) while keeping font metrics/painter setup in place; preserve logging/tracing. | Complete |
   | 8.2 | Refactor `_build_rect_command`: extract geometry/anchor/translation helpers, leaving pen/brush setup and painter interactions in place; preserve logging/tracing. | Complete |
-  | 8.3 | Refactor `_build_vector_command`: extract point remap/anchor/bounds helpers, leaving payload assembly and painter interactions in place; preserve logging/tracing. | Not started |
-  | 8.4 | After each builder refactor, run full test suite and update logs/status. | Not started |
+  | 8.3 | Refactor `_build_vector_command`: extract point remap/anchor/bounds helpers, leaving payload assembly and painter interactions in place; preserve logging/tracing. | Complete |
+  | 8.4 | After each builder refactor, run full test suite and update logs/status. | In progress |
   | 9 | After each refactor chunk, run full test suite and update logs/status. | Not started |
 - **C.** Duplicate anchor/translation/justification workflows across the three builder methods (overlay_client/overlay_client.py:3411, :3623, :3851) risk behavioral drift; shared utilities would improve consistency.
 - **D.** Heavy coupling of calculation logic to Qt state (e.g., QFont/QFontMetrics usage in `_build_message_command` at overlay_client/overlay_client.py:3469) reduces testability; pure helpers would help.
@@ -232,6 +232,11 @@ Substeps:
 
 #### Stage 8.2 status (complete)
 - Added `_compute_rect_transform` to handle rect remap/offset/anchor/translation calculations, base/reference bounds, and tracing; `_build_rect_command` now delegates geometry math while keeping pen/brush setup local.
+- Behavior and logging unchanged.
+- Tests: `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`; resolution test not rerun in this stage.
+
+#### Stage 8.3 status (complete)
+- Added `_compute_vector_transform` to handle vector remap/offset/anchor/translation, bounds accumulation, and tracing; `_build_vector_command` now delegates calculation while keeping payload assembly/painter interactions local.
 - Behavior and logging unchanged.
 - Tests: `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`; resolution test not rerun in this stage.
 
