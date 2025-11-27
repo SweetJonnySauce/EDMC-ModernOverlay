@@ -54,7 +54,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 4.1 | Map non-UI helpers in `OverlayWindow` (follow/geometry math, payload builders, viewport/anchor/scale helpers) and mark target extractions. | Complete |
   | 4.2 | Extract follow/geometry calculation helpers into a module (no Qt types); wire `OverlayWindow` to use them; keep behavior unchanged. | Complete |
   | 4.3 | Extract payload builder helpers (`_build_message_command/_rect/_vector` calculations, anchor/justification/offset utils) into a module, leaving painter/UI hookup in `OverlayWindow`. | Complete |
-   4.4 | Extract remaining pure utils (viewport/size/line width math) if still embedded. | Complete |
+  | 4.4 | Extract remaining pure utils (viewport/size/line width math) if still embedded. | Complete |
   | 4.5 | After each extraction chunk, run full test suite and update Stage 4 log/status. | Complete |
   | 5 | Add/adjust unit tests in `overlay_client/tests` to cover extracted modules; run test suite and update any docs if behavior notes change. | Complete |
   | 5.1 | Add tests for `overlay_client/data_client.py` (queueing behavior and signal flow). | Complete |
@@ -62,6 +62,9 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 5.3 | Add tests for `overlay_client/fonts.py` (font/emoji fallback resolution and duplicate suppression). | Complete |
   | 5.4 | Add tests for `overlay_client/platform_context.py` (env overrides applied over settings). | Complete |
   | 5.5 | Run resolution test after test additions and update logs/status. | Complete |
+  | 10 | Move `_compute_*_transform` helpers and related math into a pure module (no Qt types), leaving painter wiring in `OverlayWindow`; preserve behavior and logging. | Planned |
+  | 11 | Extract follow/window orchestration (geometry application, WM overrides, transient parent/visibility) into a window-controller module to shrink `OverlayWindow`; keep Qt boundary localized. | Planned |
+  | 12 | Split payload/group coordination (grouping, cache/nudge plumbing) into a coordinator module so `overlay_client.py` keeps only minimal glue and entrypoint. | Planned |
 
 - **B.** Long, branchy methods with mixed concerns: `_build_vector_command` (overlay_client/overlay_client.py:3851-4105), `_build_rect_command` (overlay_client/overlay_client.py:3623-3849), `_build_message_command` (overlay_client/overlay_client.py:3411-3621), `_apply_follow_state` (overlay_client/overlay_client.py:2199-2393); need smaller helpers and clearer data flow.
 
@@ -78,9 +81,23 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 8.3 | Refactor `_build_vector_command`: extract point remap/anchor/bounds helpers, leaving payload assembly and painter interactions in place; preserve logging/tracing. | Complete |
   | 8.4 | After each builder refactor, run full test suite and update logs/status. | Complete |
   | 9 | After each refactor chunk, run full test suite and update logs/status. | Complete |
+  | 13 | Add unit tests for transform helpers (message/rect/vector) covering anchor/remap/translation paths and guardrails (e.g., insufficient points return `None`). | Planned |
+  | 14 | Add unit tests for follow-state helpers (`_normalise_tracker_geometry`, `_resolve_and_apply_geometry`, `_post_process_follow_state`) to lock behavior before further extractions. | Planned |
 - **C.** Duplicate anchor/translation/justification workflows across the three builder methods (overlay_client/overlay_client.py:3411, :3623, :3851) risk behavioral drift; shared utilities would improve consistency.
+ 
+  | Stage | Description | Status |
+  | --- | --- | --- |
+  | 15 | Consolidate anchor/translation/justification utilities into a shared helper used by all builders to keep payload alignment consistent. | Planned |
 - **D.** Heavy coupling of calculation logic to Qt state (e.g., QFont/QFontMetrics usage in `_build_message_command` at overlay_client/overlay_client.py:3469) reduces testability; pure helpers would help.
+ 
+  | Stage | Description | Status |
+  | --- | --- | --- |
+  | 16 | Re-audit builder/follow helpers to ensure calc paths operate on primitives only, with Qt boundaries wrapped at call sites; add headless coverage to enforce separation. | Planned |
 - **E.** Broad `except Exception` handlers in networking and cleanup paths (e.g., overlay_client/overlay_client.py:480, :454) silently swallow errors, hiding failures.
+ 
+  | Stage | Description | Status |
+  | --- | --- | --- |
+  | 17 | Replace broad exception catches with scoped handling/logging in networking/cleanup paths; surface actionable errors while keeping UI stable. | Planned |
 
 ----
 # Stage Summary and Test results

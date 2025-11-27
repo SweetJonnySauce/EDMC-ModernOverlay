@@ -3780,7 +3780,7 @@ class OverlayWindow(QWidget):
             collect_only,
         )
         if vector_payload is None:
-            return None, None
+            return None
         bounds: Optional[Tuple[int, int, int, int]]
         cycle_anchor: Optional[Tuple[int, int]]
         if screen_points:
