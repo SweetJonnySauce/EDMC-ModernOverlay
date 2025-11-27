@@ -86,6 +86,7 @@ from overlay_client.paint_commands import (  # type: ignore  # noqa: E402
     _RectPaintCommand,
     _VectorPaintCommand,
 )
+from overlay_client.payload_builders import build_group_context  # type: ignore  # noqa: E402
 from overlay_client.follow_geometry import (  # type: ignore  # noqa: E402
     ScreenInfo,
     _apply_aspect_guard,
@@ -98,7 +99,6 @@ from overlay_client.viewport_transform import (  # type: ignore  # noqa: E402
     LegacyMapper,
     ViewportState,
     build_viewport,
-    compute_proportional_translation,
     inverse_group_axis,
     map_anchor_axis,
     legacy_scale_components,
@@ -3056,53 +3056,28 @@ class OverlayWindow(QWidget):
         size = str(item.get("size", "normal")).lower()
         state = self._viewport_state()
         scaled_point_size = self._legacy_preset_point_size(size, state, mapper)
-        fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
-        transform_context = build_payload_transform_context(fill)
         offset_x, offset_y = self._group_offsets(group_transform)
-        base_width_norm = BASE_WIDTH if BASE_WIDTH > 0.0 else 1.0
-        base_height_norm = BASE_HEIGHT if BASE_HEIGHT > 0.0 else 1.0
-        offset_norm_x = offset_x / base_width_norm
-        offset_norm_y = offset_y / base_height_norm
-        scale = fill.scale
-        base_offset_x = fill.base_offset_x
-        base_offset_y = fill.base_offset_y
-        selected_anchor: Optional[Tuple[float, float]] = None
-        base_anchor_point: Optional[Tuple[float, float]] = None
-        anchor_for_transform: Optional[Tuple[float, float]] = None
-        base_translation_dx = 0.0
-        base_translation_dy = 0.0
+        group_ctx = build_group_context(
+            mapper,
+            state,
+            group_transform,
+            overlay_bounds_hint,
+            offset_x,
+            offset_y,
+            group_anchor_point=self._group_anchor_point,
+            group_base_point=self._group_base_point,
+        )
+        fill = group_ctx.fill
+        transform_context = group_ctx.transform_context
+        scale = group_ctx.scale
+        base_offset_x = group_ctx.base_offset_x
+        base_offset_y = group_ctx.base_offset_y
+        selected_anchor = group_ctx.selected_anchor
+        base_anchor_point = group_ctx.base_anchor_point
+        anchor_for_transform = group_ctx.anchor_for_transform
+        base_translation_dx = group_ctx.base_translation_dx
+        base_translation_dy = group_ctx.base_translation_dy
         effective_anchor: Optional[Tuple[float, float]] = None
-        if mapper.transform.mode is ScaleMode.FILL:
-            use_overlay_bounds_x = (
-                overlay_bounds_hint is not None
-                and overlay_bounds_hint.is_valid()
-                and not fill.overflow_x
-            )
-            base_anchor_point = self._group_base_point(
-                group_transform,
-                transform_context,
-                overlay_bounds_hint,
-                use_overlay_bounds_x=use_overlay_bounds_x,
-            )
-            anchor_for_transform = base_anchor_point
-            if overlay_bounds_hint is not None and overlay_bounds_hint.is_valid():
-                selected_anchor = self._group_anchor_point(
-                    group_transform,
-                    transform_context,
-                    overlay_bounds_hint,
-                    use_overlay_bounds_x=use_overlay_bounds_x,
-                )
-            if group_transform is not None and anchor_for_transform is not None:
-                anchor_norm_override = (
-                    (group_transform.band_min_x or 0.0) + offset_norm_x,
-                    (group_transform.band_min_y or 0.0) + offset_norm_y,
-                )
-                base_translation_dx, base_translation_dy = compute_proportional_translation(
-                    fill,
-                    group_transform,
-                    anchor_for_transform,
-                    anchor_norm_override=anchor_norm_override,
-                )
         transform_meta = item.get("__mo_transform__")
         self._debug_legacy_point_size = scaled_point_size
         raw_left = float(item.get("x", 0))
@@ -3284,52 +3259,27 @@ class OverlayWindow(QWidget):
             brush = QBrush(fill_color)
 
         state = self._viewport_state()
-        fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
-        transform_context = build_payload_transform_context(fill)
         offset_x, offset_y = self._group_offsets(group_transform)
-        base_width_norm = BASE_WIDTH if BASE_WIDTH > 0.0 else 1.0
-        base_height_norm = BASE_HEIGHT if BASE_HEIGHT > 0.0 else 1.0
-        offset_norm_x = offset_x / base_width_norm
-        offset_norm_y = offset_y / base_height_norm
-        scale = fill.scale
-        selected_anchor: Optional[Tuple[float, float]] = None
-        base_anchor_point: Optional[Tuple[float, float]] = None
-        anchor_for_transform: Optional[Tuple[float, float]] = None
-        base_translation_dx = 0.0
-        base_translation_dy = 0.0
+        group_ctx = build_group_context(
+            mapper,
+            state,
+            group_transform,
+            overlay_bounds_hint,
+            offset_x,
+            offset_y,
+            group_anchor_point=self._group_anchor_point,
+            group_base_point=self._group_base_point,
+        )
+        fill = group_ctx.fill
+        transform_context = group_ctx.transform_context
+        scale = group_ctx.scale
+        selected_anchor = group_ctx.selected_anchor
+        base_anchor_point = group_ctx.base_anchor_point
+        anchor_for_transform = group_ctx.anchor_for_transform
+        base_translation_dx = group_ctx.base_translation_dx
+        base_translation_dy = group_ctx.base_translation_dy
         effective_anchor: Optional[Tuple[float, float]] = None
         right_justification_delta = 0.0
-        if mapper.transform.mode is ScaleMode.FILL:
-            use_overlay_bounds_x = (
-                overlay_bounds_hint is not None
-                and overlay_bounds_hint.is_valid()
-                and not fill.overflow_x
-            )
-            base_anchor_point = self._group_base_point(
-                group_transform,
-                transform_context,
-                overlay_bounds_hint,
-                use_overlay_bounds_x=use_overlay_bounds_x,
-            )
-            anchor_for_transform = base_anchor_point
-            if overlay_bounds_hint is not None and overlay_bounds_hint.is_valid():
-                selected_anchor = self._group_anchor_point(
-                    group_transform,
-                    transform_context,
-                    overlay_bounds_hint,
-                    use_overlay_bounds_x=use_overlay_bounds_x,
-                )
-            if group_transform is not None and anchor_for_transform is not None:
-                anchor_norm_override = (
-                    (group_transform.band_min_x or 0.0) + offset_norm_x,
-                    (group_transform.band_min_y or 0.0) + offset_norm_y,
-                )
-                base_translation_dx, base_translation_dy = compute_proportional_translation(
-                    fill,
-                    group_transform,
-                    anchor_for_transform,
-                    anchor_norm_override=anchor_norm_override,
-                )
         base_offset_x = fill.base_offset_x
         base_offset_y = fill.base_offset_y
         transform_meta = item.get("__mo_transform__")
@@ -3493,19 +3443,25 @@ class OverlayWindow(QWidget):
         plugin_name = legacy_item.plugin
         trace_enabled = self._should_trace_payload(plugin_name, item_id)
         state = self._viewport_state()
-        fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
-        transform_context = build_payload_transform_context(fill)
         offset_x, offset_y = self._group_offsets(group_transform)
-        base_width_norm = BASE_WIDTH if BASE_WIDTH > 0.0 else 1.0
-        base_height_norm = BASE_HEIGHT if BASE_HEIGHT > 0.0 else 1.0
-        offset_norm_x = offset_x / base_width_norm
-        offset_norm_y = offset_y / base_height_norm
-        scale = fill.scale
-        selected_anchor: Optional[Tuple[float, float]] = None
-        base_anchor_point: Optional[Tuple[float, float]] = None
-        anchor_for_transform: Optional[Tuple[float, float]] = None
-        base_translation_dx = 0.0
-        base_translation_dy = 0.0
+        group_ctx = build_group_context(
+            mapper,
+            state,
+            group_transform,
+            overlay_bounds_hint,
+            offset_x,
+            offset_y,
+            group_anchor_point=self._group_anchor_point,
+            group_base_point=self._group_base_point,
+        )
+        fill = group_ctx.fill
+        transform_context = group_ctx.transform_context
+        scale = group_ctx.scale
+        selected_anchor = group_ctx.selected_anchor
+        base_anchor_point = group_ctx.base_anchor_point
+        anchor_for_transform = group_ctx.anchor_for_transform
+        base_translation_dx = group_ctx.base_translation_dx
+        base_translation_dy = group_ctx.base_translation_dy
         effective_anchor: Optional[Tuple[float, float]] = None
         raw_points = item.get("points") or []
         raw_min_x: Optional[float] = None
@@ -3518,36 +3474,6 @@ class OverlayWindow(QWidget):
                 continue
             if raw_min_x is None or px < raw_min_x:
                 raw_min_x = px
-        if mapper.transform.mode is ScaleMode.FILL:
-            use_overlay_bounds_x = (
-                overlay_bounds_hint is not None
-                and overlay_bounds_hint.is_valid()
-                and not fill.overflow_x
-            )
-            selected_anchor = self._group_anchor_point(
-                group_transform,
-                transform_context,
-                overlay_bounds_hint,
-                use_overlay_bounds_x=use_overlay_bounds_x,
-            )
-            base_anchor_point = self._group_base_point(
-                group_transform,
-                transform_context,
-                overlay_bounds_hint,
-                use_overlay_bounds_x=use_overlay_bounds_x,
-            )
-            anchor_for_transform = base_anchor_point or selected_anchor
-            if group_transform is not None and anchor_for_transform is not None:
-                anchor_norm_override = (
-                    (group_transform.band_min_x or 0.0) + offset_norm_x,
-                    (group_transform.band_min_y or 0.0) + offset_norm_y,
-                )
-                base_translation_dx, base_translation_dy = compute_proportional_translation(
-                    fill,
-                    group_transform,
-                    anchor_for_transform,
-                    anchor_norm_override=anchor_norm_override,
-                )
         translation_dx = base_translation_dx
         translation_dy = base_translation_dy
         justification_delta = 0.0

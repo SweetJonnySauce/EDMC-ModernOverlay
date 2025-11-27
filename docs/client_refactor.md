@@ -50,7 +50,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 4 | Trim `OverlayWindow` to UI orchestration only; delegate pure calculations to extracted helpers. Update imports and ensure existing tests pass. | In progress |
 | 4.1 | Map non-UI helpers in `OverlayWindow` (follow/geometry math, payload builders, viewport/anchor/scale helpers) and mark target extractions. | Complete |
 | 4.2 | Extract follow/geometry calculation helpers into a module (no Qt types); wire `OverlayWindow` to use them; keep behavior unchanged. | Complete |
-| 4.3 | Extract payload builder helpers (`_build_message_command/_rect/_vector` calculations, anchor/justification/offset utils) into a module, leaving painter/UI hookup in `OverlayWindow`. | Not started |
+| 4.3 | Extract payload builder helpers (`_build_message_command/_rect/_vector` calculations, anchor/justification/offset utils) into a module, leaving painter/UI hookup in `OverlayWindow`. | Complete |
 | 4.4 | Extract remaining pure utils (viewport/size/line width math) if still embedded. | Not started |
 | 4.5 | After each extraction chunk, run full test suite and update Stage 4 log/status. | In progress |
   | 5 | Add/adjust unit tests in `overlay_client/tests` to cover extracted modules; run test suite and update any docs if behavior notes change. | In progress |
@@ -125,6 +125,16 @@ Substeps:
 - Added `overlay_client/follow_geometry.py` with screen info dataclass and helpers for native-to-Qt rect conversion, title-bar offsets, aspect guard, and WM override resolution (primitive types only).
 - `OverlayWindow` now calls those helpers via thin wrappers to preserve logging/state while keeping Qt/window operations local.
 - Introduced `_screen_info_for_native_rect` to build conversion context without leaking Qt types into the helper module.
+
+#### Stage 4.3 quick summary (intent)
+- Goal: move payload builder calculations for messages/rects/vectors into a helper module (anchors, offsets, translations, bounds math) while leaving Qt painter wiring in `OverlayWindow`.
+- Keep method signatures and observable behavior identical; preserve logging, tracing, and grouping/viewport interactions.
+- Limit helpers to pure calculations and data assembly; keep QPainter/QPen/QBrush construction and font metric retrieval inside `OverlayWindow`.
+- Touch points: new helper module under `overlay_client`, updated imports/wiring in `overlay_client.py`, docs/test log updates here.
+
+#### Stage 4.3 status (complete)
+- Added `overlay_client/payload_builders.py` with `build_group_context` to centralize group anchor/translation math for message/rect/vector builders.
+- `OverlayWindow` now calls the helper for shared calculations, keeping Qt object creation and command construction local; behavior/logging preserved.
 
 #### Stage 4 test log (latest)
 - `make check` → passed (`ruff`, `mypy`, `pytest`: 102 passed, 7 skipped).
