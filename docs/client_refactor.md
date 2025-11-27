@@ -6,6 +6,7 @@ This file tracks the ongoing refactor of `overlay_client.py` (and related module
 - Before touching code for a stage, write a short (3-5 line) stage summary in this file outlining intent, expected touch points, and what should not change.
 - Always summarize the plan for a stage without making changes before proceeding.
 - Even if a request says “do/implement the step,” you still need to follow all rules above (plan, summary, tests, approvals).
+- If you find areas that need more unit tests, add them in to the update.
 - Record which tests were run (and results) before marking a stage complete; if tests are skipped, note why and what to verify later.
 - If a step is not small enough to be safe, stop and ask for direction.
 - After each step is complete, run through all tests, update the plan here, and summarize what was done for the commit message.
@@ -47,7 +48,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 2 | Move paint command types (`_LegacyPaintCommand`, `_MessagePaintCommand`, `_RectPaintCommand`, `_VectorPaintCommand`) and `_QtVectorPainterAdapter` into `overlay_client/paint_commands.py`; keep signatures intact so `_paint_legacy` logic can stay as-is. | Complete (moved into `overlay_client/paint_commands.py`; all documented tests passing with overlay running for resolution test) |
   | 3 | Split platform and font helpers (`_initial_platform_context`, font resolution) into `overlay_client/platform_context.py` and `overlay_client/fonts.py`, keeping interfaces unchanged. | Complete (extracted; all documented tests passing with overlay running) |
   | 4 | Trim `OverlayWindow` to UI orchestration only; delegate pure calculations to extracted helpers. Update imports and ensure existing tests pass. | Not started |
-  | 5 | Add/adjust unit tests in `overlay_client/tests` to cover extracted modules; run test suite and update any docs if behavior notes change. | Not started |
+  | 5 | Add/adjust unit tests in `overlay_client/tests` to cover extracted modules; run test suite and update any docs if behavior notes change. | In progress (tests added for extracted modules; see Stage 5 log) |
 
 ### Stage 1 quick summary (intent)
 - Goal: move `OverlayDataClient` into `overlay_client/data_client.py` with no behavior change.
@@ -85,6 +86,21 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 - `make test` → passed (91 passed, 7 skipped).
 - `PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed (60 passed).
 - `python3 tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay client running).
+
+### Stage 5 quick summary (intent)
+- Goal: add targeted unit tests for newly extracted modules:
+  - `overlay_client/data_client.py`: payload queueing behavior and basic signal flow (with mocked connections).
+  - `overlay_client/paint_commands.py`: paint commands and `_QtVectorPainterAdapter` call through to window hooks and painter methods.
+  - `overlay_client/fonts.py`: font/emoji fallback resolution paths and duplicate suppression.
+  - `overlay_client/platform_context.py`: env overrides applied over settings.
+- No production logic changes; only tests and supporting stubs/mocks as needed.
+- Run the full test set and log results once added.
+
+#### Stage 5 test log (latest)
+- `make check` → passed (`ruff`, `mypy`, `pytest`: 102 passed, 7 skipped).
+- `make test` → passed (same totals).
+- `PYQT_TESTS=1 python -m pytest overlay_client/tests` → included above (PYQT_TESTS set during full run).
+- `python3 tests/run_resolution_tests.py --config tests/display_all.json` → not rerun in this stage (overlay process required).
 
   Notes:
   - Perform refactor in small, behavior-preserving steps; avoid logic changes during extraction.
