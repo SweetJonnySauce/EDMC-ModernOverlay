@@ -72,8 +72,8 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 7.1 | Extract geometry normalization and logging: raw/native→Qt conversion, device ratio logs, title bar offset, aspect guard; keep Qt calls local. | Complete |
   | 7.2 | Extract WM override resolution and geometry application: setGeometry/move-to-screen, override classification/logging, and target adoption. | Complete |
   | 7.3 | Extract follow-state post-processing: follow-state persistence, transient parent handling, fullscreen hint, visibility/show/hide decisions. | Complete |
-  | 8 | Split builder methods (`_build_message_command`, `_build_rect_command`, `_build_vector_command`) into calculation/render sub-helpers; keep font metrics/painter setup intact. | Not started |
-  | 8.1 | Refactor `_build_message_command`: extract calculation helpers (transforms, offsets, anchors, bounds) while keeping font metrics/painter setup in place; preserve logging/tracing. | Not started |
+  | 8 | Split builder methods (`_build_message_command`, `_build_rect_command`, `_build_vector_command`) into calculation/render sub-helpers; keep font metrics/painter setup intact. | In progress |
+  | 8.1 | Refactor `_build_message_command`: extract calculation helpers (transforms, offsets, anchors, bounds) while keeping font metrics/painter setup in place; preserve logging/tracing. | Complete |
   | 8.2 | Refactor `_build_rect_command`: extract geometry/anchor/translation helpers, leaving pen/brush setup and painter interactions in place; preserve logging/tracing. | Not started |
   | 8.3 | Refactor `_build_vector_command`: extract point remap/anchor/bounds helpers, leaving payload assembly and painter interactions in place; preserve logging/tracing. | Not started |
   | 8.4 | After each builder refactor, run full test suite and update logs/status. | Not started |
@@ -221,6 +221,20 @@ Substeps:
 - Added `_post_process_follow_state` to handle follow-state persistence, transient parent handling, fullscreen hint emission, and visibility/show/hide decisions; `_apply_follow_state` delegates to it.
 - Behavior and logging preserved; follow visibility and transient parent flows unchanged.
 - Tests: `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`, `python3 tests/run_resolution_tests.py --config tests/display_all.json`.
+
+### Stage 8 quick summary (intent)
+- Goal: split builder methods into calculation/render sub-helpers while keeping font metrics/painter setup in place; preserve logging/tracing and behavior.
+- Work through message, rect, and vector builders in small, testable steps; run full tests after each chunk.
+
+#### Stage 8.1 status (complete)
+- Added `_compute_message_transform` to handle message payload remap/offset/anchor/translation calculations and tracing; `_build_message_command` now delegates pre-metrics math to the helper (Qt font metrics remain local).
+- Behavior and logging unchanged.
+
+#### Stage 8 test log (latest)
+- `make check` → passed (`ruff`, `mypy`, `pytest`: 108 passed, 7 skipped).
+- `make test` → passed (same totals).
+- `PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed (77 passed).
+- `python3 tests/run_resolution_tests.py --config tests/display_all.json` → not rerun in this stage (overlay process required).
 
   Notes:
   - Perform refactor in small, behavior-preserving steps; avoid logic changes during extraction.

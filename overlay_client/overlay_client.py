@@ -603,6 +603,96 @@ class OverlayWindow(QWidget):
         )
         return adjusted_x, adjusted_y
 
+    def _compute_message_transform(
+        self,
+        plugin_name: str,
+        item_id: str,
+        fill: FillViewport,
+        transform_context: PayloadTransformContext,
+        transform_meta: Any,
+        mapper: LegacyMapper,
+        group_transform: Optional[GroupTransform],
+        overlay_bounds_hint: Optional[_OverlayBounds],
+        raw_left: float,
+        raw_top: float,
+        offset_x: float,
+        offset_y: float,
+        selected_anchor: Optional[Tuple[float, float]],
+        base_anchor_point: Optional[Tuple[float, float]],
+        anchor_for_transform: Optional[Tuple[float, float]],
+        base_translation_dx: float,
+        base_translation_dy: float,
+        trace_enabled: bool,
+        collect_only: bool,
+    ) -> Tuple[float, float, float, float, Optional[Tuple[float, float]], float, float]:
+        if trace_enabled and not collect_only:
+            self._log_legacy_trace(
+                plugin_name,
+                item_id,
+                "paint:message_input",
+                {
+                    "x": raw_left,
+                    "y": raw_top,
+                    "scale": fill.scale,
+                    "offset_x": fill.base_offset_x,
+                    "offset_y": fill.base_offset_y,
+                    "mode": mapper.transform.mode.value,
+                },
+            )
+        adjusted_left, adjusted_top = remap_point(fill, transform_meta, raw_left, raw_top, context=transform_context)
+        if offset_x or offset_y:
+            adjusted_left += offset_x
+            adjusted_top += offset_y
+        if mapper.transform.mode is ScaleMode.FILL:
+            adjusted_left, adjusted_top = self._apply_inverse_group_scale(
+                adjusted_left,
+                adjusted_top,
+                anchor_for_transform,
+                base_anchor_point or anchor_for_transform,
+                fill,
+            )
+        base_left_logical = adjusted_left
+        base_top_logical = adjusted_top
+        translation_dx = base_translation_dx
+        translation_dy = base_translation_dy
+        effective_anchor: Optional[Tuple[float, float]] = None
+        if mapper.transform.mode is ScaleMode.FILL:
+            if trace_enabled and not collect_only:
+                self._log_legacy_trace(
+                    plugin_name,
+                    item_id,
+                    "paint:message_translation",
+                    {
+                        "base_translation_dx": base_translation_dx,
+                        "base_translation_dy": base_translation_dy,
+                        "right_justification_delta": 0.0,
+                        "applied_translation_dx": translation_dx,
+                    },
+                )
+            adjusted_left += translation_dx
+            adjusted_top += translation_dy
+            if selected_anchor is not None:
+                transformed_anchor = self._apply_inverse_group_scale(
+                    selected_anchor[0],
+                    selected_anchor[1],
+                    anchor_for_transform,
+                    base_anchor_point or anchor_for_transform,
+                    fill,
+                )
+                effective_anchor = (
+                    transformed_anchor[0] + translation_dx,
+                    transformed_anchor[1] + translation_dy,
+                )
+        return (
+            adjusted_left,
+            adjusted_top,
+            base_left_logical,
+            base_top_logical,
+            effective_anchor,
+            translation_dx,
+            translation_dy,
+        )
+
     def _update_message_font(self) -> None:
         mapper = self._compute_legacy_mapper()
         state = self._viewport_state()
@@ -3059,72 +3149,39 @@ class OverlayWindow(QWidget):
         anchor_for_transform = group_ctx.anchor_for_transform
         base_translation_dx = group_ctx.base_translation_dx
         base_translation_dy = group_ctx.base_translation_dy
-        effective_anchor: Optional[Tuple[float, float]] = None
         transform_meta = item.get("__mo_transform__")
         self._debug_legacy_point_size = scaled_point_size
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
-        right_justification_delta = 0.0
-        if trace_enabled and not collect_only:
-            self._log_legacy_trace(
-                plugin_name,
-                item_id,
-                "paint:message_input",
-                {
-                    "x": raw_left,
-                    "y": raw_top,
-                    "scale": scale,
-                    "offset_x": base_offset_x,
-                    "offset_y": base_offset_y,
-                    "mode": mapper.transform.mode.value,
-                    "font_size": scaled_point_size,
-                },
-            )
-        adjusted_left, adjusted_top = remap_point(fill, transform_meta, raw_left, raw_top, context=transform_context)
-        if offset_x or offset_y:
-            adjusted_left += offset_x
-            adjusted_top += offset_y
-        if mapper.transform.mode is ScaleMode.FILL:
-            adjusted_left, adjusted_top = self._apply_inverse_group_scale(
-                adjusted_left,
-                adjusted_top,
-                anchor_for_transform,
-                base_anchor_point or anchor_for_transform,
-                fill,
-            )
-        base_left_logical = adjusted_left
-        base_top_logical = adjusted_top
-        if mapper.transform.mode is ScaleMode.FILL:
-            # right_justification_delta = self._right_justification_delta(group_transform, raw_left)
-            translation_dx = base_translation_dx
-            if trace_enabled and not collect_only:
-                self._log_legacy_trace(
-                    plugin_name,
-                    item_id,
-                    "paint:message_translation",
-                    {
-                        "base_translation_dx": base_translation_dx,
-                        "base_translation_dy": base_translation_dy,
-                        "right_justification_delta": right_justification_delta,
-                        "applied_translation_dx": translation_dx,
-                    },
-                )
-            adjusted_left += translation_dx
-            adjusted_top += base_translation_dy
-            if selected_anchor is not None:
-                transformed_anchor = self._apply_inverse_group_scale(
-                    selected_anchor[0],
-                    selected_anchor[1],
-                    anchor_for_transform,
-                    base_anchor_point or anchor_for_transform,
-                    fill,
-                )
-                effective_anchor = (
-                    transformed_anchor[0] + translation_dx,
-                    transformed_anchor[1] + base_translation_dy,
-                )
-        else:
-            pass
+        (
+            adjusted_left,
+            adjusted_top,
+            base_left_logical,
+            base_top_logical,
+            effective_anchor,
+            translation_dx,
+            translation_dy,
+        ) = self._compute_message_transform(
+            plugin_name,
+            item_id,
+            fill,
+            transform_context,
+            transform_meta,
+            mapper,
+            group_transform,
+            overlay_bounds_hint,
+            raw_left,
+            raw_top,
+            offset_x,
+            offset_y,
+            selected_anchor,
+            base_anchor_point,
+            anchor_for_transform,
+            base_translation_dx,
+            base_translation_dy,
+            trace_enabled,
+            collect_only,
+        )
         text = str(item.get("text", ""))
         metrics_font = QFont(self._font_family)
         self._apply_font_fallbacks(metrics_font)
