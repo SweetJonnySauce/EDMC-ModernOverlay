@@ -5,7 +5,9 @@
   "overlay_outline": true,
   "payload_vertex_markers": false,
   "payload_logging": {
-    "exclude_plugins": [],
+    "exclude_plugins": [
+      "bgstally-"
+    ],
     "overlay_payload_log_enabled": false
   },
   "tracing": {

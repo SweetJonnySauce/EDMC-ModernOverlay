@@ -8,6 +8,8 @@ This file tracks the ongoing refactor of `overlay_client.py` (and related module
 - Even if a request says “do/implement the step,” you still need to follow all rules above (plan, summary, tests, approvals).
 - If you find areas that need more unit tests, add them in to the update.
 - When breaking down a key risk, add a table of numbered stages under that risk (or a top-level stage table) that starts after the last completed stage number, and keep each row small, behavior-preserving, and testable. Always log status and test results per stage as you complete them.
+- Don't delete key risks once recorded; append new risks instead of removing existing entries.
+- Put stage summaries and test results in the Stage summary/test results section in numerical order (by stage number).
 - Record which tests were run (and results) before marking a stage complete; if tests are skipped, note why and what to verify later.
 - If a step is not small enough to be safe, stop and ask for direction.
 - After each step is complete, run through all tests, update the plan here, and summarize what was done for the commit message.
@@ -66,35 +68,18 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | Stage | Description | Status |
   | --- | --- | --- |
   | 6 | Map logic segments and log/trace points in each long method; set refactor boundaries and identify Qt vs. pure sections. | Complete |
-  | 7 | Refactor `_apply_follow_state` into smaller helpers (geometry classification, WM override handling, visibility) while preserving logging and Qt calls. | Not started |
+  | 7 | Refactor `_apply_follow_state` into smaller helpers (geometry classification, WM override handling, visibility) while preserving logging and Qt calls. | Complete |
   | 7.1 | Extract geometry normalization and logging: raw/native→Qt conversion, device ratio logs, title bar offset, aspect guard; keep Qt calls local. | Complete |
   | 7.2 | Extract WM override resolution and geometry application: setGeometry/move-to-screen, override classification/logging, and target adoption. | Complete |
   | 7.3 | Extract follow-state post-processing: follow-state persistence, transient parent handling, fullscreen hint, visibility/show/hide decisions. | Complete |
   | 8 | Split builder methods (`_build_message_command`, `_build_rect_command`, `_build_vector_command`) into calculation/render sub-helpers; keep font metrics/painter setup intact. | Not started |
   | 9 | After each refactor chunk, run full test suite and update logs/status. | Not started |
-
-#### Stage 6 mapping (complete)
-- `_apply_follow_state`: raw geometry logging; native→Qt conversion + device ratio logs; title bar offset and aspect guard (helpers); WM override resolution; QRect/setGeometry/move-to-screen with logging; WM override classification/logging; follow-state update; transient parent handling; fullscreen hint; visibility/show/hide updates. Qt boundary: windowHandle/devicePixelRatio, QRect/frameGeometry/setGeometry/move/show/hide/raise_.
-- `_build_message_command`: size/color parsing; group context (viewport + offsets); inverse group scale for anchors; remap + offsets; translation; font setup + metrics (Qt boundary: QFont/QFontMetrics); pixel/bounds and overlay bounds; tracing (`paint:message_input/translation/output`); command assembly.
-- `_build_rect_command`: color parsing; QPen/QBrush setup (Qt boundary); group context; rect remap + offsets; inverse group scale + translation; anchor transform; overlay/base bounds; pixel bounds; tracing (`paint:rect_input/translation/output`); command assembly.
-- `_build_vector_command`: trace flags; group context offsets/anchors/translation; raw points min lookup; remap_vector_points + offsets; inverse group scale + translation; overlay/base bounds accumulation; anchor transform; screen point conversion; tracing (`paint:scale_factors/raw_points/vector_translation`); command assembly.
-
-#### Stage 7.1 status (complete)
-- Introduced `_normalise_tracker_geometry` to handle raw geometry logging, native→Qt conversion + device ratio diagnostics, title bar offset, and aspect guard application while keeping Qt calls local.
-- `_apply_follow_state` now delegates the normalization block; behavior and logging unchanged.
-
-#### Stage 7.2 status (complete)
-- Added `_resolve_and_apply_geometry` to handle WM override resolution, geometry application/setGeometry/move-to-screen, override classification/logging, and target adoption; `_apply_follow_state` now delegates this block.
-- Behavior and logging preserved; `_last_geometry_log` and override handling remain unchanged.
-- Tests: `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`, `python3 tests/run_resolution_tests.py --config tests/display_all.json`.
-
-#### Stage 7.3 status (complete)
-- Added `_post_process_follow_state` to handle follow-state persistence, transient parent handling, fullscreen hint emission, and visibility/show/hide decisions; `_apply_follow_state` delegates to it.
-- Behavior and logging preserved; follow visibility and transient parent flows unchanged.
-- Tests: `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`, `python3 tests/run_resolution_tests.py --config tests/display_all.json`.
 - **C.** Duplicate anchor/translation/justification workflows across the three builder methods (overlay_client/overlay_client.py:3411, :3623, :3851) risk behavioral drift; shared utilities would improve consistency.
 - **D.** Heavy coupling of calculation logic to Qt state (e.g., QFont/QFontMetrics usage in `_build_message_command` at overlay_client/overlay_client.py:3469) reduces testability; pure helpers would help.
 - **E.** Broad `except Exception` handlers in networking and cleanup paths (e.g., overlay_client/overlay_client.py:480, :454) silently swallow errors, hiding failures.
+
+----
+# Stage Summary and Test results
 
 ### Stage 1 quick summary (intent)
 - Goal: move `OverlayDataClient` into `overlay_client/data_client.py` with no behavior change.
@@ -212,6 +197,26 @@ Substeps:
 - `make test` → passed (same totals).
 - `PYQT_TESTS=1 python -m pytest overlay_client/tests` → included above (PYQT_TESTS set during full run).
 - `python3 tests/run_resolution_tests.py --config tests/display_all.json` → not rerun in this stage (overlay process required).
+
+#### Stage 6 mapping (complete)
+- `_apply_follow_state`: raw geometry logging; native→Qt conversion + device ratio logs; title bar offset and aspect guard (helpers); WM override resolution; QRect/setGeometry/move-to-screen with logging; WM override classification/logging; follow-state update; transient parent handling; fullscreen hint; visibility/show/hide updates. Qt boundary: windowHandle/devicePixelRatio, QRect/frameGeometry/setGeometry/move/show/hide/raise_.
+- `_build_message_command`: size/color parsing; group context (viewport + offsets); inverse group scale for anchors; remap + offsets; translation; font setup + metrics (Qt boundary: QFont/QFontMetrics); pixel/bounds and overlay bounds; tracing (`paint:message_input/translation/output`); command assembly.
+- `_build_rect_command`: color parsing; QPen/QBrush setup (Qt boundary); group context; rect remap + offsets; inverse group scale + translation; anchor transform; overlay/base bounds; pixel bounds; tracing (`paint:rect_input/translation/output`); command assembly.
+- `_build_vector_command`: trace flags; group context offsets/anchors/translation; raw points min lookup; remap_vector_points + offsets; inverse group scale + translation; overlay/base bounds accumulation; anchor transform; screen point conversion; tracing (`paint:scale_factors/raw_points/vector_translation`); command assembly.
+
+#### Stage 7.1 status (complete)
+- Introduced `_normalise_tracker_geometry` to handle raw geometry logging, native→Qt conversion + device ratio diagnostics, title bar offset, and aspect guard application while keeping Qt calls local.
+- `_apply_follow_state` now delegates the normalization block; behavior and logging unchanged.
+
+#### Stage 7.2 status (complete)
+- Added `_resolve_and_apply_geometry` to handle WM override resolution, geometry application/setGeometry/move-to-screen, override classification/logging, and target adoption; `_apply_follow_state` now delegates this block.
+- Behavior and logging preserved; `_last_geometry_log` and override handling remain unchanged.
+- Tests: `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`, `python3 tests/run_resolution_tests.py --config tests/display_all.json`.
+
+#### Stage 7.3 status (complete)
+- Added `_post_process_follow_state` to handle follow-state persistence, transient parent handling, fullscreen hint emission, and visibility/show/hide decisions; `_apply_follow_state` delegates to it.
+- Behavior and logging preserved; follow visibility and transient parent flows unchanged.
+- Tests: `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`, `python3 tests/run_resolution_tests.py --config tests/display_all.json`.
 
   Notes:
   - Perform refactor in small, behavior-preserving steps; avoid logic changes during extraction.

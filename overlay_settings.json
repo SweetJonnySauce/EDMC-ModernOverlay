@@ -1,5 +1,5 @@
 {
-  "overlay_opacity": 0.0,
+  "overlay_opacity": 0.00909090909090909,
   "show_connection_status": false,
   "debug_overlay_corner": "SE",
   "client_log_retention": 5,
@@ -20,6 +20,6 @@
   "nudge_overflow_payloads": false,
   "payload_nudge_gutter": 0,
   "status_message_gutter": 0,
-  "log_payloads": false,
+  "log_payloads": true,
   "payload_log_delay_seconds": 0.5
 }
