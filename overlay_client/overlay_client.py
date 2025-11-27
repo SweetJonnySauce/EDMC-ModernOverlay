@@ -1867,98 +1867,7 @@ class OverlayWindow(QWidget):
 
         tracker_qt_tuple, tracker_native_tuple, normalisation_info, desired_tuple = self._normalise_tracker_geometry(state)
 
-        override_rect = self._follow_controller.wm_override
-        override_tracker = self._follow_controller.wm_override_tracker
-        override_expired = self._follow_controller.override_expired()
-        target_tuple, clear_override_reason = _resolve_wm_override(
-            tracker_qt_tuple,
-            desired_tuple,
-            override_rect,
-            override_tracker,
-            override_expired,
-        )
-        if clear_override_reason:
-            self._clear_wm_override(reason=clear_override_reason)
-
-        target_rect = QRect(*target_tuple)
-        current_rect = self.frameGeometry()
-        actual_tuple = (
-            current_rect.x(),
-            current_rect.y(),
-            current_rect.width(),
-            current_rect.height(),
-        )
-
-        if target_tuple != self._last_geometry_log:
-            _CLIENT_LOGGER.debug(
-                "Calculated overlay geometry: target=%s; %s",
-                target_tuple,
-                self.format_scale_debug(),
-            )
-
-        needs_geometry_update = actual_tuple != target_tuple
-
-        if needs_geometry_update:
-            _CLIENT_LOGGER.debug("Applying geometry via setGeometry: target=%s; %s", target_tuple, self.format_scale_debug())
-            self._move_to_screen(target_rect)
-            self._last_set_geometry = target_tuple
-            self.setGeometry(target_rect)
-            self._sync_base_dimensions_to_widget()
-            self.raise_()
-            current_rect = self.frameGeometry()
-            actual_tuple = (
-                current_rect.x(),
-                current_rect.y(),
-                current_rect.width(),
-                current_rect.height(),
-            )
-        else:
-            self._last_set_geometry = target_tuple
-            self._sync_base_dimensions_to_widget()
-
-        if actual_tuple != target_tuple:
-            _CLIENT_LOGGER.debug(
-                "Window manager override detected: actual=%s target=%s; %s",
-                actual_tuple,
-                target_tuple,
-                self.format_scale_debug(),
-            )
-            classification = self._classify_geometry_override(target_tuple, actual_tuple)
-            if classification == "layout":
-                try:
-                    size_hint = self.sizeHint()
-                except Exception:
-                    size_hint = None
-                try:
-                    min_hint = self.minimumSizeHint()
-                except Exception:
-                    min_hint = None
-                _CLIENT_LOGGER.debug(
-                    "Adopting layout-constrained geometry from WM: tracker=%s actual=%s sizeHint=%s minimumSizeHint=%s",
-                    tracker_qt_tuple,
-                    actual_tuple,
-                    size_hint,
-                    min_hint,
-                )
-            else:
-                _CLIENT_LOGGER.debug(
-                    "Adopting WM authoritative geometry: tracker=%s actual=%s (classification=%s)",
-                    tracker_qt_tuple,
-                    actual_tuple,
-                    classification,
-                )
-            self._set_wm_override(
-                actual_tuple,
-                tracker_qt_tuple,
-                reason="geometry mismatch",
-                classification=classification,
-            )
-            target_tuple = actual_tuple
-            target_rect = QRect(*target_tuple)
-        elif override_rect and tracker_qt_tuple == target_tuple:
-            self._clear_wm_override(reason="tracker matched actual")
-
-        self._last_geometry_log = target_tuple
+        target_tuple = self._resolve_and_apply_geometry(tracker_qt_tuple, desired_tuple)
         self._last_follow_state = WindowState(
             x=state.x,
             y=state.y,
@@ -2068,6 +1977,105 @@ class OverlayWindow(QWidget):
             applied_title_offset=applied_title_offset,
         )
         return tracker_qt_tuple, tracker_native_tuple, normalisation_info, desired_tuple
+
+    def _resolve_and_apply_geometry(
+        self,
+        tracker_qt_tuple: Tuple[int, int, int, int],
+        desired_tuple: Tuple[int, int, int, int],
+    ) -> Tuple[int, int, int, int]:
+        override_rect = self._follow_controller.wm_override
+        override_tracker = self._follow_controller.wm_override_tracker
+        override_expired = self._follow_controller.override_expired()
+        target_tuple, clear_override_reason = _resolve_wm_override(
+            tracker_qt_tuple,
+            desired_tuple,
+            override_rect,
+            override_tracker,
+            override_expired,
+        )
+        if clear_override_reason:
+            self._clear_wm_override(reason=clear_override_reason)
+
+        target_rect = QRect(*target_tuple)
+        current_rect = self.frameGeometry()
+        actual_tuple = (
+            current_rect.x(),
+            current_rect.y(),
+            current_rect.width(),
+            current_rect.height(),
+        )
+
+        if target_tuple != self._last_geometry_log:
+            _CLIENT_LOGGER.debug(
+                "Calculated overlay geometry: target=%s; %s",
+                target_tuple,
+                self.format_scale_debug(),
+            )
+
+        needs_geometry_update = actual_tuple != target_tuple
+
+        if needs_geometry_update:
+            _CLIENT_LOGGER.debug("Applying geometry via setGeometry: target=%s; %s", target_tuple, self.format_scale_debug())
+            self._move_to_screen(target_rect)
+            self._last_set_geometry = target_tuple
+            self.setGeometry(target_rect)
+            self._sync_base_dimensions_to_widget()
+            self.raise_()
+            current_rect = self.frameGeometry()
+            actual_tuple = (
+                current_rect.x(),
+                current_rect.y(),
+                current_rect.width(),
+                current_rect.height(),
+            )
+        else:
+            self._last_set_geometry = target_tuple
+            self._sync_base_dimensions_to_widget()
+
+        if actual_tuple != target_tuple:
+            _CLIENT_LOGGER.debug(
+                "Window manager override detected: actual=%s target=%s; %s",
+                actual_tuple,
+                target_tuple,
+                self.format_scale_debug(),
+            )
+            classification = self._classify_geometry_override(target_tuple, actual_tuple)
+            if classification == "layout":
+                try:
+                    size_hint = self.sizeHint()
+                except Exception:
+                    size_hint = None
+                try:
+                    min_hint = self.minimumSizeHint()
+                except Exception:
+                    min_hint = None
+                _CLIENT_LOGGER.debug(
+                    "Adopting layout-constrained geometry from WM: tracker=%s actual=%s sizeHint=%s minimumSizeHint=%s",
+                    tracker_qt_tuple,
+                    actual_tuple,
+                    size_hint,
+                    min_hint,
+                )
+            else:
+                _CLIENT_LOGGER.debug(
+                    "Adopting WM authoritative geometry: tracker=%s actual=%s (classification=%s)",
+                    tracker_qt_tuple,
+                    actual_tuple,
+                    classification,
+                )
+            self._set_wm_override(
+                actual_tuple,
+                tracker_qt_tuple,
+                reason="geometry mismatch",
+                classification=classification,
+            )
+            target_tuple = actual_tuple
+            target_rect = QRect(*target_tuple)
+        elif override_rect and tracker_qt_tuple == target_tuple:
+            self._clear_wm_override(reason="tracker matched actual")
+
+        self._last_geometry_log = target_tuple
+        return target_tuple
 
     def _ensure_transient_parent(self, state: WindowState) -> None:
         if not sys.platform.startswith("linux"):

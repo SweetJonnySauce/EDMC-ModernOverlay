@@ -68,7 +68,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 6 | Map logic segments and log/trace points in each long method; set refactor boundaries and identify Qt vs. pure sections. | Complete |
   | 7 | Refactor `_apply_follow_state` into smaller helpers (geometry classification, WM override handling, visibility) while preserving logging and Qt calls. | Not started |
   | 7.1 | Extract geometry normalization and logging: raw/native→Qt conversion, device ratio logs, title bar offset, aspect guard; keep Qt calls local. | Complete |
-  | 7.2 | Extract WM override resolution and geometry application: setGeometry/move-to-screen, override classification/logging, and target adoption. | Not started |
+  | 7.2 | Extract WM override resolution and geometry application: setGeometry/move-to-screen, override classification/logging, and target adoption. | Complete |
   | 7.3 | Extract follow-state post-processing: follow-state persistence, transient parent handling, fullscreen hint, visibility/show/hide decisions. | Not started |
   | 8 | Split builder methods (`_build_message_command`, `_build_rect_command`, `_build_vector_command`) into calculation/render sub-helpers; keep font metrics/painter setup intact. | Not started |
   | 9 | After each refactor chunk, run full test suite and update logs/status. | Not started |
@@ -82,6 +82,11 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 #### Stage 7.1 status (complete)
 - Introduced `_normalise_tracker_geometry` to handle raw geometry logging, native→Qt conversion + device ratio diagnostics, title bar offset, and aspect guard application while keeping Qt calls local.
 - `_apply_follow_state` now delegates the normalization block; behavior and logging unchanged.
+
+#### Stage 7.2 status (complete)
+- Added `_resolve_and_apply_geometry` to handle WM override resolution, geometry application/setGeometry/move-to-screen, override classification/logging, and target adoption; `_apply_follow_state` now delegates this block.
+- Behavior and logging preserved; `_last_geometry_log` and override handling remain unchanged.
+- Tests: `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`, `python3 tests/run_resolution_tests.py --config tests/display_all.json`.
 - **C.** Duplicate anchor/translation/justification workflows across the three builder methods (overlay_client/overlay_client.py:3411, :3623, :3851) risk behavioral drift; shared utilities would improve consistency.
 - **D.** Heavy coupling of calculation logic to Qt state (e.g., QFont/QFontMetrics usage in `_build_message_command` at overlay_client/overlay_client.py:3469) reduces testability; pure helpers would help.
 - **E.** Broad `except Exception` handlers in networking and cleanup paths (e.g., overlay_client/overlay_client.py:480, :454) silently swallow errors, hiding failures.
