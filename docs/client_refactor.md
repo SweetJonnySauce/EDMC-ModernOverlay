@@ -40,25 +40,30 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 ```
 
 ## Key readability/maintainability risks (ordered by importance):
-- `overlay_client/overlay_client.py` co-locates async TCP client, Qt window/rendering, font loading, caching, follow logic, and entrypoint in one 5k-line module/class, violating single responsibility and making changes risky. Tracking stages to break this up:
+- **A.** `overlay_client/overlay_client.py` co-locates async TCP client, Qt window/rendering, font loading, caching, follow logic, and entrypoint in one 5k-line module/class, violating single responsibility and making changes risky. Tracking stages to break this up:
 
   | Stage | Description | Status |
   | --- | --- | --- |
   | 1 | Extract `OverlayDataClient` into `overlay_client/data_client.py` with unchanged public API (`start/stop/send_cli_payload`), own logger, and narrow signal surface. Import it back into `overlay_client.py`. | Complete (extracted and imported; all documented tests passing, resolution run verified with overlay running) |
   | 2 | Move paint command types (`_LegacyPaintCommand`, `_MessagePaintCommand`, `_RectPaintCommand`, `_VectorPaintCommand`) and `_QtVectorPainterAdapter` into `overlay_client/paint_commands.py`; keep signatures intact so `_paint_legacy` logic can stay as-is. | Complete (moved into `overlay_client/paint_commands.py`; all documented tests passing with overlay running for resolution test) |
   | 3 | Split platform and font helpers (`_initial_platform_context`, font resolution) into `overlay_client/platform_context.py` and `overlay_client/fonts.py`, keeping interfaces unchanged. | Complete (extracted; all documented tests passing with overlay running) |
-  | 4 | Trim `OverlayWindow` to UI orchestration only; delegate pure calculations to extracted helpers. Update imports and ensure existing tests pass. | In progress |
+  | 4 | Trim `OverlayWindow` to UI orchestration only; delegate pure calculations to extracted helpers. Update imports and ensure existing tests pass. | Complete |
 | 4.1 | Map non-UI helpers in `OverlayWindow` (follow/geometry math, payload builders, viewport/anchor/scale helpers) and mark target extractions. | Complete |
 | 4.2 | Extract follow/geometry calculation helpers into a module (no Qt types); wire `OverlayWindow` to use them; keep behavior unchanged. | Complete |
 | 4.3 | Extract payload builder helpers (`_build_message_command/_rect/_vector` calculations, anchor/justification/offset utils) into a module, leaving painter/UI hookup in `OverlayWindow`. | Complete |
 | 4.4 | Extract remaining pure utils (viewport/size/line width math) if still embedded. | Complete |
 | 4.5 | After each extraction chunk, run full test suite and update Stage 4 log/status. | Complete |
-  | 5 | Add/adjust unit tests in `overlay_client/tests` to cover extracted modules; run test suite and update any docs if behavior notes change. | In progress |
+  | 5 | Add/adjust unit tests in `overlay_client/tests` to cover extracted modules; run test suite and update any docs if behavior notes change. | Complete |
   | 5.1 | Add tests for `overlay_client/data_client.py` (queueing behavior and signal flow). | Complete |
   | 5.2 | Add tests for `overlay_client/paint_commands.py` (command rendering paths and vector adapter hooks). | Complete |
   | 5.3 | Add tests for `overlay_client/fonts.py` (font/emoji fallback resolution and duplicate suppression). | Complete |
   | 5.4 | Add tests for `overlay_client/platform_context.py` (env overrides applied over settings). | Complete |
-  | 5.5 | Run resolution test after test additions and update logs/status. | Pending (overlay process required) |
+  | 5.5 | Run resolution test after test additions and update logs/status. | Complete |
+
+- **B.** Long, branchy methods with mixed concerns: `_build_vector_command` (overlay_client/overlay_client.py:3851-4105), `_build_rect_command` (overlay_client/overlay_client.py:3623-3849), `_build_message_command` (overlay_client/overlay_client.py:3411-3621), `_apply_follow_state` (overlay_client/overlay_client.py:2199-2393); need smaller helpers and clearer data flow.
+- **C.** Duplicate anchor/translation/justification workflows across the three builder methods (overlay_client/overlay_client.py:3411, :3623, :3851) risk behavioral drift; shared utilities would improve consistency.
+- **D.** Heavy coupling of calculation logic to Qt state (e.g., QFont/QFontMetrics usage in `_build_message_command` at overlay_client/overlay_client.py:3469) reduces testability; pure helpers would help.
+- **E.** Broad `except Exception` handlers in networking and cleanup paths (e.g., overlay_client/overlay_client.py:480, :454) silently swallow errors, hiding failures.
 
 ### Stage 1 quick summary (intent)
 - Goal: move `OverlayDataClient` into `overlay_client/data_client.py` with no behavior change.
@@ -146,10 +151,20 @@ Substeps:
 - Added `overlay_client/window_utils.py` with helpers for physical size, aspect labels, mapper/state construction, legacy preset sizing, and line widths (primitive-only).
 - `OverlayWindow` now delegates to these helpers while keeping Qt/window handles local; method signatures unchanged.
 
+#### Stage 5 status (complete)
+- Added tests for `window_utils` covering physical size guards, aspect labels, mapper/state construction, preset font sizing, and line widths.
+- Re-ran the full test suite (including resolution test) after additions.
+
 #### Stage 4 test log (latest)
 - `make check` → passed (`ruff`, `mypy`, `pytest`: 102 passed, 7 skipped).
 - `make test` → passed (same totals).
 - `PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed (71 passed).
+- `python3 tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay client running).
+
+#### Stage 5 test log (latest)
+- `make check` → passed (`ruff`, `mypy`, `pytest`: 108 passed, 7 skipped).
+- `make test` → passed (same totals).
+- `PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed (77 passed).
 - `python3 tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay client running).
 
 ### Stage 5 quick summary (intent)
