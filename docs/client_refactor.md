@@ -47,8 +47,18 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 1 | Extract `OverlayDataClient` into `overlay_client/data_client.py` with unchanged public API (`start/stop/send_cli_payload`), own logger, and narrow signal surface. Import it back into `overlay_client.py`. | Complete (extracted and imported; all documented tests passing, resolution run verified with overlay running) |
   | 2 | Move paint command types (`_LegacyPaintCommand`, `_MessagePaintCommand`, `_RectPaintCommand`, `_VectorPaintCommand`) and `_QtVectorPainterAdapter` into `overlay_client/paint_commands.py`; keep signatures intact so `_paint_legacy` logic can stay as-is. | Complete (moved into `overlay_client/paint_commands.py`; all documented tests passing with overlay running for resolution test) |
   | 3 | Split platform and font helpers (`_initial_platform_context`, font resolution) into `overlay_client/platform_context.py` and `overlay_client/fonts.py`, keeping interfaces unchanged. | Complete (extracted; all documented tests passing with overlay running) |
-  | 4 | Trim `OverlayWindow` to UI orchestration only; delegate pure calculations to extracted helpers. Update imports and ensure existing tests pass. | Not started |
-  | 5 | Add/adjust unit tests in `overlay_client/tests` to cover extracted modules; run test suite and update any docs if behavior notes change. | In progress (tests added for extracted modules; see Stage 5 log) |
+  | 4 | Trim `OverlayWindow` to UI orchestration only; delegate pure calculations to extracted helpers. Update imports and ensure existing tests pass. | In progress |
+  | 4.1 | Map non-UI helpers in `OverlayWindow` (follow/geometry math, payload builders, viewport/anchor/scale helpers) and mark target extractions. | Complete |
+  | 4.2 | Extract follow/geometry calculation helpers into a module (no Qt types); wire `OverlayWindow` to use them; keep behavior unchanged. | Not started |
+  | 4.3 | Extract payload builder helpers (`_build_message_command/_rect/_vector` calculations, anchor/justification/offset utils) into a module, leaving painter/UI hookup in `OverlayWindow`. | Not started |
+  | 4.4 | Extract remaining pure utils (viewport/size/line width math) if still embedded. | Not started |
+  | 4.5 | After each extraction chunk, run full test suite and update Stage 4 log/status. | Not started |
+  | 5 | Add/adjust unit tests in `overlay_client/tests` to cover extracted modules; run test suite and update any docs if behavior notes change. | In progress |
+  | 5.1 | Add tests for `overlay_client/data_client.py` (queueing behavior and signal flow). | Complete |
+  | 5.2 | Add tests for `overlay_client/paint_commands.py` (command rendering paths and vector adapter hooks). | Complete |
+  | 5.3 | Add tests for `overlay_client/fonts.py` (font/emoji fallback resolution and duplicate suppression). | Complete |
+  | 5.4 | Add tests for `overlay_client/platform_context.py` (env overrides applied over settings). | Complete |
+  | 5.5 | Run resolution test after test additions and update logs/status. | Pending (overlay process required) |
 
 ### Stage 1 quick summary (intent)
 - Goal: move `OverlayDataClient` into `overlay_client/data_client.py` with no behavior change.
@@ -86,6 +96,24 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 - `make test` → passed (91 passed, 7 skipped).
 - `PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed (60 passed).
 - `python3 tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay client running).
+
+### Stage 4 quick summary (intent)
+- Goal: trim `OverlayWindow` to UI orchestration only by extracting pure calculations.
+- Keep function signatures and usage points the same; only adjust imports/wiring in `overlay_client.py`.
+- Preserve logging behavior and math/geometry logic exactly as before.
+- Run the full test set and log results once the move is complete (including resolution test with overlay running).
+
+Substeps:
+- 4.1 Map non-UI helpers in `OverlayWindow` (follow/geometry math, payload builders, viewport/anchor/scale helpers) and mark target extractions.
+- 4.2 Extract follow/geometry calculation helpers into a module (no Qt types); wire `OverlayWindow` to use them; keep behavior unchanged.
+- 4.3 Extract payload builder helpers (`_build_message_command/_rect/_vector` calculations, anchor/justification/offset utils) into a module, leaving painter/UI hookup in `OverlayWindow`.
+- 4.4 Extract remaining pure utils (viewport/size/line width math) if still embedded.
+- 4.5 After each extraction chunk, run full test suite and update Stage 4 log/status.
+
+#### Stage 4.1 mapping (complete)
+- Follow/geometry targets: `_apply_follow_state`, `_convert_native_rect_to_qt`, `_apply_title_bar_offset`, `_apply_aspect_guard`, related logging/override handling.
+- Payload builder targets: `_build_message_command`, `_build_rect_command`, `_build_vector_command`, anchor/justification/offset and size/scale calculations within them.
+- Other pure helpers still in `OverlayWindow`: `_line_width`, `_legacy_preset_point_size`, `_current_physical_size`, `_aspect_ratio_label`, `_compute_legacy_mapper`, viewport state helpers.
 
 ### Stage 5 quick summary (intent)
 - Goal: add targeted unit tests for newly extracted modules:
