@@ -48,11 +48,11 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 2 | Move paint command types (`_LegacyPaintCommand`, `_MessagePaintCommand`, `_RectPaintCommand`, `_VectorPaintCommand`) and `_QtVectorPainterAdapter` into `overlay_client/paint_commands.py`; keep signatures intact so `_paint_legacy` logic can stay as-is. | Complete (moved into `overlay_client/paint_commands.py`; all documented tests passing with overlay running for resolution test) |
   | 3 | Split platform and font helpers (`_initial_platform_context`, font resolution) into `overlay_client/platform_context.py` and `overlay_client/fonts.py`, keeping interfaces unchanged. | Complete (extracted; all documented tests passing with overlay running) |
   | 4 | Trim `OverlayWindow` to UI orchestration only; delegate pure calculations to extracted helpers. Update imports and ensure existing tests pass. | In progress |
-  | 4.1 | Map non-UI helpers in `OverlayWindow` (follow/geometry math, payload builders, viewport/anchor/scale helpers) and mark target extractions. | Complete |
-  | 4.2 | Extract follow/geometry calculation helpers into a module (no Qt types); wire `OverlayWindow` to use them; keep behavior unchanged. | Not started |
-  | 4.3 | Extract payload builder helpers (`_build_message_command/_rect/_vector` calculations, anchor/justification/offset utils) into a module, leaving painter/UI hookup in `OverlayWindow`. | Not started |
-  | 4.4 | Extract remaining pure utils (viewport/size/line width math) if still embedded. | Not started |
-  | 4.5 | After each extraction chunk, run full test suite and update Stage 4 log/status. | Not started |
+| 4.1 | Map non-UI helpers in `OverlayWindow` (follow/geometry math, payload builders, viewport/anchor/scale helpers) and mark target extractions. | Complete |
+| 4.2 | Extract follow/geometry calculation helpers into a module (no Qt types); wire `OverlayWindow` to use them; keep behavior unchanged. | Complete |
+| 4.3 | Extract payload builder helpers (`_build_message_command/_rect/_vector` calculations, anchor/justification/offset utils) into a module, leaving painter/UI hookup in `OverlayWindow`. | Not started |
+| 4.4 | Extract remaining pure utils (viewport/size/line width math) if still embedded. | Not started |
+| 4.5 | After each extraction chunk, run full test suite and update Stage 4 log/status. | In progress |
   | 5 | Add/adjust unit tests in `overlay_client/tests` to cover extracted modules; run test suite and update any docs if behavior notes change. | In progress |
   | 5.1 | Add tests for `overlay_client/data_client.py` (queueing behavior and signal flow). | Complete |
   | 5.2 | Add tests for `overlay_client/paint_commands.py` (command rendering paths and vector adapter hooks). | Complete |
@@ -110,10 +110,27 @@ Substeps:
 - 4.4 Extract remaining pure utils (viewport/size/line width math) if still embedded.
 - 4.5 After each extraction chunk, run full test suite and update Stage 4 log/status.
 
+#### Stage 4.2 quick summary (intent)
+- Goal: move follow/geometry math (`_apply_title_bar_offset`, `_apply_aspect_guard`, `_convert_native_rect_to_qt`, and follow state calculations) into a helper module with only primitive types.
+- Keep `OverlayWindow` responsible for Qt handles and window manager interactions; only swap in helpers for pure calculations and logging.
+- Preserve log messages, override handling, and geometry normalization behavior exactly; no UI changes.
+- Touch points: new helper module under `overlay_client`, updated imports/call sites in `overlay_client.py`, and Stage 4 status/test log updates here.
+
 #### Stage 4.1 mapping (complete)
 - Follow/geometry targets: `_apply_follow_state`, `_convert_native_rect_to_qt`, `_apply_title_bar_offset`, `_apply_aspect_guard`, related logging/override handling.
 - Payload builder targets: `_build_message_command`, `_build_rect_command`, `_build_vector_command`, anchor/justification/offset and size/scale calculations within them.
 - Other pure helpers still in `OverlayWindow`: `_line_width`, `_legacy_preset_point_size`, `_current_physical_size`, `_aspect_ratio_label`, `_compute_legacy_mapper`, viewport state helpers.
+
+#### Stage 4.2 status (complete)
+- Added `overlay_client/follow_geometry.py` with screen info dataclass and helpers for native-to-Qt rect conversion, title-bar offsets, aspect guard, and WM override resolution (primitive types only).
+- `OverlayWindow` now calls those helpers via thin wrappers to preserve logging/state while keeping Qt/window operations local.
+- Introduced `_screen_info_for_native_rect` to build conversion context without leaking Qt types into the helper module.
+
+#### Stage 4 test log (latest)
+- `make check` → passed (`ruff`, `mypy`, `pytest`: 102 passed, 7 skipped).
+- `make test` → passed (same totals).
+- `PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed (71 passed).
+- `python3 tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay client running).
 
 ### Stage 5 quick summary (intent)
 - Goal: add targeted unit tests for newly extracted modules:

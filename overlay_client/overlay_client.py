@@ -86,6 +86,13 @@ from overlay_client.paint_commands import (  # type: ignore  # noqa: E402
     _RectPaintCommand,
     _VectorPaintCommand,
 )
+from overlay_client.follow_geometry import (  # type: ignore  # noqa: E402
+    ScreenInfo,
+    _apply_aspect_guard,
+    _apply_title_bar_offset,
+    _convert_native_rect_to_qt,
+    _resolve_wm_override,
+)
 from overlay_client.viewport_transform import (  # type: ignore  # noqa: E402
     FillViewport,
     LegacyMapper,
@@ -1851,61 +1858,45 @@ class OverlayWindow(QWidget):
         self._last_tracker_state = self._follow_controller.last_tracker_state
         self._apply_follow_state(state)
 
+    def _convert_native_rect_to_qt(
+        self,
+        rect: Tuple[int, int, int, int],
+    ) -> Tuple[Tuple[int, int, int, int], Optional[Tuple[str, float, float, float]]]:
+        screen_info = self._screen_info_for_native_rect(rect)
+        return _convert_native_rect_to_qt(rect, screen_info)
+
     def _apply_title_bar_offset(
         self,
         geometry: Tuple[int, int, int, int],
         *,
         scale_y: float = 1.0,
     ) -> Tuple[Tuple[int, int, int, int], int]:
-        previous_offset = self._last_title_bar_offset
-        if not self._title_bar_enabled or self._title_bar_height <= 0:
-            self._last_title_bar_offset = 0
-            if previous_offset != 0:
-                _CLIENT_LOGGER.debug(
-                    "Title bar offset updated: enabled=%s height=%d offset=%d scale_y=%.3f",
-                    False,
-                    self._title_bar_height,
-                    0,
-                    float(scale_y),
-                )
-            return geometry, 0
-        x, y, width, height = geometry
-        if height <= 1:
-            self._last_title_bar_offset = 0
-            if previous_offset != 0:
-                _CLIENT_LOGGER.debug(
-                    "Title bar offset updated: enabled=%s height=%d offset=%d scale_y=%.3f",
-                    self._title_bar_enabled,
-                    self._title_bar_height,
-                    0,
-                    float(scale_y),
-                )
-            return geometry, 0
-        safe_scale = max(scale_y, 0.0)
-        scaled_offset = float(self._title_bar_height) * safe_scale
-        offset = min(int(round(scaled_offset)), max(0, height - 1))
-        if offset <= 0:
-            self._last_title_bar_offset = 0
-            if previous_offset != 0:
-                _CLIENT_LOGGER.debug(
-                    "Title bar offset updated: enabled=%s height=%d offset=%d scale_y=%.3f",
-                    self._title_bar_enabled,
-                    self._title_bar_height,
-                    0,
-                    float(scale_y),
-                )
-            return geometry, 0
-        adjusted_height = max(1, height - offset)
+        adjusted, offset = _apply_title_bar_offset(
+            geometry,
+            title_bar_enabled=self._title_bar_enabled,
+            title_bar_height=self._title_bar_height,
+            scale_y=scale_y,
+            previous_offset=self._last_title_bar_offset,
+        )
         self._last_title_bar_offset = offset
-        if offset != previous_offset:
-            _CLIENT_LOGGER.debug(
-                "Title bar offset updated: enabled=%s height=%d offset=%d scale_y=%.3f",
-                self._title_bar_enabled,
-                self._title_bar_height,
-                offset,
-                float(scale_y),
-            )
-        return (x, y + offset, width, adjusted_height), offset
+        return adjusted, offset
+
+    def _apply_aspect_guard(
+        self,
+        geometry: Tuple[int, int, int, int],
+        *,
+        original_geometry: Optional[Tuple[int, int, int, int]] = None,
+        applied_title_offset: int = 0,
+    ) -> Tuple[int, int, int, int]:
+        adjusted, self._aspect_guard_skip_logged = _apply_aspect_guard(
+            geometry,
+            base_width=DEFAULT_WINDOW_BASE_WIDTH,
+            base_height=DEFAULT_WINDOW_BASE_HEIGHT,
+            original_geometry=original_geometry,
+            applied_title_offset=applied_title_offset,
+            aspect_guard_skip_logged=self._aspect_guard_skip_logged,
+        )
+        return adjusted
 
     def _apply_follow_state(self, state: WindowState) -> None:
         self._lost_window_logged = False
@@ -1976,19 +1967,18 @@ class OverlayWindow(QWidget):
             applied_title_offset=applied_title_offset,
         )
 
-        target_tuple = desired_tuple
         override_rect = self._follow_controller.wm_override
         override_tracker = self._follow_controller.wm_override_tracker
         override_expired = self._follow_controller.override_expired()
-        if override_rect is not None:
-            if tracker_qt_tuple == override_rect:
-                self._clear_wm_override(reason="tracker realigned with WM")
-            elif override_tracker is not None and tracker_qt_tuple != override_tracker:
-                self._clear_wm_override(reason="tracker changed")
-            elif override_expired:
-                self._clear_wm_override(reason="override timeout")
-            else:
-                target_tuple = override_rect
+        target_tuple, clear_override_reason = _resolve_wm_override(
+            tracker_qt_tuple,
+            desired_tuple,
+            override_rect,
+            override_tracker,
+            override_expired,
+        )
+        if clear_override_reason:
+            self._clear_wm_override(reason=clear_override_reason)
 
         target_rect = QRect(*target_tuple)
         current_rect = self.frameGeometry()
@@ -2228,24 +2218,16 @@ class OverlayWindow(QWidget):
             return best_screen
         return QGuiApplication.primaryScreen()
 
-    def _convert_native_rect_to_qt(
-        self,
-        rect: Tuple[int, int, int, int],
-    ) -> Tuple[Tuple[int, int, int, int], Optional[Tuple[str, float, float, float]]]:
-        x, y, width, height = rect
-        if width <= 0 or height <= 0:
-            return rect, None
-        native_rect = QRect(x, y, width, height)
+    def _screen_info_for_native_rect(self, rect: Tuple[int, int, int, int]) -> Optional[ScreenInfo]:
+        native_rect = QRect(*rect)
         screen = self._screen_for_native_rect(native_rect)
         if screen is None:
-            return rect, None
+            return None
         try:
             native_geometry = screen.nativeGeometry()
         except AttributeError:
             native_geometry = screen.geometry()
         logical_geometry = screen.geometry()
-        native_width = native_geometry.width()
-        native_height = native_geometry.height()
         device_ratio = 1.0
         try:
             device_ratio = float(screen.devicePixelRatio())
@@ -2253,85 +2235,23 @@ class OverlayWindow(QWidget):
             device_ratio = 1.0
         if device_ratio <= 0.0:
             device_ratio = 1.0
-
-        scale_x = logical_geometry.width() / native_width if native_width else 1.0
-        scale_y = logical_geometry.height() / native_height if native_height else 1.0
-
-        if math.isclose(scale_x, 1.0, abs_tol=1e-4):
-            scale_x = 1.0 / device_ratio
-        if math.isclose(scale_y, 1.0, abs_tol=1e-4):
-            scale_y = 1.0 / device_ratio
-
-        native_origin_x = native_geometry.x()
-        native_origin_y = native_geometry.y()
-        if math.isclose(native_origin_x, logical_geometry.x(), abs_tol=1e-4):
-            native_origin_x = logical_geometry.x() * device_ratio
-        if math.isclose(native_origin_y, logical_geometry.y(), abs_tol=1e-4):
-            native_origin_y = logical_geometry.y() * device_ratio
-
-        qt_x = logical_geometry.x() + (x - native_origin_x) * scale_x
-        qt_y = logical_geometry.y() + (y - native_origin_y) * scale_y
-        qt_width = width * scale_x
-        qt_height = height * scale_y
-        converted = (
-            int(round(qt_x)),
-            int(round(qt_y)),
-            max(1, int(round(qt_width))),
-            max(1, int(round(qt_height))),
-        )
         screen_name = screen.name() or screen.manufacturer() or "unknown"
-        return converted, (screen_name, float(scale_x), float(scale_y), device_ratio)
-
-    def _apply_aspect_guard(
-        self,
-        geometry: Tuple[int, int, int, int],
-        *,
-        original_geometry: Optional[Tuple[int, int, int, int]] = None,
-        applied_title_offset: int = 0,
-    ) -> Tuple[int, int, int, int]:
-        x, y, width, height = geometry
-        if width <= 0 or height <= 0:
-            return geometry
-        base_ratio = DEFAULT_WINDOW_BASE_WIDTH / float(DEFAULT_WINDOW_BASE_HEIGHT)
-        current_ratio = width / float(height)
-        original_ratio = None
-        if original_geometry is not None:
-            _, _, original_width, original_height = original_geometry
-            if original_width > 0 and original_height > 0:
-                original_ratio = original_width / float(original_height)
-        ratio_for_check = original_ratio if original_ratio is not None else current_ratio
-        if abs(ratio_for_check - base_ratio) > 0.04:
-            if not self._aspect_guard_skip_logged:
-                _CLIENT_LOGGER.debug(
-                    "Aspect guard skipped: tracker_ratio=%.3f current_ratio=%.3f base_ratio=%.3f offset=%d",
-                    ratio_for_check,
-                    current_ratio,
-                    base_ratio,
-                    int(applied_title_offset),
-                )
-                self._aspect_guard_skip_logged = True
-            return geometry
-        self._aspect_guard_skip_logged = False
-        expected_height = int(round(width * DEFAULT_WINDOW_BASE_HEIGHT / float(DEFAULT_WINDOW_BASE_WIDTH)))
-        tolerance = max(2, int(round(expected_height * 0.01)))
-        if height <= expected_height:
-            return geometry
-        height_delta = height - expected_height
-        max_delta = max(6, int(round(width * 0.02)))
-        if height_delta > max_delta:
-            return geometry
-        if height_delta > 0:
-            adjusted = (x, y, width, expected_height)
-            _CLIENT_LOGGER.debug(
-                "Aspect guard trimmed overlay height: width=%d height=%d expected=%d tolerance=%d -> adjusted=%s",
-                width,
-                height,
-                expected_height,
-                tolerance,
-                adjusted,
-            )
-            return adjusted
-        return geometry
+        return ScreenInfo(
+            name=screen_name,
+            logical_geometry=(
+                logical_geometry.x(),
+                logical_geometry.y(),
+                logical_geometry.width(),
+                logical_geometry.height(),
+            ),
+            native_geometry=(
+                native_geometry.x(),
+                native_geometry.y(),
+                native_geometry.width(),
+                native_geometry.height(),
+            ),
+            device_ratio=device_ratio,
+        )
 
     def _describe_screen(self, screen) -> str:
         if screen is None:

@@ -242,11 +242,13 @@
   "Navroute": {
     "idPrefixGroups": {
       "Navroute Display": {
-        "idPrefixGroupAnchor": "nw",
+        "idPrefixGroupAnchor": "top",
         "idPrefixes": [
           "navroute_display_"
         ],
-        "payloadJustification": "left"
+        "offsetX": 640.0,
+        "offsetY": -100.093,
+        "payloadJustification": "center"
       }
     },
     "matchingPrefixes": [
