@@ -11,6 +11,7 @@ This file tracks the ongoing refactor of `overlay_client.py` (and related module
 - After each step is complete, run through all tests, update the plan here, and summarize what was done for the commit message.
 - Each stage is uniquely numbered across all risks. Sub-steps will use dots. i.e. 2.1, 2.2, 2.2.1, 2.2.2
 - All substeps need to be completed or otherwise handled before the parent step can be complete or we can move on.
+- If you find areas that need more unit tests, add them in to the update.
 
 ## Guiding traits for readable, maintainable code:
 - Clarity first: simple, direct logic; avoid clever tricks; prefer small functions with clear names.
@@ -43,8 +44,8 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | Stage | Description | Status |
   | --- | --- | --- |
   | 1 | Extract `OverlayDataClient` into `overlay_client/data_client.py` with unchanged public API (`start/stop/send_cli_payload`), own logger, and narrow signal surface. Import it back into `overlay_client.py`. | Complete (extracted and imported; all documented tests passing, resolution run verified with overlay running) |
-  | 2 | Move paint command types (`_LegacyPaintCommand`, `_MessagePaintCommand`, `_RectPaintCommand`, `_VectorPaintCommand`) and `_QtVectorPainterAdapter` into `overlay_client/paint_commands.py`; keep signatures intact so `_paint_legacy` logic can stay as-is. | In progress (moved into `overlay_client/paint_commands.py`; tests passed except resolution run needs overlay running) |
-  | 3 | Split platform and font helpers (`_initial_platform_context`, font resolution) into `overlay_client/platform_context.py` and `overlay_client/fonts.py`, keeping interfaces unchanged. | Not started |
+  | 2 | Move paint command types (`_LegacyPaintCommand`, `_MessagePaintCommand`, `_RectPaintCommand`, `_VectorPaintCommand`) and `_QtVectorPainterAdapter` into `overlay_client/paint_commands.py`; keep signatures intact so `_paint_legacy` logic can stay as-is. | Complete (moved into `overlay_client/paint_commands.py`; all documented tests passing with overlay running for resolution test) |
+  | 3 | Split platform and font helpers (`_initial_platform_context`, font resolution) into `overlay_client/platform_context.py` and `overlay_client/fonts.py`, keeping interfaces unchanged. | Complete (extracted; all documented tests passing with overlay running) |
   | 4 | Trim `OverlayWindow` to UI orchestration only; delegate pure calculations to extracted helpers. Update imports and ensure existing tests pass. | Not started |
   | 5 | Add/adjust unit tests in `overlay_client/tests` to cover extracted modules; run test suite and update any docs if behavior notes change. | Not started |
 
@@ -71,7 +72,19 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 - `make check` → passed (`ruff`, `mypy`, `pytest`: 91 passed, 7 skipped).
 - `make test` → passed (91 passed, 7 skipped).
 - `PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed (60 passed).
-- `python3 tests/run_resolution_tests.py --config tests/display_all.json` → failed: overlay client process not running; start overlay before rerunning.
+- `python3 tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay client running).
+
+### Stage 3 quick summary (intent)
+- Goal: move `_initial_platform_context` and font resolution helpers (`_resolve_font_family`, `_resolve_emoji_font_families`, `_apply_font_fallbacks`) into `overlay_client/platform_context.py` and `overlay_client/fonts.py` without behavior changes.
+- Keep function signatures and usage points the same; only adjust imports/wiring in `overlay_client.py`.
+- Preserve logging behavior and font lookup/fallback logic exactly as before.
+- Run the full test set and log results once the move is complete (including resolution test with overlay running).
+
+#### Stage 3 test log (latest)
+- `make check` → passed (`ruff`, `mypy`, `pytest`: 91 passed, 7 skipped).
+- `make test` → passed (91 passed, 7 skipped).
+- `PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed (60 passed).
+- `python3 tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay client running).
 
   Notes:
   - Perform refactor in small, behavior-preserving steps; avoid logic changes during extraction.
