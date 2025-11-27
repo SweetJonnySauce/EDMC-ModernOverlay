@@ -1865,71 +1865,7 @@ class OverlayWindow(QWidget):
     def _apply_follow_state(self, state: WindowState) -> None:
         self._lost_window_logged = False
 
-        tracker_global_x = state.global_x if state.global_x is not None else state.x
-        tracker_global_y = state.global_y if state.global_y is not None else state.y
-        width = max(1, state.width)
-        height = max(1, state.height)
-        tracker_native_tuple = (
-            tracker_global_x,
-            tracker_global_y,
-            width,
-            height,
-        )
-        if tracker_native_tuple != self._last_raw_window_log:
-            _CLIENT_LOGGER.debug(
-                "Raw tracker window geometry: pos=(%d,%d) size=%dx%d",
-                tracker_global_x,
-                tracker_global_y,
-                width,
-                height,
-            )
-            self._last_raw_window_log = tracker_native_tuple
-
-        tracker_qt_tuple, normalisation_info = self._convert_native_rect_to_qt(tracker_native_tuple)
-        if normalisation_info is not None and tracker_qt_tuple != tracker_native_tuple:
-            screen_name, norm_scale_x, norm_scale_y, device_ratio = normalisation_info
-            snapshot = (tracker_native_tuple, tracker_qt_tuple, screen_name, norm_scale_x, norm_scale_y)
-            if snapshot != self._last_normalised_tracker:
-                _CLIENT_LOGGER.debug(
-                    "Normalised tracker geometry using screen '%s': native=%s scale=%.3fx%.3f dpr=%.3f -> qt=%s",
-                    screen_name,
-                    tracker_native_tuple,
-                    norm_scale_x,
-                    norm_scale_y,
-                    device_ratio,
-                    tracker_qt_tuple,
-                )
-                self._last_normalised_tracker = snapshot
-        else:
-            self._last_normalised_tracker = None
-
-        window_handle = self.windowHandle()
-        if window_handle is not None:
-            try:
-                window_dpr = window_handle.devicePixelRatio()
-            except Exception:
-                window_dpr = 0.0
-            if window_dpr and normalisation_info is not None:
-                screen_name, norm_scale_x, norm_scale_y, device_ratio = normalisation_info
-                snapshot = (screen_name, float(window_dpr), norm_scale_x, norm_scale_y)
-                if snapshot != self._last_device_ratio_log:
-                    _CLIENT_LOGGER.debug(
-                        "Device pixel ratio diagnostics: window_dpr=%.3f screen='%s' scale_x=%.3f scale_y=%.3f device_ratio=%.3f",
-                        float(window_dpr),
-                        screen_name,
-                        norm_scale_x,
-                        norm_scale_y,
-                        device_ratio,
-                    )
-                    self._last_device_ratio_log = snapshot
-
-        scale_y = normalisation_info[2] if normalisation_info is not None else 1.0
-        desired_tuple, applied_title_offset = self._apply_title_bar_offset(tracker_qt_tuple, scale_y=scale_y)
-        desired_tuple = self._apply_aspect_guard(
-            desired_tuple,
-            original_geometry=tracker_qt_tuple,
-            applied_title_offset=applied_title_offset,
-        )
+        tracker_qt_tuple, tracker_native_tuple, normalisation_info, desired_tuple = self._normalise_tracker_geometry(state)
 
         override_rect = self._follow_controller.wm_override
         override_tracker = self._follow_controller.wm_override_tracker
@@ -2056,6 +1992,82 @@ class OverlayWindow(QWidget):
 
         should_show = self._force_render or (state.is_visible and state.is_foreground)
         self._update_follow_visibility(should_show)
+
+    def _normalise_tracker_geometry(
+        self,
+        state: WindowState,
+    ) -> Tuple[
+        Tuple[int, int, int, int],
+        Tuple[int, int, int, int],
+        Optional[Tuple[str, float, float, float]],
+        Tuple[int, int, int, int],
+    ]:
+        tracker_global_x = state.global_x if state.global_x is not None else state.x
+        tracker_global_y = state.global_y if state.global_y is not None else state.y
+        width = max(1, state.width)
+        height = max(1, state.height)
+        tracker_native_tuple = (
+            tracker_global_x,
+            tracker_global_y,
+            width,
+            height,
+        )
+        if tracker_native_tuple != self._last_raw_window_log:
+            _CLIENT_LOGGER.debug(
+                "Raw tracker window geometry: pos=(%d,%d) size=%dx%d",
+                tracker_global_x,
+                tracker_global_y,
+                width,
+                height,
+            )
+            self._last_raw_window_log = tracker_native_tuple
+
+        tracker_qt_tuple, normalisation_info = self._convert_native_rect_to_qt(tracker_native_tuple)
+        if normalisation_info is not None and tracker_qt_tuple != tracker_native_tuple:
+            screen_name, norm_scale_x, norm_scale_y, device_ratio = normalisation_info
+            snapshot = (tracker_native_tuple, tracker_qt_tuple, screen_name, norm_scale_x, norm_scale_y)
+            if snapshot != self._last_normalised_tracker:
+                _CLIENT_LOGGER.debug(
+                    "Normalised tracker geometry using screen '%s': native=%s scale=%.3fx%.3f dpr=%.3f -> qt=%s",
+                    screen_name,
+                    tracker_native_tuple,
+                    norm_scale_x,
+                    norm_scale_y,
+                    device_ratio,
+                    tracker_qt_tuple,
+                )
+                self._last_normalised_tracker = snapshot
+        else:
+            self._last_normalised_tracker = None
+
+        window_handle = self.windowHandle()
+        if window_handle is not None:
+            try:
+                window_dpr = window_handle.devicePixelRatio()
+            except Exception:
+                window_dpr = 0.0
+            if window_dpr and normalisation_info is not None:
+                screen_name, norm_scale_x, norm_scale_y, device_ratio = normalisation_info
+                snapshot = (screen_name, float(window_dpr), norm_scale_x, norm_scale_y)
+                if snapshot != self._last_device_ratio_log:
+                    _CLIENT_LOGGER.debug(
+                        "Device pixel ratio diagnostics: window_dpr=%.3f screen='%s' scale_x=%.3f scale_y=%.3f device_ratio=%.3f",
+                        float(window_dpr),
+                        screen_name,
+                        norm_scale_x,
+                        norm_scale_y,
+                        device_ratio,
+                    )
+                    self._last_device_ratio_log = snapshot
+
+        scale_y = normalisation_info[2] if normalisation_info is not None else 1.0
+        desired_tuple, applied_title_offset = self._apply_title_bar_offset(tracker_qt_tuple, scale_y=scale_y)
+        desired_tuple = self._apply_aspect_guard(
+            desired_tuple,
+            original_geometry=tracker_qt_tuple,
+            applied_title_offset=applied_title_offset,
+        )
+        return tracker_qt_tuple, tracker_native_tuple, normalisation_info, desired_tuple
 
     def _ensure_transient_parent(self, state: WindowState) -> None:
         if not sys.platform.startswith("linux"):
