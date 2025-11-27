@@ -65,10 +65,19 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 
   | Stage | Description | Status |
   | --- | --- | --- |
-  | 6 | Map logic segments and log/trace points in each long method; set refactor boundaries and identify Qt vs. pure sections. | Not started |
+  | 6 | Map logic segments and log/trace points in each long method; set refactor boundaries and identify Qt vs. pure sections. | Complete |
   | 7 | Refactor `_apply_follow_state` into smaller helpers (geometry classification, WM override handling, visibility) while preserving logging and Qt calls. | Not started |
+  | 7.1 | Extract geometry normalization and logging: raw/native→Qt conversion, device ratio logs, title bar offset, aspect guard; keep Qt calls local. | Not started |
+  | 7.2 | Extract WM override resolution and geometry application: setGeometry/move-to-screen, override classification/logging, and target adoption. | Not started |
+  | 7.3 | Extract follow-state post-processing: follow-state persistence, transient parent handling, fullscreen hint, visibility/show/hide decisions. | Not started |
   | 8 | Split builder methods (`_build_message_command`, `_build_rect_command`, `_build_vector_command`) into calculation/render sub-helpers; keep font metrics/painter setup intact. | Not started |
   | 9 | After each refactor chunk, run full test suite and update logs/status. | Not started |
+
+#### Stage 6 mapping (complete)
+- `_apply_follow_state`: raw geometry logging; native→Qt conversion + device ratio logs; title bar offset and aspect guard (helpers); WM override resolution; QRect/setGeometry/move-to-screen with logging; WM override classification/logging; follow-state update; transient parent handling; fullscreen hint; visibility/show/hide updates. Qt boundary: windowHandle/devicePixelRatio, QRect/frameGeometry/setGeometry/move/show/hide/raise_.
+- `_build_message_command`: size/color parsing; group context (viewport + offsets); inverse group scale for anchors; remap + offsets; translation; font setup + metrics (Qt boundary: QFont/QFontMetrics); pixel/bounds and overlay bounds; tracing (`paint:message_input/translation/output`); command assembly.
+- `_build_rect_command`: color parsing; QPen/QBrush setup (Qt boundary); group context; rect remap + offsets; inverse group scale + translation; anchor transform; overlay/base bounds; pixel bounds; tracing (`paint:rect_input/translation/output`); command assembly.
+- `_build_vector_command`: trace flags; group context offsets/anchors/translation; raw points min lookup; remap_vector_points + offsets; inverse group scale + translation; overlay/base bounds accumulation; anchor transform; screen point conversion; tracing (`paint:scale_factors/raw_points/vector_translation`); command assembly.
 - **C.** Duplicate anchor/translation/justification workflows across the three builder methods (overlay_client/overlay_client.py:3411, :3623, :3851) risk behavioral drift; shared utilities would improve consistency.
 - **D.** Heavy coupling of calculation logic to Qt state (e.g., QFont/QFontMetrics usage in `_build_message_command` at overlay_client/overlay_client.py:3469) reduces testability; pure helpers would help.
 - **E.** Broad `except Exception` handlers in networking and cleanup paths (e.g., overlay_client/overlay_client.py:480, :454) silently swallow errors, hiding failures.
@@ -194,4 +203,3 @@ Substeps:
   - Perform refactor in small, behavior-preserving steps; avoid logic changes during extraction.
   - Keep entrypoint `main()` in `overlay_client.py` but reduce imports as modules move.
   - Prefer adding module-level docstrings or brief comments only where intent isn’t obvious.
-
