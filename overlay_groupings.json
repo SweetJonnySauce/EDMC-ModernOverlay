@@ -43,8 +43,8 @@
           },
           "bgstally-msg-tick-"
         ],
-        "offsetX": -80.0,
-        "offsetY": 190.0,
+        "offsetX": 190.0,
+        "offsetY": 10.0,
         "payloadJustification": "left"
       },
       "BGS-Tally Tickwarn": {
