@@ -1,6 +1,9 @@
 # Overlay Client Refactor Plan
 
-Guiding traits for readable, maintainable code:
+> This file tracks the ongoing refactor of `overlay_client.py` (and related modules) into smaller, testable components while preserving behavior and cross-platform support. Use it to rebuild context after interruptions: it summarizes what has been done and what remains. Keep an eye on safety: make sure the chunks of work are small enough that we can easily test them and back them out if needed, document the plan with additional steps if needed (1 row per step), and ensure testing is completed and clearly called out.
+
+
+## Guiding traits for readable, maintainable code:
 - Clarity first: simple, direct logic; avoid clever tricks; prefer small functions with clear names.
 - Consistent style: stable formatting, naming conventions, and file structure; follow project style guides/linters.
 - Intent made explicit: meaningful names; brief comments only where intent isn’t obvious; docstrings for public APIs.
@@ -15,7 +18,7 @@ Guiding traits for readable, maintainable code:
 - Tooling: automated formatting/linting/tests in CI; commit hooks for quick checks; steady dependency management.
 - Performance awareness: efficient enough without premature micro-optimizations; measure before tuning.
 
-Testing (run after each refactor step):
+## Testing (run after each refactor step):
 - Restart EDMC, activate the venv, then:
 ```
 source overlay_client/.venv/bin/activate
@@ -25,7 +28,7 @@ PYQT_TESTS=1 python -m pytest overlay_client/tests
 python3 tests/run_resolution_tests.py --config tests/display_all.json
 ```
 
-Key readability/maintainability risks (ordered by importance):
+## Key readability/maintainability risks (ordered by importance):
 - `overlay_client/overlay_client.py` co-locates async TCP client, Qt window/rendering, font loading, caching, follow logic, and entrypoint in one 5k-line module/class, violating single responsibility and making changes risky. Tracking stages to break this up:
 
   | Stage | Description | Status |
