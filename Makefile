@@ -1,4 +1,4 @@
-PYTHON ?= python3
+PYTHON ?= $(shell if [ -x overlay_client/.venv/bin/python ]; then echo overlay_client/.venv/bin/python; else echo python3; fi)
 
 .PHONY: lint typecheck test check
 

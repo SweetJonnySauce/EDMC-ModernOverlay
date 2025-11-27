@@ -30,4 +30,4 @@ Portrait layouts flip the situation: Fit introduces letterboxing above/below whi
   ```
   Overlay scaling updated: window=3440x1440 px mode=fill base_scale=2.6875 …
   ```
-- `tests/test_viewport_helper.py` and `overlay-client/tests/test_viewport_transform_module.py` encode the Fit/Fill expectations above. If you change the helper math, update both the tests and this reference table together.
+- `tests/test_viewport_helper.py` and `overlay_client/tests/test_viewport_transform_module.py` encode the Fit/Fill expectations above. If you change the helper math, update both the tests and this reference table together.

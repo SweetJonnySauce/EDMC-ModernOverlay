@@ -33,7 +33,7 @@ validate_plugin_root() {
     local root="$1"
     local missing=0
     local required_dirs=(
-        "overlay-client"
+        "overlay_client"
         "overlay_plugin"
     )
     local required_files=(
@@ -184,13 +184,13 @@ SHOW_LOGS=0
 
 usage() {
     cat <<'EOF'
-Usage: collect_overlay_debug.sh [--log-lines N]
+Usage: collect_overlay_debug.sh [--log-lines N] [--show-logs]
 
 Gather environment details, dependency checks, and recent overlay logs.
 
 Options:
-  --log-lines N   Number of lines to tail from the newest overlay-client log (default: 60)
-  --show-logs     Include overlay-client log tail output
+  --log-lines N   Number of lines to tail from the newest overlay_client log (default: 60)
+  --show-logs     Include overlay_client log tail output
   -h, --help      Show this help message and exit
 EOF
 }
@@ -228,7 +228,7 @@ DETECTED_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)" || fail "unable to determine plu
 DEFAULT_PLUGIN_ROOT="${HOME}/.local/share/EDMarketConnector/plugins/EDMCModernOverlay"
 ROOT_DIR="$(confirm_plugin_root "$DETECTED_ROOT" "$DEFAULT_PLUGIN_ROOT")" || fail "unable to confirm plugin root."
 plugin_root_is_valid "$ROOT_DIR" || fail "unable to locate a valid EDMC Modern Overlay installation."
-OVERLAY_CLIENT_DIR="${ROOT_DIR}/overlay-client"
+OVERLAY_CLIENT_DIR="${ROOT_DIR}/overlay_client"
 SETTINGS_PATH="${ROOT_DIR}/overlay_settings.json"
 PORT_PATH="${ROOT_DIR}/port.json"
 
@@ -532,7 +532,7 @@ gather_overlay_log_candidates() {
     local candidates=()
     for dir in "${search_roots[@]}"; do
         if [[ -d "$dir" ]]; then
-            for file in "$dir"/overlay-client.log*; do
+        for file in "$dir"/overlay_client.log*; do
                 [[ -f "$file" ]] && candidates+=("$file")
             done
         fi
@@ -579,7 +579,7 @@ print_logs() {
     print_header "Overlay Client Logs"
     local sorted=()
     if ! mapfile -t sorted < <(gather_overlay_log_candidates); then
-        echo "No overlay-client logs found in standard locations."
+        echo "No overlay_client logs found in standard locations."
         return
     fi
     local latest="${sorted[0]}"
@@ -601,16 +601,16 @@ print_debug_overlay_snapshot() {
     print_header "Debug Overlay Snapshot"
     local sorted=()
     if ! mapfile -t sorted < <(gather_overlay_log_candidates); then
-        echo "No overlay-client logs found in standard locations."
+        echo "No overlay_client logs found in standard locations."
         return
     fi
     if ((${#sorted[@]} == 0)); then
-        echo "No overlay-client logs found in standard locations."
+        echo "No overlay_client logs found in standard locations."
         return
     fi
     local latest="${sorted[0]}"
     if [[ ! -f "$latest" ]]; then
-        echo "Latest overlay-client log missing; unable to extract debug overlay information."
+        echo "Latest overlay_client log missing; unable to extract debug overlay information."
         return
     fi
 

@@ -19,14 +19,14 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-OVERLAY_CLIENT_DIR = ROOT_DIR / "overlay-client"
-if str(OVERLAY_CLIENT_DIR) not in sys.path:
-    sys.path.insert(0, str(OVERLAY_CLIENT_DIR))
+OVERLAY_CLIENT_DIR = ROOT_DIR / "overlay_client"
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 try:
-    from plugin_overrides import PluginOverrideManager
+    from overlay_client.plugin_overrides import PluginOverrideManager
 except Exception as exc:  # pragma: no cover - required at runtime
-    raise SystemExit(f"Failed to import plugin_overrides: {exc}")
+    raise SystemExit(f"Failed to import overlay_client.plugin_overrides: {exc}")
 
 
 LOG = logging.getLogger("payload-inspector")

@@ -13,10 +13,10 @@ OVERLAY_ROOT = Path(__file__).resolve().parents[1]
 if str(OVERLAY_ROOT) not in sys.path:
     sys.path.append(str(OVERLAY_ROOT))
 
-from group_transform import GroupBounds  # noqa: E402
-from legacy_store import LegacyItem  # noqa: E402
+from overlay_client.group_transform import GroupBounds  # noqa: E402
+from overlay_client.legacy_store import LegacyItem  # noqa: E402
 import payload_transform  # noqa: E402
-from overlay_client import _OverlayBounds  # type: ignore  # noqa: E402
+from overlay_client.overlay_client import _OverlayBounds  # type: ignore  # noqa: E402
 
 
 def _make_message(text: str, scale: float) -> LegacyItem:

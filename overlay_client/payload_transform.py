@@ -6,14 +6,14 @@ from typing import TYPE_CHECKING, Any, Callable, List, Mapping, Optional, Sequen
 
 from PyQt6.QtGui import QFont, QFontMetrics
 
-from font_utils import apply_font_fallbacks
+from overlay_client.font_utils import apply_font_fallbacks
 
-from legacy_store import LegacyItem
-from viewport_helper import BASE_HEIGHT, BASE_WIDTH
+from overlay_client.legacy_store import LegacyItem
+from overlay_client.viewport_helper import BASE_HEIGHT, BASE_WIDTH
 
 if TYPE_CHECKING:  # pragma: no cover
     from overlay_client import FillViewport
-    from group_transform import GroupBounds
+    from overlay_client.group_transform import GroupBounds
 
 
 class PayloadAxisContext:
@@ -278,7 +278,7 @@ def accumulate_group_bounds(
     preset_point_size: Callable[[str], float],
     font_fallbacks: Optional[Sequence[str]] = None,
 ) -> None:
-    from group_transform import GroupBounds  # local import to avoid cycles
+    from overlay_client.group_transform import GroupBounds  # local import to avoid cycles
 
     assert isinstance(bounds, GroupBounds)
     data = item.data

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -17,10 +16,10 @@ try:
 except Exception:  # pragma: no cover - import guard for environments without PyQt6
     pytest.skip("PyQt6 not available", allow_module_level=True)
 
-from client_config import InitialClientSettings  # noqa: E402
-from debug_config import DebugConfig  # noqa: E402
-from legacy_store import LegacyItem  # noqa: E402
-from overlay_client import OverlayWindow  # noqa: E402
+from overlay_client.client_config import InitialClientSettings  # noqa: E402
+from overlay_client.debug_config import DebugConfig  # noqa: E402
+from overlay_client.legacy_store import LegacyItem  # noqa: E402
+from overlay_client.overlay_client import OverlayWindow  # noqa: E402
 
 
 @pytest.fixture
@@ -62,20 +61,20 @@ def test_grid_pixmap_cached_and_invalidated(qt_app):
 def test_legacy_render_cache_reuse_and_invalidate(monkeypatch, qt_app):
     window = OverlayWindow(InitialClientSettings(), DebugConfig())
     window.resize(200, 200)
-    window._legacy_items.set("msg1", LegacyItem("msg1", "message", {"text": "hi"}, plugin="tester"))
+    window._payload_model.set("msg1", LegacyItem("msg1", "message", {"text": "hi"}, plugin="tester"))
 
     pixmap = QPixmap(200, 200)
     painter = QPainter(pixmap)
 
     rebuilds = 0
-    original = window._rebuild_legacy_render_cache
+    original = window._render_pipeline._rebuild_legacy_render_cache
 
-    def _wrapper(mapper, signature):
+    def _wrapper(mapper, signature, settings, grouping):
         nonlocal rebuilds
         rebuilds += 1
-        return original(mapper, signature)
+        return original(mapper, signature, settings, grouping)
 
-    monkeypatch.setattr(window, "_rebuild_legacy_render_cache", _wrapper)
+    monkeypatch.setattr(window._render_pipeline, "_rebuild_legacy_render_cache", _wrapper)
 
     window._paint_legacy(painter)
     window._paint_legacy(painter)
@@ -86,4 +85,3 @@ def test_legacy_render_cache_reuse_and_invalidate(monkeypatch, qt_app):
     assert rebuilds == 2  # cache rebuilt after dirty flag
 
     painter.end()
-

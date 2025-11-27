@@ -8,7 +8,7 @@
           "bgstally-frame-colonisation"
         ],
         "offsetX": 0.0,
-        "offsetY": -80.0,
+        "offsetY": 0.0,
         "payloadJustification": "left"
       },
       "BGS-Tally Ready": {
@@ -43,8 +43,8 @@
           },
           "bgstally-msg-tick-"
         ],
-        "offsetX": 190.0,
-        "offsetY": 10.0,
+        "offsetX": -80.0,
+        "offsetY": 190.0,
         "payloadJustification": "left"
       },
       "BGS-Tally Tickwarn": {

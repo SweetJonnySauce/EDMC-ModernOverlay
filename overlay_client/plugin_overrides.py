@@ -17,7 +17,7 @@ if str(OVERLAY_ROOT) not in sys.path:
 
 from prefix_entries import PrefixEntry, parse_prefix_entries
 
-from debug_config import DebugConfig
+from overlay_client.debug_config import DebugConfig
 
 
 JsonDict = Dict[str, Any]

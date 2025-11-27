@@ -10,7 +10,7 @@ The script mirrors the workflow used by install_linux.sh:
 3. Disable legacy EDMCOverlay plugins.
 4. Disable any existing EDMC-ModernOverlay installation by renaming it to EDMC-ModernOverlay.disabled (or .N.disabled).
 5. Copy the EDMCModernOverlay payload alongside this script into the plugins directory.
-6. Create overlay-client\.venv (or reuse an existing one) and install requirements.
+6. Create overlay_client\.venv (or reuse an existing one) and install requirements.
 7. Optionally download the Eurocaps font for the authentic Elite Dangerous HUD look.
 
 .PARAMETER PluginDir
@@ -567,22 +567,22 @@ function Create-VenvAndInstall {
         [string]$TargetDir
     )
 
-    $venvPath = Join-Path $TargetDir 'overlay-client\.venv'
-    $requirements = Join-Path $TargetDir 'overlay-client\requirements.txt'
+    $venvPath = Join-Path $TargetDir 'overlay_client\.venv'
+    $requirements = Join-Path $TargetDir 'overlay_client\requirements.txt'
 
     if ($DryRun) {
         Write-Info "[dry-run] Would ensure Python virtual environment at '$venvPath' and install requirements from '$requirements'."
         return
     }
 
-    if (-not (Test-Path -LiteralPath (Join-Path $TargetDir 'overlay-client'))) {
-        Fail-Install "Missing overlay-client directory in '$TargetDir'."
+    if (-not (Test-Path -LiteralPath (Join-Path $TargetDir 'overlay_client'))) {
+        Fail-Install "Missing overlay_client directory in '$TargetDir'."
     }
 
     $rebuildRequested = $false
     if (Test-Path -LiteralPath $venvPath) {
         Write-Info "Existing Python virtual environment detected at '$venvPath'."
-        if (Prompt-YesNo -Message 'Rebuild the overlay-client virtual environment?' -Default:$true) {
+        if (Prompt-YesNo -Message 'Rebuild the overlay_client virtual environment?' -Default:$true) {
             $rebuildRequested = $true
         }
     }
@@ -635,7 +635,7 @@ function Update-ExistingInstall {
     )
 
     if ($DryRun) {
-        Write-Info "[dry-run] Would replace '$DestDir' with the payload from '$SourceDir' while preserving overlay-client\.venv and Eurocaps.ttf."
+        Write-Info "[dry-run] Would replace '$DestDir' with the payload from '$SourceDir' while preserving overlay_client\.venv and Eurocaps.ttf."
         return
     }
 
@@ -647,8 +647,8 @@ function Update-ExistingInstall {
     $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("edmc-overlay-backup-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 
-    $venvPath = Join-Path $DestDir 'overlay-client\.venv'
-    $fontPath = Join-Path $DestDir 'overlay-client\fonts\Eurocaps.ttf'
+    $venvPath = Join-Path $DestDir 'overlay_client\.venv'
+    $fontPath = Join-Path $DestDir 'overlay_client\fonts\Eurocaps.ttf'
     $venvBackup = $null
     $fontBackup = $null
 
@@ -669,11 +669,11 @@ function Update-ExistingInstall {
         Copy-Item -Path $SourceDir -Destination $parent -Recurse -Force
 
         if ($venvBackup) {
-            $restoredVenv = Join-Path $DestDir 'overlay-client\.venv'
+            $restoredVenv = Join-Path $DestDir 'overlay_client\.venv'
             Move-Item -LiteralPath $venvBackup -Destination $restoredVenv
         }
         if ($fontBackup) {
-            $restoredFont = Join-Path $DestDir 'overlay-client\fonts\Eurocaps.ttf'
+            $restoredFont = Join-Path $DestDir 'overlay_client\fonts\Eurocaps.ttf'
             Copy-Item -LiteralPath $fontBackup -Destination $restoredFont -Force
         }
     } finally {
@@ -762,7 +762,7 @@ function Install-EurocapsFont {
 function Maybe-InstallEurocaps {
     param([string]$PluginHome)
 
-    $fontsDir = Join-Path $PluginHome 'overlay-client\fonts'
+    $fontsDir = Join-Path $PluginHome 'overlay_client\fonts'
     $fontPath = Join-Path $fontsDir $FontName
 
     if (-not (Test-Path -LiteralPath $fontsDir)) {
@@ -827,7 +827,7 @@ function Main {
         Copy-InitialInstall -SourceDir $PayloadDir -PluginRoot $pluginsRoot
     } else {
         Write-Warn "Existing installation detected at '$installDir'."
-        Write-Warn "Plugin files will be replaced; you'll be prompted whether to rebuild overlay-client\.venv afterwards."
+        Write-Warn "Plugin files will be replaced; you'll be prompted whether to rebuild overlay_client\.venv afterwards."
         if (-not (Prompt-YesNo -Message 'Proceed with updating the installation?' -Default:$true)) {
             Fail-Install 'Installation aborted by user.'
         }

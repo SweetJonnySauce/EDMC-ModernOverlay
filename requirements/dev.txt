@@ -1,4 +1,4 @@
--r ../overlay-client/requirements.txt
+-r ../overlay_client/requirements.txt
 
 pytest==8.3.3
 ruff==0.3.7

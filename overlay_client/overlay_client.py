@@ -19,6 +19,9 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Set
 
+CLIENT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = CLIENT_DIR.parent
+
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect, QSize
 from PyQt6.QtGui import (
     QColor,
@@ -36,14 +39,10 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
-
-CLIENT_DIR = Path(__file__).resolve().parent
-if str(CLIENT_DIR) not in sys.path:
-    sys.path.insert(0, str(CLIENT_DIR))
-
-ROOT_DIR = CLIENT_DIR.parent
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
+from overlay_client.follow_controller import FollowController  # type: ignore
+from overlay_client.payload_model import PayloadModel  # type: ignore
+from overlay_client.render_pipeline import LegacyRenderPipeline, PayloadSnapshot, RenderContext, RenderSettings  # type: ignore
+from overlay_client.grouping_adapter import GroupingAdapter  # type: ignore
 
 try:  # pragma: no cover - defensive fallback when running standalone
     from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR
@@ -51,27 +50,27 @@ except Exception:  # pragma: no cover - fallback when module unavailable
     MODERN_OVERLAY_VERSION = "unknown"
     DEV_MODE_ENV_VAR = "MODERN_OVERLAY_DEV_MODE"
 
-from client_config import InitialClientSettings, load_initial_settings  # type: ignore  # noqa: E402
-from developer_helpers import DeveloperHelperController  # type: ignore  # noqa: E402
-from platform_integration import MonitorSnapshot, PlatformContext, PlatformController  # type: ignore  # noqa: E402
-from window_tracking import WindowState, WindowTracker, create_elite_window_tracker  # type: ignore  # noqa: E402
-from legacy_store import LegacyItem, LegacyItemStore  # type: ignore  # noqa: E402
-from legacy_processor import TraceCallback, process_legacy_payload  # type: ignore  # noqa: E402
-from vector_renderer import render_vector, VectorPainterAdapter  # type: ignore  # noqa: E402
-from plugin_overrides import PluginOverrideManager  # type: ignore  # noqa: E402
-from debug_config import DEBUG_CONFIG_ENABLED, DebugConfig, load_debug_config  # type: ignore  # noqa: E402
-from group_transform import GroupTransform, GroupKey  # type: ignore  # noqa: E402
+from overlay_client.client_config import InitialClientSettings, load_initial_settings  # type: ignore  # noqa: E402
+from overlay_client.developer_helpers import DeveloperHelperController  # type: ignore  # noqa: E402
+from overlay_client.platform_integration import MonitorSnapshot, PlatformContext, PlatformController  # type: ignore  # noqa: E402
+from overlay_client.window_tracking import WindowState, WindowTracker, create_elite_window_tracker  # type: ignore  # noqa: E402
+from overlay_client.legacy_store import LegacyItem  # type: ignore  # noqa: E402
+from overlay_client.legacy_processor import TraceCallback  # type: ignore  # noqa: E402
+from overlay_client.vector_renderer import render_vector, VectorPainterAdapter  # type: ignore  # noqa: E402
+from overlay_client.plugin_overrides import PluginOverrideManager  # type: ignore  # noqa: E402
+from overlay_client.debug_config import DEBUG_CONFIG_ENABLED, DebugConfig, load_debug_config  # type: ignore  # noqa: E402
+from overlay_client.group_transform import GroupTransform, GroupKey  # type: ignore  # noqa: E402
 from group_cache import GroupPlacementCache, resolve_cache_path  # type: ignore  # noqa: E402
-from font_utils import apply_font_fallbacks  # type: ignore  # noqa: E402
-from viewport_helper import (
+from overlay_client.font_utils import apply_font_fallbacks  # type: ignore  # noqa: E402
+from overlay_client.viewport_helper import (
     BASE_HEIGHT,
     BASE_WIDTH,
     ScaleMode,
     compute_viewport_transform,
 )  # type: ignore  # noqa: E402
-from grouping_helper import FillGroupingHelper  # type: ignore  # noqa: E402
-from payload_justifier import JustificationRequest, calculate_offsets  # type: ignore  # noqa: E402
-from payload_transform import (
+from overlay_client.grouping_helper import FillGroupingHelper  # type: ignore  # noqa: E402
+from overlay_client.payload_justifier import JustificationRequest, calculate_offsets  # type: ignore  # noqa: E402
+from overlay_client.payload_transform import (
     build_payload_transform_context,
     PayloadTransformContext,
     remap_axis_value,
@@ -80,7 +79,7 @@ from payload_transform import (
     remap_vector_points,
     transform_components,
 )  # type: ignore  # noqa: E402
-from viewport_transform import (  # type: ignore  # noqa: E402
+from overlay_client.viewport_transform import (  # type: ignore  # noqa: E402
     FillViewport,
     LegacyMapper,
     ViewportState,
@@ -529,8 +528,7 @@ class OverlayWindow(QWidget):
             "message": "",
         }
         self._debug_config = debug_config
-        self._legacy_items = LegacyItemStore()
-        setattr(self._legacy_items, "_trace_callback", self._trace_legacy_store_event)
+        self._payload_model = PayloadModel(self._trace_legacy_store_event)
         self._background_opacity: float = 0.0
         self._gridlines_enabled: bool = False
         self._gridline_spacing: int = 120
@@ -551,7 +549,6 @@ class OverlayWindow(QWidget):
         self._window_tracker: Optional[WindowTracker] = None
         self._data_client: Optional[OverlayDataClient] = None
         self._last_follow_state: Optional[WindowState] = None
-        self._follow_resume_at: float = 0.0
         self._lost_window_logged: bool = False
         self._last_tracker_state: Optional[Tuple[str, int, int, int, int]] = None
         self._last_geometry_log: Optional[Tuple[int, int, int, int]] = None
@@ -564,11 +561,6 @@ class OverlayWindow(QWidget):
             Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int], str, float, float]
         ] = None
         self._last_device_ratio_log: Optional[Tuple[str, float, float, float]] = None
-        self._wm_authoritative_rect: Optional[Tuple[int, int, int, int]] = None
-        self._wm_override_tracker: Optional[Tuple[int, int, int, int]] = None
-        self._wm_override_timestamp: float = 0.0
-        self._wm_override_reason: Optional[str] = None
-        self._wm_override_classification: Optional[str] = None
         self._enforcing_follow_size: bool = False
         self._transient_parent_id: Optional[str] = None
         self._transient_parent_window: Optional[QWindow] = None
@@ -606,6 +598,14 @@ class OverlayWindow(QWidget):
             or debug_config.trace_enabled
         )
         self._dev_mode_enabled: bool = dev_mode_active
+        _CLIENT_LOGGER.debug(
+            "Debug config loaded: dev_mode_enabled=%s group_bounds_outline=%s overlay_outline=%s payload_vertex_markers=%s (DEBUG_CONFIG_ENABLED=%s)",
+            self._dev_mode_enabled,
+            getattr(self._debug_config, "group_bounds_outline", False),
+            getattr(self._debug_config, "overlay_outline", False),
+            getattr(self._debug_config, "payload_vertex_markers", False),
+            DEBUG_CONFIG_ENABLED,
+        )
         self._debug_group_filter: Optional[Tuple[str, Optional[str]]] = None
         self._debug_group_bounds_final: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
         self._debug_group_state: Dict[Tuple[str, Optional[str]], _GroupDebugState] = {}
@@ -615,14 +615,12 @@ class OverlayWindow(QWidget):
         self._group_log_next_allowed: Dict[Tuple[str, Optional[str]], float] = {}
         self._logged_group_bounds: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
         self._logged_group_transforms: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
-        self._legacy_cache_dirty: bool = True
-        self._legacy_cache_signature: Optional[Tuple[Any, ...]] = None
-        self._legacy_render_cache: Optional[Dict[str, Any]] = None
         self._group_cache = GroupPlacementCache(
             resolve_cache_path(ROOT_DIR),
             debounce_seconds=1.0 if DEBUG_CONFIG_ENABLED else 5.0,
             logger=_CLIENT_LOGGER,
         )
+        self._render_pipeline = LegacyRenderPipeline(self)
 
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setInterval(250)
@@ -636,6 +634,12 @@ class OverlayWindow(QWidget):
 
         self._tracking_timer = QTimer(self)
         self._tracking_timer.setInterval(500)
+        self._follow_controller = FollowController(
+            poll_fn=lambda: self._window_tracker.poll() if self._window_tracker else None,
+            logger=_CLIENT_LOGGER,
+            tracking_timer=self._tracking_timer,
+            debug_suffix=self.format_scale_debug,
+        )
         self._tracking_timer.timeout.connect(self._refresh_follow_geometry)
 
         self._message_clear_timer = QTimer(self)
@@ -688,6 +692,7 @@ class OverlayWindow(QWidget):
             _CLIENT_LOGGER,
             self._debug_config,
         )
+        self._grouping_adapter = GroupingAdapter(self._grouping_helper, self)
         layout = QVBoxLayout()
         layout.addWidget(self.message_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         layout.addStretch(1)
@@ -944,8 +949,8 @@ class OverlayWindow(QWidget):
 
     def _refresh_legacy_items(self) -> None:
         """Touch stored legacy items so repaints pick up new scaling bounds."""
-        for item_id, item in list(self._legacy_items.items()):
-            self._legacy_items.set(item_id, item)
+        for item_id, item in list(self._payload_model.store.items()):
+            self._payload_model.set(item_id, item)
         self._mark_legacy_cache_dirty()
 
     def _notify_font_bounds_changed(self) -> None:
@@ -1132,6 +1137,7 @@ class OverlayWindow(QWidget):
             and self._move_mode
         ):
             self._drag_active = True
+            self._follow_controller.set_drag_state(self._drag_active, self._move_mode)
             self._suspend_follow(1.0)
             self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             if not self._cursor_saved:
@@ -1160,6 +1166,7 @@ class OverlayWindow(QWidget):
     def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
         if self._drag_active and event.button() == Qt.MouseButton.LeftButton:
             self._drag_active = False
+            self._follow_controller.set_drag_state(self._drag_active, self._move_mode)
             self._suspend_follow(0.5)
             self.raise_()
             if self._cursor_saved:
@@ -1417,7 +1424,7 @@ class OverlayWindow(QWidget):
     def _sync_cycle_items(self) -> None:
         if not self._cycle_payload_enabled:
             return
-        ids = [item_id for item_id, _ in self._legacy_items.items()]
+        ids = [item_id for item_id, _ in self._payload_model.store.items()]
         previous_id = self._cycle_current_id
         self._cycle_payload_ids = ids
         if not ids:
@@ -1570,7 +1577,7 @@ class OverlayWindow(QWidget):
         mapper = self._compute_legacy_mapper()
         anchor = self._cycle_anchor_points.get(self._cycle_current_id)
         plugin_name = "unknown"
-        current_item = self._legacy_items.get(self._cycle_current_id)
+        current_item = self._payload_model.get(self._cycle_current_id) if self._cycle_current_id else None
         if current_item is not None:
             name = current_item.plugin
             if isinstance(name, str) and name:
@@ -1882,8 +1889,7 @@ class OverlayWindow(QWidget):
         self._grid_pixmap_params = None
 
     def _mark_legacy_cache_dirty(self) -> None:
-        self._legacy_cache_dirty = True
-        self._legacy_cache_signature = None
+        self._render_pipeline.mark_dirty()
 
     def set_background_opacity(self, opacity: float) -> None:
         try:
@@ -1942,14 +1948,14 @@ class OverlayWindow(QWidget):
                 self._title_bar_height = numeric
                 changed = True
         if changed:
-            if self._wm_authoritative_rect is not None:
+            if self._follow_controller.wm_override is not None:
                 self._clear_wm_override(reason="title_bar_compensation_changed")
             _CLIENT_LOGGER.debug(
                 "Title bar compensation updated: enabled=%s height=%d",
                 self._title_bar_enabled,
                 self._title_bar_height,
             )
-            self._follow_resume_at = 0.0
+            self._follow_controller.reset_resume_window()
             if self._follow_enabled and self._window_tracker is not None:
                 self._refresh_follow_geometry()
             elif self._last_follow_state is not None:
@@ -2036,6 +2042,7 @@ class OverlayWindow(QWidget):
         if not self._drag_enabled:
             self._move_mode = False
             self._drag_active = False
+            self._follow_controller.set_drag_state(self._drag_active, self._move_mode)
             if self._cursor_saved:
                 self.setCursor(self._saved_cursor)
                 self._cursor_saved = False
@@ -2102,12 +2109,12 @@ class OverlayWindow(QWidget):
     def _start_tracking(self) -> None:
         if not self._window_tracker or not self._follow_enabled:
             return
-        if not self._tracking_timer.isActive():
-            self._tracking_timer.start()
+        self._follow_controller.set_follow_enabled(True)
+        self._follow_controller.set_drag_state(self._drag_active, self._move_mode)
+        self._follow_controller.start()
 
     def _stop_tracking(self) -> None:
-        if self._tracking_timer.isActive():
-            self._tracking_timer.stop()
+        self._follow_controller.stop()
 
     def _set_wm_override(
         self,
@@ -2116,72 +2123,21 @@ class OverlayWindow(QWidget):
         reason: str,
         classification: str = "wm_intervention",
     ) -> None:
-        self._wm_authoritative_rect = rect
-        self._wm_override_tracker = tracker_tuple
-        self._wm_override_timestamp = time.monotonic()
-        self._wm_override_reason = reason
-        self._wm_override_classification = classification
-        _CLIENT_LOGGER.debug(
-            "Recorded WM authoritative rect (%s, classification=%s): actual=%s tracker=%s; %s",
-            reason,
-            classification,
-            rect,
-            tracker_tuple,
-            self.format_scale_debug(),
-        )
+        self._follow_controller.record_override(rect, tracker_tuple, reason, classification)
 
     def _clear_wm_override(self, reason: str) -> None:
-        if self._wm_authoritative_rect is None:
-            return
-        _CLIENT_LOGGER.debug(
-            "Clearing WM authoritative rect (%s); %s",
-            reason,
-            self.format_scale_debug(),
-        )
-        self._wm_authoritative_rect = None
-        self._wm_override_tracker = None
-        self._wm_override_timestamp = 0.0
-        self._wm_override_reason = None
-        self._wm_override_classification = None
+        self._follow_controller.clear_override(reason)
 
     def _suspend_follow(self, delay: float = 0.75) -> None:
-        self._follow_resume_at = max(self._follow_resume_at, time.monotonic() + max(0.0, delay))
+        self._follow_controller.suspend(delay)
 
     def _refresh_follow_geometry(self) -> None:
-        if not self._follow_enabled or self._window_tracker is None:
-            return
-        now = time.monotonic()
-        if self._drag_active or self._move_mode:
-            self._suspend_follow(0.75)
-            _CLIENT_LOGGER.debug("Skipping follow refresh: drag/move active; %s", self.format_scale_debug())
-            return
-        if now < self._follow_resume_at:
-            _CLIENT_LOGGER.debug("Skipping follow refresh: awaiting resume window; %s", self.format_scale_debug())
-            return
-        try:
-            state = self._window_tracker.poll()
-        except Exception as exc:  # pragma: no cover - defensive guard
-            _CLIENT_LOGGER.debug("Window tracker poll failed: %s; %s", exc, self.format_scale_debug())
-            return
+        state = self._follow_controller.refresh()
         if state is None:
-            self._handle_missing_follow_state()
+            if self._follow_controller.last_poll_attempted and self._follow_controller.last_state_missing:
+                self._handle_missing_follow_state()
             return
-        global_x = state.global_x if state.global_x is not None else state.x
-        global_y = state.global_y if state.global_y is not None else state.y
-        tracker_key = (state.identifier, global_x, global_y, state.width, state.height)
-        if tracker_key != self._last_tracker_state:
-            _CLIENT_LOGGER.debug(
-                "Tracker state: id=%s global=(%d,%d) size=%dx%d foreground=%s visible=%s; %s",
-                state.identifier,
-                global_x,
-                global_y,
-                state.width,
-                state.height,
-                state.is_foreground,
-                state.is_visible,
-                self.format_scale_debug(),
-            )
-            self._last_tracker_state = tracker_key
+        self._last_tracker_state = self._follow_controller.last_tracker_state
         self._apply_follow_state(state)
 
     def _apply_title_bar_offset(
@@ -2309,25 +2265,19 @@ class OverlayWindow(QWidget):
             applied_title_offset=applied_title_offset,
         )
 
-        now = time.monotonic()
         target_tuple = desired_tuple
-        if self._wm_authoritative_rect is not None:
-            tracker_changed = (
-                self._wm_override_tracker is not None
-                and tracker_qt_tuple != self._wm_override_tracker
-            )
-            override_expired = (
-                self._wm_override_classification not in ("layout", "layout_constraint")
-                and (now - self._wm_override_timestamp) >= self._WM_OVERRIDE_TTL
-            )
-            if tracker_qt_tuple == self._wm_authoritative_rect:
+        override_rect = self._follow_controller.wm_override
+        override_tracker = self._follow_controller.wm_override_tracker
+        override_expired = self._follow_controller.override_expired()
+        if override_rect is not None:
+            if tracker_qt_tuple == override_rect:
                 self._clear_wm_override(reason="tracker realigned with WM")
-            elif tracker_changed:
+            elif override_tracker is not None and tracker_qt_tuple != override_tracker:
                 self._clear_wm_override(reason="tracker changed")
             elif override_expired:
                 self._clear_wm_override(reason="override timeout")
             else:
-                target_tuple = self._wm_authoritative_rect
+                target_tuple = override_rect
 
         target_rect = QRect(*target_tuple)
         current_rect = self.frameGeometry()
@@ -2404,7 +2354,7 @@ class OverlayWindow(QWidget):
             )
             target_tuple = actual_tuple
             target_rect = QRect(*target_tuple)
-        elif self._wm_authoritative_rect and tracker_qt_tuple == target_tuple:
+        elif override_rect and tracker_qt_tuple == target_tuple:
             self._clear_wm_override(reason="tracker matched actual")
 
         self._last_geometry_log = target_tuple
@@ -2893,7 +2843,7 @@ class OverlayWindow(QWidget):
             def trace_fn(stage: str, _payload: Mapping[str, Any], extra: Mapping[str, Any]) -> None:
                 self._log_legacy_trace(plugin_name, message_id, stage, extra)
 
-        if process_legacy_payload(self._legacy_items, payload, trace_fn=trace_fn):
+        if self._payload_model.ingest(payload, trace_fn=trace_fn):
             if self._cycle_payload_enabled:
                 self._sync_cycle_items()
             self._mark_legacy_cache_dirty()
@@ -2901,206 +2851,129 @@ class OverlayWindow(QWidget):
 
     def _purge_legacy(self) -> None:
         now = time.monotonic()
-        if self._legacy_items.purge_expired(now):
+        if self._payload_model.purge_expired(now):
             if self._cycle_payload_enabled:
                 self._sync_cycle_items()
             self._mark_legacy_cache_dirty()
             self.update()
-        if not self._legacy_items:
+        if not len(self._payload_model):
             self._group_log_pending_base.clear()
             self._group_log_pending_transform.clear()
             self._group_log_next_allowed.clear()
             self._logged_group_bounds.clear()
             self._logged_group_transforms.clear()
 
-    def _legacy_render_signature(self, mapper: LegacyMapper) -> Tuple[Any, ...]:
-        transform = mapper.transform
-        return (
-            self.width(),
-            self.height(),
-            getattr(transform, "mode", None),
-            getattr(transform, "scale", None),
-            getattr(transform, "offset", None),
-            getattr(transform, "overflow_x", None),
-            getattr(transform, "overflow_y", None),
-            len(list(self._legacy_items.items())),
-            self._dev_mode_enabled,
-            self._debug_config.group_bounds_outline,
-            self._debug_config.payload_vertex_markers,
+    def _paint_legacy(self, painter: QPainter) -> None:
+        mapper = self._compute_legacy_mapper()
+        state = self._viewport_state()
+        context = RenderContext(
+            width=max(self.width(), 0),
+            height=max(self.height(), 0),
+            mapper=mapper,
+            dev_mode=self._dev_mode_enabled,
+            debug_bounds=self._debug_config.group_bounds_outline,
+            debug_vertices=self._debug_config.payload_vertex_markers,
+            settings=RenderSettings(
+                font_family=self._font_family,
+                font_fallbacks=self._font_fallbacks,
+                preset_point_size=lambda label, s=state, m=mapper: self._legacy_preset_point_size(label, s, m),
+            ),
+            grouping=self._grouping_adapter,
         )
-
-    def _rebuild_legacy_render_cache(
-        self,
-        mapper: LegacyMapper,
-        signature: Tuple[Any, ...],
-    ) -> Optional[Dict[str, Any]]:
-        if mapper.transform.mode is ScaleMode.FILL:
-            self._grouping_helper.prepare(mapper)
-        else:
-            self._grouping_helper.reset()
-        overlay_bounds_hint: Optional[Dict[Tuple[str, Optional[str]], _OverlayBounds]] = None
-        commands: List[_LegacyPaintCommand] = []
-        bounds_by_group: Dict[Tuple[str, Optional[str]], _ScreenBounds] = {}
-        overlay_bounds_by_group: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
-        effective_anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
-        transform_by_group: Dict[Tuple[str, Optional[str]], Optional[GroupTransform]] = {}
-        now_monotonic = time.monotonic()
-        passes = 2 if self._legacy_items else 1
-        for pass_index in range(passes):
-            commands, bounds_by_group, overlay_bounds_by_group, effective_anchor_by_group, transform_by_group = self._build_legacy_commands_for_pass(
+        snapshot = PayloadSnapshot(items_count=len(list(self._payload_model.store.items())))
+        self._render_pipeline.paint(painter, context, snapshot)
+        payload_results = getattr(self._render_pipeline, "_last_payload_results", None)
+        if payload_results:
+            latest_base_payload = payload_results.get("latest_base_payload") or {}
+            transform_candidates = payload_results.get("transform_candidates") or {}
+            translations = payload_results.get("translations") or {}
+            report_overlay_bounds = payload_results.get("report_overlay_bounds") or {}
+            transform_by_group = payload_results.get("transform_by_group") or {}
+            overlay_bounds_for_draw = payload_results.get("overlay_bounds_for_draw") or {}
+            overlay_bounds_base = payload_results.get("overlay_bounds_base") or {}
+            commands = payload_results.get("commands") or []
+            trace_helper = self._group_trace_helper(report_overlay_bounds, commands)
+            trace_helper()
+            # Preserve existing behavior for log buffers/trace helper.
+            self._apply_group_logging_payloads(
+                latest_base_payload,
+                transform_candidates,
+                translations,
+                report_overlay_bounds,
+            )
+            anchor_translations = payload_results.get("anchor_translation_by_group") or {}
+            # Preserve debug helpers/logging behavior.
+            self._maybe_collect_debug_helpers(
+                commands,
+                overlay_bounds_for_draw,
+                overlay_bounds_base,
+                transform_by_group,
+                translations,
+                report_overlay_bounds,
                 mapper,
-                overlay_bounds_hint,
-                collect_only=(pass_index == 0 and passes > 1),
             )
-            overlay_bounds_hint = overlay_bounds_by_group
-            if not self._legacy_items:
-                break
+            # Paint commands and collect offscreen/debug helpers.
+            self._render_commands(
+                painter,
+                commands,
+                anchor_translations,
+                translations,
+                overlay_bounds_for_draw,
+                overlay_bounds_base,
+                report_overlay_bounds,
+                transform_by_group,
+                mapper,
+            )
 
-        anchor_translation_by_group, translated_bounds_by_group = self._prepare_anchor_translations(
-            mapper,
-            bounds_by_group,
-            overlay_bounds_by_group,
-            effective_anchor_by_group,
-            transform_by_group,
-        )
-        overlay_bounds_base = self._collect_base_overlay_bounds(commands)
-        transform_candidates: Dict[Tuple[str, Optional[str]], Tuple[str, Optional[str]]] = {}
-        latest_base_payload: Dict[Tuple[str, Optional[str]], Dict[str, Any]] = {}
-        cache_base_payloads: Dict[Tuple[str, Optional[str]], Dict[str, Any]] = {}
-        cache_transform_payloads: Dict[Tuple[str, Optional[str]], Dict[str, Any]] = {}
-        active_group_keys: Set[Tuple[str, Optional[str]]] = set()
-        offsets_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
-        for key, logical_bounds in overlay_bounds_base.items():
-            if logical_bounds is None or not logical_bounds.is_valid():
-                continue
-            active_group_keys.add(key)
-            plugin_label, suffix = key
-            min_x = logical_bounds.min_x
-            min_y = logical_bounds.min_y
-            max_x = logical_bounds.max_x
-            max_y = logical_bounds.max_y
-            width = max_x - min_x
-            height = max_y - min_y
-            group_transform = transform_by_group.get(key)
-            offset_x, offset_y = self._group_offsets(group_transform)
-            has_offset = bool(offset_x or offset_y)
-            has_transformed = bool(
-                (group_transform is not None and self._has_user_group_transform(group_transform))
-                or has_offset
-            )
-            offsets_by_group[key] = (offset_x, offset_y)
-            base_min_x = min_x - offset_x
-            base_max_x = max_x - offset_x
-            base_min_y = min_y - offset_y
-            base_max_y = max_y - offset_y
-            bounds_tuple = (
-                base_min_x,
-                base_min_y,
-                base_max_x,
-                base_max_y,
-            )
-            payload_dict = {
-                "plugin": plugin_label or "",
-                "suffix": suffix or "",
-                "min_x": base_min_x,
-                "min_y": base_min_y,
-                "max_x": base_max_x,
-                "max_y": base_max_y,
-                "width": width,
-                "height": height,
-                "has_transformed": has_transformed,
-                "offset_x": offset_x,
-                "offset_y": offset_y,
-                "bounds_tuple": bounds_tuple,
-            }
-            latest_base_payload[key] = payload_dict
-            cache_base_payloads[key] = dict(payload_dict)
+    def _apply_group_logging_payloads(
+        self,
+        latest_base_payload: Mapping[Tuple[str, Optional[str]], Mapping[str, Any]],
+        transform_candidates: Mapping[Tuple[str, Optional[str]], Tuple[str, Optional[str]]],
+        translations: Mapping[Tuple[str, Optional[str]], Tuple[int, int]],
+        report_overlay_bounds: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+    ) -> None:
+        """Apply group logging/cache updates using payload data returned by the render pipeline."""
+        payload_results = getattr(self._render_pipeline, "_last_payload_results", {}) or {}
+        cache_base_payloads = payload_results.get("cache_base_payloads") or {}
+        cache_transform_payloads = payload_results.get("cache_transform_payloads") or {}
+        active_group_keys: Set[Tuple[str, Optional[str]]] = payload_results.get("active_group_keys") or set()
+        now_monotonic = self._monotonic_now() if hasattr(self, "_monotonic_now") else time.monotonic()
+
+        for key, payload in latest_base_payload.items():
+            bounds_tuple = payload.get("bounds_tuple")
             pending_payload = self._group_log_pending_base.get(key)
             pending_tuple = pending_payload.get("bounds_tuple") if pending_payload else None
             last_logged = self._logged_group_bounds.get(key)
             should_schedule = pending_payload is not None or last_logged != bounds_tuple
             if should_schedule:
-                if pending_tuple != bounds_tuple or pending_payload is None:
-                    self._group_log_pending_base[key] = payload_dict
-                    delay_target = now_monotonic if self._payload_log_delay <= 0.0 else now_monotonic + self._payload_log_delay
+                if pending_payload is None or pending_tuple != bounds_tuple:
+                    self._group_log_pending_base[key] = dict(payload)
+                    delay_target = (
+                        now_monotonic
+                        if self._payload_log_delay <= 0.0
+                        else (now_monotonic or 0.0) + self._payload_log_delay
+                    )
                     self._group_log_next_allowed[key] = delay_target
             else:
                 self._group_log_pending_base.pop(key, None)
                 self._group_log_next_allowed.pop(key, None)
-            if has_transformed:
-                transform_candidates[key] = (plugin_label or "", suffix or "")
-            else:
+            if not payload.get("has_transformed"):
                 self._group_log_pending_transform.pop(key, None)
-        report_overlay_bounds = self._clone_overlay_bounds_map(overlay_bounds_base)
-        report_overlay_bounds = self._apply_anchor_translations_to_overlay_bounds(
-            report_overlay_bounds,
-            anchor_translation_by_group,
-            mapper.transform.scale,
-        )
-        overlay_bounds_for_draw = self._clone_overlay_bounds_map(overlay_bounds_by_group)
-        overlay_bounds_for_draw = self._apply_anchor_translations_to_overlay_bounds(
-            overlay_bounds_for_draw,
-            anchor_translation_by_group,
-            mapper.transform.scale,
-        )
-        translated_bounds_by_group = self._apply_payload_justification(
-            commands,
-            transform_by_group,
-            anchor_translation_by_group,
-            translated_bounds_by_group,
-            overlay_bounds_for_draw,
-            overlay_bounds_base,
-            mapper.transform.scale,
-        )
-        translations = self._compute_group_nudges(translated_bounds_by_group)
-        overlay_bounds_for_draw = self._apply_group_nudges_to_overlay_bounds(
-            overlay_bounds_for_draw,
-            translations,
-            mapper.transform.scale,
-        )
-        trace_helper = self._group_trace_helper(report_overlay_bounds, commands)
-        trace_helper()
-        for key, labels in transform_candidates.items():
-            plugin_label, suffix_label = labels
+
+        for key, _labels in transform_candidates.items():
             report_bounds = report_overlay_bounds.get(key)
             if report_bounds is None or not report_bounds.is_valid():
+                self._group_log_pending_transform.pop(key, None)
                 continue
-            width_t = report_bounds.max_x - report_bounds.min_x
-            height_t = report_bounds.max_y - report_bounds.min_y
-            group_transform = transform_by_group.get(key)
-            offset_x, offset_y = offsets_by_group.get(key, (0.0, 0.0))
-            anchor_token = "nw"
-            justification_token = "left"
-            if group_transform is not None:
-                anchor_token = (getattr(group_transform, "anchor_token", "nw") or "nw").strip().lower()
-                raw_just = getattr(group_transform, "payload_justification", "") or "left"
-                justification_token = raw_just.strip().lower() if isinstance(raw_just, str) else "left"
-            nudge_x, nudge_y = translations.get(key, (0, 0))
-            nudged = bool(nudge_x or nudge_y)
+            transform_payload = cache_transform_payloads.get(key)
+            if transform_payload is None:
+                continue
             transform_tuple = (
                 report_bounds.min_x,
                 report_bounds.min_y,
                 report_bounds.max_x,
                 report_bounds.max_y,
             )
-            transform_payload = {
-                "plugin": plugin_label,
-                "suffix": suffix_label,
-                "min_x": report_bounds.min_x,
-                "min_y": report_bounds.min_y,
-                "max_x": report_bounds.max_x,
-                "max_y": report_bounds.max_y,
-                "width": width_t,
-                "height": height_t,
-                "anchor": anchor_token,
-                "justification": justification_token,
-                "nudge_dx": nudge_x,
-                "nudge_dy": nudge_y,
-                "nudged": nudged,
-                "offset_dx": offset_x,
-                "offset_dy": offset_y,
-            }
-            cache_transform_payloads[key] = dict(transform_payload)
             pending_payload = self._group_log_pending_transform.get(key)
             pending_tuple = pending_payload.get("bounds_tuple") if pending_payload else None
             last_logged = self._logged_group_transforms.get(key)
@@ -3116,42 +2989,27 @@ class OverlayWindow(QWidget):
                 if key not in self._group_log_pending_base:
                     base_snapshot = latest_base_payload.get(key)
                     if base_snapshot is not None:
-                        self._group_log_pending_base[key] = base_snapshot
-                    delay_target = now_monotonic if self._payload_log_delay <= 0.0 else now_monotonic + self._payload_log_delay
-                    self._group_log_next_allowed[key] = delay_target
+                        self._group_log_pending_base[key] = dict(base_snapshot)
+                delay_target = (
+                    now_monotonic
+                    if self._payload_log_delay <= 0.0
+                    else (now_monotonic or 0.0) + self._payload_log_delay
+                )
+                self._group_log_next_allowed[key] = delay_target
+
         self._update_group_cache_from_payloads(cache_base_payloads, cache_transform_payloads)
         self._flush_group_log_entries(active_group_keys)
-        self._legacy_render_cache = {
-            "commands": commands,
-            "anchor_translation_by_group": anchor_translation_by_group,
-            "translations": translations,
-            "overlay_bounds_for_draw": overlay_bounds_for_draw,
-            "overlay_bounds_base": overlay_bounds_base,
-            "report_overlay_bounds": report_overlay_bounds,
-            "transform_by_group": transform_by_group,
-        }
-        self._legacy_cache_signature = signature
-        self._legacy_cache_dirty = False
-        return self._legacy_render_cache
 
-    def _paint_legacy(self, painter: QPainter) -> None:
-        self._cycle_anchor_points = {}
-        mapper = self._compute_legacy_mapper()
-        signature = self._legacy_render_signature(mapper)
-        cache = self._legacy_render_cache
-        if cache is None or self._legacy_cache_dirty or signature != self._legacy_cache_signature:
-            cache = self._rebuild_legacy_render_cache(mapper, signature)
-        if cache is None:
-            return
-
-        commands = cache.get("commands") or []
-        anchor_translation_by_group = cache.get("anchor_translation_by_group") or {}
-        translations = cache.get("translations") or {}
-        overlay_bounds_for_draw = cache.get("overlay_bounds_for_draw") or {}
-        overlay_bounds_base = cache.get("overlay_bounds_base") or {}
-        report_overlay_bounds = cache.get("report_overlay_bounds") or {}
-        transform_by_group = cache.get("transform_by_group") or {}
-
+    def _maybe_collect_debug_helpers(
+        self,
+        commands: Sequence[Any],
+        overlay_bounds_for_draw: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+        overlay_bounds_base: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+        transform_by_group: Mapping[Tuple[str, Optional[str]], Optional[GroupTransform]],
+        translations: Mapping[Tuple[str, Optional[str]], Tuple[int, int]],
+        report_overlay_bounds: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+        mapper: LegacyMapper,
+    ) -> None:
         collect_debug_helpers = self._dev_mode_enabled and self._debug_config.group_bounds_outline
         if collect_debug_helpers:
             final_bounds_map = overlay_bounds_for_draw if overlay_bounds_for_draw else overlay_bounds_base
@@ -3166,6 +3024,19 @@ class OverlayWindow(QWidget):
             self._debug_group_bounds_final = {}
             self._debug_group_state = {}
 
+    def _render_commands(
+        self,
+        painter: QPainter,
+        commands: Sequence[Any],
+        anchor_translation_by_group: Mapping[Tuple[str, Optional[str]], Tuple[float, float]],
+        translations: Mapping[Tuple[str, Optional[str]], Tuple[int, int]],
+        overlay_bounds_for_draw: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+        overlay_bounds_base: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+        report_overlay_bounds: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+        transform_by_group: Mapping[Tuple[str, Optional[str]], Optional[GroupTransform]],
+        mapper: LegacyMapper,
+    ) -> None:
+        collect_debug_helpers = self._dev_mode_enabled and self._debug_config.group_bounds_outline
         window_width = max(self.width(), 0)
         window_height = max(self.height(), 0)
         draw_vertex_markers = self._dev_mode_enabled and self._debug_config.payload_vertex_markers
@@ -3228,7 +3099,7 @@ class OverlayWindow(QWidget):
         overlay_bounds_by_group: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
         effective_anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         transform_by_group: Dict[Tuple[str, Optional[str]], Optional[GroupTransform]] = {}
-        for item_id, legacy_item in self._legacy_items.items():
+        for item_id, legacy_item in self._payload_model.store.items():
             group_key = self._grouping_helper.group_key_for(item_id, legacy_item.plugin)
             group_transform = self._grouping_helper.get_transform(group_key)
             transform_by_group[group_key.as_tuple()] = group_transform
@@ -4776,15 +4647,17 @@ class OverlayWindow(QWidget):
             if tracker_ratio:
                 tracker_line += f" ({tracker_ratio})"
             monitor_lines.append(tracker_line)
-        if self._wm_authoritative_rect is not None and self._wm_override_classification is not None:
-            rect = self._wm_authoritative_rect
+        override_rect = self._follow_controller.wm_override
+        override_class = self._follow_controller.wm_override_classification
+        if override_rect is not None and override_class is not None:
+            rect = override_rect
             monitor_lines.append(
                 "  wm_rect=({},{}) {}x{} [{}]".format(
                     rect[0],
                     rect[1],
                     rect[2],
                     rect[3],
-                    self._wm_override_classification,
+                    override_class,
                 )
             )
 

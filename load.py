@@ -911,25 +911,26 @@ class _PluginRuntime:
             self._on_log_retention_changed()
 
     def _start_watchdog(self) -> bool:
-        overlay_script = self._locate_overlay_client()
-        if not overlay_script:
+        overlay_root = self._locate_overlay_client()
+        if not overlay_root:
             _log("Overlay client not found; watchdog disabled")
             return False
         launch_env = self._build_overlay_environment()
         python_command = self._locate_overlay_python(launch_env)
         if python_command is None:
             _log(
-                "Overlay client environment not found. Create overlay-client/.venv (or set EDMC_OVERLAY_PYTHON) and restart EDMC Modern Overlay."
+                "Overlay client environment not found. Create overlay_client/.venv (or set EDMC_OVERLAY_PYTHON) and restart EDMC Modern Overlay."
             )
             LOGGER.error(
-                "Overlay launch aborted: no overlay Python interpreter available under overlay-client/.venv or EDMC_OVERLAY_PYTHON."
+                "Overlay launch aborted: no overlay Python interpreter available under overlay_client/.venv or EDMC_OVERLAY_PYTHON."
             )
             return False
-        command = [*python_command, str(overlay_script)]
+        command = [*python_command, "-m", "overlay_client.overlay_client"]
+        overlay_cwd = overlay_root.parent
         LOGGER.debug(
             "Attempting to start overlay client via watchdog: command=%s cwd=%s",
             command,
-            overlay_script.parent,
+            overlay_cwd,
         )
         platform_context = self._platform_context_payload()
         LOGGER.debug(
@@ -941,7 +942,7 @@ class _PluginRuntime:
         )
         self.watchdog = OverlayWatchdog(
             command,
-            overlay_script.parent,
+            overlay_cwd,
             log=_log,
             debug_log=LOGGER.debug,
             capture_output=self._capture_enabled(),
@@ -953,13 +954,12 @@ class _PluginRuntime:
 
     def _locate_overlay_client(self) -> Optional[Path]:
         candidates = [
-            self.plugin_dir / "overlay-client" / "overlay_client.py",
-            self.plugin_dir / "overlay_client.py",
-            self.plugin_dir.parent / "overlay-client" / "overlay_client.py",
-            Path(__file__).resolve().parent / "overlay-client" / "overlay_client.py",
+            self.plugin_dir / "overlay_client",
+            self.plugin_dir.parent / "overlay_client",
+            Path(__file__).resolve().parent / "overlay_client",
         ]
         for candidate in candidates:
-            if candidate.exists():
+            if candidate.is_dir() and (candidate / "overlay_client.py").exists():
                 return candidate
         return None
 
@@ -1325,7 +1325,7 @@ class _PluginRuntime:
             return candidate
         raise RuntimeError(
             "No Python interpreter available to launch the Overlay Controller. "
-            "Create overlay-client/.venv or set EDMC_OVERLAY_CONTROLLER_PYTHON."
+            "Create overlay_client/.venv or set EDMC_OVERLAY_CONTROLLER_PYTHON."
         )
 
     def _overlay_controller_launch_sequence(self) -> None:
@@ -2077,7 +2077,7 @@ class _PluginRuntime:
             if command:
                 return command
 
-        overlay_client_root = self.plugin_dir / "overlay-client"
+        overlay_client_root = self.plugin_dir / "overlay_client"
         venv_path = (
             overlay_client_root
             / ".venv"
@@ -2101,7 +2101,7 @@ class _PluginRuntime:
         if host_python is None:
             if not self._flatpak_host_warning_emitted:
                 LOGGER.warning(
-                    "Flatpak detected but no host Python interpreter found. Ensure overlay-client/.venv exists (or set EDMC_OVERLAY_HOST_PYTHON) with the overlay dependencies."
+                    "Flatpak detected but no host Python interpreter found. Ensure overlay_client/.venv exists (or set EDMC_OVERLAY_HOST_PYTHON) with the overlay dependencies."
                 )
                 self._flatpak_host_warning_emitted = True
             return None
@@ -2132,8 +2132,8 @@ class _PluginRuntime:
                 return str(override_path)
             LOGGER.debug("EDMC_OVERLAY_HOST_PYTHON=%s does not exist; ignoring override", override_path)
         candidate_dirs: Sequence[Path] = (
-            self.plugin_dir / "overlay-client" / ".venv" / "bin",
-            self.plugin_dir / "overlay-client" / ".venv" / "Scripts",
+            self.plugin_dir / "overlay_client" / ".venv" / "bin",
+            self.plugin_dir / "overlay_client" / ".venv" / "Scripts",
         )
         for directory in candidate_dirs:
             for name in ("python3", "python"):

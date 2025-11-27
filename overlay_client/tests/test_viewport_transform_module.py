@@ -10,9 +10,9 @@ OVERLAY_ROOT = Path(__file__).resolve().parents[1]
 if str(OVERLAY_ROOT) not in sys.path:
     sys.path.append(str(OVERLAY_ROOT))
 
-from group_transform import GroupTransform  # noqa: E402
-from viewport_helper import BASE_HEIGHT, BASE_WIDTH, ScaleMode, compute_viewport_transform  # noqa: E402
-from viewport_transform import (  # noqa: E402
+from overlay_client.group_transform import GroupTransform  # noqa: E402
+from overlay_client.viewport_helper import BASE_HEIGHT, BASE_WIDTH, ScaleMode, compute_viewport_transform  # noqa: E402
+from overlay_client.viewport_transform import (  # noqa: E402
     LegacyMapper,
     ViewportState,
     build_viewport,

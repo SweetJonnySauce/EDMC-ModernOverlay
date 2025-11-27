@@ -5,8 +5,8 @@ import math
 from dataclasses import dataclass
 from typing import Callable, Optional, Tuple
 
-from group_transform import GroupTransform
-from viewport_helper import ViewportTransform
+from overlay_client.group_transform import GroupTransform
+from overlay_client.viewport_helper import ViewportTransform
 
 
 @dataclass(frozen=True)

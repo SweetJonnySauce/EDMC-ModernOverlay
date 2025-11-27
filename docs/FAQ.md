@@ -35,7 +35,7 @@ EDMCModernOverlay/
 │   ├── overlay_watchdog.py         # Subprocess supervisor for the client
 │   ├── preferences.py              # myNotebook-backed settings panel
 │   └── requirements.txt            # Runtime dependency stub (stdlib today)
-├── overlay-client/                 # Stand-alone PyQt6 overlay process
+├── overlay_client/                 # Stand-alone PyQt6 overlay process
 │   ├── overlay_client.py           # Main window and socket bridge
 │   ├── client_config.py            # Bootstrap defaults and OverlayConfig parsing
 │   ├── platform_integration.py     # Window stacking/input helpers per platform
@@ -61,7 +61,7 @@ EDMCModernOverlay/
 - Plugin-owned timers are guarded by `_config_timer_lock`, keeping rebroadcast scheduling thread-safe across shutdowns and restarts.
 - Plugin state lives inside this directory. `Preferences` reads and writes `overlay_settings.json`, while developer-only toggles (payload mirroring, tracing, stdout/stderr capture) live in `debug.json` and are only honoured in dev builds.
 - Logging integrates with EDMC’s logger via `_EDMCLogHandler`; optional payload mirroring and stdout/stderr capture are controlled via `debug.json` and still emit additional detail only when EDMC logging is set to DEBUG.
-- The overlay client launches with the dedicated `overlay-client/.venv` interpreter (or an override via `EDMC_OVERLAY_PYTHON`), keeping EDMC’s bundled Python environment untouched.
+- The overlay client launches with the dedicated `overlay_client/.venv` interpreter (or an override via `EDMC_OVERLAY_PYTHON`), keeping EDMC’s bundled Python environment untouched.
 - Other plugins publish safely through `overlay_plugin.overlay_api.send_overlay_message`, which validates payload structure and size before handing messages to the broadcaster.
 - Platform-aware paths handle Windows-specific interpreter names and window flags while keeping Linux/macOS support intact.
 
@@ -73,7 +73,7 @@ Eurocaps ships with Elite: Dangerous, but its redistribution rights are tied to 
 
 ## Emoji characters show up as squares. How do I fix it?
 
-Source Sans 3 (the default HUD font) does not include emoji glyphs, so 📝 and friends render as tofu unless a fallback font is configured. Drop an emoji-capable font such as [Noto Color Emoji](https://github.com/googlefonts/noto-emoji) into `overlay-client/fonts/` and list it in `overlay-client/fonts/emoji_fallbacks.txt`. Each line can reference either a font file in that directory (`NotoColorEmoji.ttf`) or an installed family name (`Segoe UI Emoji`, `Twemoji Mozilla`, etc.). The overlay loads the fonts at startup and automatically falls back to the first family that contains the requested glyph, so messages published by plugins can freely include emoji once the font is available.
+Source Sans 3 (the default HUD font) does not include emoji glyphs, so 📝 and friends render as tofu unless a fallback font is configured. Drop an emoji-capable font such as [Noto Color Emoji](https://github.com/googlefonts/noto-emoji) into `overlay_client/fonts/` and list it in `overlay_client/fonts/emoji_fallbacks.txt`. Each line can reference either a font file in that directory (`NotoColorEmoji.ttf`) or an installed family name (`Segoe UI Emoji`, `Twemoji Mozilla`, etc.). The overlay loads the fonts at startup and automatically falls back to the first family that contains the requested glyph, so messages published by plugins can freely include emoji once the font is available.
 
 ## PowerShell says scripts are disabled. How do I run `install_windows.ps1`?
 
@@ -90,7 +90,7 @@ These options avoid permanently lowering your global execution-policy settings.
 
 Run these checks after the installer finishes (replace paths if you customised the plugin directory):
 
-- `Test-Path "$env:LOCALAPPDATA\EDMarketConnector\plugins\EDMCModernOverlay\overlay-client\.venv\Scripts\python.exe"`
+- `Test-Path "$env:LOCALAPPDATA\EDMarketConnector\plugins\EDMCModernOverlay\overlay_client\.venv\Scripts\python.exe"`
 - `Get-Content "$env:LOCALAPPDATA\EDMarketConnector\plugins\EDMCModernOverlay\port.json"` while EDMC is running the plugin.
 
 ## How does the overlay client pick up changes to preferences set in EDMC?
@@ -98,9 +98,9 @@ Run these checks after the installer finishes (replace paths if you customised t
 1. The EDMC preferences UI writes changes to `overlay_settings.json` and immediately calls back into the plugin runtime (`overlay_plugin/preferences.py`).
 2. Each setter in `_PluginRuntime` updates the in-memory preferences object and pushes an `OverlayConfig` payload through `_send_overlay_config` (`load.py`).
 3. The payload is broadcast to every connected socket client by the JSON-over-TCP server (`overlay_plugin/overlay_socket_server.py`).
-4. The PyQt overlay keeps a live connection, receiving each JSON line via `OverlayDataClient` (`overlay-client/overlay_client.py`).
-5. When the overlay window gets an `OverlayConfig` event in `_on_message`, it applies the updated opacity, scaling, grid, window size, log retention, and status flags immediately (`overlay-client/overlay_client.py`).
-6. On startup, the plugin rebroadcasts the current configuration a few times so newly launched clients always get the latest settings, and the client seeds its defaults from `overlay_settings.json` if no update has arrived yet (`load.py`, `overlay-client/overlay_client.py`).
+4. The PyQt overlay keeps a live connection, receiving each JSON line via `OverlayDataClient` (`overlay_client/overlay_client.py`).
+5. When the overlay window gets an `OverlayConfig` event in `_on_message`, it applies the updated opacity, scaling, grid, window size, log retention, and status flags immediately (`overlay_client/overlay_client.py`).
+6. On startup, the plugin rebroadcasts the current configuration a few times so newly launched clients always get the latest settings, and the client seeds its defaults from `overlay_settings.json` if no update has arrived yet (`load.py`, `overlay_client/overlay_client.py`).
 
 ## Why does the overlay stay visible when I alt‑tab out of Elite Dangerous on Windows?
 
@@ -119,10 +119,10 @@ When running under X11/Wayland the overlay lets the compositor manage its window
 
 Modern Overlay now ships with compositor-aware helpers and multiple fallbacks. The plugin publishes the detected session type/compositor in every `OverlayConfig` message, and all decisions are logged when EDMC logging is set to DEBUG. To get the most out of the Wayland path:
 
-- **wlroots compositors (Sway, Wayfire, Hyprland):** Install `pywayland>=0.4.15` inside `overlay-client/.venv` and ensure `swaymsg`/`hyprctl` are available on `PATH`. The client requests a layer-shell surface so the HUD stays above fullscreen apps and uses compositor-side input suppression.
+- **wlroots compositors (Sway, Wayfire, Hyprland):** Install `pywayland>=0.4.15` inside `overlay_client/.venv` and ensure `swaymsg`/`hyprctl` are available on `PATH`. The client requests a layer-shell surface so the HUD stays above fullscreen apps and uses compositor-side input suppression.
   ```bash
   cd /path/to/EDMCModernOverlay
-  source overlay-client/.venv/bin/activate
+  source overlay_client/.venv/bin/activate
   pip install pywayland
   # swaymsg/hyprctl live under /usr/bin after installing sway or hyprland.
   # Append /usr/bin to PATH (only if not already present):
@@ -134,7 +134,7 @@ Modern Overlay now ships with compositor-aware helpers and multiple fallbacks. T
 - **KDE Plasma (KWin):** Install `pydbus>=0.6.0` in the client venv so the overlay can talk to KWin’s DBus scripting API when toggling click-through behaviour.
   ```bash
   cd /path/to/EDMCModernOverlay
-  source overlay-client/.venv/bin/activate
+  source overlay_client/.venv/bin/activate
   pip install pydbus
   ```
 - **XWayland mode:** On Wayland sessions the overlay forces itself to launch under XWayland for compatibility. Keep this path in mind on GNOME Shell (Wayland), where native layer-shell hooks are not yet available; the overlay behaves like it does on X11 and stays pinned above Elite.

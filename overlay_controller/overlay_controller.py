@@ -609,13 +609,6 @@ class OffsetSelectorWidget(tk.Frame):
 
         if not self._enabled:
             return
-        if sys.platform.startswith("win"):
-            try:
-                root = self.winfo_toplevel()
-                if root is not None and hasattr(root, "_alt_active"):
-                    root._alt_active = False  # type: ignore[attr-defined]
-            except Exception:
-                pass
         if self._request_focus:
             try:
                 self._request_focus()
@@ -625,7 +618,17 @@ class OffsetSelectorWidget(tk.Frame):
             self.focus_set()
         except Exception:
             pass
+
         self.handle_key(direction, event)
+
+        # Clear any stale Alt flag after processing the click so Alt+click still pins.
+        if sys.platform.startswith("win"):
+            try:
+                root = self.winfo_toplevel()
+                if root is not None and hasattr(root, "_alt_active"):
+                    root._alt_active = False  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
     def on_focus_enter(self) -> None:
         if not self._enabled:
@@ -693,6 +696,24 @@ class OffsetSelectorWidget(tk.Frame):
         if not enabled:
             self._pinned.clear()
         self._apply_arrow_colors()
+
+    def clear_pins(self, axis: str | None = None) -> bool:
+        """Clear pinned highlights for the given axis ('x' or 'y') or both."""
+
+        removed = False
+        if axis == "x":
+            removed = bool(self._pinned.intersection({"left", "right"}))
+            self._pinned.difference_update({"left", "right"})
+        elif axis == "y":
+            removed = bool(self._pinned.intersection({"up", "down"}))
+            self._pinned.difference_update({"up", "down"})
+        else:
+            removed = bool(self._pinned)
+            self._pinned.clear()
+
+        if removed:
+            self._apply_arrow_colors()
+        return removed
 
 
 class JustificationWidget(tk.Frame):
@@ -2763,6 +2784,8 @@ class OverlayConfigApp(tk.Tk):
         if axis_token in ("y", ""):
             target_y = self._clamp_absolute_value(target_y, "y")
 
+        self._unpin_offset_if_moved(target_x, target_y)
+
         base_min_x, base_min_y, _, _ = snapshot.base_bounds
         new_offset_x = target_x - base_min_x
         new_offset_y = target_y - base_min_y
@@ -2775,6 +2798,19 @@ class OverlayConfigApp(tk.Tk):
 
         self._persist_offsets(selection, new_offset_x, new_offset_y, debounce_ms=self._offset_write_debounce_ms)
         self._refresh_current_group_snapshot(force_ui=True)
+
+    def _unpin_offset_if_moved(self, abs_x: float, abs_y: float) -> None:
+        widget = getattr(self, "offset_widget", None)
+        if widget is None:
+            return
+        tol = getattr(self, "_absolute_tolerance_px", 0.0) or 0.0
+        try:
+            if abs(abs_x - ABS_MIN_X) > tol and abs(abs_x - ABS_MAX_X) > tol:
+                widget.clear_pins(axis="x")
+            if abs(abs_y - ABS_MIN_Y) > tol and abs(abs_y - ABS_MAX_Y) > tol:
+                widget.clear_pins(axis="y")
+        except Exception:
+            pass
 
     def _handle_offset_changed(self, direction: str, pinned: bool) -> None:
         selection = self._get_current_group_selection()
@@ -2874,30 +2910,26 @@ class OverlayConfigApp(tk.Tk):
     def _resolve_pinned_anchor(self, current_anchor: str, direction: str) -> str:
         anchor = (current_anchor or "").lower()
         direction = (direction or "").lower()
-        mapping = {
-            ("ne", "down"): "se",
-            ("ne", "left"): "nw",
-            ("top", "right"): "ne",
-            ("top", "left"): "nw",
-            ("top", "down"): "bottom",
-            ("nw", "right"): "ne",
-            ("nw", "down"): "sw",
-            ("left", "up"): "nw",
-            ("left", "down"): "sw",
-            ("left", "right"): "right",
-            ("sw", "up"): "nw",
-            ("sw", "right"): "se",
-            ("bottom", "left"): "sw",
-            ("bottom", "right"): "se",
-            ("bottom", "up"): "top",
-            ("se", "left"): "sw",
-            ("se", "up"): "ne",
-            ("center", "up"): "top",
-            ("center", "left"): "left",
-            ("center", "down"): "bottom",
-            ("center", "right"): "right",
-        }
-        return mapping.get((anchor, direction), anchor)
+        horizontal, vertical = self._anchor_sides(anchor)
+
+        if direction in {"left", "right"}:
+            horizontal = direction
+        elif direction in {"up", "down"}:
+            vertical = "top" if direction == "up" else "bottom"
+
+        resolved = {
+            ("left", "top"): "nw",
+            ("center", "top"): "top",
+            ("right", "top"): "ne",
+            ("left", "center"): "left",
+            ("center", "center"): "center",
+            ("right", "center"): "right",
+            ("left", "bottom"): "sw",
+            ("center", "bottom"): "bottom",
+            ("right", "bottom"): "se",
+        }.get((horizontal, vertical))
+
+        return resolved or anchor
 
     def _expected_transformed_anchor(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
         bounds = snapshot.transform_bounds
