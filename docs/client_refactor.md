@@ -76,8 +76,8 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 8.1 | Refactor `_build_message_command`: extract calculation helpers (transforms, offsets, anchors, bounds) while keeping font metrics/painter setup in place; preserve logging/tracing. | Complete |
   | 8.2 | Refactor `_build_rect_command`: extract geometry/anchor/translation helpers, leaving pen/brush setup and painter interactions in place; preserve logging/tracing. | Complete |
   | 8.3 | Refactor `_build_vector_command`: extract point remap/anchor/bounds helpers, leaving payload assembly and painter interactions in place; preserve logging/tracing. | Complete |
-  | 8.4 | After each builder refactor, run full test suite and update logs/status. | In progress |
-  | 9 | After each refactor chunk, run full test suite and update logs/status. | Not started |
+  | 8.4 | After each builder refactor, run full test suite and update logs/status. | Complete |
+  | 9 | After each refactor chunk, run full test suite and update logs/status. | Complete |
 - **C.** Duplicate anchor/translation/justification workflows across the three builder methods (overlay_client/overlay_client.py:3411, :3623, :3851) risk behavioral drift; shared utilities would improve consistency.
 - **D.** Heavy coupling of calculation logic to Qt state (e.g., QFont/QFontMetrics usage in `_build_message_command` at overlay_client/overlay_client.py:3469) reduces testability; pure helpers would help.
 - **E.** Broad `except Exception` handlers in networking and cleanup paths (e.g., overlay_client/overlay_client.py:480, :454) silently swallow errors, hiding failures.
@@ -245,6 +245,16 @@ Substeps:
 - `make test` → passed (same totals).
 - `PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed (77 passed).
 - `python3 tests/run_resolution_tests.py --config tests/display_all.json` → not rerun in this stage (overlay process required).
+
+### Stage 9 quick summary (intent)
+- Goal: run the full test suite after the Stage 8 refactors and update logs/status.
+- Includes resolution test with overlay running.
+
+#### Stage 9 test log (latest)
+- `make check` → passed (`ruff`, `mypy`, `pytest`: 108 passed, 7 skipped).
+- `make test` → passed (same totals).
+- `PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed (77 passed).
+- `python3 tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay client running).
 
   Notes:
   - Perform refactor in small, behavior-preserving steps; avoid logic changes during extraction.
