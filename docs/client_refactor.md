@@ -51,8 +51,8 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 | 4.1 | Map non-UI helpers in `OverlayWindow` (follow/geometry math, payload builders, viewport/anchor/scale helpers) and mark target extractions. | Complete |
 | 4.2 | Extract follow/geometry calculation helpers into a module (no Qt types); wire `OverlayWindow` to use them; keep behavior unchanged. | Complete |
 | 4.3 | Extract payload builder helpers (`_build_message_command/_rect/_vector` calculations, anchor/justification/offset utils) into a module, leaving painter/UI hookup in `OverlayWindow`. | Complete |
-| 4.4 | Extract remaining pure utils (viewport/size/line width math) if still embedded. | Not started |
-| 4.5 | After each extraction chunk, run full test suite and update Stage 4 log/status. | In progress |
+| 4.4 | Extract remaining pure utils (viewport/size/line width math) if still embedded. | Complete |
+| 4.5 | After each extraction chunk, run full test suite and update Stage 4 log/status. | Complete |
   | 5 | Add/adjust unit tests in `overlay_client/tests` to cover extracted modules; run test suite and update any docs if behavior notes change. | In progress |
   | 5.1 | Add tests for `overlay_client/data_client.py` (queueing behavior and signal flow). | Complete |
   | 5.2 | Add tests for `overlay_client/paint_commands.py` (command rendering paths and vector adapter hooks). | Complete |
@@ -135,6 +135,16 @@ Substeps:
 #### Stage 4.3 status (complete)
 - Added `overlay_client/payload_builders.py` with `build_group_context` to centralize group anchor/translation math for message/rect/vector builders.
 - `OverlayWindow` now calls the helper for shared calculations, keeping Qt object creation and command construction local; behavior/logging preserved.
+
+#### Stage 4.4 quick summary (intent)
+- Goal: move remaining pure helpers (`_line_width`, `_legacy_preset_point_size`, `_current_physical_size`, `_aspect_ratio_label`, `_compute_legacy_mapper`, `_viewport_state` helpers) into a module, leaving Qt/UI wiring in `OverlayWindow`.
+- Keep signatures and behavior identical; only delegate calculations and defaults to helpers using primitive inputs.
+- Preserve logging and debug formatting; no changes to painter or widget interactions.
+- Touch points: new helper module under `overlay_client`, updated imports/wiring in `overlay_client.py`, docs/test log updates here.
+
+#### Stage 4.4 status (complete)
+- Added `overlay_client/window_utils.py` with helpers for physical size, aspect labels, mapper/state construction, legacy preset sizing, and line widths (primitive-only).
+- `OverlayWindow` now delegates to these helpers while keeping Qt/window handles local; method signatures unchanged.
 
 #### Stage 4 test log (latest)
 - `make check` → passed (`ruff`, `mypy`, `pytest`: 102 passed, 7 skipped).

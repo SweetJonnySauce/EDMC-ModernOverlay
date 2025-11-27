@@ -11,7 +11,6 @@ import os
 import sys
 import time
 from datetime import UTC, datetime
-from fractions import Fraction
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Set
@@ -61,7 +60,6 @@ from overlay_client.viewport_helper import (
     BASE_HEIGHT,
     BASE_WIDTH,
     ScaleMode,
-    compute_viewport_transform,
 )  # type: ignore  # noqa: E402
 from overlay_client.grouping_helper import FillGroupingHelper  # type: ignore  # noqa: E402
 from overlay_client.payload_justifier import JustificationRequest, calculate_offsets  # type: ignore  # noqa: E402
@@ -93,6 +91,14 @@ from overlay_client.follow_geometry import (  # type: ignore  # noqa: E402
     _apply_title_bar_offset,
     _convert_native_rect_to_qt,
     _resolve_wm_override,
+)
+from overlay_client.window_utils import (  # type: ignore  # noqa: E402
+    aspect_ratio_label as util_aspect_ratio_label,
+    compute_legacy_mapper as util_compute_legacy_mapper,
+    current_physical_size as util_current_physical_size,
+    legacy_preset_point_size as util_legacy_preset_point_size,
+    line_width as util_line_width,
+    viewport_state as util_viewport_state,
 )
 from overlay_client.viewport_transform import (  # type: ignore  # noqa: E402
     FillViewport,
@@ -436,8 +442,6 @@ class OverlayWindow(QWidget):
 
     def _current_physical_size(self) -> Tuple[float, float]:
         frame = self.frameGeometry()
-        width = max(frame.width(), 1)
-        height = max(frame.height(), 1)
         ratio = 1.0
         window = self.windowHandle()
         if window is not None:
@@ -445,55 +449,17 @@ class OverlayWindow(QWidget):
                 ratio = window.devicePixelRatio()
             except Exception:
                 ratio = 1.0
-        if ratio <= 0.0:
-            ratio = 1.0
-        return width * ratio, height * ratio
+        return util_current_physical_size(frame.width(), frame.height(), ratio)
 
     @staticmethod
     def _aspect_ratio_label(width: int, height: int) -> Optional[str]:
-        if width <= 0 or height <= 0:
-            return None
-        ratio = width / float(height)
-        known_ratios = (
-            ("32:9", 32 / 9),
-            ("21:9", 21 / 9),
-            ("18:9", 18 / 9),
-            ("16:10", 16 / 10),
-            ("16:9", 16 / 9),
-            ("3:2", 3 / 2),
-            ("4:3", 4 / 3),
-            ("5:4", 5 / 4),
-            ("1:1", 1.0),
-        )
-        for label, target in known_ratios:
-            if target <= 0:
-                continue
-            if abs(ratio - target) / target < 0.03:  # within ~3%
-                return label
-        frac = Fraction(width, height).limit_denominator(100)
-        return f"{frac.numerator}:{frac.denominator}"
+        return util_aspect_ratio_label(width, height)
 
     def _compute_legacy_mapper(self) -> LegacyMapper:
         width = max(float(self.width()), 1.0)
         height = max(float(self.height()), 1.0)
         mode_value = (self._scale_mode or "fit").strip().lower()
-        try:
-            mode_enum = ScaleMode(mode_value)
-        except ValueError:
-            mode_enum = ScaleMode.FIT
-        transform = compute_viewport_transform(width, height, mode_enum)
-        base_scale = max(transform.scale, 0.0)
-        scale_x = base_scale
-        scale_y = base_scale
-        offset_x = transform.offset[0]
-        offset_y = transform.offset[1]
-        return LegacyMapper(
-            scale_x=max(scale_x, 0.0),
-            scale_y=max(scale_y, 0.0),
-            offset_x=offset_x,
-            offset_y=offset_y,
-            transform=transform,
-        )
+        return util_compute_legacy_mapper(mode_value, width, height)
 
     def _viewport_state(self) -> ViewportState:
         width = max(float(self.width()), 1.0)
@@ -502,9 +468,7 @@ class OverlayWindow(QWidget):
             ratio = self.devicePixelRatioF()
         except Exception:
             ratio = 1.0
-        if ratio <= 0.0:
-            ratio = 1.0
-        return ViewportState(width=width, height=height, device_ratio=ratio)
+        return util_viewport_state(width, height, ratio)
 
     def _build_fill_viewport(
         self,
@@ -3021,23 +2985,14 @@ class OverlayWindow(QWidget):
 
     def _legacy_preset_point_size(self, preset: str, state: ViewportState, mapper: LegacyMapper) -> float:
         """Return the scaled font size for a legacy preset relative to normal."""
-        normal_point = viewport_scaled_point_size(
+        return util_legacy_preset_point_size(
+            preset,
             state,
-            10.0,
+            mapper,
             self._font_scale_diag,
             self._font_min_point,
             self._font_max_point,
-            mapper,
-            use_physical=True,
         )
-        offsets = {
-            "small": -2.0,
-            "normal": 0.0,
-            "large": 2.0,
-            "huge": 4.0,
-        }
-        target = normal_point + offsets.get(preset.lower(), 0.0)
-        return max(1.0, target)
 
     def _build_message_command(
         self,
@@ -4458,13 +4413,7 @@ class OverlayWindow(QWidget):
         return
 
     def _line_width(self, key: str) -> int:
-        default = _LINE_WIDTH_DEFAULTS.get(key, 1)
-        value = self._line_widths.get(key, default)
-        try:
-            width = int(round(float(value)))
-        except (TypeError, ValueError):
-            width = default
-        return max(0, width)
+        return util_line_width(self._line_widths, _LINE_WIDTH_DEFAULTS, key)
 
 def resolve_port_file(args_port: Optional[str]) -> Path:
     if args_port:
