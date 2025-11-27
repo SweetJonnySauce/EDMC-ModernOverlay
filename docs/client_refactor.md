@@ -5,6 +5,7 @@ This file tracks the ongoing refactor of `overlay_client.py` (and related module
 ## Refactoring rules
 - Before touching code for a stage, write a short (3-5 line) stage summary in this file outlining intent, expected touch points, and what should not change.
 - Always summarize the plan for a stage without making changes before proceeding.
+- Even if a request says “do/implement the step,” you still need to follow all rules above (plan, summary, tests, approvals).
 - Record which tests were run (and results) before marking a stage complete; if tests are skipped, note why and what to verify later.
 - If a step is not small enough to be safe, stop and ask for direction.
 - After each step is complete, run through all tests, update the plan here, and summarize what was done for the commit message.
@@ -41,8 +42,8 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 
   | Stage | Description | Status |
   | --- | --- | --- |
-  | 1 | Extract `OverlayDataClient` into `overlay_client/data_client.py` with unchanged public API (`start/stop/send_cli_payload`), own logger, and narrow signal surface. Import it back into `overlay_client.py`. | In progress (extracted and imported; tests passed except resolution tests blocked by missing overlay process) |
-  | 2 | Move paint command types (`_LegacyPaintCommand`, `_MessagePaintCommand`, `_RectPaintCommand`, `_VectorPaintCommand`) and `_QtVectorPainterAdapter` into `overlay_client/paint_commands.py`; keep signatures intact so `_paint_legacy` logic can stay as-is. | Not started |
+  | 1 | Extract `OverlayDataClient` into `overlay_client/data_client.py` with unchanged public API (`start/stop/send_cli_payload`), own logger, and narrow signal surface. Import it back into `overlay_client.py`. | Complete (extracted and imported; all documented tests passing, resolution run verified with overlay running) |
+  | 2 | Move paint command types (`_LegacyPaintCommand`, `_MessagePaintCommand`, `_RectPaintCommand`, `_VectorPaintCommand`) and `_QtVectorPainterAdapter` into `overlay_client/paint_commands.py`; keep signatures intact so `_paint_legacy` logic can stay as-is. | In progress (moved into `overlay_client/paint_commands.py`; tests passed except resolution run needs overlay running) |
   | 3 | Split platform and font helpers (`_initial_platform_context`, font resolution) into `overlay_client/platform_context.py` and `overlay_client/fonts.py`, keeping interfaces unchanged. | Not started |
   | 4 | Trim `OverlayWindow` to UI orchestration only; delegate pure calculations to extracted helpers. Update imports and ensure existing tests pass. | Not started |
   | 5 | Add/adjust unit tests in `overlay_client/tests` to cover extracted modules; run test suite and update any docs if behavior notes change. | Not started |
@@ -55,6 +56,18 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 
 #### Stage 1 test log (latest)
 - Created venv at `overlay_client/.venv` and installed `requirements/dev.txt`.
+- `make check` → passed (`ruff`, `mypy`, `pytest`: 91 passed, 7 skipped).
+- `make test` → passed (91 passed, 7 skipped).
+- `PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed (60 passed).
+- `python3 tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay client running; verified).
+
+### Stage 2 quick summary (intent)
+- Goal: move `_LegacyPaintCommand`, `_MessagePaintCommand`, `_RectPaintCommand`, `_VectorPaintCommand`, and `_QtVectorPainterAdapter` into `overlay_client/paint_commands.py` with no behavior change.
+- Keep signatures and call sites identical so `_paint_legacy` and related rendering paths remain unchanged.
+- `overlay_client.py` should only adjust imports/references; avoid touching rendering logic beyond the move.
+- Run full test set and record results after the extraction.
+
+#### Stage 2 test log (latest)
 - `make check` → passed (`ruff`, `mypy`, `pytest`: 91 passed, 7 skipped).
 - `make test` → passed (91 passed, 7 skipped).
 - `PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed (60 passed).
