@@ -1,7 +1,12 @@
 # Overlay Client Refactor Plan
 
-> This file tracks the ongoing refactor of `overlay_client.py` (and related modules) into smaller, testable components while preserving behavior and cross-platform support. Use it to rebuild context after interruptions: it summarizes what has been done and what remains. Keep an eye on safety: make sure the chunks of work are small enough that we can easily test them and back them out if needed, document the plan with additional steps if needed (1 row per step), and ensure testing is completed and clearly called out.
+This file tracks the ongoing refactor of `overlay_client.py` (and related modules) into smaller, testable components while preserving behavior and cross-platform support. Use it to rebuild context after interruptions: it summarizes what has been done and what remains. Keep an eye on safety: make sure the chunks of work are small enough that we can easily test them and back them out if needed, document the plan with additional steps if needed (1 row per step), and ensure testing is completed and clearly called out.
 
+## Refactoring rules
+- If a step is not small enough to be safe, stop and ask for direction.
+- After each step is complete, run through all tests, update the plan here, and summarize what was done for the commit message.
+- Each stage is uniquely numbered across all risks. Sub-steps will use dots. i.e. 2.1, 2.2, 2.2.1, 2.2.2
+- All substeps need to be completed or otherwise handled before the parent step can be complete or we can move on.
 
 ## Guiding traits for readable, maintainable code:
 - Clarity first: simple, direct logic; avoid clever tricks; prefer small functions with clear names.
