@@ -19,7 +19,7 @@ This document explains how a payload travels from EDMC into the Modern Overlay c
 
 ## 3. Overlay client intake
 
-1. `OverlayDataClient` reads payloads off the socket and forwards them to `OverlayWindow`.  
+1. `OverlayDataClient` reads payloads off the socket (`overlay_client/data_client.py`) and forwards them to `OverlayWindow`.  
 2. Modern-overlay payloads update the live state; legacy-formatted payloads (most third-party overlays) are sent to `_handle_legacy()`.  
 3. `_handle_legacy()` extracts `plugin`/`id`, applies overrides, emits `post_override` traces when tracing is enabled, and calls `process_legacy_payload()` with a trace callback.
 
