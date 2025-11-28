@@ -78,6 +78,12 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 11.5 | Wire `OverlayWindow` to the controller for follow orchestration; update imports; preserve logging. | Complete (bookkeeping; already wired) |
   | 11.6 | Add focused tests around controller logic (override adoption, visibility decisions, transient parent) to lock behavior. | Complete |
   | 12 | Split payload/group coordination (grouping, cache/nudge plumbing) into a coordinator module so `overlay_client.py` keeps only minimal glue and entrypoint. | Planned |
+  | 12.1 | Map grouping/cache/nudge seams and inputs/outputs across `overlay_client.py`, `group_cache`, and settings/CLI hooks; document current logging and Qt boundaries. | Planned |
+  | 12.2 | Define coordinator interface (pure, no Qt) owning group selection, cache updates, nudge/backoff decisions, and outbound payload batching; decide injected callbacks for logging/send/settings. | Planned |
+  | 12.3 | Scaffold coordinator module and initial focused tests to lock current behaviors (group adoption, cache read/write, nudge gating) without wiring changes. | Planned |
+  | 12.4 | Move non-Qt grouping/cache logic from `overlay_client.py` into the coordinator; preserve behavior/logging; adjust imports only. | Planned |
+  | 12.5 | Wire overlay client/window to use the coordinator via injected callbacks, keeping signal/slot behavior, logging, and threading assumptions unchanged. | Planned |
+  | 12.6 | Expand coordinator tests for edge cases (missing groups, stale cache, retry/nudge cadence); rerun full suite and resolution test; log results. | Planned |
 
 - **B.** Long, branchy methods with mixed concerns: `_build_vector_command` (overlay_client/overlay_client.py:3851-4105), `_build_rect_command` (overlay_client/overlay_client.py:3623-3849), `_build_message_command` (overlay_client/overlay_client.py:3411-3621), `_apply_follow_state` (overlay_client/overlay_client.py:2199-2393); need smaller helpers and clearer data flow.
 
