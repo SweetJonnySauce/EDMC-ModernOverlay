@@ -80,7 +80,7 @@ from overlay_client.paint_commands import (  # type: ignore  # noqa: E402
     _RectPaintCommand,
     _VectorPaintCommand,
 )
-from overlay_client.anchor_helpers import CommandContext, compute_justification_offsets  # type: ignore  # noqa: E402
+from overlay_client.anchor_helpers import CommandContext, compute_justification_offsets, build_baseline_bounds  # type: ignore  # noqa: E402
 from overlay_client.payload_builders import build_group_context  # type: ignore  # noqa: E402
 from overlay_client.follow_geometry import (  # type: ignore  # noqa: E402
     ScreenInfo,
@@ -3008,11 +3008,17 @@ class OverlayWindow(QWidget):
             if bounds is None or not bounds.is_valid():
                 continue
             base_bounds_map[key] = (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y)
+        overlay_bounds_map: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
+        for key, bounds in overlay_bounds_by_group.items():
+            if bounds is None or not bounds.is_valid():
+                continue
+            overlay_bounds_map[key] = (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y)
+        baseline_bounds = build_baseline_bounds(base_bounds_map, overlay_bounds_map)
 
         offset_map = compute_justification_offsets(
             command_contexts,
             transform_by_group,
-            base_bounds_map,
+            baseline_bounds,
             base_scale,
             trace_fn=_trace,
         )

@@ -110,6 +110,19 @@ def compute_justification_offsets(
     return offset_map
 
 
+def build_baseline_bounds(
+    base_overlay_bounds: Mapping[GroupKeyTuple, Tuple[float, float, float, float]],
+    overlay_bounds: Mapping[GroupKeyTuple, Tuple[float, float, float, float]],
+) -> Dict[GroupKeyTuple, Tuple[float, float, float, float]]:
+    """Return baseline bounds preferring base bounds and falling back to overlay bounds."""
+    baseline: Dict[GroupKeyTuple, Tuple[float, float, float, float]] = {}
+    for key, bounds in base_overlay_bounds.items():
+        baseline[key] = bounds
+    for key, bounds in overlay_bounds.items():
+        baseline.setdefault(key, bounds)
+    return baseline
+
+
 def _right_justification_delta(
     transform: Optional[GroupTransform],
     payload_min_x: Optional[float],

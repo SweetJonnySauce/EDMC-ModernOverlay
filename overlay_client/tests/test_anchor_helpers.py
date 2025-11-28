@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from overlay_client.anchor_helpers import CommandContext, compute_justification_offsets
+from overlay_client.anchor_helpers import (
+    CommandContext,
+    build_baseline_bounds,
+    compute_justification_offsets,
+)
 from overlay_client.group_transform import GroupTransform
 
 
@@ -112,3 +116,21 @@ def test_trace_emits_when_baseline_missing():
 
     assert offsets == {}
     assert any(stage == "justify:baseline_missing" for _, _, stage, _ in traces)
+
+
+def test_build_baseline_bounds_prefers_base():
+    base = {("plugin", "suf"): (0.0, 0.0, 10.0, 5.0)}
+    overlay = {("plugin", "suf"): (1.0, 1.0, 11.0, 6.0)}
+
+    result = build_baseline_bounds(base, overlay)
+
+    assert result[("plugin", "suf")] == (0.0, 0.0, 10.0, 5.0)
+
+
+def test_build_baseline_bounds_falls_back_to_overlay():
+    base = {}
+    overlay = {("plugin", "suf"): (2.0, 2.0, 12.0, 7.0)}
+
+    result = build_baseline_bounds(base, overlay)
+
+    assert result[("plugin", "suf")] == (2.0, 2.0, 12.0, 7.0)
