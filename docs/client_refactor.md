@@ -66,7 +66,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 10.1 | Map Qt vs. pure seams for `_compute_message/_rect/_vector_transform` and define the target pure module interface (inputs/outputs). | Complete (mapping documented; no code changes) |
   | 10.2 | Extract message transform calc to the pure module; leave font metrics/painter wiring in `OverlayWindow`; keep logging intact. | Complete |
   | 10.3 | Extract rect transform calc to the pure module; leave pen/brush/painter wiring in `OverlayWindow`; keep logging intact. | Complete |
-  | 10.4 | Extract vector transform calc to the pure module; keep screen-point conversion and command assembly local; preserve logging/guards. | Planned |
+  | 10.4 | Extract vector transform calc to the pure module; keep screen-point conversion and command assembly local; preserve logging/guards. | Complete |
   | 10.5 | Wire `OverlayWindow` to use the pure module for all three transforms; update imports and run staging tests. | Planned |
   | 10.6 | Add focused unit tests for the transform module to lock remap/anchor/translation behavior and guardrails (e.g., insufficient points). | Planned |
   | 11 | Extract follow/window orchestration (geometry application, WM overrides, transient parent/visibility) into a window-controller module to shrink `OverlayWindow`; keep Qt boundary localized. | Planned |
@@ -304,6 +304,16 @@ Substeps:
 - `_compute_rect_transform` in `OverlayWindow` now delegates to the pure helper; pen/brush/painter work and command assembly stay local; logging preserved.
 
 #### Stage 10.3 test log (latest)
+- `make check` → passed (`ruff`, `mypy`, `pytest`: 108 passed, 7 skipped).
+- `make test` → passed (same totals).
+- `PYQT_TESTS=1 python -m pytest overlay_client/tests` → covered in the above `pytest` run (PYQT_TESTS set).
+- `python3 tests/run_resolution_tests.py --config tests/display_all.json` → not rerun in this stage (overlay process required).
+
+### Stage 10.4 quick summary (status)
+- Added `compute_vector_transform` to `overlay_client/transform_helpers.py` (pure math/remap/bounds/anchor with optional trace callback); preserves insufficient-point guard.
+- `_compute_vector_transform` now delegates to the pure helper; screen-point conversion and command assembly remain in `OverlayWindow`; logging preserved.
+
+#### Stage 10.4 test log (latest)
 - `make check` → passed (`ruff`, `mypy`, `pytest`: 108 passed, 7 skipped).
 - `make test` → passed (same totals).
 - `PYQT_TESTS=1 python -m pytest overlay_client/tests` → covered in the above `pytest` run (PYQT_TESTS set).

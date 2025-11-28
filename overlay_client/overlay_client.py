@@ -67,7 +67,6 @@ from overlay_client.payload_transform import (
     build_payload_transform_context,
     PayloadTransformContext,
     remap_axis_value,
-    remap_vector_points,
     transform_components,
 )  # type: ignore  # noqa: E402
 from overlay_client.platform_context import _initial_platform_context  # type: ignore  # noqa: E402
@@ -94,6 +93,7 @@ from overlay_client.transform_helpers import (  # type: ignore  # noqa: E402
     apply_inverse_group_scale as util_apply_inverse_group_scale,
     compute_message_transform as util_compute_message_transform,
     compute_rect_transform as util_compute_rect_transform,
+    compute_vector_transform as util_compute_vector_transform,
 )
 from overlay_client.window_utils import (  # type: ignore  # noqa: E402
     aspect_ratio_label as util_aspect_ratio_label,
@@ -718,176 +718,31 @@ class OverlayWindow(QWidget):
         Optional[float],
         Optional[Callable[[str, Mapping[str, Any]], None]],
     ]:
-        raw_min_x: Optional[float] = None
-        for point in raw_points:
-            if not isinstance(point, Mapping):
-                continue
-            try:
-                px = float(point.get("x", 0.0))
-            except (TypeError, ValueError):
-                continue
-            if raw_min_x is None or px < raw_min_x:
-                raw_min_x = px
-        translation_dx = base_translation_dx
-        translation_dy = base_translation_dy
-        justification_delta = 0.0
-        if mapper.transform.mode is ScaleMode.FILL and raw_min_x is not None:
-            if trace_enabled:
-                self._log_legacy_trace(
-                    plugin_name,
-                    item_id,
-                    "paint:vector_translation",
-                    {
-                        "base_translation_dx": base_translation_dx,
-                        "base_translation_dy": base_translation_dy,
-                        "right_justification_delta": justification_delta,
-                        "applied_translation_dx": translation_dx,
-                        "raw_min_x": raw_min_x,
-                    },
-                )
-        base_offset_x = fill.base_offset_x
-        base_offset_y = fill.base_offset_y
-        if trace_enabled and not collect_only:
-            self._log_legacy_trace(
-                plugin_name,
-                item_id,
-                "paint:scale_factors",
-                {
-                    "scale": fill.scale,
-                    "offset_x": base_offset_x,
-                    "offset_y": base_offset_y,
-                    "mode": mapper.transform.mode.value,
-                },
-            )
-            self._log_legacy_trace(
-                plugin_name,
-                item_id,
-                "paint:raw_points",
-                {"points": raw_points},
-            )
-        transformed_points: List[Mapping[str, Any]] = []
-        remapped = remap_vector_points(fill, transform_meta, raw_points, context=transform_context)
-        if offset_x or offset_y:
-            remapped = [
-                (ox + offset_x, oy + offset_y, original_point)
-                for ox, oy, original_point in remapped
-            ]
-        overlay_min_x = float("inf")
-        overlay_min_y = float("inf")
-        overlay_max_x = float("-inf")
-        overlay_max_y = float("-inf")
-        base_overlay_min_x = float("inf")
-        base_overlay_min_y = float("inf")
-        base_overlay_max_x = float("-inf")
-        base_overlay_max_y = float("-inf")
-        for ox, oy, original_point in remapped:
-            if mapper.transform.mode is ScaleMode.FILL:
-                ox, oy = self._apply_inverse_group_scale(
-                    ox,
-                    oy,
-                    anchor_for_transform,
-                    base_anchor_point or anchor_for_transform,
-                    fill,
-                )
-                base_ox = ox
-                base_oy = oy
-                ox += translation_dx
-                oy += translation_dy
-            else:
-                base_ox = ox
-                base_oy = oy
-            new_point = dict(original_point)
-            new_point["x"] = ox
-            new_point["y"] = oy
-            if ox < overlay_min_x:
-                overlay_min_x = ox
-            if ox > overlay_max_x:
-                overlay_max_x = ox
-            if oy < overlay_min_y:
-                overlay_min_y = oy
-            if oy > overlay_max_y:
-                overlay_max_y = oy
-            if base_ox < base_overlay_min_x:
-                base_overlay_min_x = base_ox
-            if base_ox > base_overlay_max_x:
-                base_overlay_max_x = base_ox
-            if base_oy < base_overlay_min_y:
-                base_overlay_min_y = base_oy
-            if base_oy > base_overlay_max_y:
-                base_overlay_max_y = base_oy
-            transformed_points.append(new_point)
-        effective_anchor: Optional[Tuple[float, float]] = None
-        if mapper.transform.mode is ScaleMode.FILL and selected_anchor is not None:
-            transformed_anchor = self._apply_inverse_group_scale(
-                selected_anchor[0],
-                selected_anchor[1],
-                anchor_for_transform,
-                base_anchor_point or anchor_for_transform,
-                fill,
-            )
-            effective_anchor = (
-                transformed_anchor[0] + translation_dx,
-                transformed_anchor[1] + translation_dy,
-            )
-        if len(transformed_points) < 2:
-            return None, [], None, None, None, raw_min_x, None
-        vector_payload: Mapping[str, Any] = {
-            "base_color": item_data.get("base_color"),
-            "points": transformed_points,
-        }
-        trace_fn = None
+        trace_fn: Optional[Callable[[str, Mapping[str, Any]], None]]
         if trace_enabled:
             def trace_fn(stage: str, details: Mapping[str, Any]) -> None:
                 self._log_legacy_trace(plugin_name, item_id, stage, details)
-
-        screen_points: List[Tuple[int, int]] = []
-        for point in transformed_points:
-            try:
-                mapped_x = float(point.get("x", 0.0)) * fill.scale + base_offset_x
-                mapped_y = float(point.get("y", 0.0)) * fill.scale + base_offset_y
-            except (TypeError, ValueError):
-                continue
-            px = int(round(mapped_x))
-            py = int(round(mapped_y))
-            screen_points.append((px, py))
-
-        overlay_bounds: Optional[Tuple[float, float, float, float]]
-        if (
-            math.isfinite(overlay_min_x)
-            and math.isfinite(overlay_max_x)
-            and math.isfinite(overlay_min_y)
-            and math.isfinite(overlay_max_y)
-            and overlay_min_x <= overlay_max_x
-            and overlay_min_y <= overlay_max_y
-        ):
-            overlay_bounds = (overlay_min_x, overlay_min_y, overlay_max_x, overlay_max_y)
         else:
-            overlay_bounds = None
-        if (
-            math.isfinite(base_overlay_min_x)
-            and math.isfinite(base_overlay_max_x)
-            and math.isfinite(base_overlay_min_y)
-            and math.isfinite(base_overlay_max_y)
-            and base_overlay_min_x <= base_overlay_max_x
-            and base_overlay_min_y <= base_overlay_max_y
-        ):
-            base_overlay_bounds = (
-                base_overlay_min_x,
-                base_overlay_min_y,
-                base_overlay_max_x,
-                base_overlay_max_y,
-            )
-        else:
-            base_overlay_bounds = None
-
-        return (
-            vector_payload,
-            screen_points,
-            overlay_bounds,
-            base_overlay_bounds,
-            effective_anchor,
-            raw_min_x,
+            trace_fn = None
+        return util_compute_vector_transform(
+            plugin_name,
+            item_id,
+            fill,
+            transform_context,
+            transform_meta,
+            mapper,
+            group_transform,
+            item_data,
+            raw_points,
+            offset_x,
+            offset_y,
+            selected_anchor,
+            base_anchor_point,
+            anchor_for_transform,
+            base_translation_dx,
+            base_translation_dy,
             trace_fn,
+            collect_only,
         )
 
     def _update_message_font(self) -> None:
