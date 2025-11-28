@@ -67,7 +67,6 @@ from overlay_client.payload_transform import (
     build_payload_transform_context,
     PayloadTransformContext,
     remap_axis_value,
-    remap_rect_points,
     remap_vector_points,
     transform_components,
 )  # type: ignore  # noqa: E402
@@ -94,6 +93,7 @@ from overlay_client.follow_geometry import (  # type: ignore  # noqa: E402
 from overlay_client.transform_helpers import (  # type: ignore  # noqa: E402
     apply_inverse_group_scale as util_apply_inverse_group_scale,
     compute_message_transform as util_compute_message_transform,
+    compute_rect_transform as util_compute_rect_transform,
 )
 from overlay_client.window_utils import (  # type: ignore  # noqa: E402
     aspect_ratio_label as util_aspect_ratio_label,
@@ -660,79 +660,34 @@ class OverlayWindow(QWidget):
         Optional[Tuple[float, float, float, float]],
         Optional[Tuple[float, float]],
     ]:
+        trace_fn: Optional[Callable[[str, Mapping[str, Any]], None]]
         if trace_enabled and not collect_only:
-            self._log_legacy_trace(
-                plugin_name,
-                item_id,
-                "paint:rect_input",
-                {
-                    "x": raw_x,
-                    "y": raw_y,
-                    "w": raw_w,
-                    "h": raw_h,
-                    "scale": fill.scale,
-                    "offset_x": fill.base_offset_x,
-                    "offset_y": fill.base_offset_y,
-                    "mode": mapper.transform.mode.value,
-                },
-            )
-        transformed_overlay = remap_rect_points(fill, transform_meta, raw_x, raw_y, raw_w, raw_h, context=transform_context)
-        if offset_x or offset_y:
-            transformed_overlay = [
-                (px + offset_x, py + offset_y)
-                for px, py in transformed_overlay
-            ]
-        base_overlay_points: List[Tuple[float, float]] = []
-        reference_overlay_bounds: Optional[Tuple[float, float, float, float]] = None
-        effective_anchor: Optional[Tuple[float, float]] = None
-        if mapper.transform.mode is ScaleMode.FILL:
-            transformed_overlay = [
-                self._apply_inverse_group_scale(px, py, anchor_for_transform, base_anchor_point or anchor_for_transform, fill)
-                for px, py in transformed_overlay
-            ]
-            base_overlay_points = [tuple(pt) for pt in transformed_overlay]
-            if base_overlay_points:
-                base_xs = [pt[0] for pt in base_overlay_points]
-                base_ys = [pt[1] for pt in base_overlay_points]
-                reference_overlay_bounds = (
-                    min(base_xs) + base_translation_dx,
-                    min(base_ys) + base_translation_dy,
-                    max(base_xs) + base_translation_dx,
-                    max(base_ys) + base_translation_dy,
-                )
-            translation_dx = base_translation_dx
-            if trace_enabled and not collect_only:
-                self._log_legacy_trace(
-                    plugin_name,
-                    item_id,
-                    "paint:rect_translation",
-                    {
-                        "base_translation_dx": base_translation_dx,
-                        "base_translation_dy": base_translation_dy,
-                        "right_justification_delta": 0.0,
-                        "applied_translation_dx": translation_dx,
-                    },
-                )
-            if translation_dx or base_translation_dy:
-                transformed_overlay = [
-                    (px + translation_dx, py + base_translation_dy)
-                    for px, py in transformed_overlay
-                ]
-            if selected_anchor is not None:
-                transformed_anchor = self._apply_inverse_group_scale(
-                    selected_anchor[0],
-                    selected_anchor[1],
-                    anchor_for_transform,
-                    base_anchor_point or anchor_for_transform,
-                    fill,
-                )
-                effective_anchor = (
-                    transformed_anchor[0] + translation_dx,
-                    transformed_anchor[1] + base_translation_dy,
-                )
+            def trace_fn(stage: str, details: Mapping[str, Any]) -> None:
+                self._log_legacy_trace(plugin_name, item_id, stage, details)
         else:
-            base_overlay_points = [tuple(pt) for pt in transformed_overlay]
-        return transformed_overlay, base_overlay_points, reference_overlay_bounds, effective_anchor
+            trace_fn = None
+        return util_compute_rect_transform(
+            plugin_name,
+            item_id,
+            fill,
+            transform_context,
+            transform_meta,
+            mapper,
+            group_transform,
+            raw_x,
+            raw_y,
+            raw_w,
+            raw_h,
+            offset_x,
+            offset_y,
+            selected_anchor,
+            base_anchor_point,
+            anchor_for_transform,
+            base_translation_dx,
+            base_translation_dy,
+            trace_fn,
+            collect_only,
+        )
 
     def _compute_vector_transform(
         self,
