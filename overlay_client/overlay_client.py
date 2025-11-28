@@ -87,7 +87,6 @@ from overlay_client.follow_geometry import (  # type: ignore  # noqa: E402
     _apply_aspect_guard,
     _apply_title_bar_offset,
     _convert_native_rect_to_qt,
-    _resolve_wm_override,
 )
 from overlay_client.transform_helpers import (  # type: ignore  # noqa: E402
     apply_inverse_group_scale as util_apply_inverse_group_scale,
@@ -95,6 +94,7 @@ from overlay_client.transform_helpers import (  # type: ignore  # noqa: E402
     compute_rect_transform as util_compute_rect_transform,
     compute_vector_transform as util_compute_vector_transform,
 )
+from overlay_client.window_controller import WindowController  # type: ignore  # noqa: E402
 from overlay_client.window_utils import (  # type: ignore  # noqa: E402
     aspect_ratio_label as util_aspect_ratio_label,
     compute_legacy_mapper as util_compute_legacy_mapper,
@@ -301,6 +301,7 @@ class OverlayWindow(QWidget):
             self._platform_context.compositor or "unknown",
             self._platform_context.force_xwayland,
         )
+        self._window_controller = WindowController(log_fn=_CLIENT_LOGGER.debug)
         self._title_bar_enabled: bool = bool(getattr(initial, "title_bar_enabled", False))
         self._title_bar_height: int = self._coerce_non_negative(getattr(initial, "title_bar_height", 0), default=0)
         self._last_title_bar_offset: int = 0
@@ -2096,60 +2097,26 @@ class OverlayWindow(QWidget):
         override_rect = self._follow_controller.wm_override
         override_tracker = self._follow_controller.wm_override_tracker
         override_expired = self._follow_controller.override_expired()
-        target_tuple, clear_override_reason = _resolve_wm_override(
-            tracker_qt_tuple,
-            desired_tuple,
-            override_rect,
-            override_tracker,
-            override_expired,
-        )
-        if clear_override_reason:
-            self._clear_wm_override(reason=clear_override_reason)
 
-        target_rect = QRect(*target_tuple)
-        current_rect = self.frameGeometry()
-        actual_tuple = (
-            current_rect.x(),
-            current_rect.y(),
-            current_rect.width(),
-            current_rect.height(),
-        )
-
-        if target_tuple != self._last_geometry_log:
-            _CLIENT_LOGGER.debug(
-                "Calculated overlay geometry: target=%s; %s",
-                target_tuple,
-                self.format_scale_debug(),
-            )
-
-        needs_geometry_update = actual_tuple != target_tuple
-
-        if needs_geometry_update:
-            _CLIENT_LOGGER.debug("Applying geometry via setGeometry: target=%s; %s", target_tuple, self.format_scale_debug())
-            self._move_to_screen(target_rect)
-            self._last_set_geometry = target_tuple
-            self.setGeometry(target_rect)
-            self._sync_base_dimensions_to_widget()
-            self.raise_()
+        def _current_geometry() -> Tuple[int, int, int, int]:
             current_rect = self.frameGeometry()
-            actual_tuple = (
+            return (
                 current_rect.x(),
                 current_rect.y(),
                 current_rect.width(),
                 current_rect.height(),
             )
-        else:
-            self._last_set_geometry = target_tuple
-            self._sync_base_dimensions_to_widget()
 
-        if actual_tuple != target_tuple:
-            _CLIENT_LOGGER.debug(
-                "Window manager override detected: actual=%s target=%s; %s",
-                actual_tuple,
-                target_tuple,
-                self.format_scale_debug(),
-            )
-            classification = self._classify_geometry_override(target_tuple, actual_tuple)
+        def _move_to_screen(target: Tuple[int, int, int, int]) -> None:
+            self._move_to_screen(QRect(*target))
+
+        def _set_geometry(target: Tuple[int, int, int, int]) -> None:
+            self._last_set_geometry = target
+            self.setGeometry(QRect(*target))
+            self.raise_()
+
+        def _classify_override(target: Tuple[int, int, int, int], actual: Tuple[int, int, int, int]) -> str:
+            classification = self._classify_geometry_override(target, actual)
             if classification == "layout":
                 try:
                     size_hint = self.sizeHint()
@@ -2162,7 +2129,7 @@ class OverlayWindow(QWidget):
                 _CLIENT_LOGGER.debug(
                     "Adopting layout-constrained geometry from WM: tracker=%s actual=%s sizeHint=%s minimumSizeHint=%s",
                     tracker_qt_tuple,
-                    actual_tuple,
+                    actual,
                     size_hint,
                     min_hint,
                 )
@@ -2170,19 +2137,26 @@ class OverlayWindow(QWidget):
                 _CLIENT_LOGGER.debug(
                     "Adopting WM authoritative geometry: tracker=%s actual=%s (classification=%s)",
                     tracker_qt_tuple,
-                    actual_tuple,
+                    actual,
                     classification,
                 )
-            self._set_wm_override(
-                actual_tuple,
-                tracker_qt_tuple,
-                reason="geometry mismatch",
-                classification=classification,
-            )
-            target_tuple = actual_tuple
-            target_rect = QRect(*target_tuple)
-        elif override_rect and tracker_qt_tuple == target_tuple:
-            self._clear_wm_override(reason="tracker matched actual")
+            return classification
+
+        target_tuple = self._window_controller.resolve_and_apply_geometry(
+            tracker_qt_tuple,
+            desired_tuple,
+            override_rect=override_rect,
+            override_tracker=override_tracker,
+            override_expired=override_expired,
+            current_geometry_fn=_current_geometry,
+            move_to_screen_fn=_move_to_screen,
+            set_geometry_fn=_set_geometry,
+            sync_base_dimensions_fn=self._sync_base_dimensions_to_widget,
+            classify_override_fn=_classify_override,
+            clear_override_fn=self._clear_wm_override,
+            set_override_fn=self._set_wm_override,
+            format_scale_debug_fn=self.format_scale_debug,
+        )
 
         self._last_geometry_log = target_tuple
         return target_tuple

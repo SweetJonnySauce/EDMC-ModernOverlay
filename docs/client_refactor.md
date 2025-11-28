@@ -70,10 +70,10 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 10.4 | Extract vector transform calc to the pure module; keep screen-point conversion and command assembly local; preserve logging/guards. | Complete |
   | 10.5 | Wire `OverlayWindow` to use the pure module for all three transforms; update imports and run staging tests. | Complete (bookkeeping/tests only; wiring already done) |
   | 10.6 | Add focused unit tests for the transform module to lock remap/anchor/translation behavior and guardrails (e.g., insufficient points). | Complete |
-  | 11 | Extract follow/window orchestration (geometry application, WM overrides, transient parent/visibility) into a window-controller module to shrink `OverlayWindow`; keep Qt boundary localized. | Planned |
+  | 11 | Extract follow/window orchestration (geometry application, WM overrides, transient parent/visibility) into a window-controller module to shrink `OverlayWindow`; keep Qt boundary localized. | In progress |
   | 11.1 | Map follow/window orchestration seams (what stays Qt-bound vs. pure) and define target controller interface/state handoff. | Complete (mapping only; no code changes) |
   | 11.2 | Create window-controller module scaffold with pure methods/structs; leave `OverlayWindow` behavior unchanged. | Complete (scaffold only; no wiring) |
-  | 11.3 | Move geometry application/WM override resolution (setGeometry/move-to-screen/classification) into the controller; keep Qt calls contained. | Planned |
+  | 11.3 | Move geometry application/WM override resolution (setGeometry/move-to-screen/classification) into the controller; keep Qt calls contained. | Complete |
   | 11.4 | Move visibility/transient-parent/fullscreen-hint handling into the controller; keep Qt calls contained. | Planned |
   | 11.5 | Wire `OverlayWindow` to the controller for follow orchestration; update imports; preserve logging. | Planned |
   | 11.6 | Add focused tests around controller logic (override adoption, visibility decisions, transient parent) to lock behavior. | Planned |
@@ -362,6 +362,17 @@ Substeps:
 
 #### Stage 11.2 test log (latest)
 - Not run (scaffold only; no behavior change).
+
+### Stage 11.3 quick summary (status)
+- Implemented geometry/WM override orchestration in `WindowController.resolve_and_apply_geometry` (pure; uses injected callbacks for Qt operations and logging); preserved override resolution flow.
+- `_resolve_and_apply_geometry` now delegates to the controller with callbacks for move/set geometry, classification logging, and WM override bookkeeping; behavior/logging preserved.
+- Fixed regression risk: `_last_set_geometry` is now updated before `setGeometry` via the controller callback to prevent resizeEvent from reverting to stale sizes during follow updates.
+
+#### Stage 11.3 test log (latest)
+- `make check` → passed (`ruff`, `mypy`, `pytest`: 114 passed, 7 skipped).
+- `make test` → passed (same totals).
+- `PYQT_TESTS=1 python -m pytest overlay_client/tests` → covered in the above `pytest` run (PYQT_TESTS set).
+- `python3 tests/run_resolution_tests.py --config tests/display_all.json` → not rerun in this stage (overlay process required).
 
   Notes:
   - Perform refactor in small, behavior-preserving steps; avoid logic changes during extraction.
