@@ -15,6 +15,7 @@ This file tracks the ongoing refactor of `overlay_client.py` (and related module
 - When all sub-steps for a parent stage are complete, re-check the code (not just this doc) to verify the parent is truly done, then mark the parent complete.
 - Only mark a stage/substage “Complete” after a stage-specific code change or new tests are added and validated; if no code/tests are needed, explicitly note why in the summary before marking complete.
 - After finishing any stage/substep, update the table row and the Stage summary/test results section (with tests run) before considering it done; missing documentation means the stage is still incomplete.
+- If the code for a substage landed in an earlier substage, explicitly note that in the substage summary before marking it complete.
 - If a step is not small enough to be safe, stop and ask for direction.
 - After each step is complete, run through all tests, update the plan here, and summarize what was done for the commit message.
 - Each stage is uniquely numbered across all risks. Sub-steps will use dots. i.e. 2.1, 2.2, 2.2.1, 2.2.2
@@ -144,23 +145,30 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | Stage | Description | Status |
   | --- | --- | --- |
   | 19 | Replace broad exception catches with scoped handling/logging in networking/cleanup paths; surface actionable errors while keeping UI stable. | Planned |
+
+  | Substage | Description | Status |
+  | --- | --- | --- |
+  | 19.1 | Inventory broad exception handlers (networking/cleanup) and classify desired scoped exceptions/logging. | Complete |
+  | 19.2 | Refactor handlers to scoped exceptions with meaningful logging/action; avoid silent swallow. | Planned |
+  | 19.3 | Add tests (unit/integration) to ensure scoped handling/logging fires for targeted failures. | Planned |
+  | 19.4 | Rerun full suite (including PYQT_TESTS/resolution) to confirm stability. | Planned |
 - **G.** Text measurement/painter work remains Qt-bound in `overlay_client.py`; without an injectable seam, it’s harder to headlessly validate font metrics/regression and observe measurement drift.
 
   | Stage | Description | Status |
   | --- | --- | --- |
-  | 18 | Introduce an injectable text-measurement seam (pure callable) for message/rect builders, add headless coverage around measurements, and keep Qt-bound painter setup at the boundary. | Planned |
+  | 18 | Introduce an injectable text-measurement seam (pure callable) for message/rect builders, add headless coverage around measurements, and keep Qt-bound painter setup at the boundary. | Complete |
 
   | Substage | Description | Status |
   | --- | --- | --- |
   | 18.1 | Map current text measurement touch points (message width/height, rect text metrics if any) and define seam interface and injection points. | Complete |
   | 18.2 | Implement injectable text-measurement callable (pure), provide default Qt-backed implementation at the boundary. | Complete |
-  | 18.3 | Wire builders to use the injected measurer while keeping painter/QFont setup at call sites; ensure logging/trace unaffected. | Planned |
-  | 18.4 | Add headless tests using a fake measurer to lock widths/heights and detect drift; rerun full suite and resolution tests via venv. | Planned |
+  | 18.3 | Wire builders to use the injected measurer while keeping painter/QFont setup at call sites; ensure logging/trace unaffected. | Complete |
+  | 18.4 | Add headless tests using a fake measurer to lock widths/heights and detect drift; rerun full suite and resolution tests via venv. | Complete |
 - **F.** Justification baseline availability relies on base bounds; when missing we silently fall back to max width, which can mask drift across mixed-width payloads.
 
   | Stage | Description | Status |
   | --- | --- | --- |
-  | 16 | Mitigate justification baseline fallback risk by instrumenting missing baselines, ensuring builders provide base bounds where possible, and locking behavior with tests. | Planned |
+  | 16 | Mitigate justification baseline fallback risk by instrumenting missing baselines, ensuring builders provide base bounds where possible, and locking behavior with tests. | Complete |
 
   | Substage | Description | Status |
   | --- | --- | --- |
@@ -667,11 +675,18 @@ Substeps:
 
 ### Stage 18 quick summary (status)
 - Goal: add an injectable, pure text-measurement seam for message/rect builders so we can headlessly validate font metrics and detect drift while keeping painter/QFont usage at the boundary.
-- Status: In progress (18.2 complete; wiring/tests remain).
+- Status: Complete (18.1–18.4 done).
 
 ### Stage 18.2 quick summary (status)
 - Added injectable text measurer: `_text_measurer` hook and `_measure_text` helper return width/ascent/descent; default remains Qt-based via `QFontMetrics`, with a setter to inject a pure measurer.
 - Message builder now uses the helper for widths/heights; behavior unchanged with default measurer.
+
+### Stage 18.3 quick summary (status)
+- Wired message builder to the injected measurer; `_measure_text` now supplies width/ascent/descent for payload assembly while keeping painter/QFont setup at the boundary. Default measurer remains Qt-based; injection hook supports headless measurers. Note: the wiring change landed alongside 18.2 when the helper was added.
+
+### Stage 18.4 quick summary (status)
+- Added headless test for the injected measurer to ensure width/ascent/descent come from the hook even without Qt; confirms parameters passed through for drift detection. Default measurer remains Qt-based.
+- Reran full suite (ruff/mypy/pytest, PYQT_TESTS subset, resolution) with the venv; all passing.
 
 #### Stage 18 test log (latest)
 - `source overlay_client/.venv/bin/activate && make check` → passed.
@@ -679,9 +694,17 @@ Substeps:
 - `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
 - `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (payload replay/resolution sweep completed).
 
-### Stage 18 quick summary (intent)
+### Stage 19 quick summary (intent)
 - Goal: replace broad `except Exception` handlers in networking/cleanup with scoped handling/logging to surface actionable errors while keeping UI stable.
 - Status: Planned; no code/tests yet.
+
+### Stage 19.1 quick summary (mapping)
+- Broad catches identified in `overlay_client/overlay_client.py` networking/cleanup paths (e.g., early connect/backoff/error handling around line ~454/480) currently swallow all `Exception` with minimal logging.
+- Desired: scope to expected errors (socket errors, JSON decode issues, cancellation), log with actionable context, and let unexpected exceptions surface or be re-raised after logging.
+- Tests to target these handlers will be added in later substages.
+
+#### Stage 19.1 test log (latest)
+- Not run (documentation/mapping only).
 
 ### Stage 13.1 quick summary (mapping)
 - Current transform helper tests cover: inverse group scale basic; message transform offsets/translation without anchors/remap; rect transform inverse scale + translation in fill mode; vector insufficient points guard; vector basic offsets/bounds with trace.
