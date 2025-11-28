@@ -38,10 +38,7 @@ class GroupCoordinator:
         """Resolve a group key using overrides when present."""
 
         if override_manager is not None:
-            try:
-                override_key = override_manager.grouping_key_for(plugin_name, item_id)
-            except Exception:
-                override_key = None
+            override_key = override_manager.grouping_key_for(plugin_name, item_id)
             if override_key is not None:
                 plugin_label, suffix = override_key
                 plugin_token = (plugin_label or plugin_name or "unknown").strip() or "unknown"
@@ -126,8 +123,6 @@ class GroupCoordinator:
             "base_max_x": self._cache_safe_float(payload.get("max_x")),
             "base_max_y": self._cache_safe_float(payload.get("max_y")),
             "has_transformed": bool(payload.get("has_transformed", False)),
-            "offset_x": self._cache_safe_float(payload.get("offset_x")),
-            "offset_y": self._cache_safe_float(payload.get("offset_y")),
         }
 
     def _transformed_cache_payload(self, payload: Mapping[str, Any]) -> Dict[str, Any]:

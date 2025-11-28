@@ -455,7 +455,7 @@ Substeps:
 
 #### Stage 12.6 test log (latest)
 - `python3 -m pytest overlay_client/tests/test_group_coordinator.py` → passed (6 tests).
-- Full suite and resolution test not rerun here (PyQt6 unavailable); rerun when environment provides PyQt6.
+- `python3 -m pytest overlay_client/tests` → fails at collection (PyQt6 missing for Qt-dependent tests); rerun full suite and resolution test once PyQt6 is available.
 
 ### Stage 12 overall status
 - All substeps (12.1–12.6) completed: coordinator scaffolded, cache/nudge logic delegated, group key resolution wired, and coordinator edge cases covered by tests.

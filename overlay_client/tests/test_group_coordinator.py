@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from overlay_client.group_coordinator import GroupCoordinator, ScreenBounds
 
 
@@ -96,8 +98,6 @@ def test_update_cache_normalizes_payloads():
         "base_max_x": 0.0,
         "base_max_y": 6.789,
         "has_transformed": True,
-        "offset_x": 1.222,
-        "offset_y": 3.457,
     }
     assert transformed == {
         "trans_min_x": -5.444,
@@ -158,9 +158,9 @@ def test_compute_group_nudges_skips_invalid_bounds_and_handles_vertical_overflow
     assert translations == {("plug", "good"): (0, 50)}
 
 
-def test_resolve_group_key_falls_back_on_override_error():
+def test_resolve_group_key_propagates_override_error():
     overrides = _StubOverrideManager({"boom": RuntimeError("fail")})
     coordinator = GroupCoordinator()
 
-    key = coordinator.resolve_group_key("boom", "base_plugin", overrides)
-    assert key.as_tuple() == ("base_plugin", "item:boom")
+    with pytest.raises(RuntimeError):
+        coordinator.resolve_group_key("boom", "base_plugin", overrides)
