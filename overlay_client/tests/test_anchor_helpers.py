@@ -134,3 +134,47 @@ def test_build_baseline_bounds_falls_back_to_overlay():
     result = build_baseline_bounds(base, overlay)
 
     assert result[("plugin", "suf")] == (2.0, 2.0, 12.0, 7.0)
+
+
+def test_mixed_widths_with_baseline_and_fallback():
+    key = ("plugin", "suffix")
+    transform_by_group = {key: GroupTransform(bounds_min_x=0.0, payload_justification="center")}
+    base_overlay_bounds = {key: (0.0, 0.0, 200.0, 10.0)}
+    overlay_bounds = {key: (0.0, 0.0, 100.0, 10.0)}
+    commands = [
+        CommandContext(
+            identifier=1,
+            key=key,
+            bounds=(0.0, 0.0, 100.0, 10.0),
+            raw_min_x=None,
+            right_just_multiplier=0,
+            justification="center",
+            suffix="s",
+            plugin="plugin",
+            item_id="id1",
+        ),
+        CommandContext(
+            identifier=2,
+            key=key,
+            bounds=(0.0, 0.0, 50.0, 10.0),
+            raw_min_x=None,
+            right_just_multiplier=0,
+            justification="center",
+            suffix="s",
+            plugin="plugin",
+            item_id="id2",
+        ),
+    ]
+    baseline = build_baseline_bounds(base_overlay_bounds, overlay_bounds)
+
+    offsets = compute_justification_offsets(
+        commands,
+        transform_by_group,
+        baseline,
+        base_scale=1.0,
+        trace_fn=None,
+    )
+
+    # Baseline comes from base bounds (width 200); offsets are (200-100)/2 and (200-50)/2.
+    assert offsets[1] == 50.0
+    assert offsets[2] == 75.0

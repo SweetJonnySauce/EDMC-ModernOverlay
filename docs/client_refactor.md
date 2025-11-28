@@ -147,7 +147,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 16.1 | Map baseline sources per builder (message/rect/vector) and identify where base bounds are omitted in collect/trace paths. | Complete |
   | 16.2 | Instrument missing-baseline paths with trace/log hooks (guarded) to surface fallback usage without changing behavior. | Complete |
   | 16.3 | Ensure builders supply base bounds where available (including collect-only) to stabilize baseline calculations. | Complete |
-  | 16.4 | Add tests for mixed-width groups with/without baselines to lock current/fixed behavior; rerun full suite and resolution tests via venv. | Planned |
+  | 16.4 | Add tests for mixed-width groups with/without baselines to lock current/fixed behavior; rerun full suite and resolution tests via venv. | Complete |
 
 ----
 # Stage Summary and Test results
@@ -594,6 +594,16 @@ Substeps:
 - `_apply_payload_justification` now uses the helper to feed `compute_justification_offsets`, reducing silent fallback to max-width and stabilizing deltas across payload types; unit tests cover preference and fallback.
 
 #### Stage 16.3 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (payload replay/resolution sweep completed).
+
+### Stage 16.4 quick summary (status)
+- Added mixed-width justification test to assert baseline preference (base vs. overlay) and resulting offsets; locks behavior when base bounds are present and fallbacks exist.
+- Full suite rerun with venv/PyQt6, including resolution tests, to validate no regressions across payload types.
+
+#### Stage 16.4 test log (latest)
 - `source overlay_client/.venv/bin/activate && make check` → passed.
 - `source overlay_client/.venv/bin/activate && make test` → passed.
 - `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
