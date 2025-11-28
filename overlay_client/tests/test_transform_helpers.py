@@ -8,6 +8,7 @@ from overlay_client.transform_helpers import (
     compute_rect_transform,
     compute_vector_transform,
 )
+from overlay_client.payload_transform import build_payload_transform_context
 from overlay_client.viewport_helper import ScaleMode, ViewportTransform
 from overlay_client.viewport_transform import FillAxisMapping, FillViewport, LegacyMapper, ViewportState
 
@@ -216,6 +217,45 @@ def test_compute_rect_transform_fill_mode_applies_inverse_and_translation():
     assert any(call[0] == "paint:rect_translation" for call in calls)
 
 
+def test_compute_rect_transform_with_anchor_and_reference_bounds():
+    fill = _fill(scale=1.0, base_offset_x=3.0, base_offset_y=4.0)
+    mapper = _mapper(scale=1.0, mode=ScaleMode.FIT)
+    calls, trace = _trace_recorder()
+    transform_context = build_payload_transform_context(fill)
+    transformed, base_points, ref_bounds, anchor = compute_rect_transform(
+        "plugin",
+        "item",
+        fill,
+        transform_context=transform_context,
+        transform_meta={"pivot": {"x": 1.0, "y": 2.0}, "offset": {"x": 1.0, "y": -1.0}},
+        mapper=mapper,
+        group_transform=None,
+        raw_x=2.0,
+        raw_y=3.0,
+        raw_w=4.0,
+        raw_h=5.0,
+        offset_x=0.5,
+        offset_y=1.0,
+        selected_anchor=(3.0, 4.0),
+        base_anchor_point=(3.0, 4.0),
+        anchor_for_transform=(3.0, 4.0),
+        base_translation_dx=0.0,
+        base_translation_dy=0.0,
+        trace_fn=trace,
+        collect_only=False,
+    )
+    assert anchor is None
+    assert base_points == [(3.5, 3.0), (7.5, 3.0), (3.5, 8.0), (7.5, 8.0)]
+    assert ref_bounds is None
+    assert transformed == [
+        (3.5, 3.0),
+        (7.5, 3.0),
+        (3.5, 8.0),
+        (7.5, 8.0),
+    ]
+    assert any(stage == "paint:rect_input" for stage, _ in calls)
+
+
 def test_compute_vector_transform_guard_insufficient_points():
     fill = _fill(scale=1.0)
     mapper = _mapper(scale=1.0, mode=ScaleMode.FIT)
@@ -283,3 +323,39 @@ def test_compute_vector_transform_basic_points_and_bounds():
     assert raw_min_x == 0.0
     assert trace_cb is not None
     assert any(call[0] == "paint:raw_points" for call in calls)
+
+
+def test_compute_vector_transform_with_anchor_translation_and_bounds():
+    fill = _fill(scale=1.0, base_offset_x=0.5, base_offset_y=0.5)
+    mapper = _mapper(scale=1.0, mode=ScaleMode.FILL)
+    calls, trace = _trace_recorder()
+    vector_payload, screen_points, overlay_bounds, base_overlay_bounds, effective_anchor, raw_min_x, trace_cb = compute_vector_transform(
+        "plugin",
+        "item",
+        fill,
+        transform_context=None,
+        transform_meta={"offset": {"x": 1.0, "y": -1.0}},
+        mapper=mapper,
+        group_transform=None,
+        item_data={"base_color": "#fff"},
+        raw_points=[{"x": 1, "y": 1}, {"x": 3, "y": 4}],
+        offset_x=2.0,
+        offset_y=-1.0,
+        selected_anchor=(2.0, 2.0),
+        base_anchor_point=(2.0, 2.0),
+        anchor_for_transform=(2.0, 2.0),
+        base_translation_dx=1.0,
+        base_translation_dy=-2.0,
+        trace_fn=trace,
+        collect_only=False,
+    )
+    assert vector_payload is not None
+    assert vector_payload["points"][0]["x"] == 5.0 and vector_payload["points"][0]["y"] == -3.0
+    assert vector_payload["points"][1]["x"] == 7.0 and vector_payload["points"][1]["y"] == 0.0
+    assert screen_points == [(6, -2), (8, 0)]
+    assert overlay_bounds == (5.0, -3.0, 7.0, 0.0)
+    assert base_overlay_bounds == (4.0, -1.0, 6.0, 2.0)
+    assert effective_anchor == (3.0, 0.0)
+    assert raw_min_x == 1.0
+    assert trace_cb is not None
+    assert any(stage == "paint:raw_points" for stage, _ in calls)

@@ -104,9 +104,9 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 13 | Add unit tests for transform helpers (message/rect/vector) covering anchor/remap/translation paths and guardrails (e.g., insufficient points return `None`). | Planned |
   | 13.1 | Inventory existing transform helper coverage and define scenarios for anchors/remap/translation and guardrails (vector-point insufficiency, non-finite values). | Complete (mapping only; no code/tests) |
   | 13.2 | Add message transform helper tests (anchors, offsets, inverse scaling, translation) with trace callbacks asserting payload fields. | Complete |
-  | 13.3 | Add rect transform helper tests for offsets/anchors/translation and base/reference bounds propagation. | Planned |
-  | 13.4 | Add vector transform helper tests covering point remap, anchor translation, bounds accumulation, and insufficient-point guard returning `None`. | Planned |
-  | 13.5 | Run full test suite (including PYQT_TESTS and resolution) and log results after additions. | Planned |
+  | 13.3 | Add rect transform helper tests for offsets/anchors/translation and base/reference bounds propagation. | Complete |
+  | 13.4 | Add vector transform helper tests covering point remap, anchor translation, bounds accumulation, and insufficient-point guard returning `None`. | Complete |
+  | 13.5 | Run full test suite (including PYQT_TESTS and resolution) and log results after additions. | Complete |
   | 14 | Add unit tests for follow-state helpers (`_normalise_tracker_geometry`, `_resolve_and_apply_geometry`, `_post_process_follow_state`) to lock behavior before further extractions. | Planned |
 - **C.** Duplicate anchor/translation/justification workflows across the three builder methods (overlay_client/overlay_client.py:3411, :3623, :3851) risk behavioral drift; shared utilities would improve consistency.
  
@@ -488,6 +488,28 @@ Substeps:
 
 #### Stage 13.2 test log (latest)
 - `overlay_client/.venv/bin/python -m pytest overlay_client/tests/test_transform_helpers.py` → passed (7 tests).
+
+### Stage 13.3 quick summary (status)
+- Added rect transform test covering anchor-aware inputs with transform_meta remap, asserting base/reference bounds and translation logging remain consistent (no production changes).
+
+#### Stage 13.3 test log (latest)
+- `overlay_client/.venv/bin/python -m pytest overlay_client/tests/test_transform_helpers.py` → passed (8 tests).
+
+### Stage 13.4 quick summary (status)
+- Added vector transform test covering remap + anchor translation, bounds accumulation, and trace callback path; guardrails for insufficient points already covered earlier.
+- Tests only; no production changes.
+
+#### Stage 13.4 test log (latest)
+- `overlay_client/.venv/bin/python -m pytest overlay_client/tests/test_transform_helpers.py` → passed (9 tests).
+
+### Stage 13.5 quick summary (status)
+- Full suite rerun after transform helper test additions with venv PyQt6: lint/typecheck/pytest, PYQT_TESTS, and resolution tests all passing.
+
+#### Stage 13.5 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (payload replay/resolution sweep completed).
 
   Notes:
   - Perform refactor in small, behavior-preserving steps; avoid logic changes during extraction.
