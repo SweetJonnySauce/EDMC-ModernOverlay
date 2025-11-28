@@ -16,6 +16,7 @@ This file tracks the ongoing refactor of `overlay_client.py` (and related module
 - Each stage is uniquely numbered across all risks. Sub-steps will use dots. i.e. 2.1, 2.2, 2.2.1, 2.2.2
 - All substeps need to be completed or otherwise handled before the parent step can be complete or we can move on.
 - If you find areas that need more unit tests, add them in to the update.
+- If a stage is bookkeeping-only (no code changes), call that out explicitly in the status/summary.
 
 ## Guiding traits for readable, maintainable code:
 - Clarity first: simple, direct logic; avoid clever tricks; prefer small functions with clear names.
@@ -67,8 +68,8 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 10.2 | Extract message transform calc to the pure module; leave font metrics/painter wiring in `OverlayWindow`; keep logging intact. | Complete |
   | 10.3 | Extract rect transform calc to the pure module; leave pen/brush/painter wiring in `OverlayWindow`; keep logging intact. | Complete |
   | 10.4 | Extract vector transform calc to the pure module; keep screen-point conversion and command assembly local; preserve logging/guards. | Complete |
-  | 10.5 | Wire `OverlayWindow` to use the pure module for all three transforms; update imports and run staging tests. | Planned |
-  | 10.6 | Add focused unit tests for the transform module to lock remap/anchor/translation behavior and guardrails (e.g., insufficient points). | Planned |
+  | 10.5 | Wire `OverlayWindow` to use the pure module for all three transforms; update imports and run staging tests. | Complete (bookkeeping/tests only; wiring already done) |
+  | 10.6 | Add focused unit tests for the transform module to lock remap/anchor/translation behavior and guardrails (e.g., insufficient points). | Complete |
   | 11 | Extract follow/window orchestration (geometry application, WM overrides, transient parent/visibility) into a window-controller module to shrink `OverlayWindow`; keep Qt boundary localized. | Planned |
   | 12 | Split payload/group coordination (grouping, cache/nudge plumbing) into a coordinator module so `overlay_client.py` keeps only minimal glue and entrypoint. | Planned |
 
@@ -315,6 +316,26 @@ Substeps:
 
 #### Stage 10.4 test log (latest)
 - `make check` → passed (`ruff`, `mypy`, `pytest`: 108 passed, 7 skipped).
+- `make test` → passed (same totals).
+- `PYQT_TESTS=1 python -m pytest overlay_client/tests` → covered in the above `pytest` run (PYQT_TESTS set).
+- `python3 tests/run_resolution_tests.py --config tests/display_all.json` → not rerun in this stage (overlay process required).
+
+### Stage 10.5 quick summary (status)
+- All three transform helpers now come from `overlay_client/transform_helpers.py`; `OverlayWindow` uses them via injected trace callbacks, keeping Qt/painter wiring local.
+- Imports cleaned; util helpers now the single path for message/rect/vector calculations.
+
+#### Stage 10.5 test log (latest)
+- `make check` → passed (`ruff`, `mypy`, `pytest`: 108 passed, 7 skipped).
+- `make test` → passed (same totals).
+- `PYQT_TESTS=1 python -m pytest overlay_client/tests` → covered in the above `pytest` run (PYQT_TESTS set).
+- `python3 tests/run_resolution_tests.py --config tests/display_all.json` → not rerun in this stage (overlay process required).
+
+### Stage 10.6 quick summary (status)
+- Added `overlay_client/tests/test_transform_helpers.py` covering `apply_inverse_group_scale`, and message/rect/vector transform helpers (offsets, inverse scaling/translation, bounds, insufficient-point guard, trace callbacks).
+- Ensures pure helpers behave consistently before further refactors.
+
+#### Stage 10.6 test log (latest)
+- `make check` → passed (`ruff`, `mypy`, `pytest`: 114 passed, 7 skipped).
 - `make test` → passed (same totals).
 - `PYQT_TESTS=1 python -m pytest overlay_client/tests` → covered in the above `pytest` run (PYQT_TESTS set).
 - `python3 tests/run_resolution_tests.py --config tests/display_all.json` → not rerun in this stage (overlay process required).
