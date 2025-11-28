@@ -64,6 +64,42 @@ def _trace_recorder():
     return calls, trace
 
 
+def _remap_context(scale_x: float, scale_y: float, offset_x: float, offset_y: float) -> Any:
+    transform = ViewportTransform(
+        mode=ScaleMode.FILL,
+        scale=1.0,
+        offset=(0.0, 0.0),
+        scaled_size=(1280.0, 960.0),
+        overflow_x=False,
+        overflow_y=False,
+    )
+    mapper = LegacyMapper(
+        scale_x=1.0,
+        scale_y=1.0,
+        offset_x=0.0,
+        offset_y=0.0,
+        transform=transform,
+    )
+    fill = FillViewport(
+        scale=1.0,
+        base_offset_x=offset_x,
+        base_offset_y=offset_y,
+        visible_width=100.0,
+        visible_height=80.0,
+        overflow_x=False,
+        overflow_y=False,
+        axis_x=FillAxisMapping(),
+        axis_y=FillAxisMapping(),
+        band_min_x=0.0,
+        band_max_x=0.0,
+        band_min_y=0.0,
+        band_max_y=0.0,
+        band_anchor_x=0.0,
+        band_anchor_y=0.0,
+    )
+    return mapper, fill, scale_x, scale_y, offset_x, offset_y
+
+
 def test_apply_inverse_group_scale_scales_rel_to_anchor():
     fill = _fill(scale=2.0)
     anchor = (10.0, 10.0)
@@ -109,6 +145,41 @@ def test_compute_message_transform_basic_offsets_and_translation():
     assert anchor is None
     assert (dx, dy) == (3.0, 4.0)
     assert ("paint:message_input", {"x": 10.0, "y": 20.0, "scale": 1.0, "offset_x": 5.0, "offset_y": 7.0, "mode": "fit"}) in calls
+
+
+def test_compute_message_transform_with_anchor_and_inverse_scale_remap():
+    mapper, fill, scale_x_meta, scale_y_meta, offset_x_meta, offset_y_meta = _remap_context(
+        scale_x=2.0, scale_y=2.0, offset_x=4.0, offset_y=6.0
+    )
+    transform_meta = {"scale": {"x": scale_x_meta, "y": scale_y_meta}, "offset": {"x": offset_x_meta, "y": offset_y_meta}}
+    calls, trace = _trace_recorder()
+    adjusted_left, adjusted_top, base_left, base_top, anchor, dx, dy = compute_message_transform(
+        "plugin",
+        "item",
+        fill,
+        transform_context=None,
+        transform_meta=transform_meta,
+        mapper=mapper,
+        group_transform=None,
+        overlay_bounds_hint=None,
+        raw_left=2.0,
+        raw_top=4.0,
+        offset_x=1.0,
+        offset_y=1.0,
+        selected_anchor=(2.0, 3.0),
+        base_anchor_point=(2.0, 3.0),
+        anchor_for_transform=(2.0, 3.0),
+        base_translation_dx=0.0,
+        base_translation_dy=0.0,
+        trace_fn=trace,
+        collect_only=False,
+    )
+    # Remap applies scale/offset meta around the anchor; translation remains zero here.
+    assert (adjusted_left, adjusted_top) == (9.0, 15.0)
+    assert (base_left, base_top) == (9.0, 15.0)
+    assert anchor == (2.0, 3.0)
+    assert (dx, dy) == (0.0, 0.0)
+    assert any(stage == "paint:message_input" for stage, _ in calls)
 
 
 def test_compute_rect_transform_fill_mode_applies_inverse_and_translation():

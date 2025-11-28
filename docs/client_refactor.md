@@ -11,6 +11,7 @@ This file tracks the ongoing refactor of `overlay_client.py` (and related module
 - Don't delete key risks once recorded; append new risks instead of removing existing entries.
 - Put stage summaries and test results in the Stage summary/test results section in numerical order (by stage number).
 - Record which tests were run (and results) before marking a stage complete; if tests are skipped, note why and what to verify later.
+- Before running full-suite/refactor tests, ensure `overlay_client/.venv` is set up with GUI deps (e.g., PyQt6) and run commands using that venv’s Python.
 - If a step is not small enough to be safe, stop and ask for direction.
 - After each step is complete, run through all tests, update the plan here, and summarize what was done for the commit message.
 - Each stage is uniquely numbered across all risks. Sub-steps will use dots. i.e. 2.1, 2.2, 2.2.1, 2.2.2
@@ -101,6 +102,11 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 8.4 | After each builder refactor, run full test suite and update logs/status. | Complete |
   | 9 | After each refactor chunk, run full test suite and update logs/status. | Complete |
   | 13 | Add unit tests for transform helpers (message/rect/vector) covering anchor/remap/translation paths and guardrails (e.g., insufficient points return `None`). | Planned |
+  | 13.1 | Inventory existing transform helper coverage and define scenarios for anchors/remap/translation and guardrails (vector-point insufficiency, non-finite values). | Complete (mapping only; no code/tests) |
+  | 13.2 | Add message transform helper tests (anchors, offsets, inverse scaling, translation) with trace callbacks asserting payload fields. | Complete |
+  | 13.3 | Add rect transform helper tests for offsets/anchors/translation and base/reference bounds propagation. | Planned |
+  | 13.4 | Add vector transform helper tests covering point remap, anchor translation, bounds accumulation, and insufficient-point guard returning `None`. | Planned |
+  | 13.5 | Run full test suite (including PYQT_TESTS and resolution) and log results after additions. | Planned |
   | 14 | Add unit tests for follow-state helpers (`_normalise_tracker_geometry`, `_resolve_and_apply_geometry`, `_post_process_follow_state`) to lock behavior before further extractions. | Planned |
 - **C.** Duplicate anchor/translation/justification workflows across the three builder methods (overlay_client/overlay_client.py:3411, :3623, :3851) risk behavioral drift; shared utilities would improve consistency.
  
@@ -454,12 +460,34 @@ Substeps:
 - Full wiring unchanged; this locks coordinator semantics before further moves.
 
 #### Stage 12.6 test log (latest)
-- `python3 -m pytest overlay_client/tests/test_group_coordinator.py` → passed (6 tests).
-- `python3 -m pytest overlay_client/tests` → fails at collection (PyQt6 missing for Qt-dependent tests); rerun full suite and resolution test once PyQt6 is available.
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (payload replay/acknowledgements and resolution sweep completed).
 
 ### Stage 12 overall status
 - All substeps (12.1–12.6) completed: coordinator scaffolded, cache/nudge logic delegated, group key resolution wired, and coordinator edge cases covered by tests.
-- Full project test suite and resolution test still need to be rerun once PyQt6 is available; current targeted tests for coordinator are passing.
+- Full project test suite and resolution test rerun with PyQt6 available in the venv; all passing.
+
+### Stage 13 quick summary (intent)
+- Goal: lock down `transform_helpers` (message/rect/vector) with focused unit tests covering anchors, remap, offsets/translation, inverse group scaling, and guardrails (e.g., insufficient vector points returns `None`).
+- Approach: map current coverage gaps, add per-helper tests with trace callbacks asserting payload fields and bounds propagation, and rerun full suite (PYQT_TESTS + resolution).
+- No production code changes expected; tests-only with current helper behavior as oracle.
+
+### Stage 13.1 quick summary (mapping)
+- Current transform helper tests cover: inverse group scale basic; message transform offsets/translation without anchors/remap; rect transform inverse scale + translation in fill mode; vector insufficient points guard; vector basic offsets/bounds with trace.
+- Gaps to cover: message/rect/vector anchor translation paths with `group_transform`/anchor tokens; remap via `transform_context` (scale/offset) including non-default base offsets; collect_only path and trace callbacks for all helpers; guardrails for non-finite inputs; vector translation/bounds when anchor selected and base/reference bounds differ.
+- Target scenarios for 13.2–13.4: message with anchor_for_transform/base anchors, offsets, and inverse scaling; rect with anchor translation and reference bounds propagation; vector with remap + anchor translation + base/reference bounds and insufficient points returning `None`.
+
+#### Stage 13.1 test log (latest)
+- Not run (mapping/documentation only).
+
+### Stage 13.2 quick summary (status)
+- Added message transform test covering anchor usage and transform_meta remap (scale/offset) with trace callback assertions; uses base/anchor inputs and confirms translations remain zero when expected.
+- No production code changes; tests only.
+
+#### Stage 13.2 test log (latest)
+- `overlay_client/.venv/bin/python -m pytest overlay_client/tests/test_transform_helpers.py` → passed (7 tests).
 
   Notes:
   - Perform refactor in small, behavior-preserving steps; avoid logic changes during extraction.
