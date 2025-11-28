@@ -63,6 +63,12 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 5.4 | Add tests for `overlay_client/platform_context.py` (env overrides applied over settings). | Complete |
   | 5.5 | Run resolution test after test additions and update logs/status. | Complete |
   | 10 | Move `_compute_*_transform` helpers and related math into a pure module (no Qt types), leaving painter wiring in `OverlayWindow`; preserve behavior and logging. | Planned |
+  | 10.1 | Map Qt vs. pure seams for `_compute_message/_rect/_vector_transform` and define the target pure module interface (inputs/outputs). | Complete (mapping documented; no code changes) |
+  | 10.2 | Extract message transform calc to the pure module; leave font metrics/painter wiring in `OverlayWindow`; keep logging intact. | Complete |
+  | 10.3 | Extract rect transform calc to the pure module; leave pen/brush/painter wiring in `OverlayWindow`; keep logging intact. | Planned |
+  | 10.4 | Extract vector transform calc to the pure module; keep screen-point conversion and command assembly local; preserve logging/guards. | Planned |
+  | 10.5 | Wire `OverlayWindow` to use the pure module for all three transforms; update imports and run staging tests. | Planned |
+  | 10.6 | Add focused unit tests for the transform module to lock remap/anchor/translation behavior and guardrails (e.g., insufficient points). | Planned |
   | 11 | Extract follow/window orchestration (geometry application, WM overrides, transient parent/visibility) into a window-controller module to shrink `OverlayWindow`; keep Qt boundary localized. | Planned |
   | 12 | Split payload/group coordination (grouping, cache/nudge plumbing) into a coordinator module so `overlay_client.py` keeps only minimal glue and entrypoint. | Planned |
 
@@ -272,6 +278,26 @@ Substeps:
 - `make test` → passed (same totals).
 - `PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed (77 passed).
 - `python3 tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay client running).
+
+### Stage 10.1 quick summary (intent and mapping)
+- Mapped `_compute_message_transform`, `_compute_rect_transform`, `_compute_vector_transform` seams: all current math is pure (no Qt types); Qt stays where painter/font/pen/brush and command assembly occur.
+- Target pure module API: three functions mirroring current helpers, operating on primitives/group contexts and accepting injected trace/log callbacks; return transformed logical points/bounds, effective anchors, translations, and (for vectors) screen-point tuples and optional trace fn; guard that insufficient vector points returns `None`.
+- Qt boundaries to keep in `OverlayWindow`: QFont/QFontMetrics usage, QPen/QBrush creation, QPainter interactions, and command object construction.
+- No code changes; this is a mapping/documentation step only.
+
+#### Stage 10.1 test log (latest)
+- Not run (documentation-only mapping).
+
+### Stage 10.2 quick summary (status)
+- Created `overlay_client/transform_helpers.py` with pure helpers `apply_inverse_group_scale` and `compute_message_transform` (no Qt types); preserved logging via injected trace callback.
+- `_compute_message_transform` in `OverlayWindow` now delegates to the pure helper; painter/font handling and command assembly remain local.
+- Behavior and logging preserved; inverse group scaling reused via the new helper.
+
+#### Stage 10.2 test log (latest)
+- `make check` → passed (`ruff`, `mypy`, `pytest`: 108 passed, 7 skipped).
+- `make test` → passed (same totals).
+- `PYQT_TESTS=1 python -m pytest overlay_client/tests` → covered in the above `pytest` run (PYQT_TESTS set).
+- `python3 tests/run_resolution_tests.py --config tests/display_all.json` → not rerun in this stage (overlay process required).
 
   Notes:
   - Perform refactor in small, behavior-preserving steps; avoid logic changes during extraction.
