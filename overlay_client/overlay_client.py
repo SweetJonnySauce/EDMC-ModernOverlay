@@ -2856,7 +2856,11 @@ class OverlayWindow(QWidget):
         effective_anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         transform_by_group: Dict[Tuple[str, Optional[str]], Optional[GroupTransform]] = {}
         for item_id, legacy_item in self._payload_model.store.items():
-            group_key = self._grouping_helper.group_key_for(item_id, legacy_item.plugin)
+            group_key = self._group_coordinator.resolve_group_key(
+                item_id,
+                legacy_item.plugin,
+                self._override_manager,
+            )
             group_transform = self._grouping_helper.get_transform(group_key)
             transform_by_group[group_key.as_tuple()] = group_transform
             has_explicit_offset = False

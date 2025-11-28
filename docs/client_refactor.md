@@ -82,7 +82,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 12.2 | Define coordinator interface (pure, no Qt) owning group selection, cache updates, nudge/backoff decisions, and outbound payload batching; decide injected callbacks for logging/send/settings. | Complete (interface defined; doc-only) |
   | 12.3 | Scaffold coordinator module and initial focused tests to lock current behaviors (group adoption, cache read/write, nudge gating) without wiring changes. | Complete (scaffold + tests; no wiring) |
   | 12.4 | Move non-Qt grouping/cache logic from `overlay_client.py` into the coordinator; preserve behavior/logging; adjust imports only. | Complete (delegated cache/nudge helpers; no UI wiring) |
-  | 12.5 | Wire overlay client/window to use the coordinator via injected callbacks, keeping signal/slot behavior, logging, and threading assumptions unchanged. | Planned |
+  | 12.5 | Wire overlay client/window to use the coordinator via injected callbacks, keeping signal/slot behavior, logging, and threading assumptions unchanged. | Complete (group key usage delegated; behavior preserved) |
   | 12.6 | Expand coordinator tests for edge cases (missing groups, stale cache, retry/nudge cadence); rerun full suite and resolution test; log results. | Planned |
 
 - **B.** Long, branchy methods with mixed concerns: `_build_vector_command` (overlay_client/overlay_client.py:3851-4105), `_build_rect_command` (overlay_client/overlay_client.py:3623-3849), `_build_message_command` (overlay_client/overlay_client.py:3411-3621), `_apply_follow_state` (overlay_client/overlay_client.py:2199-2393); need smaller helpers and clearer data flow.
@@ -440,6 +440,14 @@ Substeps:
 #### Stage 12.4 test log (latest)
 - `python3 -m pytest overlay_client/tests/test_group_coordinator.py` → passed.
 - `python3 -m pytest overlay_client/tests` → failed at collection (PyQt6 missing in environment); rerun full suite once PyQt6 is available.
+
+### Stage 12.5 quick summary (status)
+- `OverlayWindow` now uses `GroupCoordinator.resolve_group_key` for per-item grouping while retaining `FillGroupingHelper` for transform lookup; coordinator already handles cache updates and nudge calculations.
+- Behavior/logging preserved; no Qt wiring changes introduced.
+
+#### Stage 12.5 test log (latest)
+- `python3 -m pytest overlay_client/tests/test_group_coordinator.py` → passed.
+- Full suite not rerun here (PyQt6 absent in environment); rerun once available.
 
   Notes:
   - Perform refactor in small, behavior-preserving steps; avoid logic changes during extraction.
