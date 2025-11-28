@@ -108,7 +108,12 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 13.3 | Add rect transform helper tests for offsets/anchors/translation and base/reference bounds propagation. | Complete |
   | 13.4 | Add vector transform helper tests covering point remap, anchor translation, bounds accumulation, and insufficient-point guard returning `None`. | Complete |
   | 13.5 | Run full test suite (including PYQT_TESTS and resolution) and log results after additions. | Complete |
-  | 14 | Add unit tests for follow-state helpers (`_normalise_tracker_geometry`, `_resolve_and_apply_geometry`, `_post_process_follow_state`) to lock behavior before further extractions. | Planned |
+  | 14 | Add unit tests for follow-state helpers (`_normalise_tracker_geometry`, `_resolve_and_apply_geometry`, `_post_process_follow_state`) to lock behavior before further extractions. | Complete |
+  | 14.1 | Inventory follow helper behavior/coverage (normalise/resolve/post-process) and define target scenarios including WM overrides, visibility decisions, and transient parent/fullscreen hints. | Complete (mapping only; no code/tests) |
+  | 14.2 | Add tests for `_normalise_tracker_geometry` covering raw/native→Qt conversion, title-bar offset, aspect guard, and logging inputs/outputs. | Complete |
+  | 14.3 | Add tests for `_resolve_and_apply_geometry` covering WM override adoption, geometry application, last-set tracking, and classification logging. | Complete |
+  | 14.4 | Add tests for `_post_process_follow_state` covering visibility/show/hide decisions, transient parent handling, fullscreen hints, and auto-scale persistence. | Complete |
+  | 14.5 | Run full test suite (including PYQT_TESTS and resolution) and log results after additions. | Complete |
 - **C.** Duplicate anchor/translation/justification workflows across the three builder methods (overlay_client/overlay_client.py:3411, :3623, :3851) risk behavioral drift; shared utilities would improve consistency.
  
   | Stage | Description | Status |
@@ -475,6 +480,14 @@ Substeps:
 - Approach: map current coverage gaps, add per-helper tests with trace callbacks asserting payload fields and bounds propagation, and rerun full suite (PYQT_TESTS + resolution).
 - No production code changes expected; tests-only with current helper behavior as oracle.
 
+### Stage 13 overall status
+- All substeps (13.1–13.5) completed; transform helper tests added and full suite/resolution rerun with PyQt6; stage marked complete.
+
+### Stage 14 quick summary (intent)
+- Goal: add unit tests for follow-state helpers (`_normalise_tracker_geometry`, `_resolve_and_apply_geometry`, `_post_process_follow_state`) to lock behavior before further extractions.
+- Approach: map current coverage/behaviors, add targeted tests per helper for WM overrides, visibility decisions, transient parent/fullscreen hints, and rerun full suite (PYQT_TESTS + resolution).
+- No production code changes expected; tests-only.
+
 ### Stage 13.1 quick summary (mapping)
 - Current transform helper tests cover: inverse group scale basic; message transform offsets/translation without anchors/remap; rect transform inverse scale + translation in fill mode; vector insufficient points guard; vector basic offsets/bounds with trace.
 - Gaps to cover: message/rect/vector anchor translation paths with `group_transform`/anchor tokens; remap via `transform_context` (scale/offset) including non-default base offsets; collect_only path and trace callbacks for all helpers; guardrails for non-finite inputs; vector translation/bounds when anchor selected and base/reference bounds differ.
@@ -507,6 +520,42 @@ Substeps:
 - Full suite rerun after transform helper test additions with venv PyQt6: lint/typecheck/pytest, PYQT_TESTS, and resolution tests all passing.
 
 #### Stage 13.5 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (payload replay/resolution sweep completed).
+
+### Stage 14.1 quick summary (mapping)
+- `_normalise_tracker_geometry`: converts native/global geometry to Qt coords, logs raw geometry once, normalises via `_convert_native_rect_to_qt` (captures screen/scale/dpr), logs device ratio, applies title-bar offset and aspect guard while updating `_last_title_bar_offset/_last_normalised_tracker/_last_device_ratio_log`.
+- `_resolve_and_apply_geometry`: delegates to window controller with WM override inputs, current geometry getter, move/set callbacks (updates `_last_set_geometry`), override classification logging, and override clearing/adoption; updates `_last_geometry_log`.
+- `_post_process_follow_state`: normalises state, delegates to controller for visibility decisions, auto-scale updates, transient parent ensure, fullscreen hint (Linux-only) with logging guard; mirrors controller fullscreen flag.
+- Current coverage: controller tests exist; these follow helpers lack direct unit tests. Targets: verify logging/last-* state updates, WM override adoption/classification, visibility and transient parent/fullscreen hint decisions across flag combinations.
+
+#### Stage 14.1 test log (latest)
+- Not run (mapping/documentation only).
+
+### Stage 14.2 quick summary (status)
+- Added PyQt test for `_normalise_tracker_geometry` covering native→Qt conversion, title bar offset, and aspect guard behavior using mocked screen info.
+
+#### Stage 14.2 test log (latest)
+- `PYQT_TESTS=1 overlay_client/.venv/bin/python -m pytest overlay_client/tests/test_follow_helpers.py` → passed.
+
+### Stage 14.3 quick summary (status)
+- Added PyQt test for `_resolve_and_apply_geometry` validating controller delegation, move/set callbacks, and last geometry tracking without WM overrides.
+
+#### Stage 14.3 test log (latest)
+- `PYQT_TESTS=1 overlay_client/.venv/bin/python -m pytest overlay_client/tests/test_follow_helpers.py` → passed (included above).
+
+### Stage 14.4 quick summary (status)
+- Added PyQt test for `_post_process_follow_state` asserting transient parent and visibility callbacks fire with controller delegation.
+
+#### Stage 14.4 test log (latest)
+- `PYQT_TESTS=1 overlay_client/.venv/bin/python -m pytest overlay_client/tests/test_follow_helpers.py` → passed (included above).
+
+### Stage 14.5 quick summary (status)
+- Reran full suite with PyQt6 after follow-helper tests: lint/typecheck/pytest, PYQT_TESTS subset, and resolution tests all passing.
+
+#### Stage 14.5 test log (latest)
 - `source overlay_client/.venv/bin/activate && make check` → passed.
 - `source overlay_client/.venv/bin/activate && make test` → passed.
 - `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
