@@ -63,7 +63,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 5.3 | Add tests for `overlay_client/fonts.py` (font/emoji fallback resolution and duplicate suppression). | Complete |
   | 5.4 | Add tests for `overlay_client/platform_context.py` (env overrides applied over settings). | Complete |
   | 5.5 | Run resolution test after test additions and update logs/status. | Complete |
-  | 10 | Move `_compute_*_transform` helpers and related math into a pure module (no Qt types), leaving painter wiring in `OverlayWindow`; preserve behavior and logging. | Planned |
+  | 10 | Move `_compute_*_transform` helpers and related math into a pure module (no Qt types), leaving painter wiring in `OverlayWindow`; preserve behavior and logging. | Complete |
   | 10.1 | Map Qt vs. pure seams for `_compute_message/_rect/_vector_transform` and define the target pure module interface (inputs/outputs). | Complete (mapping documented; no code changes) |
   | 10.2 | Extract message transform calc to the pure module; leave font metrics/painter wiring in `OverlayWindow`; keep logging intact. | Complete |
   | 10.3 | Extract rect transform calc to the pure module; leave pen/brush/painter wiring in `OverlayWindow`; keep logging intact. | Complete |
@@ -71,6 +71,12 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 10.5 | Wire `OverlayWindow` to use the pure module for all three transforms; update imports and run staging tests. | Complete (bookkeeping/tests only; wiring already done) |
   | 10.6 | Add focused unit tests for the transform module to lock remap/anchor/translation behavior and guardrails (e.g., insufficient points). | Complete |
   | 11 | Extract follow/window orchestration (geometry application, WM overrides, transient parent/visibility) into a window-controller module to shrink `OverlayWindow`; keep Qt boundary localized. | Planned |
+  | 11.1 | Map follow/window orchestration seams (what stays Qt-bound vs. pure) and define target controller interface/state handoff. | Complete (mapping only; no code changes) |
+  | 11.2 | Create window-controller module scaffold with pure methods/structs; leave `OverlayWindow` behavior unchanged. | Complete (scaffold only; no wiring) |
+  | 11.3 | Move geometry application/WM override resolution (setGeometry/move-to-screen/classification) into the controller; keep Qt calls contained. | Planned |
+  | 11.4 | Move visibility/transient-parent/fullscreen-hint handling into the controller; keep Qt calls contained. | Planned |
+  | 11.5 | Wire `OverlayWindow` to the controller for follow orchestration; update imports; preserve logging. | Planned |
+  | 11.6 | Add focused tests around controller logic (override adoption, visibility decisions, transient parent) to lock behavior. | Planned |
   | 12 | Split payload/group coordination (grouping, cache/nudge plumbing) into a coordinator module so `overlay_client.py` keeps only minimal glue and entrypoint. | Planned |
 
 - **B.** Long, branchy methods with mixed concerns: `_build_vector_command` (overlay_client/overlay_client.py:3851-4105), `_build_rect_command` (overlay_client/overlay_client.py:3623-3849), `_build_message_command` (overlay_client/overlay_client.py:3411-3621), `_apply_follow_state` (overlay_client/overlay_client.py:2199-2393); need smaller helpers and clearer data flow.
@@ -339,6 +345,23 @@ Substeps:
 - `make test` → passed (same totals).
 - `PYQT_TESTS=1 python -m pytest overlay_client/tests` → covered in the above `pytest` run (PYQT_TESTS set).
 - `python3 tests/run_resolution_tests.py --config tests/display_all.json` → not rerun in this stage (overlay process required).
+
+### Stage 11.1 quick summary (intent and mapping)
+- Goal: define Qt vs. pure seams for follow/window orchestration and the target controller interface.
+- Qt-bound: `windowHandle()` interactions (setScreen, devicePixelRatio), `QRect`/`QScreen` usage, `frameGeometry`, `setGeometry`, `move/show/hide/raise_`, transient parent creation (`QWindow.fromWinId`), and platform controller hooks.
+- Pure/controller-friendly: WM override resolution, geometry classification/adoption, follow-state persistence, visibility decision (`should_show`), title bar offset/aspect guard inputs/outputs, last-state caching/logging keys.
+- Target controller API: methods for `normalize_tracker_geometry(state) -> (tracker_qt_tuple, tracker_native_tuple, normalisation_info, desired_tuple)`, `resolve_and_apply_geometry(tracker_qt_tuple, desired_tuple) -> target_tuple`, `post_process_follow_state(state, target_tuple) -> visibility decision + follow state updates`, plus callbacks/injections for logging, WM override getters/setters, and Qt geometry application delegated via thin lambdas.
+- No code changes; mapping-only step.
+
+#### Stage 11.1 test log (latest)
+- Not run (documentation-only mapping).
+
+### Stage 11.2 quick summary (status)
+- Added scaffold `overlay_client/window_controller.py` with pure types (`Geometry`, `NormalisationInfo`, `FollowContext`) and a `WindowController` shell that will host follow/window orchestration; includes logging/state placeholders only.
+- No wiring yet; behavior unchanged in `OverlayWindow`.
+
+#### Stage 11.2 test log (latest)
+- Not run (scaffold only; no behavior change).
 
   Notes:
   - Perform refactor in small, behavior-preserving steps; avoid logic changes during extraction.
