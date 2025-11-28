@@ -12,6 +12,7 @@ This file tracks the ongoing refactor of `overlay_client.py` (and related module
 - Put stage summaries and test results in the Stage summary/test results section in numerical order (by stage number).
 - Record which tests were run (and results) before marking a stage complete; if tests are skipped, note why and what to verify later.
 - Before running full-suite/refactor tests, ensure `overlay_client/.venv` is set up with GUI deps (e.g., PyQt6) and run commands using that venv’s Python.
+- When all sub-steps for a parent stage are complete, re-check the code (not just this doc) to verify the parent is truly done, then mark the parent complete.
 - If a step is not small enough to be safe, stop and ask for direction.
 - After each step is complete, run through all tests, update the plan here, and summarize what was done for the commit message.
 - Each stage is uniquely numbered across all risks. Sub-steps will use dots. i.e. 2.1, 2.2, 2.2.1, 2.2.2
@@ -101,7 +102,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 8.3 | Refactor `_build_vector_command`: extract point remap/anchor/bounds helpers, leaving payload assembly and painter interactions in place; preserve logging/tracing. | Complete |
   | 8.4 | After each builder refactor, run full test suite and update logs/status. | Complete |
   | 9 | After each refactor chunk, run full test suite and update logs/status. | Complete |
-  | 13 | Add unit tests for transform helpers (message/rect/vector) covering anchor/remap/translation paths and guardrails (e.g., insufficient points return `None`). | Planned |
+  | 13 | Add unit tests for transform helpers (message/rect/vector) covering anchor/remap/translation paths and guardrails (e.g., insufficient points return `None`). | Complete |
   | 13.1 | Inventory existing transform helper coverage and define scenarios for anchors/remap/translation and guardrails (vector-point insufficiency, non-finite values). | Complete (mapping only; no code/tests) |
   | 13.2 | Add message transform helper tests (anchors, offsets, inverse scaling, translation) with trace callbacks asserting payload fields. | Complete |
   | 13.3 | Add rect transform helper tests for offsets/anchors/translation and base/reference bounds propagation. | Complete |
