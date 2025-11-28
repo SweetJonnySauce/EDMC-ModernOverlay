@@ -75,8 +75,8 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 11.2 | Create window-controller module scaffold with pure methods/structs; leave `OverlayWindow` behavior unchanged. | Complete (scaffold only; no wiring) |
   | 11.3 | Move geometry application/WM override resolution (setGeometry/move-to-screen/classification) into the controller; keep Qt calls contained. | Complete |
   | 11.4 | Move visibility/transient-parent/fullscreen-hint handling into the controller; keep Qt calls contained. | Complete |
-  | 11.5 | Wire `OverlayWindow` to the controller for follow orchestration; update imports; preserve logging. | Planned |
-  | 11.6 | Add focused tests around controller logic (override adoption, visibility decisions, transient parent) to lock behavior. | Planned |
+  | 11.5 | Wire `OverlayWindow` to the controller for follow orchestration; update imports; preserve logging. | Complete (bookkeeping; already wired) |
+  | 11.6 | Add focused tests around controller logic (override adoption, visibility decisions, transient parent) to lock behavior. | Complete |
   | 12 | Split payload/group coordination (grouping, cache/nudge plumbing) into a coordinator module so `overlay_client.py` keeps only minimal glue and entrypoint. | Planned |
 
 - **B.** Long, branchy methods with mixed concerns: `_build_vector_command` (overlay_client/overlay_client.py:3851-4105), `_build_rect_command` (overlay_client/overlay_client.py:3623-3849), `_build_message_command` (overlay_client/overlay_client.py:3411-3621), `_apply_follow_state` (overlay_client/overlay_client.py:2199-2393); need smaller helpers and clearer data flow.
@@ -380,6 +380,22 @@ Substeps:
 
 #### Stage 11.4 test log (latest)
 - `make check` → passed (`ruff`, `mypy`, `pytest`: 114 passed, 7 skipped).
+- `make test` → passed (same totals).
+- `PYQT_TESTS=1 python -m pytest overlay_client/tests` → covered in the above `pytest` run (PYQT_TESTS set).
+- `python3 tests/run_resolution_tests.py --config tests/display_all.json` → not rerun in this stage (overlay process required).
+
+### Stage 11.5 quick summary (status)
+- Controller now handles geometry and post-processing; `OverlayWindow` delegates follow orchestration to it. No further code changes; bookkeeping only.
+
+#### Stage 11.5 test log (latest)
+- Not rerun (no code changes).
+
+### Stage 11.6 quick summary (status)
+- Added `overlay_client/tests/test_window_controller.py` covering geometry override adoption, WM override bookkeeping, visibility decisions, transient parent callbacks, and fullscreen hint logging via controller APIs.
+- Locks controller behavior before further refactors.
+
+#### Stage 11.6 test log (latest)
+- `make check` → passed (`ruff`, `mypy`, `pytest`: 117 passed, 7 skipped).
 - `make test` → passed (same totals).
 - `PYQT_TESTS=1 python -m pytest overlay_client/tests` → covered in the above `pytest` run (PYQT_TESTS set).
 - `python3 tests/run_resolution_tests.py --config tests/display_all.json` → not rerun in this stage (overlay process required).
