@@ -62,7 +62,6 @@ from overlay_client.viewport_helper import (
     ScaleMode,
 )  # type: ignore  # noqa: E402
 from overlay_client.grouping_helper import FillGroupingHelper  # type: ignore  # noqa: E402
-from overlay_client.payload_justifier import JustificationRequest, calculate_offsets  # type: ignore  # noqa: E402
 from overlay_client.payload_transform import (
     build_payload_transform_context,
     PayloadTransformContext,
@@ -81,6 +80,7 @@ from overlay_client.paint_commands import (  # type: ignore  # noqa: E402
     _RectPaintCommand,
     _VectorPaintCommand,
 )
+from overlay_client.anchor_helpers import CommandContext, compute_justification_offsets  # type: ignore  # noqa: E402
 from overlay_client.payload_builders import build_group_context  # type: ignore  # noqa: E402
 from overlay_client.follow_geometry import (  # type: ignore  # noqa: E402
     ScreenInfo,
@@ -2974,8 +2974,7 @@ class OverlayWindow(QWidget):
         base_overlay_bounds: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
         base_scale: float,
     ) -> Dict[Tuple[str, Optional[str]], _ScreenBounds]:
-        requests: List[JustificationRequest] = []
-        trace_targets: Dict[int, Tuple[Optional[str], str, str, float, Optional[float], float]] = {}
+        command_contexts: List[CommandContext] = []
         for command in commands:
             command.justification_dx = 0.0
             bounds = command.bounds
@@ -2983,79 +2982,70 @@ class OverlayWindow(QWidget):
                 continue
             key = command.group_key.as_tuple()
             transform = transform_by_group.get(key)
-            justification = getattr(transform, "payload_justification", "left") if transform else "left"
+            justification = (getattr(transform, "payload_justification", "left") or "left").strip().lower()
             suffix = command.group_key.suffix
-            if suffix is None:
-                continue
-            if justification not in {"center", "right"}:
-                continue
-            width = float(bounds[2]) - float(bounds[0])
-            base_bounds = base_overlay_bounds.get(key)
-            baseline_width = None
-            if base_bounds is not None and base_bounds.is_valid():
-                scale_value = base_scale
-                if not math.isfinite(scale_value) or math.isclose(scale_value, 0.0, rel_tol=1e-9, abs_tol=1e-9):
-                    scale_value = 1.0
-                baseline_width = (base_bounds.max_x - base_bounds.min_x) * scale_value
             plugin = getattr(command.legacy_item, "plugin", None)
             item_id = command.legacy_item.item_id
-            should_trace = self._should_trace_payload(plugin, item_id)
-            if should_trace:
-                self._log_legacy_trace(
-                    plugin,
-                    item_id,
-                    "justify:measure",
-                    {
-                        "width_px": width,
-                        "baseline_px": baseline_width,
-                        "suffix": suffix,
-                        "justification": justification,
-                    },
-                )
-            delta = 0.0
-            if justification == "right" and command.raw_min_x is not None:
-                multiplier = getattr(command, "right_just_multiplier", 0) or 0
-                if multiplier and transform is not None:
-                    base_delta = self._right_justification_delta(transform, command.raw_min_x)
-                    delta = base_delta * float(multiplier)
-            if should_trace:
-                trace_targets[id(command)] = (plugin, item_id, suffix, width, baseline_width, delta)
-            requests.append(
-                JustificationRequest(
+            command_contexts.append(
+                CommandContext(
                     identifier=id(command),
                     key=key,
-                    suffix=suffix,
+                    bounds=(float(bounds[0]), float(bounds[1]), float(bounds[2]), float(bounds[3])),
+                    raw_min_x=command.raw_min_x,
+                    right_just_multiplier=getattr(command, "right_just_multiplier", 0),
                     justification=justification,
-                    width=width,
-                    baseline_width=baseline_width,
-                    right_justification_delta_px=delta,
+                    suffix=suffix,
+                    plugin=plugin,
+                    item_id=item_id,
                 )
             )
-        if not requests:
-            return translated_bounds_by_group
-        offset_map = calculate_offsets(requests)
+
+        def _trace(plugin: Optional[str], item_id: str, stage: str, details: Dict[str, float]) -> None:
+            self._log_legacy_trace(plugin, item_id, stage, details)
+
+        base_bounds_map: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
+        for key, bounds in base_overlay_bounds.items():
+            if bounds is None or not bounds.is_valid():
+                continue
+            base_bounds_map[key] = (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y)
+
+        offset_map = compute_justification_offsets(
+            command_contexts,
+            transform_by_group,
+            base_bounds_map,
+            base_scale,
+            trace_fn=_trace,
+        )
         if not offset_map:
             return translated_bounds_by_group
-        if not math.isfinite(base_scale) or math.isclose(base_scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
-            base_scale = 1.0
+
+        updated_bounds: Dict[Tuple[str, Optional[str]], _ScreenBounds] = {}
         for command in commands:
+            bounds = command.bounds
+            if not bounds:
+                continue
+            key = command.group_key.as_tuple()
             command.justification_dx = offset_map.get(id(command), 0.0)
-            trace_target = trace_targets.get(id(command))
-            if trace_target:
-                plugin, item_id, suffix, width_px, baseline_px, delta_px = trace_target
-                self._log_legacy_trace(
-                    plugin,
-                    item_id,
-                    "justify:apply",
-                    {
-                        "offset_px": command.justification_dx,
-                        "suffix": suffix,
-                        "width_px": width_px,
-                        "baseline_px": baseline_px,
-                        "right_justification_delta": delta_px,
-                    },
-                )
-        return self._rebuild_translated_bounds(commands, anchor_translation_by_group, translated_bounds_by_group)
+            translation_x, translation_y = anchor_translation_by_group.get(key, (0.0, 0.0))
+            offset_x = translation_x + command.justification_dx
+            offset_y = translation_y
+            clone = updated_bounds.setdefault(key, _ScreenBounds())
+            clone.include_rect(
+                float(bounds[0]) + offset_x,
+                float(bounds[1]) + offset_y,
+                float(bounds[2]) + offset_x,
+                float(bounds[3]) + offset_y,
+            )
+        for key, original in translated_bounds_by_group.items():
+            if key in updated_bounds:
+                continue
+            clone = _ScreenBounds()
+            clone.min_x = original.min_x
+            clone.max_x = original.max_x
+            clone.min_y = original.min_y
+            clone.max_y = original.max_y
+            updated_bounds[key] = clone
+        return updated_bounds
 
     def _rebuild_translated_bounds(
         self,

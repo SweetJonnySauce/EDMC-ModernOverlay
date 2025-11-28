@@ -7,8 +7,8 @@
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
         ],
-        "offsetX": 0.0,
-        "offsetY": 0.0,
+        "offsetX": 256.0,
+        "offsetY": -108.0,
         "payloadJustification": "left"
       },
       "BGS-Tally Ready": {

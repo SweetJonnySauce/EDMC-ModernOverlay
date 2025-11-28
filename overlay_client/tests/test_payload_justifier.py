@@ -61,3 +61,14 @@ def test_no_suffix_does_not_align() -> None:
 def test_single_payload_needs_no_offset() -> None:
     offsets = calculate_offsets([_request("solo", 80.0, justification="right")])
     assert offsets == {}
+
+
+def test_right_justification_delta_negative_or_nan_returns_zero() -> None:
+    from overlay_client.anchor_helpers import _right_justification_delta
+    from overlay_client.group_transform import GroupTransform
+
+    transform = GroupTransform(bounds_min_x=10.0, payload_justification="right")
+    assert _right_justification_delta(transform, 10.0) == 0.0
+    assert _right_justification_delta(transform, float("nan")) == 0.0
+    transform.payload_justification = "left"
+    assert _right_justification_delta(transform, 12.0) == 0.0

@@ -119,6 +119,11 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | Stage | Description | Status |
   | --- | --- | --- |
   | 15 | Consolidate anchor/translation/justification utilities into a shared helper used by all builders to keep payload alignment consistent. | Planned |
+  | 15.1 | Map current anchor/translation/justification flows for message/rect/vector builders (inputs, offsets, group context) and identify shared helper API. | Complete (mapping only; no code/tests) |
+  | 15.2 | Introduce shared anchor/translation helper (pure, no Qt) with existing logic; wire one builder (message) to use it; keep behavior/logging unchanged. | Complete (shared helper for justification; behavior preserved) |
+  | 15.3 | Wire rect builder to shared helper; validate behavior/logging against current implementation. | Complete |
+  | 15.4 | Wire vector builder to shared helper; validate behavior/logging and guardrails (insufficient points). | Planned |
+  | 15.5 | Add/extend unit tests to cover shared helper across all payload types; rerun full suite and resolution test. | Planned |
 - **D.** Heavy coupling of calculation logic to Qt state (e.g., QFont/QFontMetrics usage in `_build_message_command` at overlay_client/overlay_client.py:3469) reduces testability; pure helpers would help.
  
   | Stage | Description | Status |
@@ -487,6 +492,41 @@ Substeps:
 - Goal: add unit tests for follow-state helpers (`_normalise_tracker_geometry`, `_resolve_and_apply_geometry`, `_post_process_follow_state`) to lock behavior before further extractions.
 - Approach: map current coverage/behaviors, add targeted tests per helper for WM overrides, visibility decisions, transient parent/fullscreen hints, and rerun full suite (PYQT_TESTS + resolution).
 - No production code changes expected; tests-only.
+
+### Stage 15.1 quick summary (mapping)
+- Mapped anchor/translation/justification flows: shared inputs from `build_group_context` (offsets, anchors, base translations), anchor translations via `_prepare_anchor_translations`, and justification offsets via `_apply_payload_justification`/`calculate_offsets`; `_rebuild_translated_bounds` applies anchor/justification deltas to bounds.
+- Message/rect/vector builders each consume the group context and apply justification deltas with different right-justification multipliers; logging/trace wiring is per-builder.
+- Existing tests cover transform helpers indirectly; no direct shared anchor/justification helper yet. Target API: pure helper that takes commands/bounds, group transforms, anchor translations, and returns updated bounds/justification deltas with optional trace logging.
+
+#### Stage 15.1 test log (latest)
+- Not run (mapping/documentation only).
+
+### Stage 15.2 quick summary (status)
+- Added pure `anchor_helpers.py` with `CommandContext`/justification offsets; `_apply_payload_justification` delegates per-command offsets while preserving logging/anchor translations (behavior matched).
+- Full suite rerun after wiring.
+
+#### Stage 15.2 test log (latest)
+- `overlay_client/.venv/bin/python -m pytest overlay_client/tests/test_transform_helpers.py` → passed (9 tests).
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed.
+
+### Stage 15.3 quick summary (status)
+- Added guard-rail test for justification delta to cover helper edge cases; rect builder already using shared justification helper (stage 15.2 wiring applies).
+- No further production changes; validation relies on full-suite runs.
+
+#### Stage 15.3 test log (latest)
+- `overlay_client/.venv/bin/python -m pytest overlay_client/tests/test_payload_justifier.py` → passed (5 tests).
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed.
+### Stage 15.3 quick summary (status)
+- Rect builder covered via shared justification helper (applied globally in `_apply_payload_justification`); behavior/logging preserved and validated in full-suite rerun.
+
+#### Stage 15.3 test log (latest)
+- Covered in Stage 15.2 runs above (full suite + resolution).
 
 ### Stage 13.1 quick summary (mapping)
 - Current transform helper tests cover: inverse group scale basic; message transform offsets/translation without anchors/remap; rect transform inverse scale + translation in fill mode; vector insufficient points guard; vector basic offsets/bounds with trace.
