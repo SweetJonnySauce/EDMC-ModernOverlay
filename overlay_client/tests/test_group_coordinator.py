@@ -8,7 +8,10 @@ class _StubOverrideManager:
         self._mapping = mapping
 
     def grouping_key_for(self, plugin_name, item_id):
-        return self._mapping.get(item_id)
+        value = self._mapping.get(item_id)
+        if isinstance(value, Exception):
+            raise value
+        return value
 
 
 class _StubCache:
@@ -93,6 +96,8 @@ def test_update_cache_normalizes_payloads():
         "base_max_x": 0.0,
         "base_max_y": 6.789,
         "has_transformed": True,
+        "offset_x": 1.222,
+        "offset_y": 3.457,
     }
     assert transformed == {
         "trans_min_x": -5.444,
@@ -123,3 +128,39 @@ def test_compute_group_nudges_respects_enable_and_gutter():
 
     disabled = coordinator.compute_group_nudges(bounds_map, 100, 100, enabled=False, gutter=10)
     assert disabled == {}
+
+
+def test_update_cache_ignores_missing_transform_payload():
+    cache = _StubCache()
+    coordinator = GroupCoordinator(cache=cache)
+    key = ("p", None)
+    base_payloads = {key: {"plugin": "p", "suffix": None, "has_transformed": True}}
+    transform_payloads = {}
+
+    coordinator.update_cache_from_payloads(base_payloads, transform_payloads)
+
+    assert len(cache.calls) == 1
+    plugin_label, suffix_label, normalized, transformed = cache.calls[0]
+    assert plugin_label == "p"
+    assert suffix_label is None
+    assert normalized["has_transformed"] is True
+    assert transformed is None
+
+
+def test_compute_group_nudges_skips_invalid_bounds_and_handles_vertical_overflow():
+    bounds_map = {
+        ("plug", "good"): ScreenBounds(min_x=10.0, max_x=20.0, min_y=-50.0, max_y=-10.0),
+        ("plug", "invalid"): ScreenBounds(min_x=5.0, max_x=1.0, min_y=0.0, max_y=0.0),
+    }
+    coordinator = GroupCoordinator()
+
+    translations = coordinator.compute_group_nudges(bounds_map, window_width=40, window_height=40, enabled=True, gutter=5)
+    assert translations == {("plug", "good"): (0, 50)}
+
+
+def test_resolve_group_key_falls_back_on_override_error():
+    overrides = _StubOverrideManager({"boom": RuntimeError("fail")})
+    coordinator = GroupCoordinator()
+
+    key = coordinator.resolve_group_key("boom", "base_plugin", overrides)
+    assert key.as_tuple() == ("base_plugin", "item:boom")
