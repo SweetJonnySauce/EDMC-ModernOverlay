@@ -120,12 +120,12 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
  
   | Stage | Description | Status |
   | --- | --- | --- |
-  | 15 | Consolidate anchor/translation/justification utilities into a shared helper used by all builders to keep payload alignment consistent. | In progress |
+  | 15 | Consolidate anchor/translation/justification utilities into a shared helper used by all builders to keep payload alignment consistent. | Complete |
   | 15.1 | Map current anchor/translation/justification flows for message/rect/vector builders (inputs, offsets, group context) and identify shared helper API. | Complete (mapping only; no code/tests) |
   | 15.2 | Introduce shared anchor/translation helper (pure, no Qt) with existing logic; wire one builder (message) to use it; keep behavior/logging unchanged. | Complete (shared helper for justification; behavior preserved) |
   | 15.3 | Wire rect builder to shared helper; validate behavior/logging against current implementation. | Complete |
   | 15.4 | Wire vector builder to shared helper; validate behavior/logging and guardrails (insufficient points). | Complete |
-  | 15.5 | Add/extend unit tests to cover shared helper across all payload types; rerun full suite and resolution test. | Planned |
+  | 15.5 | Add/extend unit tests to cover shared helper across all payload types; rerun full suite and resolution test. | Complete |
 - **D.** Heavy coupling of calculation logic to Qt state (e.g., QFont/QFontMetrics usage in `_build_message_command` at overlay_client/overlay_client.py:3469) reduces testability; pure helpers would help.
  
   | Stage | Description | Status |
@@ -535,6 +535,16 @@ Substeps:
 - Updated vector justification test expectation to align with the helper’s baseline-minus-width minus right-just-delta behavior.
 
 #### Stage 15.4 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (payload replay/resolution sweep completed).
+
+### Stage 15.5 quick summary (status)
+- Added shared-helper coverage for center/left cases (scaled baseline, non-justifiable skips) to ensure justification offsets remain consistent across payload types; vector right-just multiplier already covered.
+- Reran full suite with PyQt6 and resolution tests using the venv to validate the shared helper across message/rect/vector paths.
+
+#### Stage 15.5 test log (latest)
 - `source overlay_client/.venv/bin/activate && make check` → passed.
 - `source overlay_client/.venv/bin/activate && make test` → passed.
 - `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.

@@ -29,3 +29,56 @@ def test_compute_justification_offsets_applies_right_delta_per_command():
     )
 
     assert offsets[1] == 40.0
+
+
+def test_center_justification_uses_scaled_baseline():
+    key = ("plugin", "suffix")
+    command = CommandContext(
+        identifier=2,
+        key=key,
+        bounds=(0.0, 0.0, 120.0, 10.0),
+        raw_min_x=None,
+        right_just_multiplier=0,
+        justification="center",
+        suffix="suffix",
+        plugin="plugin",
+        item_id="id2",
+    )
+    base_overlay_bounds = {key: (0.0, 0.0, 100.0, 10.0)}
+
+    offsets = compute_justification_offsets(
+        [command],
+        {key: None},
+        base_overlay_bounds,
+        base_scale=2.0,
+        trace_fn=None,
+    )
+
+    # Baseline is scaled width (200); delta is (200-120)/2 = 40.
+    assert offsets[2] == 40.0
+
+
+def test_left_justification_produces_no_offset():
+    key = ("plugin", "suffix")
+    command = CommandContext(
+        identifier=3,
+        key=key,
+        bounds=(0.0, 0.0, 80.0, 10.0),
+        raw_min_x=None,
+        right_just_multiplier=0,
+        justification="left",
+        suffix="suffix",
+        plugin="plugin",
+        item_id="id3",
+    )
+    base_overlay_bounds = {key: (0.0, 0.0, 120.0, 10.0)}
+
+    offsets = compute_justification_offsets(
+        [command],
+        {key: None},
+        base_overlay_bounds,
+        base_scale=1.5,
+        trace_fn=None,
+    )
+
+    assert offsets == {}
