@@ -13,6 +13,8 @@ This file tracks the ongoing refactor of `overlay_client.py` (and related module
 - Record which tests were run (and results) before marking a stage complete; if tests are skipped, note why and what to verify later.
 - Before running full-suite/refactor tests, ensure `overlay_client/.venv` is set up with GUI deps (e.g., PyQt6) and run commands using that venv’s Python.
 - When all sub-steps for a parent stage are complete, re-check the code (not just this doc) to verify the parent is truly done, then mark the parent complete.
+- Only mark a stage/substage “Complete” after a stage-specific code change or new tests are added and validated; if no code/tests are needed, explicitly note why in the summary before marking complete.
+- After finishing any stage/substep, update the table row and the Stage summary/test results section (with tests run) before considering it done; missing documentation means the stage is still incomplete.
 - If a step is not small enough to be safe, stop and ask for direction.
 - After each step is complete, run through all tests, update the plan here, and summarize what was done for the commit message.
 - Each stage is uniquely numbered across all risks. Sub-steps will use dots. i.e. 2.1, 2.2, 2.2.1, 2.2.2
@@ -118,11 +120,11 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
  
   | Stage | Description | Status |
   | --- | --- | --- |
-  | 15 | Consolidate anchor/translation/justification utilities into a shared helper used by all builders to keep payload alignment consistent. | Planned |
+  | 15 | Consolidate anchor/translation/justification utilities into a shared helper used by all builders to keep payload alignment consistent. | In progress |
   | 15.1 | Map current anchor/translation/justification flows for message/rect/vector builders (inputs, offsets, group context) and identify shared helper API. | Complete (mapping only; no code/tests) |
   | 15.2 | Introduce shared anchor/translation helper (pure, no Qt) with existing logic; wire one builder (message) to use it; keep behavior/logging unchanged. | Complete (shared helper for justification; behavior preserved) |
   | 15.3 | Wire rect builder to shared helper; validate behavior/logging against current implementation. | Complete |
-  | 15.4 | Wire vector builder to shared helper; validate behavior/logging and guardrails (insufficient points). | Planned |
+  | 15.4 | Wire vector builder to shared helper; validate behavior/logging and guardrails (insufficient points). | Complete |
   | 15.5 | Add/extend unit tests to cover shared helper across all payload types; rerun full suite and resolution test. | Planned |
 - **D.** Heavy coupling of calculation logic to Qt state (e.g., QFont/QFontMetrics usage in `_build_message_command` at overlay_client/overlay_client.py:3469) reduces testability; pure helpers would help.
  
@@ -527,6 +529,16 @@ Substeps:
 
 #### Stage 15.3 test log (latest)
 - Covered in Stage 15.2 runs above (full suite + resolution).
+
+### Stage 15.4 quick summary (status)
+- Vector builder already consumes the shared justification helper via `_apply_payload_justification`; validated vector-specific right-justification multipliers against baseline width deltas and ensured insufficient-point guardrails remain intact (no wiring changes required).
+- Updated vector justification test expectation to align with the helper’s baseline-minus-width minus right-just-delta behavior.
+
+#### Stage 15.4 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (payload replay/resolution sweep completed).
 
 ### Stage 13.1 quick summary (mapping)
 - Current transform helper tests cover: inverse group scale basic; message transform offsets/translation without anchors/remap; rect transform inverse scale + translation in fill mode; vector insufficient points guard; vector basic offsets/bounds with trace.
