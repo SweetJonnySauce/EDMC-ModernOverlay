@@ -2170,7 +2170,12 @@ class OverlayWindow(QWidget):
             self._ensure_transient_parent(state)
 
         def _fullscreen_hint() -> bool:
-            if not sys.platform.startswith("linux") or self._fullscreen_hint_logged or not state.is_foreground:
+            if (
+                not sys.platform.startswith("linux")
+                or self._fullscreen_hint_logged
+                or self._window_controller._fullscreen_hint_logged  # internal flag mirrors hint emission
+                or not state.is_foreground
+            ):
                 return False
             screen = self.windowHandle().screen() if self.windowHandle() else None
             if screen is None:
@@ -2183,6 +2188,7 @@ class OverlayWindow(QWidget):
                     "Overlay running in compositor-managed mode; for true fullscreen use borderless windowed in Elite or enable compositor vsync. (%s)",
                     self.format_scale_debug(),
                 )
+                self._fullscreen_hint_logged = True
                 return True
             return False
 
@@ -2207,6 +2213,8 @@ class OverlayWindow(QWidget):
             ensure_transient_parent_fn=_ensure_parent,
             fullscreen_hint_fn=_fullscreen_hint,
         )
+        # Mirror controller flag back to overlay state for future checks.
+        self._fullscreen_hint_logged = self._window_controller._fullscreen_hint_logged
 
     def _ensure_transient_parent(self, state: WindowState) -> None:
         if not sys.platform.startswith("linux"):

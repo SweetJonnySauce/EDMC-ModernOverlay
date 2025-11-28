@@ -70,7 +70,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 10.4 | Extract vector transform calc to the pure module; keep screen-point conversion and command assembly local; preserve logging/guards. | Complete |
   | 10.5 | Wire `OverlayWindow` to use the pure module for all three transforms; update imports and run staging tests. | Complete (bookkeeping/tests only; wiring already done) |
   | 10.6 | Add focused unit tests for the transform module to lock remap/anchor/translation behavior and guardrails (e.g., insufficient points). | Complete |
-  | 11 | Extract follow/window orchestration (geometry application, WM overrides, transient parent/visibility) into a window-controller module to shrink `OverlayWindow`; keep Qt boundary localized. | In progress |
+  | 11 | Extract follow/window orchestration (geometry application, WM overrides, transient parent/visibility) into a window-controller module to shrink `OverlayWindow`; keep Qt boundary localized. | Complete |
   | 11.1 | Map follow/window orchestration seams (what stays Qt-bound vs. pure) and define target controller interface/state handoff. | Complete (mapping only; no code changes) |
   | 11.2 | Create window-controller module scaffold with pure methods/structs; leave `OverlayWindow` behavior unchanged. | Complete (scaffold only; no wiring) |
   | 11.3 | Move geometry application/WM override resolution (setGeometry/move-to-screen/classification) into the controller; keep Qt calls contained. | Complete |
