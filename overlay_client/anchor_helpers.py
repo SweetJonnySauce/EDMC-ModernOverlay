@@ -52,6 +52,18 @@ def compute_justification_offsets(
             if not isinstance(scale_value, (int, float)) or scale_value == 0.0:
                 scale_value = 1.0
             baseline_width = (base_bounds[2] - base_bounds[0]) * scale_value
+        elif trace_fn:
+            trace_fn(
+                ctx.plugin,
+                ctx.item_id,
+                "justify:baseline_missing",
+                {
+                    "width_px": width,
+                    "baseline_px": 0.0,
+                    "suffix": suffix,
+                    "justification": justification,
+                },
+            )
         if trace_fn:
             trace_targets[ctx.identifier] = (
                 ctx.plugin,

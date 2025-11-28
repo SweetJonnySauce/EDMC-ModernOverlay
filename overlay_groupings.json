@@ -2,14 +2,14 @@
   "BGS-Tally": {
     "idPrefixGroups": {
       "BGS-Tally Colonisation": {
-        "idPrefixGroupAnchor": "se",
+        "idPrefixGroupAnchor": "nw",
         "idPrefixes": [
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
         ],
-        "offsetX": 128.0,
+        "offsetX": 100.0,
         "offsetY": 180.0,
-        "payloadJustification": "right"
+        "payloadJustification": "left"
       },
       "BGS-Tally Ready": {
         "idPrefixGroupAnchor": "nw",

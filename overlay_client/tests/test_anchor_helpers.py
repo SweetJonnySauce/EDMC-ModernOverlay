@@ -82,3 +82,33 @@ def test_left_justification_produces_no_offset():
     )
 
     assert offsets == {}
+
+
+def test_trace_emits_when_baseline_missing():
+    key = ("plugin", "suffix")
+    command = CommandContext(
+        identifier=4,
+        key=key,
+        bounds=(0.0, 0.0, 50.0, 10.0),
+        raw_min_x=None,
+        right_just_multiplier=0,
+        justification="center",
+        suffix="suffix",
+        plugin="plugin",
+        item_id="id4",
+    )
+    traces = []
+
+    def _trace(plugin: str, item_id: str, stage: str, details: dict) -> None:
+        traces.append((plugin, item_id, stage, details))
+
+    offsets = compute_justification_offsets(
+        [command],
+        {key: None},
+        base_overlay_bounds={},
+        base_scale=1.0,
+        trace_fn=_trace,
+    )
+
+    assert offsets == {}
+    assert any(stage == "justify:baseline_missing" for _, _, stage, _ in traces)

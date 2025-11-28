@@ -130,12 +130,24 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
  
   | Stage | Description | Status |
   | --- | --- | --- |
-  | 16 | Re-audit builder/follow helpers to ensure calc paths operate on primitives only, with Qt boundaries wrapped at call sites; add headless coverage to enforce separation. | Planned |
+  | 17 | Re-audit builder/follow helpers to ensure calc paths operate on primitives only, with Qt boundaries wrapped at call sites; add headless coverage to enforce separation. | Planned |
 - **E.** Broad `except Exception` handlers in networking and cleanup paths (e.g., overlay_client/overlay_client.py:480, :454) silently swallow errors, hiding failures.
  
   | Stage | Description | Status |
   | --- | --- | --- |
-  | 17 | Replace broad exception catches with scoped handling/logging in networking/cleanup paths; surface actionable errors while keeping UI stable. | Planned |
+  | 18 | Replace broad exception catches with scoped handling/logging in networking/cleanup paths; surface actionable errors while keeping UI stable. | Planned |
+- **F.** Justification baseline availability relies on base bounds; when missing we silently fall back to max width, which can mask drift across mixed-width payloads.
+
+  | Stage | Description | Status |
+  | --- | --- | --- |
+  | 16 | Mitigate justification baseline fallback risk by instrumenting missing baselines, ensuring builders provide base bounds where possible, and locking behavior with tests. | Planned |
+
+  | Substage | Description | Status |
+  | --- | --- | --- |
+  | 16.1 | Map baseline sources per builder (message/rect/vector) and identify where base bounds are omitted in collect/trace paths. | Complete |
+  | 16.2 | Instrument missing-baseline paths with trace/log hooks (guarded) to surface fallback usage without changing behavior. | Complete |
+  | 16.3 | Ensure builders supply base bounds where available (including collect-only) to stabilize baseline calculations. | Planned |
+  | 16.4 | Add tests for mixed-width groups with/without baselines to lock current/fixed behavior; rerun full suite and resolution tests via venv. | Planned |
 
 ----
 # Stage Summary and Test results
@@ -549,6 +561,41 @@ Substeps:
 - `source overlay_client/.venv/bin/activate && make test` → passed.
 - `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
 - `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (payload replay/resolution sweep completed).
+
+### Stage 16 quick summary (intent and mapping)
+- Goal: reduce Risk F by making justification baseline fallback observable and more stable.
+- Scope: map current baseline sources per builder (message/rect/vector), add trace/log when base bounds are absent, and prefer supplying base bounds from builders when available.
+- Plan: instrument missing-baseline paths, add targeted tests for mixed-width groups with/without baselines, and rerun full suite/resolution using the venv.
+
+#### Stage 16 test log (latest)
+- Not run (planning/mapping only).
+
+### Stage 16.1 quick summary (mapping)
+- Baseline sources today: message/rect/vector builders pass `base_overlay_bounds` into `_apply_payload_justification`; these bounds originate from `base_overlay_points` in the respective transform helpers and are collected via `_collect_base_overlay_bounds`. In collect-only/trace-only paths, base bounds may be absent, triggering fallback to max width per group in `calculate_offsets`.
+- Missing baseline cases: any group lacking `base_overlay_bounds` (e.g., no base points, skipped collect-only accumulation, or defaulted transform meta) will fall back silently; vector commands set `right_just_multiplier=0` when `raw_min_x` is `None`, limiting right-just deltas but still using the fallback width.
+- Trace visibility: `_apply_payload_justification` currently traces measurements only when a justification is applied; no explicit trace when baseline is missing.
+- Target seams: `_collect_base_overlay_bounds`, `_compute_*_transform` returns (base bounds optional), `_apply_payload_justification` / `compute_justification_offsets` baseline selection, and `calculate_offsets` fallback logic.
+
+#### Stage 16.1 test log (latest)
+- Not run (documentation/mapping only).
+
+### Stage 16.2 quick summary (status)
+- Added trace emission (`justify:baseline_missing`) in `compute_justification_offsets` when a group lacks baseline bounds, surfacing fallback usage without changing offset calculation.
+- Added a test to assert the trace fires and offsets remain empty when baseline is absent for center-justified payloads.
+
+#### Stage 16.2 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (payload replay/resolution sweep completed).
+
+### Stage 17 quick summary (intent)
+- Goal: re-audit builder/follow helpers to ensure calculation paths use primitives only, with Qt boundaries kept at call sites; add headless coverage to enforce separation.
+- Status: Planned; no code/tests yet.
+
+### Stage 18 quick summary (intent)
+- Goal: replace broad `except Exception` handlers in networking/cleanup with scoped handling/logging to surface actionable errors while keeping UI stable.
+- Status: Planned; no code/tests yet.
 
 ### Stage 13.1 quick summary (mapping)
 - Current transform helper tests cover: inverse group scale basic; message transform offsets/translation without anchors/remap; rect transform inverse scale + translation in fill mode; vector insufficient points guard; vector basic offsets/bounds with trace.
