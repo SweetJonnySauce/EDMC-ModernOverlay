@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional, Tuple
 
 from overlay_client.follow_geometry import _resolve_wm_override  # type: ignore
+from overlay_client.window_tracking import WindowState  # type: ignore
 
 Geometry = Tuple[int, int, int, int]
 NormalisationInfo = Optional[Tuple[str, float, float, float]]
@@ -37,6 +38,9 @@ class WindowController:
         self._last_normalised_tracker: Optional[Tuple[Geometry, Geometry, str, float, float]] = None
         self._last_device_ratio_log: Optional[Tuple[str, float, float, float]] = None
         self._last_geometry_log: Optional[Geometry] = None
+        self._last_follow_state: Optional[WindowState] = None
+        self._fullscreen_hint_logged = False
+        self._last_visibility_state: Optional[bool] = None
 
     # Placeholder methods for future wiring; concrete logic stays in OverlayWindow for now.
     # These will be filled as geometry and visibility orchestration moves here in later stages.
@@ -99,3 +103,24 @@ class WindowController:
 
         self._last_geometry_log = target_tuple
         return target_tuple
+
+    def post_process_follow_state(
+        self,
+        state: "WindowState",
+        target_tuple: Geometry,
+        *,
+        force_render: bool,
+        update_follow_visibility_fn: Callable[[bool], None],
+        update_auto_scale_fn: Callable[[int, int], None],
+        ensure_transient_parent_fn: Callable[[str], None],
+        fullscreen_hint_fn: Callable[[], bool],
+    ) -> None:
+        self._last_follow_state = state
+        update_auto_scale_fn(target_tuple[2], target_tuple[3])
+        ensure_transient_parent_fn(state.identifier or "")
+        if fullscreen_hint_fn():
+            self._fullscreen_hint_logged = True
+        should_show = force_render or (state.is_visible and state.is_foreground)
+        if self._last_visibility_state != should_show:
+            update_follow_visibility_fn(should_show)
+            self._last_visibility_state = should_show

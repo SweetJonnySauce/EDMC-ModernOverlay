@@ -2166,7 +2166,27 @@ class OverlayWindow(QWidget):
         state: WindowState,
         target_tuple: Tuple[int, int, int, int],
     ) -> None:
-        self._last_follow_state = WindowState(
+        def _ensure_parent(identifier: str) -> None:
+            self._ensure_transient_parent(state)
+
+        def _fullscreen_hint() -> bool:
+            if not sys.platform.startswith("linux") or self._fullscreen_hint_logged or not state.is_foreground:
+                return False
+            screen = self.windowHandle().screen() if self.windowHandle() else None
+            if screen is None:
+                screen = QGuiApplication.primaryScreen()
+            if screen is None:
+                return False
+            geometry = screen.geometry()
+            if state.width >= geometry.width() and state.height >= geometry.height():
+                _CLIENT_LOGGER.info(
+                    "Overlay running in compositor-managed mode; for true fullscreen use borderless windowed in Elite or enable compositor vsync. (%s)",
+                    self.format_scale_debug(),
+                )
+                return True
+            return False
+
+        normalized_state = WindowState(
             x=state.x,
             y=state.y,
             width=state.width,
@@ -2178,27 +2198,15 @@ class OverlayWindow(QWidget):
             global_y=state.global_y if state.global_y is not None else state.y,
         )
 
-        self._update_auto_legacy_scale(target_tuple[2], target_tuple[3])
-        self._ensure_transient_parent(state)
-        if (
-            sys.platform.startswith("linux")
-            and not self._fullscreen_hint_logged
-            and state.is_foreground
-        ):
-            screen = self.windowHandle().screen() if self.windowHandle() else None
-            if screen is None:
-                screen = QGuiApplication.primaryScreen()
-            if screen is not None:
-                geometry = screen.geometry()
-                if state.width >= geometry.width() and state.height >= geometry.height():
-                    _CLIENT_LOGGER.info(
-                        "Overlay running in compositor-managed mode; for true fullscreen use borderless windowed in Elite or enable compositor vsync. (%s)",
-                        self.format_scale_debug(),
-                    )
-                    self._fullscreen_hint_logged = True
-
-        should_show = self._force_render or (state.is_visible and state.is_foreground)
-        self._update_follow_visibility(should_show)
+        self._window_controller.post_process_follow_state(
+            normalized_state,
+            target_tuple,
+            force_render=self._force_render,
+            update_follow_visibility_fn=self._update_follow_visibility,
+            update_auto_scale_fn=self._update_auto_legacy_scale,
+            ensure_transient_parent_fn=_ensure_parent,
+            fullscreen_hint_fn=_fullscreen_hint,
+        )
 
     def _ensure_transient_parent(self, state: WindowState) -> None:
         if not sys.platform.startswith("linux"):

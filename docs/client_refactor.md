@@ -74,7 +74,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 11.1 | Map follow/window orchestration seams (what stays Qt-bound vs. pure) and define target controller interface/state handoff. | Complete (mapping only; no code changes) |
   | 11.2 | Create window-controller module scaffold with pure methods/structs; leave `OverlayWindow` behavior unchanged. | Complete (scaffold only; no wiring) |
   | 11.3 | Move geometry application/WM override resolution (setGeometry/move-to-screen/classification) into the controller; keep Qt calls contained. | Complete |
-  | 11.4 | Move visibility/transient-parent/fullscreen-hint handling into the controller; keep Qt calls contained. | Planned |
+  | 11.4 | Move visibility/transient-parent/fullscreen-hint handling into the controller; keep Qt calls contained. | Complete |
   | 11.5 | Wire `OverlayWindow` to the controller for follow orchestration; update imports; preserve logging. | Planned |
   | 11.6 | Add focused tests around controller logic (override adoption, visibility decisions, transient parent) to lock behavior. | Planned |
   | 12 | Split payload/group coordination (grouping, cache/nudge plumbing) into a coordinator module so `overlay_client.py` keeps only minimal glue and entrypoint. | Planned |
@@ -369,6 +369,16 @@ Substeps:
 - Fixed regression risk: `_last_set_geometry` is now updated before `setGeometry` via the controller callback to prevent resizeEvent from reverting to stale sizes during follow updates.
 
 #### Stage 11.3 test log (latest)
+- `make check` → passed (`ruff`, `mypy`, `pytest`: 114 passed, 7 skipped).
+- `make test` → passed (same totals).
+- `PYQT_TESTS=1 python -m pytest overlay_client/tests` → covered in the above `pytest` run (PYQT_TESTS set).
+- `python3 tests/run_resolution_tests.py --config tests/display_all.json` → not rerun in this stage (overlay process required).
+
+### Stage 11.4 quick summary (status)
+- Moved follow post-processing into `WindowController.post_process_follow_state` with callbacks for visibility updates, auto-scale, transient parent, and fullscreen hint; preserves Linux fullscreen hint logging.
+- `_post_process_follow_state` now delegates to the controller; logging/behavior unchanged.
+
+#### Stage 11.4 test log (latest)
 - `make check` → passed (`ruff`, `mypy`, `pytest`: 114 passed, 7 skipped).
 - `make test` → passed (same totals).
 - `PYQT_TESTS=1 python -m pytest overlay_client/tests` → covered in the above `pytest` run (PYQT_TESTS set).
