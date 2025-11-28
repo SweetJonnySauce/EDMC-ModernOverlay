@@ -77,11 +77,11 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 11.4 | Move visibility/transient-parent/fullscreen-hint handling into the controller; keep Qt calls contained. | Complete |
   | 11.5 | Wire `OverlayWindow` to the controller for follow orchestration; update imports; preserve logging. | Complete (bookkeeping; already wired) |
   | 11.6 | Add focused tests around controller logic (override adoption, visibility decisions, transient parent) to lock behavior. | Complete |
-  | 12 | Split payload/group coordination (grouping, cache/nudge plumbing) into a coordinator module so `overlay_client.py` keeps only minimal glue and entrypoint. | Planned |
+  | 12 | Split payload/group coordination (grouping, cache/nudge plumbing) into a coordinator module so `overlay_client.py` keeps only minimal glue and entrypoint. | In progress |
   | 12.1 | Map grouping/cache/nudge seams and inputs/outputs across `overlay_client.py`, `group_cache`, and settings/CLI hooks; document current logging and Qt boundaries. | Complete (mapping only; no code changes) |
   | 12.2 | Define coordinator interface (pure, no Qt) owning group selection, cache updates, nudge/backoff decisions, and outbound payload batching; decide injected callbacks for logging/send/settings. | Complete (interface defined; doc-only) |
   | 12.3 | Scaffold coordinator module and initial focused tests to lock current behaviors (group adoption, cache read/write, nudge gating) without wiring changes. | Complete (scaffold + tests; no wiring) |
-  | 12.4 | Move non-Qt grouping/cache logic from `overlay_client.py` into the coordinator; preserve behavior/logging; adjust imports only. | Planned |
+  | 12.4 | Move non-Qt grouping/cache logic from `overlay_client.py` into the coordinator; preserve behavior/logging; adjust imports only. | Complete (delegated cache/nudge helpers; no UI wiring) |
   | 12.5 | Wire overlay client/window to use the coordinator via injected callbacks, keeping signal/slot behavior, logging, and threading assumptions unchanged. | Planned |
   | 12.6 | Expand coordinator tests for edge cases (missing groups, stale cache, retry/nudge cadence); rerun full suite and resolution test; log results. | Planned |
 
@@ -425,11 +425,21 @@ Substeps:
 #### Stage 12.2 test log (latest)
 - Not run (interface/mapping only).
 
-### Stage 12.3 quick summary (intent)
-- Goal: add a pure coordinator scaffold to host group selection/cache/nudge logic without changing wiring.
-- Include data structures and helpers for group key resolution (with overrides), cache payload normalization/writes, and nudge translation calculations.
-- Add initial unit tests to lock current behaviors for group adoption, cache normalization/write shape, and nudge gating.
-- No production wiring changes in this step; keep existing overlay paths untouched.
+### Stage 12.3 quick summary (status)
+- Added `overlay_client/group_coordinator.py` with pure helpers for group key resolution, cache payload normalization/write-through, and nudge translation calculations; no Qt or wiring changes.
+- Added `overlay_client/tests/test_group_coordinator.py` covering override/fallback key resolution, cache normalization/write shape, and nudge gating.
+- Behavior unchanged; overlay client still uses legacy paths for now.
+
+#### Stage 12.3 test log (latest)
+- `python3 -m pytest overlay_client/tests/test_group_coordinator.py` → passed.
+
+### Stage 12.4 quick summary (status)
+- Delegated cache updates and group nudge calculations in `overlay_client.py` to `GroupCoordinator`; instantiated coordinator with existing group cache/logger.
+- Removed duplicate cache/nudge helpers from `OverlayWindow`; kept behavior/logging intact and no Qt wiring changes yet.
+
+#### Stage 12.4 test log (latest)
+- `python3 -m pytest overlay_client/tests/test_group_coordinator.py` → passed.
+- `python3 -m pytest overlay_client/tests` → failed at collection (PyQt6 missing in environment); rerun full suite once PyQt6 is available.
 
   Notes:
   - Perform refactor in small, behavior-preserving steps; avoid logic changes during extraction.

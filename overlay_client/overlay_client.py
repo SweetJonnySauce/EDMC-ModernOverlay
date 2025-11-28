@@ -88,6 +88,7 @@ from overlay_client.follow_geometry import (  # type: ignore  # noqa: E402
     _apply_title_bar_offset,
     _convert_native_rect_to_qt,
 )
+from overlay_client.group_coordinator import GroupCoordinator  # type: ignore  # noqa: E402
 from overlay_client.transform_helpers import (  # type: ignore  # noqa: E402
     apply_inverse_group_scale as util_apply_inverse_group_scale,
     compute_message_transform as util_compute_message_transform,
@@ -347,6 +348,7 @@ class OverlayWindow(QWidget):
             debounce_seconds=1.0 if DEBUG_CONFIG_ENABLED else 5.0,
             logger=_CLIENT_LOGGER,
         )
+        self._group_coordinator = GroupCoordinator(cache=self._group_cache, logger=_CLIENT_LOGGER)
         self._render_pipeline = LegacyRenderPipeline(self)
 
         self._legacy_timer = QTimer(self)
@@ -3558,20 +3560,13 @@ class OverlayWindow(QWidget):
         self,
         bounds_by_group: Mapping[Tuple[str, Optional[str]], _ScreenBounds],
     ) -> Dict[Tuple[str, Optional[str]], Tuple[int, int]]:
-        if not self._payload_nudge_enabled or not bounds_by_group:
-            return {}
-        width = max(self.width(), 1)
-        height = max(self.height(), 1)
-        gutter = max(0, int(self._payload_nudge_gutter))
-        translations: Dict[Tuple[str, Optional[str]], Tuple[int, int]] = {}
-        for key, bounds in bounds_by_group.items():
-            if not bounds.is_valid():
-                continue
-            dx = self._compute_axis_nudge(bounds.min_x, bounds.max_x, width, gutter)
-            dy = self._compute_axis_nudge(bounds.min_y, bounds.max_y, height, gutter)
-            if dx or dy:
-                translations[key] = (dx, dy)
-        return translations
+        return self._group_coordinator.compute_group_nudges(
+            bounds_by_group,
+            self.width(),
+            self.height(),
+            self._payload_nudge_enabled,
+            self._payload_nudge_gutter,
+        )
 
     def _collect_base_overlay_bounds(
         self,
@@ -3664,74 +3659,15 @@ class OverlayWindow(QWidget):
 
         return _emit
 
-    @staticmethod
-    def _cache_safe_float(value: Any) -> float:
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            return 0.0
-        if not math.isfinite(number):
-            return 0.0
-        return round(number, 3)
-
-    @staticmethod
-    def _cache_safe_int(value: Any) -> int:
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return 0
-
-    def _base_cache_payload(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
-        return {
-            "base_min_x": self._cache_safe_float(payload.get("min_x")),
-            "base_min_y": self._cache_safe_float(payload.get("min_y")),
-            "base_width": self._cache_safe_float(payload.get("width")),
-            "base_height": self._cache_safe_float(payload.get("height")),
-            "base_max_x": self._cache_safe_float(payload.get("max_x")),
-            "base_max_y": self._cache_safe_float(payload.get("max_y")),
-            "has_transformed": bool(payload.get("has_transformed", False)),
-        }
-
-    def _transformed_cache_payload(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
-        anchor_raw = payload.get("anchor") or "nw"
-        justification_raw = payload.get("justification") or "left"
-        return {
-            "trans_min_x": self._cache_safe_float(payload.get("min_x")),
-            "trans_min_y": self._cache_safe_float(payload.get("min_y")),
-            "trans_width": self._cache_safe_float(payload.get("width")),
-            "trans_height": self._cache_safe_float(payload.get("height")),
-            "trans_max_x": self._cache_safe_float(payload.get("max_x")),
-            "trans_max_y": self._cache_safe_float(payload.get("max_y")),
-            "anchor": str(anchor_raw).strip().lower(),
-            "justification": str(justification_raw).strip().lower(),
-            "nudge_dx": self._cache_safe_int(payload.get("nudge_dx")),
-            "nudge_dy": self._cache_safe_int(payload.get("nudge_dy")),
-            "nudged": bool(payload.get("nudged", False)),
-            "offset_dx": self._cache_safe_float(payload.get("offset_dx")),
-            "offset_dy": self._cache_safe_float(payload.get("offset_dy")),
-        }
-
     def _update_group_cache_from_payloads(
         self,
         base_payloads: Mapping[Tuple[str, Optional[str]], Mapping[str, Any]],
         transform_payloads: Mapping[Tuple[str, Optional[str]], Mapping[str, Any]],
     ) -> None:
-        cache = getattr(self, "_group_cache", None)
-        if cache is None:
-            return
-        for key, base_payload in base_payloads.items():
-            plugin_label = (base_payload.get("plugin") or "").strip()
-            suffix_label = base_payload.get("suffix")
-            normalized = self._base_cache_payload(base_payload)
-            transformed_payload = None
-            if normalized.get("has_transformed"):
-                raw_transform = transform_payloads.get(key)
-                if raw_transform is not None:
-                    transformed_payload = self._transformed_cache_payload(raw_transform)
-            try:
-                cache.update_group(plugin_label, suffix_label, normalized, transformed_payload)
-            except Exception:
-                pass
+        self._group_coordinator.update_cache_from_payloads(
+            base_payloads=base_payloads,
+            transform_payloads=transform_payloads,
+        )
 
     def _draw_payload_vertex_markers(self, painter: QPainter, points: Sequence[Tuple[int, int]]) -> None:
         if not points:
@@ -4013,46 +3949,6 @@ class OverlayWindow(QWidget):
                 )
         else:
             self._offscreen_payloads.discard(payload_id)
-
-    @staticmethod
-    def _compute_axis_nudge(min_coord: float, max_coord: float, window_span: int, gutter: int) -> int:
-        if window_span <= 0:
-            return 0
-        if not (math.isfinite(min_coord) and math.isfinite(max_coord)):
-            return 0
-        span = max(0.0, max_coord - min_coord)
-        if span <= 0.0:
-            return 0
-        left_overflow = min_coord < 0.0
-        right_overflow = max_coord > window_span
-        if not (left_overflow or right_overflow):
-            return 0
-        dx = 0.0
-        current_min = min_coord
-        current_max = max_coord
-        if left_overflow:
-            shift = -current_min
-            dx += shift
-            current_min += shift
-            current_max += shift
-        if current_max > window_span:
-            shift = current_max - window_span
-            dx -= shift
-            current_min -= shift
-            current_max -= shift
-        effective_gutter = min(max(0.0, float(gutter)), max(window_span - span, 0.0))
-        if effective_gutter > 0.0:
-            if left_overflow:
-                extra = min(effective_gutter, max(0.0, window_span - current_max))
-                dx += extra
-                current_min += extra
-                current_max += extra
-            if right_overflow:
-                extra = min(effective_gutter, max(0.0, current_min))
-                dx -= extra
-                current_min -= extra
-                current_max -= extra
-        return int(round(dx))
 
     def _paint_debug_overlay(self, painter: QPainter) -> None:
         if not self._show_debug_overlay:

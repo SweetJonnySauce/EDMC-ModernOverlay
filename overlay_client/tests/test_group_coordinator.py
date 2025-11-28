@@ -93,8 +93,6 @@ def test_update_cache_normalizes_payloads():
         "base_max_x": 0.0,
         "base_max_y": 6.789,
         "has_transformed": True,
-        "offset_x": 1.222,
-        "offset_y": 3.457,
     }
     assert transformed == {
         "trans_min_x": -5.444,
