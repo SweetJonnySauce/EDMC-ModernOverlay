@@ -33,6 +33,7 @@ This file tracks the ongoing refactor of `overlay_client.py` (and related module
 - Small surfaces: limit global state; keep public APIs minimal; prefer immutability where practical.
 - Testability: code structured so it's easy to unit/integration test; deterministic behavior; clear seams for injecting dependencies.
 - Error handling: explicit failure paths; helpful messages; avoid silent catches; clean resource management.
+- Observability: surface guarded fallbacks/edge conditions with trace/log hooks so silent behavior changes don’t hide regressions.
 - Documentation: concise README/usage notes; explain non-obvious decisions; update docs alongside code.
 - Tooling: automated formatting/linting/tests in CI; commit hooks for quick checks; steady dependency management.
 - Performance awareness: efficient enough without premature micro-optimizations; measure before tuning.
@@ -130,12 +131,31 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
  
   | Stage | Description | Status |
   | --- | --- | --- |
-  | 17 | Re-audit builder/follow helpers to ensure calc paths operate on primitives only, with Qt boundaries wrapped at call sites; add headless coverage to enforce separation. | Planned |
+  | 17 | Re-audit builder/follow helpers to ensure calc paths operate on primitives only, with Qt boundaries wrapped at call sites; add headless coverage to enforce separation. | Complete |
+
+  | Substage | Description | Status |
+  | --- | --- | --- |
+  | 17.1 | Map current Qt boundary touch points in builders/follow helpers and identify any lingering Qt types in pure modules. | Complete |
+  | 17.2 | Move any remaining Qt-specific usage back to call sites; tighten interfaces to primitives only. | Complete |
+  | 17.3 | Add/extend headless tests to guard Qt-free helpers and ensure Qt objects are mocked/injected only at boundaries. | Complete |
+  | 17.4 | Rerun full suite (including PYQT_TESTS/resolution) to confirm no regressions. | Complete |
 - **E.** Broad `except Exception` handlers in networking and cleanup paths (e.g., overlay_client/overlay_client.py:480, :454) silently swallow errors, hiding failures.
- 
+
   | Stage | Description | Status |
   | --- | --- | --- |
-  | 18 | Replace broad exception catches with scoped handling/logging in networking/cleanup paths; surface actionable errors while keeping UI stable. | Planned |
+  | 19 | Replace broad exception catches with scoped handling/logging in networking/cleanup paths; surface actionable errors while keeping UI stable. | Planned |
+- **G.** Text measurement/painter work remains Qt-bound in `overlay_client.py`; without an injectable seam, it’s harder to headlessly validate font metrics/regression and observe measurement drift.
+
+  | Stage | Description | Status |
+  | --- | --- | --- |
+  | 18 | Introduce an injectable text-measurement seam (pure callable) for message/rect builders, add headless coverage around measurements, and keep Qt-bound painter setup at the boundary. | Planned |
+
+  | Substage | Description | Status |
+  | --- | --- | --- |
+  | 18.1 | Map current text measurement touch points (message width/height, rect text metrics if any) and define seam interface and injection points. | Complete |
+  | 18.2 | Implement injectable text-measurement callable (pure), provide default Qt-backed implementation at the boundary. | Complete |
+  | 18.3 | Wire builders to use the injected measurer while keeping painter/QFont setup at call sites; ensure logging/trace unaffected. | Planned |
+  | 18.4 | Add headless tests using a fake measurer to lock widths/heights and detect drift; rerun full suite and resolution tests via venv. | Planned |
 - **F.** Justification baseline availability relies on base bounds; when missing we silently fall back to max width, which can mask drift across mixed-width payloads.
 
   | Stage | Description | Status |
@@ -609,9 +629,55 @@ Substeps:
 - `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
 - `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (payload replay/resolution sweep completed).
 
-### Stage 17 quick summary (intent)
-- Goal: re-audit builder/follow helpers to ensure calculation paths use primitives only, with Qt boundaries kept at call sites; add headless coverage to enforce separation.
-- Status: Planned; no code/tests yet.
+### Stage 17 quick summary (status)
+- Goal: re-audit builder/follow helpers to ensure calc paths use primitives only, with Qt boundaries kept at call sites; add headless coverage to enforce separation.
+- Status: Complete (audit + full suite rerun).
+
+### Stage 17.1 quick summary (mapping)
+- Current Qt boundaries: `overlay_client/overlay_client.py` handles all QFont/QFontMetrics usage, QPen/QBrush/QPainter setup, QWindow/QRect geometry calls, and signal/slot wiring. Pure modules (`transform_helpers.py`, `payload_builders.py`, `window_utils.py`, `follow_geometry.py`, `window_controller.py`, `anchor_helpers.py`, `group_coordinator.py`) operate on primitives and dataclasses only.
+- Builders: `_build_message_command/_rect/_vector` delegate to pure transform helpers for math; Qt usage is confined to font metrics/painter/pen/brush creation and command assembly in `overlay_client.py`. `paint_commands.py` classes hold Qt painter references but are constructed at the boundary.
+- Follow: geometry normalization and WM override logic live in `follow_geometry.py` and `window_controller.py` (pure); Qt interactions (QWindow, setGeometry/move/show/hide, transient parents) stay in `overlay_client.py`.
+- Remaining checks: verify no Qt types leak through helper signatures; ensure tests for pure modules remain headless.
+
+#### Stage 17.1 test log (latest)
+- Not run (documentation/mapping only).
+
+### Stage 17.2 quick summary (status)
+- Audit found no lingering Qt imports or types in pure helper modules (transform/payload/follow/controller/anchor/group coordinator); Qt usage remains isolated to `overlay_client.py` and paint command construction.
+- No code changes required; pure helper interfaces already primitive-only. Headless tests remain applicable.
+
+#### Stage 17.2 test log (latest)
+- Not run (documentation-only audit; no behavior changes).
+
+### Stage 17.3 quick summary (status)
+- Reviewed test suite: pure helpers (`transform_helpers`, `payload_builders`, `follow_geometry`, `window_controller`, `anchor_helpers`, `group_coordinator`) are covered by headless tests; Qt-dependent tests are explicitly guarded by `PYQT_TESTS` or `@pytest.mark.pyqt_required` in PyQt-specific cases (e.g., overlay client cache/painter). No mixed Qt-in-pure-module tests remain.
+- No test changes needed; existing guards and headless coverage satisfy the boundary constraints.
+
+#### Stage 17.3 test log (latest)
+- Not run (audit-only; no code/tests changed).
+
+### Stage 17.4 quick summary (status)
+- Reran full test cadence (ruff/mypy/pytest, PYQT_TESTS subset, and resolution tests) from the venv to validate boundary/audit changes; all passing.
+
+#### Stage 17.4 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (payload replay/resolution sweep completed).
+
+### Stage 18 quick summary (status)
+- Goal: add an injectable, pure text-measurement seam for message/rect builders so we can headlessly validate font metrics and detect drift while keeping painter/QFont usage at the boundary.
+- Status: In progress (18.2 complete; wiring/tests remain).
+
+### Stage 18.2 quick summary (status)
+- Added injectable text measurer: `_text_measurer` hook and `_measure_text` helper return width/ascent/descent; default remains Qt-based via `QFontMetrics`, with a setter to inject a pure measurer.
+- Message builder now uses the helper for widths/heights; behavior unchanged with default measurer.
+
+#### Stage 18 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (payload replay/resolution sweep completed).
 
 ### Stage 18 quick summary (intent)
 - Goal: replace broad `except Exception` handlers in networking/cleanup with scoped handling/logging to surface actionable errors while keeping UI stable.

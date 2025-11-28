@@ -211,6 +211,13 @@ class _GroupDebugState:
     nudged: bool
 
 
+@dataclass(frozen=True)
+class _MeasuredText:
+    width: int
+    ascent: int
+    descent: int
+
+
 def _load_line_width_config() -> Dict[str, int]:
     config = dict(_LINE_WIDTH_DEFAULTS)
     path = CLIENT_DIR / "render_config.json"
@@ -317,6 +324,7 @@ class OverlayWindow(QWidget):
         self._line_widths: Dict[str, int] = _load_line_width_config()
         self._payload_nudge_enabled: bool = False
         self._payload_nudge_gutter: int = 30
+        self._text_measurer: Optional[Callable[[str, float, str], _MeasuredText]] = None
         self._offscreen_payloads: Set[str] = set()
         dev_mode_active = (
             DEBUG_CONFIG_ENABLED
@@ -3155,6 +3163,20 @@ class OverlayWindow(QWidget):
             self._font_max_point,
         )
 
+    def _measure_text(self, text: str, point_size: float, font_family: Optional[str] = None) -> Tuple[int, int, int]:
+        if self._text_measurer is not None:
+            measured = self._text_measurer(text, point_size, font_family or self._font_family)
+            return measured.width, measured.ascent, measured.descent
+        metrics_font = QFont(font_family or self._font_family)
+        self._apply_font_fallbacks(metrics_font)
+        metrics_font.setPointSizeF(point_size)
+        metrics_font.setWeight(QFont.Weight.Normal)
+        metrics = QFontMetrics(metrics_font)
+        return metrics.horizontalAdvance(text), metrics.ascent(), metrics.descent()
+
+    def set_text_measurer(self, measurer: Optional[Callable[[str, float, str], _MeasuredText]]) -> None:
+        self._text_measurer = measurer
+
     def _build_message_command(
         self,
         legacy_item: LegacyItem,
@@ -3227,18 +3249,13 @@ class OverlayWindow(QWidget):
             collect_only,
         )
         text = str(item.get("text", ""))
-        metrics_font = QFont(self._font_family)
-        self._apply_font_fallbacks(metrics_font)
-        metrics_font.setPointSizeF(scaled_point_size)
-        metrics_font.setWeight(QFont.Weight.Normal)
-        metrics = QFontMetrics(metrics_font)
-        text_width = metrics.horizontalAdvance(text)
+        text_width, ascent, descent = self._measure_text(text, scaled_point_size, self._font_family)
         x = int(round(fill.screen_x(adjusted_left)))
         payload_point_y = int(round(fill.screen_y(adjusted_top)))
-        baseline = int(round(payload_point_y + metrics.ascent()))
+        baseline = int(round(payload_point_y + ascent))
         center_x = x + text_width // 2
-        top = baseline - metrics.ascent()
-        bottom = baseline + metrics.descent()
+        top = baseline - ascent
+        bottom = baseline + descent
         center_y = int(round((top + bottom) / 2.0))
         bounds = (x, top, x + text_width, bottom)
         overlay_bounds: Optional[Tuple[float, float, float, float]] = None
@@ -3251,9 +3268,9 @@ class OverlayWindow(QWidget):
             overlay_bounds = (overlay_left, overlay_top, overlay_right, overlay_bottom)
             base_x = int(round(fill.screen_x(base_left_logical)))
             base_base_y = int(round(fill.screen_y(base_top_logical)))
-            base_baseline = int(round(base_base_y + metrics.ascent()))
-            base_top = base_baseline - metrics.ascent()
-            base_bottom = base_baseline + metrics.descent()
+            base_baseline = int(round(base_base_y + ascent))
+            base_top = base_baseline - ascent
+            base_bottom = base_baseline + descent
             base_bounds = (base_x, base_top, base_x + text_width, base_bottom)
             base_overlay_left = (base_bounds[0] - base_offset_x) / scale
             base_overlay_top = (base_bounds[1] - base_offset_y) / scale
@@ -3298,8 +3315,8 @@ class OverlayWindow(QWidget):
             x=x,
             baseline=baseline,
             text_width=text_width,
-            ascent=metrics.ascent(),
-            descent=metrics.descent(),
+            ascent=ascent,
+            descent=descent,
             cycle_anchor=(center_x, center_y),
             trace_fn=trace_fn,
             base_overlay_bounds=base_overlay_bounds,
