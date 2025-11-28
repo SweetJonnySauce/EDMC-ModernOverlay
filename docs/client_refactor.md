@@ -78,9 +78,9 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 11.5 | Wire `OverlayWindow` to the controller for follow orchestration; update imports; preserve logging. | Complete (bookkeeping; already wired) |
   | 11.6 | Add focused tests around controller logic (override adoption, visibility decisions, transient parent) to lock behavior. | Complete |
   | 12 | Split payload/group coordination (grouping, cache/nudge plumbing) into a coordinator module so `overlay_client.py` keeps only minimal glue and entrypoint. | Planned |
-  | 12.1 | Map grouping/cache/nudge seams and inputs/outputs across `overlay_client.py`, `group_cache`, and settings/CLI hooks; document current logging and Qt boundaries. | Planned |
-  | 12.2 | Define coordinator interface (pure, no Qt) owning group selection, cache updates, nudge/backoff decisions, and outbound payload batching; decide injected callbacks for logging/send/settings. | Planned |
-  | 12.3 | Scaffold coordinator module and initial focused tests to lock current behaviors (group adoption, cache read/write, nudge gating) without wiring changes. | Planned |
+  | 12.1 | Map grouping/cache/nudge seams and inputs/outputs across `overlay_client.py`, `group_cache`, and settings/CLI hooks; document current logging and Qt boundaries. | Complete (mapping only; no code changes) |
+  | 12.2 | Define coordinator interface (pure, no Qt) owning group selection, cache updates, nudge/backoff decisions, and outbound payload batching; decide injected callbacks for logging/send/settings. | Complete (interface defined; doc-only) |
+  | 12.3 | Scaffold coordinator module and initial focused tests to lock current behaviors (group adoption, cache read/write, nudge gating) without wiring changes. | Complete (scaffold + tests; no wiring) |
   | 12.4 | Move non-Qt grouping/cache logic from `overlay_client.py` into the coordinator; preserve behavior/logging; adjust imports only. | Planned |
   | 12.5 | Wire overlay client/window to use the coordinator via injected callbacks, keeping signal/slot behavior, logging, and threading assumptions unchanged. | Planned |
   | 12.6 | Expand coordinator tests for edge cases (missing groups, stale cache, retry/nudge cadence); rerun full suite and resolution test; log results. | Planned |
@@ -405,6 +405,31 @@ Substeps:
 - `make test` → passed (same totals).
 - `PYQT_TESTS=1 python -m pytest overlay_client/tests` → covered in the above `pytest` run (PYQT_TESTS set).
 - `python3 tests/run_resolution_tests.py --config tests/display_all.json` → not rerun in this stage (overlay process required).
+
+### Stage 12.1 quick summary (mapping)
+- Grouping inputs live in `overlay_client/overlay_client.py` via `GroupingAdapter`/`FillGroupingHelper` and `GroupTransform` (per-item `group_key`, transform lookup, override patterns, and viewport build helpers), plus dev/debug group tracing and bounds state (`_group_log_pending_*`, `_group_log_next_allowed`, `_logged_group_*`).
+- Cache plumbing: `GroupPlacementCache` (init via `resolve_cache_path` → `overlay_group_cache.json`) updated through `_update_group_cache_from_payloads` driven by render results (`cache_base_payloads`, `cache_transform_payloads`), populated after throttled logging in `_apply_group_logging_payloads`.
+- Nudge gating: settings/CLI feed `set_payload_nudge` (flags + gutter); `_compute_group_nudges` and `_apply_group_nudges_to_overlay_bounds` compute/apply translations per group when enabled; payloads carry `nudge_dx/dy` and `nudged` into cache/logs and debug overlays.
+- Qt boundaries are minimal here: grouping/cache/nudge logic is pure (no Qt types), consumed by builders/render paths that attach to QPainter/QWindow elsewhere; logging uses standard logger with throttling keys.
+
+#### Stage 12.1 test log (latest)
+- Not run (mapping-only documentation update).
+
+### Stage 12.2 quick summary (interface definition)
+- Coordinator will be pure (no Qt) and manage: per-item group resolution (`group_key` lookup + override pattern), active group tracking, cache updates (base + transform payloads), nudge/backoff decisions, and outbound payload batching/context assembly for renderers.
+- Inputs: grouping helper/adapter callbacks (`group_key_for`, `transform_for_item`, override pattern resolver), settings/CLI flags (nudge enabled/gutter, dev/debug toggles), cache path and IO hooks, and current payload/render outputs (bounds by group, anchor translations, overlay bounds, cache payloads).
+- Outputs: per-group context/results (transforms, anchor translations, nudge deltas, cache payloads) and logging/throttle events to be consumed by render/builders; should expose methods to apply throttled group logging and cache writes and to compute nudge translations.
+- Injected callbacks: logging (info/debug), time source (for throttling), cache read/write (via `GroupPlacementCache`), grouping helper/adapter hooks, and a hook to emit payloads to the sender when batching is needed. Threading assumptions stay the same (called from existing overlay client paths).
+- No code changes yet; this defines the contract to implement in Stage 12.3 scaffolding.
+
+#### Stage 12.2 test log (latest)
+- Not run (interface/mapping only).
+
+### Stage 12.3 quick summary (intent)
+- Goal: add a pure coordinator scaffold to host group selection/cache/nudge logic without changing wiring.
+- Include data structures and helpers for group key resolution (with overrides), cache payload normalization/writes, and nudge translation calculations.
+- Add initial unit tests to lock current behaviors for group adoption, cache normalization/write shape, and nudge gating.
+- No production wiring changes in this step; keep existing overlay paths untouched.
 
   Notes:
   - Perform refactor in small, behavior-preserving steps; avoid logic changes during extraction.
