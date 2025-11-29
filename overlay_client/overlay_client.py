@@ -460,7 +460,8 @@ class OverlayWindow(QWidget):
         if window is not None:
             try:
                 ratio = window.devicePixelRatio()
-            except Exception:
+            except (AttributeError, RuntimeError) as exc:
+                _CLIENT_LOGGER.debug("Failed to read devicePixelRatio, defaulting to 1.0: %s", exc)
                 ratio = 1.0
         return util_current_physical_size(frame.width(), frame.height(), ratio)
 
@@ -479,7 +480,8 @@ class OverlayWindow(QWidget):
         height = max(float(self.height()), 1.0)
         try:
             ratio = self.devicePixelRatioF()
-        except Exception:
+        except (AttributeError, RuntimeError) as exc:
+            _CLIENT_LOGGER.debug("devicePixelRatioF unavailable, defaulting to 1.0: %s", exc)
             ratio = 1.0
         return util_viewport_state(width, height, ratio)
 
@@ -2362,13 +2364,14 @@ class OverlayWindow(QWidget):
             native_geometry = screen.geometry()
         logical_geometry = screen.geometry()
         device_ratio = 1.0
+        screen_name = screen.name() or screen.manufacturer() or "unknown"
         try:
             device_ratio = float(screen.devicePixelRatio())
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+            _CLIENT_LOGGER.debug("devicePixelRatio unavailable for screen %s; defaulting to 1.0 (%s)", screen_name, exc)
             device_ratio = 1.0
         if device_ratio <= 0.0:
             device_ratio = 1.0
-        screen_name = screen.name() or screen.manufacturer() or "unknown"
         return ScreenInfo(
             name=screen_name,
             logical_geometry=(

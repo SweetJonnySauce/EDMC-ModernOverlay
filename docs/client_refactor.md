@@ -150,7 +150,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | --- | --- | --- |
   | 19.1 | Inventory broad exception handlers (networking/cleanup) and classify desired scoped exceptions/logging. | Complete |
   | 19.2 | Refactor handlers to scoped exceptions with meaningful logging/action; avoid silent swallow. | Planned |
-  | 19.3 | Add tests (unit/integration) to ensure scoped handling/logging fires for targeted failures. | Planned |
+  | 19.3 | Add tests (unit/integration) to ensure scoped handling/logging fires for targeted failures. | Complete |
   | 19.4 | Rerun full suite (including PYQT_TESTS/resolution) to confirm stability. | Planned |
 - **G.** Text measurement/painter work remains Qt-bound in `overlay_client.py`; without an injectable seam, it’s harder to headlessly validate font metrics/regression and observe measurement drift.
 
@@ -705,6 +705,16 @@ Substeps:
 
 #### Stage 19.1 test log (latest)
 - Not run (documentation/mapping only).
+
+### Stage 19.3 quick summary (status)
+- Added headless tests for scoped exception logging defaults: `_current_physical_size` and `_viewport_state` now log and default ratio when devicePixelRatio calls raise, ensuring fallbacks are observable.
+- Behavior-aligned scoping applied in those helpers; networking/cleanup handler refactors remain in 19.2. Full suite rerun to validate stability.
+
+#### Stage 19.3 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (payload replay/resolution sweep completed).
 
 ### Stage 13.1 quick summary (mapping)
 - Current transform helper tests cover: inverse group scale basic; message transform offsets/translation without anchors/remap; rect transform inverse scale + translation in fill mode; vector insufficient points guard; vector basic offsets/bounds with trace.
