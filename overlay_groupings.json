@@ -7,9 +7,9 @@
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
         ],
-        "offsetX": 240.0,
-        "offsetY": 540.0,
-        "payloadJustification": "right"
+        "offsetX": 0.0,
+        "offsetY": 200.0,
+        "payloadJustification": "left"
       },
       "BGS-Tally Ready": {
         "idPrefixGroupAnchor": "nw",
@@ -43,8 +43,8 @@
           },
           "bgstally-msg-tick-"
         ],
-        "offsetX": 130.0,
-        "offsetY": 60.0,
+        "offsetX": 190.0,
+        "offsetY": 10.0,
         "payloadJustification": "center"
       },
       "BGS-Tally Tickwarn": {
