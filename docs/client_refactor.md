@@ -186,7 +186,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | Substage | Description | Status |
   | --- | --- | --- |
   | 20.1 | Map remaining `OverlayWindow` concerns (debug/cycle UI, click-through/window flags, platform/visibility toggles), define extraction boundaries and Qt touchpoints; no code changes. | Complete |
-  | 20.2 | Extract debug/cycle overlay UI rendering/state into a focused helper while preserving logging and painter interactions; keep behavior identical. | Planned |
+  | 20.2 | Extract debug/cycle overlay UI rendering/state into a focused helper while preserving logging and painter interactions; keep behavior identical. | Complete |
   | 20.3 | Extract click-through/window-flag management (transient parent resets, WA flags, platform controller hooks) into a helper to narrow the window class surface; preserve logging. | Planned |
   | 20.4 | Extract force-render/visibility/platform toggle helpers (Wayland/X11 handling, apply_click_through/drag restore) to a focused module; behavior unchanged. | Planned |
   | 20.5 | Extract message/status display presentation into a small presenter/helper to reduce cross-cutting state in `OverlayWindow`; keep UI/logging intact. | Planned |
