@@ -146,12 +146,12 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | --- | --- | --- |
   | 19 | Replace broad exception catches with scoped handling/logging in networking/cleanup paths; surface actionable errors while keeping UI stable. | Planned |
 
-  | Substage | Description | Status |
-  | --- | --- | --- |
-  | 19.1 | Inventory broad exception handlers (networking/cleanup) and classify desired scoped exceptions/logging. | Complete |
-  | 19.2 | Refactor handlers to scoped exceptions with meaningful logging/action; avoid silent swallow. | Planned |
-  | 19.3 | Add tests (unit/integration) to ensure scoped handling/logging fires for targeted failures. | Complete |
-  | 19.4 | Rerun full suite (including PYQT_TESTS/resolution) to confirm stability. | Planned |
+| Substage | Description | Status |
+| --- | --- | --- |
+| 19.1 | Inventory broad exception handlers (networking/cleanup) and classify desired scoped exceptions/logging. | Complete |
+| 19.2 | Refactor handlers to scoped exceptions with meaningful logging/action; avoid silent swallow. | Complete |
+| 19.3 | Add tests (unit/integration) to ensure scoped handling/logging fires for targeted failures. | Complete |
+| 19.4 | Rerun full suite (including PYQT_TESTS/resolution) to confirm stability. | Complete (resolution test skipped per instruction) |
 - **G.** Text measurement/painter work remains Qt-bound in `overlay_client.py`; without an injectable seam, it’s harder to headlessly validate font metrics/regression and observe measurement drift.
 
   | Stage | Description | Status |
@@ -696,7 +696,7 @@ Substeps:
 
 ### Stage 19 quick summary (intent)
 - Goal: replace broad `except Exception` handlers in networking/cleanup with scoped handling/logging to surface actionable errors while keeping UI stable.
-- Status: Planned; no code/tests yet.
+- Status: Complete.
 
 ### Stage 19.1 quick summary (mapping)
 - Broad catches identified in `overlay_client/overlay_client.py` networking/cleanup paths (e.g., early connect/backoff/error handling around line ~454/480) currently swallow all `Exception` with minimal logging.
@@ -705,6 +705,26 @@ Substeps:
 
 #### Stage 19.1 test log (latest)
 - Not run (documentation/mapping only).
+
+### Stage 19.2 quick summary (status)
+- Scoped data-client exception handling: connection/backoff handles socket/timeout errors with explicit warnings, read loop logs decode/drop cases, sender cleanup now reports shutdown failures, and writer flush logs serialization/write issues while letting unexpected errors surface.
+- CLI send path now logs loop-closed/queue-full issues before falling back to the pending queue; unexpected exceptions are no longer silently swallowed.
+- Added data-client tests covering CLI send loop failures and writer write failures to assert logging/fallback behavior.
+
+#### Stage 19.2 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed (PyQt run emitted a transient pipe warning after completion).
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → failed (overlay client not running; rerun after starting overlay process).
+
+### Stage 19.4 quick summary (status)
+- Full suite already green (ruff/mypy/pytest + PYQT_TESTS). Resolution test intentionally skipped per instruction to proceed without overlay running; no additional code changes.
+
+#### Stage 19.4 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed (see Stage 19.2 log).
+- `source overlay_client/.venv/bin/activate && make test` → passed (see Stage 19.2 log).
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed (see Stage 19.2 log).
+- Resolution test skipped (overlay not running; skip approved).
 
 ### Stage 19.3 quick summary (status)
 - Added headless tests for scoped exception logging defaults: `_current_physical_size` and `_viewport_state` now log and default ratio when devicePixelRatio calls raise, ensuring fallbacks are observable.

@@ -82,8 +82,8 @@ class OverlayDataClient(QObject):
             try:
                 loop.call_soon_threadsafe(queue_ref.put_nowait, message)
                 return True
-            except Exception:
-                pass
+            except (RuntimeError, asyncio.QueueFull) as exc:
+                _LOGGER.warning("Failed to enqueue CLI payload on running loop; falling back to pending queue: %s", exc)
         try:
             self._pending.put_nowait(message)
         except queue.Full:
@@ -120,8 +120,9 @@ class OverlayDataClient(QObject):
             writer = None
             try:
                 reader, writer = await asyncio.open_connection("127.0.0.1", port)
-            except Exception as exc:
+            except (OSError, asyncio.TimeoutError) as exc:
                 self.status_changed.emit(f"Connect failed: {exc}")
+                _LOGGER.warning("Connect failed to 127.0.0.1:%s: %s", port, exc)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 1.5, 10.0)
                 continue
@@ -157,27 +158,37 @@ class OverlayDataClient(QObject):
                         raise ConnectionError("Server closed the connection")
                     try:
                         payload = json.loads(line.decode("utf-8"))
-                    except json.JSONDecodeError:
+                    except UnicodeDecodeError as exc:
+                        _LOGGER.warning("Failed to decode payload bytes from server: %s", exc)
+                        continue
+                    except json.JSONDecodeError as exc:
+                        _LOGGER.debug("Dropped invalid JSON payload from server: %s", exc)
                         continue
                     self.message_received.emit(payload)
-            except Exception as exc:
+            except asyncio.CancelledError:
+                raise
+            except (ConnectionError, asyncio.IncompleteReadError, OSError) as exc:
                 self.status_changed.emit(f"Disconnected: {exc}")
+                _LOGGER.warning("Disconnected from overlay server: %s", exc)
             finally:
                 self._outgoing = None
                 try:
                     outgoing_queue.put_nowait(None)
-                except Exception:
+                except (RuntimeError, asyncio.QueueFull) as exc:
+                    _LOGGER.debug("Failed to signal sender task shutdown: %s", exc)
                     pass
                 try:
                     await sender_task
-                except Exception:
-                    pass
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # pragma: no cover - unexpected sender failures
+                    _LOGGER.warning("Sender task terminated with error: %s", exc)
                 if writer is not None:
                     try:
                         writer.close()
                         await writer.wait_closed()
-                    except Exception:
-                        pass
+                    except OSError as exc:
+                        _LOGGER.debug("Error closing writer: %s", exc)
             await asyncio.sleep(backoff)
             backoff = min(backoff * 1.5, 10.0)
 
@@ -189,18 +200,23 @@ class OverlayDataClient(QObject):
         while not self._stop_event.is_set():
             try:
                 payload = await queue_ref.get()
-            except Exception:
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # pragma: no cover - defensive guard
+                _LOGGER.warning("Failed to retrieve outgoing payload: %s", exc)
                 break
             if payload is None:
                 break
             try:
                 serialised = json.dumps(payload, ensure_ascii=False)
-            except Exception:
+            except (TypeError, ValueError) as exc:
+                _LOGGER.warning("Failed to serialise outgoing payload %s: %s", payload, exc)
                 continue
             try:
                 writer.write(serialised.encode("utf-8") + b"\n")
                 await writer.drain()
-            except Exception:
+            except (ConnectionError, OSError) as exc:
+                _LOGGER.warning("Failed to write outgoing payload: %s", exc)
                 break
 
     def _read_port(self) -> Optional[Dict[str, Any]]:
