@@ -96,6 +96,8 @@ from overlay_client.transform_helpers import (  # type: ignore  # noqa: E402
     compute_vector_transform as util_compute_vector_transform,
 )
 from overlay_client.window_controller import WindowController  # type: ignore  # noqa: E402
+from overlay_client.window_flags_helper import WindowFlagsHelper  # type: ignore  # noqa: E402
+from overlay_client.visibility_helper import VisibilityHelper  # type: ignore  # noqa: E402
 from overlay_client.window_utils import (  # type: ignore  # noqa: E402
     aspect_ratio_label as util_aspect_ratio_label,
     compute_legacy_mapper as util_compute_legacy_mapper,
@@ -289,7 +291,6 @@ class OverlayWindow(QWidget):
         self._last_move_log: Optional[Tuple[int, int]] = None
         self._last_screen_name: Optional[str] = None
         self._last_set_geometry: Optional[Tuple[int, int, int, int]] = None
-        self._last_visibility_state: Optional[bool] = None
         self._last_raw_window_log: Optional[Tuple[int, int, int, int]] = None
         self._last_normalised_tracker: Optional[
             Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int], str, float, float]
@@ -310,6 +311,23 @@ class OverlayWindow(QWidget):
             self._platform_context.force_xwayland,
         )
         self._window_controller = WindowController(log_fn=_CLIENT_LOGGER.debug)
+        self._visibility_helper = VisibilityHelper(log_fn=_CLIENT_LOGGER.debug)
+        self._window_flags_helper = WindowFlagsHelper(
+            is_wayland_fn=self._is_wayland,
+            log_fn=_CLIENT_LOGGER.debug,
+            prepare_window_fn=lambda window: self._platform_controller.prepare_window(window),
+            apply_click_through_fn=lambda transparent: self._platform_controller.apply_click_through(transparent),
+            set_transient_parent_fn=lambda parent: self.windowHandle().setTransientParent(parent) if self.windowHandle() else None,
+            clear_transient_parent_ids_fn=self._clear_transient_parent_ids,
+            window_handle_fn=lambda: self.windowHandle(),
+            set_widget_attribute_fn=lambda attr, enabled: self.setAttribute(attr, enabled),
+            set_window_flag_fn=lambda flag, enabled: self.setWindowFlag(flag, enabled),
+            ensure_visible_fn=lambda: self.show() if not self.isVisible() else None,
+            raise_fn=lambda: self.raise_() if self.isVisible() else None,
+            set_children_attr_fn=lambda transparent: self._set_children_click_through(transparent),
+            transparent_input_supported=self._transparent_input_supported,
+            set_window_transparent_input_fn=lambda transparent: self.windowHandle().setFlag(Qt.WindowType.WindowTransparentForInput, transparent) if self.windowHandle() else None,
+        )
         self._title_bar_enabled: bool = bool(getattr(initial, "title_bar_enabled", False))
         self._title_bar_height: int = self._coerce_non_negative(getattr(initial, "title_bar_height", 0), default=0)
         self._last_title_bar_offset: int = 0
@@ -1116,19 +1134,10 @@ class OverlayWindow(QWidget):
             return
         self._force_render = flag
         if flag:
-            if sys.platform.startswith("linux") and self._is_wayland():
-                window_handle = self.windowHandle()
-                if window_handle is not None:
-                    try:
-                        window_handle.setTransientParent(None)
-                    except Exception:
-                        pass
-                self._transient_parent_window = None
-                self._transient_parent_id = None
+            self._window_flags_helper.handle_force_render_enter()
             self._update_follow_visibility(True)
             if sys.platform.startswith("linux"):
-                self._platform_controller.apply_click_through(True)
-                self._restore_drag_interactivity()
+                self._window_flags_helper.restore_drag_interactivity(True, False, self.format_scale_debug)
             if self._last_follow_state:
                 self._apply_follow_state(self._last_follow_state)
         else:
@@ -1721,7 +1730,7 @@ class OverlayWindow(QWidget):
             bool(window),
             hex(int(window.flags())) if window is not None else "none",
         )
-        self._set_click_through(not self._drag_enabled)
+        self._window_flags_helper.set_click_through(not self._drag_enabled)
         if not self._drag_enabled:
             self._move_mode = False
             self._drag_active = False
@@ -1750,7 +1759,12 @@ class OverlayWindow(QWidget):
                 self._cursor_saved = False
 
     def _set_click_through(self, transparent: bool) -> None:
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, transparent)
+        self._window_flags_helper.set_click_through(transparent)
+
+    def _restore_drag_interactivity(self) -> None:
+        self._window_flags_helper.restore_drag_interactivity(self._drag_enabled, self._drag_active, self.format_scale_debug)
+
+    def _set_children_click_through(self, transparent: bool) -> None:
         for child_name in ("message_label",):
             child = getattr(self, child_name, None)
             if child is not None:
@@ -1758,34 +1772,10 @@ class OverlayWindow(QWidget):
                     child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, transparent)
                 except Exception:
                     pass
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
-        if self._is_wayland():
-            self.setWindowFlag(Qt.WindowType.Tool, False)
-        else:
-            self.setWindowFlag(Qt.WindowType.Tool, True)
-        if not self.isVisible():
-            self.show()
-        window = self.windowHandle()
-        _CLIENT_LOGGER.debug(
-            "Set click-through to %s (WA_Transparent=%s window_flag=%s)",
-            transparent,
-            self.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents),
-            hex(int(window.flags())) if window is not None else "none",
-        )
-        if window is not None:
-            self._platform_controller.prepare_window(window)
-            self._platform_controller.apply_click_through(transparent)
-            if self._transparent_input_supported:
-                window.setFlag(Qt.WindowType.WindowTransparentForInput, transparent)
-        if self.isVisible():
-            self.raise_()
 
-    def _restore_drag_interactivity(self) -> None:
-        if not self._drag_enabled or self._drag_active:
-            return
-        _CLIENT_LOGGER.debug("Restoring interactive overlay input because drag is enabled; %s", self.format_scale_debug())
-        self._set_click_through(False)
+    def _clear_transient_parent_ids(self) -> None:
+        self._transient_parent_window = None
+        self._transient_parent_id = None
 
     # Follow mode ----------------------------------------------------------
 
@@ -2134,17 +2124,17 @@ class OverlayWindow(QWidget):
             self._update_follow_visibility(False)
 
     def _update_follow_visibility(self, show: bool) -> None:
-        if show:
-            if not self.isVisible():
-                self.show()
-                self.raise_()
-                self._apply_drag_state()
-        else:
-            if self.isVisible():
-                self.hide()
-        if self._last_visibility_state != show:
-            _CLIENT_LOGGER.debug("Overlay visibility set to %s; %s", "visible" if show else "hidden", self.format_scale_debug())
-            self._last_visibility_state = show
+        new_state = self._visibility_helper.update_visibility(
+            show,
+            is_visible_fn=lambda: self.isVisible(),
+            show_fn=lambda: self.show(),
+            hide_fn=lambda: self.hide(),
+            raise_fn=lambda: self.raise_(),
+            apply_drag_state_fn=self._apply_drag_state,
+            format_scale_debug_fn=self.format_scale_debug,
+        )
+        # keep compatibility for any consumers expecting cached state
+        self._last_visibility_state = new_state
 
     def _move_to_screen(self, rect: QRect) -> None:
         window = self.windowHandle()

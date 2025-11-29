@@ -525,8 +525,15 @@ class CycleOverlayView:
         panel_height = line_height * len(display_lines) + padding * 2
         visible_w = max(float(window_width), 1.0)
         visible_h = max(float(window_height), 1.0)
-        center_x = mapper.offset_x + visible_w / 2.0
-        center_y = mapper.offset_y + visible_h / 2.0
+        transform = mapper.transform
+        if transform.overflow_x:
+            center_x = mapper.offset_x + visible_w / 2.0
+        else:
+            center_x = mapper.offset_x + max(transform.scaled_size[0], 1.0) / 2.0
+        if transform.overflow_y:
+            center_y = mapper.offset_y + visible_h / 2.0
+        else:
+            center_y = mapper.offset_y + max(transform.scaled_size[1], 1.0) / 2.0
         rect_left = int(round(center_x - panel_width / 2.0))
         rect_top = int(round(center_y - panel_height / 2.0))
         rect_left = max(0, min(rect_left, int(visible_w - panel_width)))

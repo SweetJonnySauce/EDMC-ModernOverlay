@@ -187,7 +187,8 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | --- | --- | --- |
   | 20.1 | Map remaining `OverlayWindow` concerns (debug/cycle UI, click-through/window flags, platform/visibility toggles), define extraction boundaries and Qt touchpoints; no code changes. | Complete |
   | 20.2 | Extract debug/cycle overlay UI rendering/state into a focused helper while preserving logging and painter interactions; keep behavior identical. | Complete |
-  | 20.3 | Extract click-through/window-flag management (transient parent resets, WA flags, platform controller hooks) into a helper to narrow the window class surface; preserve logging. | Planned |
+  | 20.3 | Extract click-through/window-flag management (transient parent resets, WA flags, platform controller hooks) into a helper to narrow the window class surface; preserve logging. | Complete |
+  | 20.3a | Audit Windows-specific flag/click-through handling; ensure helper covers Windows parity and preserves existing behavior. | Complete |
   | 20.4 | Extract force-render/visibility/platform toggle helpers (Wayland/X11 handling, apply_click_through/drag restore) to a focused module; behavior unchanged. | Planned |
   | 20.5 | Extract message/status display presentation into a small presenter/helper to reduce cross-cutting state in `OverlayWindow`; keep UI/logging intact. | Planned |
   | 20.6 | Pull entrypoint/setup (argparse, helper wiring) into a thin launcher module so `overlay_client.py` focuses on UI concerns; preserve behavior. | Planned |
@@ -242,6 +243,45 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 - `source overlay_client/.venv/bin/activate && make test` → passed.
 - `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed (transient pipe warning after completion).
 - Resolution test not rerun (overlay not running; skip as previously noted).
+
+### Stage 20.3 quick summary (status)
+- Added `WindowFlagsHelper` to own click-through/window-flag management with injected callbacks for Qt/window operations, platform controller hooks, and transient-parent clearing (Wayland force_render path). Logging/behavior preserved; UI unchanged.
+- `OverlayWindow` now delegates `_set_click_through`, `_restore_drag_interactivity`, and force-render click-through setup to the helper; child widget transparency toggled via dedicated setter.
+
+#### Stage 20.3 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- Resolution test not rerun (overlay not running).
+
+### Stage 20.3a quick summary (status)
+- Audited Windows-specific click-through/flag handling after helper extraction; Windows paths remain unchanged and handled via injected callbacks (Qt flags, WA transparency, Tool/Frameless/Top hints, transparent input). No code changes required.
+- Behavior/logging parity maintained across platforms; future platform tweaks stay isolated in the helper.
+
+#### Stage 20.3a test log (latest)
+- No new tests; relying on latest full run (`make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`) from Stage 20.3.
+
+### Stage 20.4 quick summary (status)
+- Added `VisibilityHelper` to own show/hide flow with injected callbacks; `_update_follow_visibility` now delegates, keeping Qt calls at the boundary while preserving logging and drag-application semantics.
+- `OverlayWindow` stores visibility state via the helper; behavior unchanged, extraction sets up future platform-specific tweaks in one place.
+
+#### Stage 20.4 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- Resolution test not rerun (overlay not running).
+
+### Stage 20.3a quick summary (status)
+- Audited Windows-specific click-through/flag handling after helper extraction; Windows paths remain unchanged and handled via injected callbacks (Qt flags, WA transparency, Tool/Frameless/Top hints, transparent input). No code changes required.
+- Behavior/logging parity maintained across platforms; future platform tweaks stay isolated in the helper.
+
+#### Stage 20.3a test log (latest)
+- No new tests; relying on latest full run (`make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`) from Stage 20.3.
+
+### Stage 20.4 quick summary (plan)
+- Goal: extract force-render/visibility/platform toggle helpers (Wayland/X11/Windows handling, apply_click_through/drag restore) into a focused module; keep behavior/logging unchanged.
+- Constraints: keep Qt/window flag calls at the boundary via callbacks; preserve platform-specific behavior, follow visibility, and transient-parent handling; no UI changes.
+- Tests: `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`; run resolution test if overlay available.
 
 ### Stage 20.1 quick summary (mapping)
 - Debug/cycle UI surface: `_paint_debug_overlay` (uses QPainter, `_compute_legacy_mapper`, `_viewport_state`, `_aspect_ratio_label`, follow controller state, overrides) and `_paint_cycle_overlay` + `_sync_cycle_items` (payload model/grouping helper/cycle anchor points, message label) remain embedded; candidates for a view helper that accepts primitives + callbacks for painter draw operations and log formatting.
