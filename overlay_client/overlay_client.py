@@ -10,7 +10,6 @@ import math
 import os
 import sys
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Set
@@ -82,6 +81,7 @@ from overlay_client.paint_commands import (  # type: ignore  # noqa: E402
 )
 from overlay_client.anchor_helpers import CommandContext, compute_justification_offsets, build_baseline_bounds  # type: ignore  # noqa: E402
 from overlay_client.payload_builders import build_group_context  # type: ignore  # noqa: E402
+from overlay_client.debug_cycle_overlay import CycleOverlayView, DebugOverlayView  # type: ignore  # noqa: E402
 from overlay_client.follow_geometry import (  # type: ignore  # noqa: E402
     ScreenInfo,
     _apply_aspect_guard,
@@ -430,6 +430,8 @@ class OverlayWindow(QWidget):
             self._debug_config,
         )
         self._grouping_adapter = GroupingAdapter(self._grouping_helper, self)
+        self._debug_overlay_view = DebugOverlayView(self._apply_font_fallbacks, self._line_width)
+        self._cycle_overlay_view = CycleOverlayView()
         layout = QVBoxLayout()
         layout.addWidget(self.message_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         layout.addStretch(1)
@@ -1406,180 +1408,21 @@ class OverlayWindow(QWidget):
         return lines
 
     def _paint_cycle_overlay(self, painter: QPainter) -> None:
-        if not self._cycle_payload_enabled:
-            return
-        self._sync_cycle_items()
-        if not self._cycle_current_id:
-            return
-        mapper = self._compute_legacy_mapper()
-        anchor = self._cycle_anchor_points.get(self._cycle_current_id)
-        plugin_name = "unknown"
-        current_item = self._payload_model.get(self._cycle_current_id) if self._cycle_current_id else None
-        if current_item is not None:
-            name = current_item.plugin
-            if isinstance(name, str) and name:
-                plugin_name = name
-        group_transform: Optional[GroupTransform] = None
-        if current_item is not None:
-            group_transform = self._grouping_helper.transform_for_item(current_item.item_id, current_item.plugin)
-        plugin_line = f"Plugin name: {plugin_name}"
-        if anchor is not None:
-            center_line = f"Center: {anchor[0]}, {anchor[1]}"
-        else:
-            center_line = "Center: -, -"
-        data = current_item.data if current_item is not None else {}
-        info_lines: List[str] = []
-        if current_item is not None:
-            if current_item.expiry is None:
-                info_lines.append("ttl: ∞")
-            else:
-                remaining = max(0.0, current_item.expiry - time.monotonic())
-                info_lines.append(f"ttl: {remaining:.1f}s")
-        updated_iso = data.get("__mo_updated__") if isinstance(data, Mapping) else None
-        if isinstance(updated_iso, str):
-            try:
-                updated_dt = datetime.fromisoformat(updated_iso)
-                if updated_dt.tzinfo is None:
-                    updated_dt = updated_dt.replace(tzinfo=UTC)
-                elapsed = datetime.now(UTC) - updated_dt.astimezone(UTC)
-                elapsed_s = max(0.0, elapsed.total_seconds())
-                info_lines.append(f"last seen: {elapsed_s:.1f}s ago")
-            except Exception:
-                info_lines.append(f"last seen: {updated_iso}")
-        kind_label = current_item.kind if current_item is not None else None
-        if kind_label == "message":
-            size_label = str(data.get("size", "unknown"))
-            info_lines.append(f"type: message (size={size_label})")
-        elif kind_label == "rect":
-            w_val = data.get("w")
-            h_val = data.get("h")
-            if isinstance(w_val, (int, float)) and isinstance(h_val, (int, float)):
-                info_lines.append(f"type: rect (w={w_val}, h={h_val})")
-            else:
-                info_lines.append("type: rect")
-        elif kind_label == "vector":
-            points_data = data.get("points")
-            if isinstance(points_data, list):
-                info_lines.append(f"type: vector (points={len(points_data)})")
-            else:
-                info_lines.append("type: vector")
-        elif kind_label:
-            info_lines.append(f"type: {kind_label}")
-
-        def _fmt_number(value: Any) -> Optional[str]:
-            if isinstance(value, (int, float)):
-                return f"{value:g}"
-            return None
-
-        transform_meta = data.get("__mo_transform__") if isinstance(data, Mapping) else None
-        if isinstance(transform_meta, Mapping):
-            original = transform_meta.get("original")
-            if isinstance(original, Mapping):
-                raw_x_fmt = _fmt_number(original.get("x"))
-                raw_y_fmt = _fmt_number(original.get("y"))
-                trans_x_fmt = _fmt_number(data.get("x"))
-                trans_y_fmt = _fmt_number(data.get("y"))
-                if raw_x_fmt is not None and raw_y_fmt is not None and trans_x_fmt is not None and trans_y_fmt is not None:
-                    info_lines.append(f"coords: ({raw_x_fmt},{raw_y_fmt}) → ({trans_x_fmt},{trans_y_fmt})")
-                raw_w_fmt = _fmt_number(original.get("w"))
-                raw_h_fmt = _fmt_number(original.get("h"))
-                trans_w_fmt = _fmt_number(data.get("w"))
-                trans_h_fmt = _fmt_number(data.get("h"))
-                size_parts: List[str] = []
-                if raw_w_fmt is not None and trans_w_fmt is not None:
-                    size_parts.append(f"w={raw_w_fmt}→{trans_w_fmt}")
-                if raw_h_fmt is not None and trans_h_fmt is not None:
-                    size_parts.append(f"h={raw_h_fmt}→{trans_h_fmt}")
-                if size_parts:
-                    info_lines.append("size: " + ", ".join(size_parts))
-        transform_lines = self._format_transform_chain(current_item, mapper, group_transform)
-        override_lines = self._format_override_lines(current_item)
-        painter.save()
-        text = self._cycle_current_id
-        highlight_color = QColor("#ffb347")
-        background = QColor(0, 0, 0, 180)
-        font = QFont(self._font_family)
-        self._apply_font_fallbacks(font)
-        state = self._viewport_state()
-        title_point = max(
-            20.0,
-            viewport_scaled_point_size(
-                state,
-                18.0,
-                self._font_scale_diag,
-                self._font_min_point,
-                self._font_max_point,
-                mapper,
-                use_physical=True,
-            ),
+        self._cycle_current_id, ids = self._cycle_overlay_view.sync_cycle_items(
+            cycle_enabled=self._cycle_payload_enabled,
+            payload_model=self._payload_model,
+            cycle_current_id=self._cycle_current_id,
         )
-        font.setPointSizeF(title_point)
-        font.setWeight(QFont.Weight.Bold)
-        painter.setFont(font)
-        metrics = painter.fontMetrics()
-        text_width = metrics.horizontalAdvance(text)
-        plugin_font = QFont(self._font_family)
-        self._apply_font_fallbacks(plugin_font)
-        plugin_point = max(12.0, min(title_point - 4.0, title_point * 0.8))
-        plugin_font.setPointSizeF(plugin_point)
-        plugin_font.setWeight(QFont.Weight.Normal)
-        plugin_metrics = QFontMetrics(plugin_font)
-        center_x = self.width() // 2
-        center_y = self.height() // 2
-        padding_x = 12
-        padding_y = 8
-        line_height_title = metrics.lineSpacing()
-        line_height_plugin = plugin_metrics.lineSpacing()
-        small_lines = [plugin_line, center_line] + info_lines + transform_lines + override_lines
-        small_widths = [plugin_metrics.horizontalAdvance(line) for line in small_lines]
-        content_width = max([text_width, *small_widths] if small_widths else [text_width])
-        rect_width = content_width + padding_x * 2
-        rect_height = line_height_title + len(small_lines) * line_height_plugin + padding_y * 2
-        rect_left = center_x - rect_width // 2
-        rect_top = center_y - rect_height // 2
-        rect_right = rect_left + rect_width
-        rect_bottom = rect_top + rect_height
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(background)
-        painter.drawRoundedRect(rect_left, rect_top, rect_width, rect_height, 10, 10)
-        painter.setPen(highlight_color)
-        baseline_top = rect_top + padding_y + metrics.ascent()
-        painter.drawText(center_x - text_width // 2, baseline_top, text)
-        painter.setFont(plugin_font)
-        baseline_line = baseline_top + line_height_title
-        for line, width in zip(small_lines, small_widths):
-            painter.drawText(center_x - width // 2, baseline_line, line)
-            baseline_line += line_height_plugin
-        if anchor is not None:
-            start_x = center_x
-            start_y = center_y
-            dx = anchor[0] - center_x
-            dy = anchor[1] - center_y
-            if dx != 0 or dy != 0:
-                candidates: List[float] = []
-                if dx > 0:
-                    candidates.append((rect_right - center_x) / dx)
-                elif dx < 0:
-                    candidates.append((rect_left - center_x) / dx)
-                if dy > 0:
-                    candidates.append((rect_bottom - center_y) / dy)
-                elif dy < 0:
-                    candidates.append((rect_top - center_y) / dy)
-                t_min = min((t for t in candidates if t >= 0.0), default=0.0)
-                if t_min > 0.0:
-                    start_x = int(round(center_x + dx * t_min))
-                    start_y = int(round(center_y + dy * t_min))
-                else:
-                    start_x = center_x
-                    start_y = rect_top + rect_height
-            else:
-                start_x = center_x
-                start_y = rect_top + rect_height
-            painter.setPen(QPen(highlight_color, self._line_width("cycle_connector")))
-            painter.drawLine(start_x, start_y, anchor[0], anchor[1])
-            painter.setBrush(highlight_color)
-            painter.drawEllipse(anchor[0] - 4, anchor[1] - 4, 8, 8)
-        painter.restore()
+        self._cycle_payload_ids = ids
+        self._cycle_overlay_view.paint_cycle_overlay(
+            painter,
+            cycle_enabled=self._cycle_payload_enabled,
+            cycle_current_id=self._cycle_current_id,
+            compute_legacy_mapper=self._compute_legacy_mapper,
+            cycle_anchor_points=self._cycle_anchor_points,
+            payload_model=self._payload_model,
+            grouping_helper=self._grouping_helper,
+        )
 
     def set_font_bounds(self, min_point: Optional[float], max_point: Optional[float]) -> None:
         changed = False
@@ -3971,294 +3814,42 @@ class OverlayWindow(QWidget):
             self._offscreen_payloads.discard(payload_id)
 
     def _paint_debug_overlay(self, painter: QPainter) -> None:
-        if not self._show_debug_overlay:
-            return
-        frame = self.frameGeometry()
-        mapper = self._compute_legacy_mapper()
-        state = self._viewport_state()
-        scale_x, scale_y = legacy_scale_components(mapper, state)
-        diagonal_scale = self._font_scale_diag
-        if diagonal_scale <= 0.0:
-            diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
-        width_px, height_px = self._current_physical_size()
-        size_labels = [("S", "small"), ("N", "normal"), ("L", "large"), ("H", "huge")]
-        legacy_sizes_str = " ".join(
-            "{}={:.1f}".format(label, self._legacy_preset_point_size(name, state, mapper))
-            for label, name in size_labels
+        self._debug_overlay_view.paint_debug_overlay(
+            painter,
+            show_debug_overlay=self._show_debug_overlay,
+            frame_geometry=self.frameGeometry(),
+            width_px=self._current_physical_size()[0],
+            height_px=self._current_physical_size()[1],
+            mapper=self._compute_legacy_mapper(),
+            viewport_state=self._viewport_state(),
+            font_scale_diag=self._font_scale_diag,
+            font_min_point=self._font_min_point,
+            font_max_point=self._font_max_point,
+            debug_message_pt=self._debug_message_point_size,
+            debug_status_pt=self._debug_status_point_size,
+            debug_legacy_pt=self._debug_legacy_point_size,
+            aspect_ratio_label_fn=self._aspect_ratio_label,
+            last_screen_name=self._last_screen_name,
+            describe_screen_fn=self._describe_screen,
+            active_screen=self.windowHandle().screen() if self.windowHandle() else None,
+            last_follow_state=self._last_follow_state,
+            follow_controller=self._follow_controller,
+            last_raw_window_log=self._last_raw_window_log,
+            title_bar_enabled=self._title_bar_enabled,
+            title_bar_height=self._title_bar_height,
+            last_title_bar_offset=self._last_title_bar_offset,
+            debug_overlay_corner=self._debug_overlay_corner,
+            legacy_preset_point_size_fn=self._legacy_preset_point_size,
         )
-        active_screen = self.windowHandle().screen() if self.windowHandle() else None
-        monitor_desc = self._last_screen_name or self._describe_screen(active_screen)
-        active_ratio = None
-        if active_screen is not None:
-            try:
-                geo = active_screen.geometry()
-                active_ratio = self._aspect_ratio_label(geo.width(), geo.height())
-            except Exception:
-                active_ratio = None
-        active_line = f"  active={monitor_desc or 'unknown'}"
-        if active_ratio:
-            active_line += f" ({active_ratio})"
-        monitor_lines = ["Monitor:", active_line]
-        if self._last_follow_state is not None:
-            tracker_ratio = self._aspect_ratio_label(
-                max(1, int(self._last_follow_state.width)),
-                max(1, int(self._last_follow_state.height)),
-            )
-            tracker_line = "  tracker=({},{}) {}x{}".format(
-                self._last_follow_state.x,
-                self._last_follow_state.y,
-                self._last_follow_state.width,
-                self._last_follow_state.height,
-            )
-            if tracker_ratio:
-                tracker_line += f" ({tracker_ratio})"
-            monitor_lines.append(tracker_line)
-        override_rect = self._follow_controller.wm_override
-        override_class = self._follow_controller.wm_override_classification
-        if override_rect is not None and override_class is not None:
-            rect = override_rect
-            monitor_lines.append(
-                "  wm_rect=({},{}) {}x{} [{}]".format(
-                    rect[0],
-                    rect[1],
-                    rect[2],
-                    rect[3],
-                    override_class,
-                )
-            )
-
-        widget_ratio = self._aspect_ratio_label(self.width(), self.height())
-        frame_ratio = self._aspect_ratio_label(frame.width(), frame.height())
-        phys_ratio = self._aspect_ratio_label(int(round(width_px)), int(round(height_px)))
-        overlay_lines = ["Overlay:"]
-        widget_line = "  widget={}x{}".format(self.width(), self.height())
-        if widget_ratio:
-            widget_line += f" ({widget_ratio})"
-        overlay_lines.append(widget_line)
-        frame_line = "  frame={}x{}".format(frame.width(), frame.height())
-        if frame_ratio:
-            frame_line += f" ({frame_ratio})"
-        overlay_lines.append(frame_line)
-        phys_line = "  phys={}x{}".format(int(round(width_px)), int(round(height_px)))
-        if phys_ratio:
-            phys_line += f" ({phys_ratio})"
-        overlay_lines.append(phys_line)
-        if self._last_raw_window_log is not None:
-            raw_x, raw_y, raw_w, raw_h = self._last_raw_window_log
-            raw_ratio = self._aspect_ratio_label(raw_w, raw_h)
-            raw_line = "  raw=({},{}) {}x{}".format(raw_x, raw_y, raw_w, raw_h)
-            if raw_ratio:
-                raw_line += f" ({raw_ratio})"
-            overlay_lines.append(raw_line)
-
-        transform = mapper.transform
-        scaling_lines = [
-            "Scaling:",
-            "  mode={} base_scale={:.4f}".format(transform.mode.value, transform.scale),
-            "  scaled_canvas={:.1f}x{:.1f} offset=({:.1f},{:.1f})".format(
-                transform.scaled_size[0],
-                transform.scaled_size[1],
-                mapper.offset_x,
-                mapper.offset_y,
-            ),
-            "  overflow_x={} overflow_y={}".format(
-                "yes" if transform.overflow_x else "no",
-                "yes" if transform.overflow_y else "no",
-            ),
-        ]
-
-        font_lines = [
-            "Fonts:",
-            "  scale_x={:.2f} scale_y={:.2f} diag={:.2f}".format(scale_x, scale_y, diagonal_scale),
-            "  ui_scale={:.2f}".format(self._font_scale_diag),
-            "  bounds={:.1f}-{:.1f}".format(self._font_min_point, self._font_max_point),
-            "  message={:.1f} status={:.1f} legacy={:.1f}".format(
-                self._debug_message_point_size,
-                self._debug_status_point_size,
-                self._debug_legacy_point_size,
-            ),
-            "  legacy presets: {}".format(legacy_sizes_str),
-        ]
-
-        settings_lines = [
-            "Settings:",
-            "  title_bar_compensation={}".format("on" if self._title_bar_enabled else "off"),
-            "  title_bar_height={}".format(self._title_bar_height),
-            "  applied_offset={}".format(self._last_title_bar_offset),
-        ]
-
-        info_lines = (
-            monitor_lines
-            + [""]
-            + overlay_lines
-            + [""]
-            + scaling_lines
-            + [""]
-            + font_lines
-            + [""]
-            + settings_lines
-        )
-        painter.save()
-        debug_font = QFont(self._font_family, 10)
-        self._apply_font_fallbacks(debug_font)
-        painter.setFont(debug_font)
-        metrics = painter.fontMetrics()
-        line_height = metrics.height()
-        text_width = max(metrics.horizontalAdvance(line) for line in info_lines)
-        padding = 6
-        panel_width = text_width + padding * 2
-        panel_height = line_height * len(info_lines) + padding * 2
-        rect = QRect(0, 0, panel_width, panel_height)
-        margin = 10
-        corner = self._debug_overlay_corner
-        if corner in {"NW", "SW"}:
-            left = margin
-        else:
-            left = max(margin, self.width() - panel_width - margin)
-        if corner in {"NW", "NE"}:
-            top = margin
-        else:
-            top = max(margin, self.height() - panel_height - margin)
-        rect.moveTo(left, top)
-        painter.setBrush(QColor(0, 0, 0, 160))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(rect, 6, 6)
-        painter.setPen(QColor(220, 220, 220))
-        for index, line in enumerate(info_lines):
-            painter.drawText(
-                rect.left() + padding,
-                rect.top() + padding + metrics.ascent() + index * line_height,
-                line,
-            )
-        painter.restore()
 
     def _paint_overlay_outline(self, painter: QPainter) -> None:
-        if not self._debug_config.overlay_outline:
-            return
-        mapper = self._compute_legacy_mapper()
-        transform = mapper.transform
-        offset_x, offset_y = transform.offset
-        scaled_w, scaled_h = transform.scaled_size
-        window_w = float(self.width())
-        window_h = float(self.height())
-        left = offset_x
-        top = offset_y
-        right = offset_x + scaled_w
-        bottom = offset_y + scaled_h
-        overflow_left = left < 0.0
-        overflow_right = right > window_w
-        overflow_top = top < 0.0
-        overflow_bottom = bottom > window_h
-        vis_left = max(left, 0.0)
-        vis_right = min(right, window_w)
-        vis_top = max(top, 0.0)
-        vis_bottom = min(bottom, window_h)
-
-        painter.save()
-        pen = QPen(QColor(255, 136, 0))
-        pen.setWidth(self._line_width("viewport_indicator"))
-        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
-        painter.setPen(pen)
-
-        def draw_vertical_line(x_pos: float) -> None:
-            if vis_top >= vis_bottom:
-                return
-            x = int(round(x_pos))
-            painter.drawLine(x, int(round(vis_top)), x, int(round(vis_bottom)))
-
-        def draw_horizontal_line(y_pos: float) -> None:
-            if vis_left >= vis_right:
-                return
-            y = int(round(y_pos))
-            painter.drawLine(int(round(vis_left)), y, int(round(vis_right)), y)
-
-        arrow_length = 18.0
-        arrow_span_min = 60.0
-        arrow_count = 3
-
-        arrow_tip_margin = 4.0
-
-        def draw_vertical_arrows(edge_x: float, direction: int) -> None:
-            span_start = max(vis_top, 0.0)
-            span_end = min(vis_bottom, window_h)
-            if span_end <= span_start:
-                span_start = 0.0
-                span_end = window_h
-            span = max(span_end - span_start, arrow_span_min)
-            step = span / (arrow_count + 1)
-            if direction > 0:
-                tip_x = min(edge_x - arrow_tip_margin, window_w - arrow_tip_margin)
-                base_x = tip_x - arrow_length
-            else:
-                tip_x = max(edge_x + arrow_tip_margin, arrow_tip_margin)
-                base_x = tip_x + arrow_length
-            for i in range(1, arrow_count + 1):
-                y = span_start + step * i
-                painter.drawLine(int(round(base_x)), int(round(y)), int(round(tip_x)), int(round(y)))
-                painter.drawLine(
-                    int(round(tip_x)),
-                    int(round(y)),
-                    int(round(tip_x - direction * arrow_length * 0.45)),
-                    int(round(y - arrow_length * 0.4)),
-                )
-                painter.drawLine(
-                    int(round(tip_x)),
-                    int(round(y)),
-                    int(round(tip_x - direction * arrow_length * 0.45)),
-                    int(round(y + arrow_length * 0.4)),
-                )
-
-        def draw_horizontal_arrows(edge_y: float, direction: int) -> None:
-            span_start = max(vis_left, 0.0)
-            span_end = min(vis_right, window_w)
-            if span_end <= span_start:
-                span_start = 0.0
-                span_end = window_w
-            span = max(span_end - span_start, arrow_span_min)
-            step = span / (arrow_count + 1)
-            for i in range(1, arrow_count + 1):
-                x = span_start + step * i
-                if direction > 0:
-                    tip_y = min(edge_y - arrow_tip_margin, window_h - arrow_tip_margin)
-                    base_y = tip_y - arrow_length
-                else:
-                    tip_y = max(edge_y + arrow_tip_margin, arrow_tip_margin)
-                    base_y = tip_y + arrow_length
-                painter.drawLine(int(round(x)), int(round(base_y)), int(round(x)), int(round(tip_y)))
-                painter.drawLine(
-                    int(round(x)),
-                    int(round(tip_y)),
-                    int(round(x - arrow_length * 0.35)),
-                    int(round(tip_y - direction * arrow_length * 0.4)),
-                )
-                painter.drawLine(
-                    int(round(x)),
-                    int(round(tip_y)),
-                    int(round(x + arrow_length * 0.35)),
-                    int(round(tip_y - direction * arrow_length * 0.4)),
-                )
-
-        if not overflow_left:
-            draw_vertical_line(vis_left)
-        else:
-            draw_vertical_arrows(max(vis_left, 0.0), direction=-1)
-
-        if not overflow_right:
-            draw_vertical_line(vis_right)
-        else:
-            draw_vertical_arrows(min(vis_right, window_w), direction=1)
-
-        if not overflow_top:
-            draw_horizontal_line(vis_top)
-        else:
-            draw_horizontal_arrows(max(vis_top, 0.0), direction=-1)
-
-        if not overflow_bottom:
-            draw_horizontal_line(vis_bottom)
-        else:
-            draw_horizontal_arrows(min(vis_bottom, window_h), direction=1)
-
-        painter.restore()
+        self._debug_overlay_view.paint_overlay_outline(
+            painter,
+            debug_outline=self._debug_config.overlay_outline,
+            mapper=self._compute_legacy_mapper(),
+            window_width=float(self.width()),
+            window_height=float(self.height()),
+        )
 
     def _apply_legacy_scale(self) -> None:
         self.update()

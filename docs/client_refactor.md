@@ -177,8 +177,74 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 16.3 | Ensure builders supply base bounds where available (including collect-only) to stabilize baseline calculations. | Complete |
   | 16.4 | Add tests for mixed-width groups with/without baselines to lock current/fixed behavior; rerun full suite and resolution tests via venv. | Complete |
 
+- **H.** `overlay_client/overlay_client.py` remains a ~4k-line monolith (`OverlayWindow` mixes UI orchestration, follow logic, debug overlays, click-through/window flags, cycle UI, platform hooks), challenging single-responsibility and small-surface goals.
+
+  | Stage | Description | Status |
+  | --- | --- | --- |
+  | 20 | Split remaining `OverlayWindow` concerns into focused helpers/modules (e.g., debug/cycle UI surface, click-through/window-flag management), keeping Qt boundaries clear and behavior unchanged. | Planned |
+
+  | Substage | Description | Status |
+  | --- | --- | --- |
+  | 20.1 | Map remaining `OverlayWindow` concerns (debug/cycle UI, click-through/window flags, platform/visibility toggles), define extraction boundaries and Qt touchpoints; no code changes. | Complete |
+  | 20.2 | Extract debug/cycle overlay UI rendering/state into a focused helper while preserving logging and painter interactions; keep behavior identical. | Planned |
+  | 20.3 | Extract click-through/window-flag management (transient parent resets, WA flags, platform controller hooks) into a helper to narrow the window class surface; preserve logging. | Planned |
+  | 20.4 | Extract force-render/visibility/platform toggle helpers (Wayland/X11 handling, apply_click_through/drag restore) to a focused module; behavior unchanged. | Planned |
+  | 20.5 | Extract message/status display presentation into a small presenter/helper to reduce cross-cutting state in `OverlayWindow`; keep UI/logging intact. | Planned |
+  | 20.6 | Pull entrypoint/setup (argparse, helper wiring) into a thin launcher module so `overlay_client.py` focuses on UI concerns; preserve behavior. | Planned |
+  | 20.7 | Run full test suite (ruff/mypy/pytest + PYQT_TESTS/resolution) and update status/logs after extractions. | Planned |
+
+- **I.** Several Qt exception catches still silently swallow errors (e.g., click-through child attribute handling, transient parent removal, screen description, monitor ratio collection), reducing observability and hiding failures.
+
+  | Stage | Description | Status |
+  | --- | --- | --- |
+  | 21 | Scope remaining Qt error handling to expected exceptions and add debug/warning logs; avoid silent passes while keeping UI stable. | Planned |
+
+- **J.** `_CLIENT_LOGGER.propagate = False` prevents upstream handlers from receiving client logs, making observability and test integration harder.
+
+  | Stage | Description | Status |
+  | --- | --- | --- |
+  | 22 | Revisit logger propagation (allow propagation or add a configurable hook) to let client logs flow to application handlers without breaking release logging behavior. | Planned |
+
+- **K.** Resolution test (`tests/run_resolution_tests.py`) is currently skipped; leaves a known gap in integration validation.
+
+  | Stage | Description | Status |
+  | --- | --- | --- |
+  | 23 | Rerun resolution test with overlay running and log results to restore full validation cadence. | Planned |
+
 ----
 # Stage Summary and Test results
+
+### Stage 20 quick summary (intent)
+- Goal: break down remaining `OverlayWindow` responsibilities into focused helpers (debug/cycle UI, click-through/window-flag management, force-render/visibility/platform toggles) while keeping Qt boundaries and behavior unchanged.
+- Scope: relocate logic without altering signals/painting; ensure logging stays intact and tests validate no regressions.
+- Tests to run after extraction: `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`, and `python tests/run_resolution_tests.py --config tests/display_all.json`.
+- Status: Planned (substage mapping pending).
+
+### Stage 20.2 quick summary (plan)
+- Target: extract debug/cycle overlay rendering/state (`_paint_debug_overlay`, `_paint_cycle_overlay`, `_sync_cycle_items`) into a focused helper/view. Keep QPainter/QWidget interactions at the boundary; helper should operate on primitives and callbacks.
+- Inputs: mapper/viewport state, follow state/overrides, payload model/grouping helper, cycle anchors, message label/current selection. Outputs: draw calls (painter ops) and text formatting unchanged.
+- Constraints: preserve logging/formatting, cycle anchor/state management, and avoid Qt leaks into the helper. No behavioral changes expected.
+- Validation: run `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`; resolution test if overlay available (else document skip).
+
+### Stage 20.2 quick summary (status)
+- Extracted debug/cycle overlay rendering to `overlay_client/debug_cycle_overlay.py` with `DebugOverlayView` and `CycleOverlayView`; `OverlayWindow` now delegates while keeping Qt painter setup at the boundary.
+- Cycle sync is handled via helper before painting; debug overlay uses injected font fallback/line-width callbacks and preserves formatting/logging behavior (no UI changes expected).
+- Qt types stay at call sites; helpers operate on primitives/callbacks.
+
+#### Stage 20.2 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed (transient pipe warning after completion).
+- Resolution test not rerun (overlay not running; skip as previously noted).
+
+### Stage 20.1 quick summary (mapping)
+- Debug/cycle UI surface: `_paint_debug_overlay` (uses QPainter, `_compute_legacy_mapper`, `_viewport_state`, `_aspect_ratio_label`, follow controller state, overrides) and `_paint_cycle_overlay` + `_sync_cycle_items` (payload model/grouping helper/cycle anchor points, message label) remain embedded; candidates for a view helper that accepts primitives + callbacks for painter draw operations and log formatting.
+- Click-through/window flags: `_set_click_through`, `_restore_drag_interactivity`, `_apply_drag_state`, `_poll_modifiers`, `_is_wayland`, transient-parent clearing in `set_force_render`, and platform controller hooks (`prepare_window`, `apply_click_through`, transparent input flag) are intertwined; could be isolated into a window-interaction helper that owns WA/window flags and platform controller coordination.
+- Force-render/visibility/platform toggles: `set_force_render`, `_update_follow_visibility`, `_handle_missing_follow_state`, `_ensure_transient_parent`, and platform context updates interact with follow controller suspend/refresh and Linux/Wayland differences; extraction seam should keep Qt calls in the window while moving decision logic to a helper.
+- Qt boundaries/touchpoints: QWindow/QWidget flag setters, `QGuiApplication.screens`, `setTransientParent`, and platform controller apply hooks stay at the boundary; extracted helpers should operate on primitives/callbacks to avoid Qt leakage.
+
+#### Stage 20.1 test log (latest)
+- Not run (mapping/documentation only).
 
 ### Stage 1 quick summary (intent)
 - Goal: move `OverlayDataClient` into `overlay_client/data_client.py` with no behavior change.
