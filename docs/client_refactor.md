@@ -144,7 +144,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 
   | Stage | Description | Status |
   | --- | --- | --- |
-  | 19 | Replace broad exception catches with scoped handling/logging in networking/cleanup paths; surface actionable errors while keeping UI stable. | Planned |
+  | 19 | Replace broad exception catches with scoped handling/logging in networking/cleanup paths; surface actionable errors while keeping UI stable. | Complete |
 
 | Substage | Description | Status |
 | --- | --- | --- |
@@ -230,6 +230,12 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 - Extracted debug/cycle overlay rendering to `overlay_client/debug_cycle_overlay.py` with `DebugOverlayView` and `CycleOverlayView`; `OverlayWindow` now delegates while keeping Qt painter setup at the boundary.
 - Cycle sync is handled via helper before painting; debug overlay uses injected font fallback/line-width callbacks and preserves formatting/logging behavior (no UI changes expected).
 - Qt types stay at call sites; helpers operate on primitives/callbacks.
+- Follow-ups: wired debug/cycle overlays to use the window font family instead of `mapper.transform.font_family` to avoid missing-attribute crashes; cycle TTL display now uses `time.monotonic()` (with optional injected hook) instead of a missing payload model helper. Rendering/logging unchanged.
+
+#### Stage 20.2 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check`
+- `source overlay_client/.venv/bin/activate && make test`
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests`
 
 #### Stage 20.2 test log (latest)
 - `source overlay_client/.venv/bin/activate && make check` → passed.

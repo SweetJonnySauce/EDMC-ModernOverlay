@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import math
+import time
 from typing import Callable, List, Mapping, Optional, Tuple
 
-from PyQt6.QtCore import Qt, QRect
+from PyQt6.QtCore import Qt, QRect, QPoint
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen
 
 from overlay_client.group_transform import GroupTransform  # type: ignore
@@ -31,6 +32,7 @@ class DebugOverlayView:
         height_px: float,
         mapper: LegacyMapper,
         viewport_state: ViewportState,
+        font_family: str,
         font_scale_diag: float,
         font_min_point: float,
         font_max_point: float,
@@ -175,7 +177,7 @@ class DebugOverlayView:
             + settings_lines
         )
         painter.save()
-        debug_font = QFont(mapper.transform.font_family, 10)
+        debug_font = QFont(font_family or "", 10)
         self._apply_font_fallbacks(debug_font)
         painter.setFont(debug_font)
         metrics = painter.fontMetrics()
@@ -369,6 +371,7 @@ class CycleOverlayView:
         cycle_enabled: bool,
         cycle_current_id: Optional[str],
         compute_legacy_mapper: Callable[[], LegacyMapper],
+        font_family: str,
         cycle_anchor_points: Mapping[str, Tuple[float, float]],
         payload_model,
         grouping_helper,
@@ -389,6 +392,7 @@ class CycleOverlayView:
         group_transform: Optional[GroupTransform] = None
         if current_item is not None:
             group_transform = grouping_helper.transform_for_item(current_item.item_id, current_item.plugin)
+        id_line = f"Payload id: {current_id}"
         plugin_line = f"Plugin name: {plugin_name}"
         center_line = f"Center: {anchor[0]}, {anchor[1]}" if anchor is not None else "Center: -, -"
         data = current_item.data if current_item is not None else {}
@@ -397,7 +401,9 @@ class CycleOverlayView:
             if current_item.expiry is None:
                 info_lines.append("ttl: ∞")
             else:
-                remaining = max(0.0, current_item.expiry - payload_model.monotonic_now())
+                monotonic_now = getattr(payload_model, "monotonic_now", None)
+                now = monotonic_now() if callable(monotonic_now) else time.monotonic()
+                remaining = max(0.0, current_item.expiry - now)
                 info_lines.append(f"ttl: {remaining:.1f}s")
         updated_iso = data.get("__mo_updated__") if isinstance(data, Mapping) else None
         if isinstance(updated_iso, str):
@@ -503,11 +509,41 @@ class CycleOverlayView:
                 info_lines.append(f"group bounds: ({band_min_x_fmt},{band_min_y_fmt})-({band_max_x_fmt},{band_max_y_fmt})")
 
         painter.save()
-        painter.setPen(QColor(220, 220, 220))
-        font = QFont(mapper.transform.font_family, 12)
+        highlight_color = QColor(255, 136, 0)
+        painter.setPen(highlight_color)
+        safe_family = font_family or getattr(mapper.transform, "font_family", "") or ""
+        font = QFont(safe_family, 12)
         painter.setFont(font)
-        rect = QRect(20, 20, 600, 400)
-        line_height = painter.fontMetrics().height()
-        for index, line in enumerate([plugin_line, center_line] + info_lines):
-            painter.drawText(rect.left(), rect.top() + painter.fontMetrics().ascent() + index * line_height, line)
+        display_lines = [id_line, plugin_line, center_line] + info_lines
+        metrics = painter.fontMetrics()
+        line_height = metrics.height()
+        text_width = max(metrics.horizontalAdvance(line) for line in display_lines) if display_lines else 0
+        padding = 10
+        panel_width = text_width + padding * 2
+        panel_height = line_height * len(display_lines) + padding * 2
+        transform = mapper.transform
+        center_x = mapper.offset_x + max(transform.scaled_size[0], 1.0) / 2.0
+        center_y = mapper.offset_y + max(transform.scaled_size[1], 1.0) / 2.0
+        rect_left = int(round(center_x - panel_width / 2.0))
+        rect_top = int(round(center_y - panel_height / 2.0))
+        rect = QRect(rect_left, rect_top, int(round(panel_width)), int(round(panel_height)))
+
+        painter.setBrush(QColor(0, 0, 0, 180))
+        pen = QPen(highlight_color)
+        painter.setPen(pen)
+        painter.drawRoundedRect(rect, 6, 6)
+        for index, line in enumerate(display_lines):
+            painter.drawText(
+                rect.left() + padding,
+                rect.top() + padding + metrics.ascent() + index * line_height,
+                line,
+            )
+
+        if anchor is not None and isinstance(anchor, tuple) and len(anchor) == 2:
+            # Anchors are already stored in screen-space pixels.
+            anchor_px = (int(round(anchor[0])), int(round(anchor[1])))
+            start_x = min(max(anchor_px[0], rect.left()), rect.right())
+            start_y = min(max(anchor_px[1], rect.top()), rect.bottom())
+            painter.drawLine(QPoint(start_x, start_y), QPoint(anchor_px[0], anchor_px[1]))
+            painter.drawEllipse(QPoint(anchor_px[0], anchor_px[1]), 4, 4)
         painter.restore()
