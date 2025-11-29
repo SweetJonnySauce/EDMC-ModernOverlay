@@ -169,6 +169,13 @@ class Preferences:
         if self._config_enabled:
             self._maybe_import_legacy_json()
             self._load_from_config()
+            # Merge in the shadow JSON in case EDMC config missed a recent update.
+            # This keeps restarts consistent even if config persistence failed mid-session.
+            self._load_from_json(silent=True)
+            try:
+                self._persist_to_config()
+            except Exception:
+                LOGGER.debug("Failed to persist preferences into EDMC config after shadow merge.", exc_info=True)
             self._ensure_state_version_mark()
         else:
             self._load_from_json()
@@ -180,12 +187,14 @@ class Preferences:
 
     # Persistence ---------------------------------------------------------
 
-    def _load_from_json(self) -> None:
+    def _load_from_json(self, *, silent: bool = False) -> None:
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return
         except json.JSONDecodeError:
+            if not silent:
+                LOGGER.debug("overlay_settings.json is not valid JSON; ignoring contents.")
             return
         self._apply_raw_data(data)
 
@@ -483,6 +492,7 @@ class PreferencesPanel:
         self._restart_overlay = restart_overlay_callback
 
         self._legacy_client = None
+        self._status_gutter_spin = None
         self._title_bar_height_spin = None
         self._cycle_prev_btn = None
         self._cycle_next_btn = None
@@ -585,6 +595,7 @@ class PreferencesPanel:
         status_gutter_spin.pack(side="left")
         status_gutter_spin.bind("<FocusOut>", self._on_status_gutter_event)
         status_gutter_spin.bind("<Return>", self._on_status_gutter_event)
+        self._status_gutter_spin = status_gutter_spin
 
         status_row.grid(row=user_row, column=0, sticky="w", pady=(12, 0))
         user_row += 1
@@ -886,6 +897,9 @@ class PreferencesPanel:
     def apply(self) -> None:
         # Ensure any pending entry/spinbox values are written back before saving.
         self._apply_font_bounds(update_remote=False)
+        self._apply_status_gutter(update_remote=False, force=True)
+        self._apply_title_bar_height(update_remote=False)
+        self._apply_payload_gutter()
         self._preferences.save()
 
     def _display_for_scale_mode(self, mode: str) -> str:
@@ -961,32 +975,40 @@ class PreferencesPanel:
         except Exception as exc:
             self._status_var.set(f"Failed to open release notes: {exc}")
 
-    def _apply_status_gutter(self) -> None:
-        if self._status_gutter_apply_in_progress:
-            return
+    def _apply_status_gutter(self, update_remote: bool = True, force: bool = False) -> int:
+        if self._status_gutter_apply_in_progress and not force:
+            return self._preferences.status_message_gutter
         self._status_gutter_apply_in_progress = True
         try:
-            gutter = int(self._var_status_gutter.get())
+            try:
+                gutter_raw = self._status_gutter_spin.get() if self._status_gutter_spin is not None else None
+            except Exception:
+                gutter_raw = None
+            if gutter_raw is None:
+                gutter = int(self._var_status_gutter.get())
+            else:
+                gutter = int(gutter_raw)
         except (TypeError, ValueError):
             gutter = self._preferences.status_message_gutter
         gutter = max(0, min(gutter, STATUS_GUTTER_MAX))
         if str(gutter) != str(self._var_status_gutter.get()):
             self._var_status_gutter.set(gutter)
         old_value = self._preferences.status_message_gutter
-        if self._set_status_gutter:
+        if update_remote and self._set_status_gutter:
             try:
                 self._set_status_gutter(gutter)
             except Exception as exc:
                 self._status_var.set(f"Failed to update status gutter: {exc}")
                 self._var_status_gutter.set(old_value)
                 self._status_gutter_apply_in_progress = False
-                return
+                return old_value
         elif gutter == old_value:
             self._status_gutter_apply_in_progress = False
-            return
+            return gutter
         self._preferences.status_message_gutter = gutter
         self._preferences.save()
         self._status_gutter_apply_in_progress = False
+        return gutter
 
     def _on_debug_overlay_corner_change(self) -> None:
         value = (self._var_debug_overlay_corner.get() or "NW").upper()
