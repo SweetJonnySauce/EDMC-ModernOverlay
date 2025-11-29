@@ -1420,6 +1420,8 @@ class OverlayWindow(QWidget):
             cycle_current_id=self._cycle_current_id,
             compute_legacy_mapper=self._compute_legacy_mapper,
             font_family=self._font_family,
+            window_width=float(self.width()),
+            window_height=float(self.height()),
             cycle_anchor_points=self._cycle_anchor_points,
             payload_model=self._payload_model,
             grouping_helper=self._grouping_helper,

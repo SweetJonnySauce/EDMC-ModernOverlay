@@ -372,6 +372,8 @@ class CycleOverlayView:
         cycle_current_id: Optional[str],
         compute_legacy_mapper: Callable[[], LegacyMapper],
         font_family: str,
+        window_width: float,
+        window_height: float,
         cycle_anchor_points: Mapping[str, Tuple[float, float]],
         payload_model,
         grouping_helper,
@@ -521,11 +523,14 @@ class CycleOverlayView:
         padding = 10
         panel_width = text_width + padding * 2
         panel_height = line_height * len(display_lines) + padding * 2
-        transform = mapper.transform
-        center_x = mapper.offset_x + max(transform.scaled_size[0], 1.0) / 2.0
-        center_y = mapper.offset_y + max(transform.scaled_size[1], 1.0) / 2.0
+        visible_w = max(float(window_width), 1.0)
+        visible_h = max(float(window_height), 1.0)
+        center_x = mapper.offset_x + visible_w / 2.0
+        center_y = mapper.offset_y + visible_h / 2.0
         rect_left = int(round(center_x - panel_width / 2.0))
         rect_top = int(round(center_y - panel_height / 2.0))
+        rect_left = max(0, min(rect_left, int(visible_w - panel_width)))
+        rect_top = max(0, min(rect_top, int(visible_h - panel_height)))
         rect = QRect(rect_left, rect_top, int(round(panel_width)), int(round(panel_height)))
 
         painter.setBrush(QColor(0, 0, 0, 180))
