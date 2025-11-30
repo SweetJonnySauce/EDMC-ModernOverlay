@@ -191,8 +191,10 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 20.3a | Audit Windows-specific flag/click-through handling; ensure helper covers Windows parity and preserves existing behavior. | Complete |
   | 20.4 | Extract force-render/visibility/platform toggle helpers (Wayland/X11 handling, apply_click_through/drag restore) to a focused module; behavior unchanged. | Complete |
   | 20.5 | Extract message/status display presentation into a small presenter/helper to reduce cross-cutting state in `OverlayWindow`; keep UI/logging intact. | Complete |
-  | 20.6 | Pull entrypoint/setup (argparse, helper wiring) into a thin launcher module so `overlay_client.py` focuses on UI concerns; preserve behavior. | Planned |
-  | 20.7 | Run full test suite (ruff/mypy/pytest + PYQT_TESTS/resolution) and update status/logs after extractions. | Planned |
+  | 20.6 | Pull entrypoint/setup (argparse, helper wiring) into a thin launcher module so `overlay_client.py` focuses on UI concerns; preserve behavior. | Complete |
+  | 20.7 | Run full test suite (ruff/mypy/pytest + PYQT_TESTS/resolution) and update status/logs after extractions. | Complete |
+  | 20.8 | Further thin `OverlayWindow` by isolating remaining UI/painter glue (debug/cycle overlay wiring, offscreen logging hooks) into focused view/controller helpers; preserve logging/behavior. | Planned |
+  | 20.9 | Consolidate click-through/drag/visibility state handling into a dedicated interaction controller with targeted tests to prevent regressions like drag toggles affecting click-through. | Planned |
 
 - **I.** Several Qt exception catches still silently swallow errors (e.g., click-through child attribute handling, transient parent removal, screen description, monitor ratio collection), reducing observability and hiding failures.
 
@@ -294,6 +296,16 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 
 #### Stage 20.5 test log (latest)
 - Not rerun for this doc-only completion. Prior full suite from earlier Stage 20 work remains the latest. Recommended quick sanity sweep if needed: `make check && make test && PYQT_TESTS=1 python -m pytest overlay_client/tests`.
+
+### Stage 20.6 summary/test results
+- Entry point/setup moved to `overlay_client/launcher.py`, keeping argument parsing, settings/debug config loading, Qt app/window/data client wiring, and payload handling identical to the previous main.
+- `overlay_client.py` now exposes thin `main`/`resolve_port_file` shims and retains the `__main__` guard to delegate to the launcher, preserving CLI behavior.
+- Tests not rerun for this refactor; latest full suite from earlier Stage 20 work still stands. Suggested quick check if needed: `make check && make test && PYQT_TESTS=1 python -m pytest overlay_client/tests`.
+
+### Stage 20.7 summary/test results
+- Ran full suite after entrypoint refactor: `make check`, `make test`, `PYQT_TESTS=1 overlay_client/.venv/bin/python -m pytest overlay_client/tests`, and `overlay_client/.venv/bin/python tests/run_resolution_tests.py --config tests/display_all.json` (all passed; resolution replay emitted expected empty-message skips).
+- Behavior baseline refreshed; logs still caution about disabled payload logging (expected when preference is off).
+- Follow-up rerun: `overlay_client/.venv/bin/python tests/run_resolution_tests.py --config tests/display_all.json` with payload logging enabled (`overlay-payloads.log` present). Passed; empty-text payloads skipped as expected, no warnings about disabled logging.
 
 ### Stage 20.1 quick summary (mapping)
 - Debug/cycle UI surface: `_paint_debug_overlay` (uses QPainter, `_compute_legacy_mapper`, `_viewport_state`, `_aspect_ratio_label`, follow controller state, overrides) and `_paint_cycle_overlay` + `_sync_cycle_items` (payload model/grouping helper/cycle anchor points, message label) remain embedded; candidates for a view helper that accepts primitives + callbacks for painter draw operations and log formatting.

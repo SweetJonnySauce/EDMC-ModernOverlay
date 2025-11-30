@@ -20,6 +20,6 @@
   "nudge_overflow_payloads": false,
   "payload_nudge_gutter": 10,
   "status_message_gutter": 30,
-  "log_payloads": false,
+  "log_payloads": true,
   "payload_log_delay_seconds": 0.5
 }
