@@ -373,10 +373,21 @@ class OverlayWindow(QWidget):
             "burst_current": 0,
             "burst_max": 0,
         }
+        self._repaint_debounce_enabled: bool = True
+        if debug_config.repaint_debounce_enabled is not None:
+            self._repaint_debounce_enabled = bool(debug_config.repaint_debounce_enabled)
+        self._repaint_debounce_log: bool = bool(getattr(debug_config, "log_repaint_debounce", False))
+        self._repaint_log_last: Optional[Dict[str, Any]] = None
         self._repaint_timer = QTimer(self)
         self._repaint_timer.setSingleShot(True)
         self._repaint_timer.setInterval(self._REPAINT_DEBOUNCE_MS)
         self._repaint_timer.timeout.connect(self._trigger_debounced_repaint)
+        self._paint_log_timer = QTimer(self)
+        self._paint_log_timer.setInterval(5000)
+        self._paint_log_timer.timeout.connect(self._emit_paint_stats)
+        if self._repaint_debounce_log:
+            self._paint_log_timer.start()
+        self._paint_stats = {"paint_count": 0}
         _CLIENT_LOGGER.debug(
             "Debug config loaded: dev_mode_enabled=%s group_bounds_outline=%s overlay_outline=%s payload_vertex_markers=%s (DEBUG_CONFIG_ENABLED=%s)",
             self._dev_mode_enabled,
@@ -933,6 +944,9 @@ class OverlayWindow(QWidget):
         if self._show_debug_overlay:
             self._paint_debug_overlay(painter)
         painter.end()
+        stats = getattr(self, "_paint_stats", None)
+        if isinstance(stats, dict):
+            stats["paint_count"] = stats.get("paint_count", 0) + 1
         super().paintEvent(event)
 
     def _grid_pixmap_for(self, width: int, height: int, spacing: int, grid_alpha: int) -> Optional[QPixmap]:
@@ -1629,10 +1643,33 @@ class OverlayWindow(QWidget):
                 counts,
             )
 
-    def _request_repaint(self, reason: str) -> None:
+    def _request_repaint(self, reason: str, *, immediate: bool = False) -> None:
         self._record_repaint_event(reason)
+        debounce_enabled = bool(getattr(self, "_repaint_debounce_enabled", True))
         timer = getattr(self, "_repaint_timer", None)
-        if timer is None:
+        effective_immediate = immediate or not debounce_enabled or timer is None
+        if self._repaint_debounce_log:
+            should_log = effective_immediate or timer is None or not timer.isActive()
+            if should_log:
+                path_label = "immediate" if effective_immediate else "debounced"
+                now = time.monotonic()
+                last = self._repaint_log_last or {}
+                if (
+                    last.get("reason") != reason
+                    or last.get("path") != path_label
+                    or now - float(last.get("ts", 0.0)) > 1.0
+                ):
+                    _CLIENT_LOGGER.debug(
+                        "Repaint request: reason=%s path=%s debounce_enabled=%s timer_active=%s",
+                        reason,
+                        path_label,
+                        debounce_enabled,
+                        timer.isActive() if timer is not None else False,
+                    )
+                    self._repaint_log_last = {"reason": reason, "path": path_label, "ts": now}
+        if effective_immediate:
+            if timer is not None and timer.isActive():
+                timer.stop()
             self.update()
             return
         if not timer.isActive():
@@ -1640,6 +1677,34 @@ class OverlayWindow(QWidget):
 
     def _trigger_debounced_repaint(self) -> None:
         self.update()
+
+    @staticmethod
+    def _should_bypass_debounce(payload: Mapping[str, Any]) -> bool:
+        """Allow immediate repaint for fast animations/short-lived payloads."""
+
+        if payload.get("animate"):
+            return True
+        ttl_raw = payload.get("ttl")
+        try:
+            ttl_value = float(ttl_raw)
+        except (TypeError, ValueError):
+            return False
+        return 0.0 < ttl_value <= 1.0
+
+    def _emit_paint_stats(self) -> None:
+        if not self._repaint_debounce_log:
+            return
+        counts = getattr(self, "_repaint_metrics", {}).get("counts", {})
+        stats = getattr(self, "_paint_stats", {})
+        paint_count = stats.get("paint_count", 0) if isinstance(stats, dict) else 0
+        stats["paint_count"] = 0
+        _CLIENT_LOGGER.debug(
+            "Repaint stats: paints=%d ingest=%s purge=%s total=%s",
+            paint_count,
+            counts.get("ingest"),
+            counts.get("purge"),
+            counts.get("total"),
+        )
 
     def set_background_opacity(self, opacity: float) -> None:
         try:
@@ -2525,14 +2590,22 @@ class OverlayWindow(QWidget):
             if self._cycle_payload_enabled:
                 self._sync_cycle_items()
             self._mark_legacy_cache_dirty()
-            self._request_repaint("ingest")
+            self._request_repaint("ingest", immediate=self._should_bypass_debounce(payload))
 
     def _purge_legacy(self) -> None:
         now = time.monotonic()
+        previous_count = len(self._payload_model)
         if self._payload_model.purge_expired(now):
             if self._cycle_payload_enabled:
                 self._sync_cycle_items()
             self._mark_legacy_cache_dirty()
+            expired_count = max(0, previous_count - len(self._payload_model))
+            if expired_count and self._repaint_metrics.get("enabled"):
+                _CLIENT_LOGGER.debug(
+                    "Expired payloads purged: count=%d timer_active=%s",
+                    expired_count,
+                    getattr(self, "_repaint_timer", None).isActive() if getattr(self, "_repaint_timer", None) else False,
+                )
             self._request_repaint("purge")
         if not len(self._payload_model):
             self._group_log_pending_base.clear()
