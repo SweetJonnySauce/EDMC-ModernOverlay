@@ -51,8 +51,8 @@ This file tracks prospective changes to improve overlay-client runtime smoothnes
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 1.1 | Instrument current repaint triggers: add temporary counters/timestamps (debug-only) around `_purge_legacy`/`ingest`→`update()` to quantify burst rates; no behavior changes. | Planned |
-| 1.2 | Introduce a debounced invalidation path: add a single-shot timer (16–33 ms) to coalesce multiple `update()` calls; keep immediate `update()` for window-size changes to avoid visual lag. | Planned |
+| 1.1 | Instrument current repaint triggers: add temporary counters/timestamps (debug-only) around `_purge_legacy`/`ingest`→`update()` to quantify burst rates; no behavior changes. | Complete |
+| 1.2 | Introduce a debounced invalidation path: add a single-shot timer (16–33 ms) to coalesce multiple `update()` calls; keep immediate `update()` for window-size changes to avoid visual lag. | Complete |
 | 1.3 | Preserve expiry cadence: ensure the purge timer still runs at 250 ms and triggers a repaint if items expire during a coalesced window; add a small test/trace to verify. | Planned |
 | 1.4 | Guard fast animations: add a bypass for payloads marked “animate”/short TTL (if present) to allow immediate repaint; otherwise default to the debounce. | Planned |
 | 1.5 | Metrics + toggle: add a dev-mode flag to log coalesced vs. immediate paints and a setting to disable the debounce for troubleshooting; document defaults. | Planned |
@@ -62,3 +62,7 @@ This file tracks prospective changes to improve overlay-client runtime smoothnes
 - Add rows above as work is planned; keep ordering by expected gain.
 - Before implementing an item, write a brief plan (3–5 lines) describing scope/touch points and what must stay unchanged.
 - After implementation, record tests run and observed impact (frame time, CPU usage, repaint count) before marking an item complete.
+
+## Stage summary / test results
+- **1.1 (Complete):** Added debug-only repaint metrics on ingest/purge-driven updates (counts, burst tracking, last interval) with a single debug log when a new burst max is seen; no behavior changes. Example observation: burst log `current=109 max=109 interval=0.000s totals={'total': 5928, 'ingest': 5928, 'purge': 0}` shows 109 back-to-back ingests within 0.1s, all repainting the current store; duplicates still repaint because ingest always returns True. Tests not run (instrumentation only).
+- **1.2 (Complete):** Added a single-shot 33 ms repaint debounce for ingest/purge-driven updates; multiple ingests within the window now coalesce into one `update()` while other update callers remain immediate. Metrics still count every ingest/purge; behavior is otherwise unchanged. Tests not run (behavioral change is timing-only; manual verification pending).

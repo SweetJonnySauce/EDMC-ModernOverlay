@@ -256,6 +256,7 @@ class OverlayWindow(QWidget):
     _apply_font_fallbacks = _apply_font_fallbacks
 
     _WM_OVERRIDE_TTL = 1.25  # seconds
+    _REPAINT_DEBOUNCE_MS = 33  # coalesce ingest/purge repaint storms
 
     def __init__(self, initial: InitialClientSettings, debug_config: DebugConfig) -> None:
         super().__init__()
@@ -365,6 +366,17 @@ class OverlayWindow(QWidget):
             or debug_config.trace_enabled
         )
         self._dev_mode_enabled: bool = dev_mode_active
+        self._repaint_metrics: Dict[str, Any] = {
+            "enabled": dev_mode_active or DEBUG_CONFIG_ENABLED,
+            "counts": {"total": 0, "ingest": 0, "purge": 0},
+            "last_ts": None,
+            "burst_current": 0,
+            "burst_max": 0,
+        }
+        self._repaint_timer = QTimer(self)
+        self._repaint_timer.setSingleShot(True)
+        self._repaint_timer.setInterval(self._REPAINT_DEBOUNCE_MS)
+        self._repaint_timer.timeout.connect(self._trigger_debounced_repaint)
         _CLIENT_LOGGER.debug(
             "Debug config loaded: dev_mode_enabled=%s group_bounds_outline=%s overlay_outline=%s payload_vertex_markers=%s (DEBUG_CONFIG_ENABLED=%s)",
             self._dev_mode_enabled,
@@ -1590,6 +1602,45 @@ class OverlayWindow(QWidget):
     def _mark_legacy_cache_dirty(self) -> None:
         self._render_pipeline.mark_dirty()
 
+    def _record_repaint_event(self, reason: str) -> None:
+        metrics = self._repaint_metrics
+        if not metrics.get("enabled"):
+            return
+        counts = metrics.setdefault("counts", {})
+        counts["total"] = counts.get("total", 0) + 1
+        counts[reason] = counts.get(reason, 0) + 1
+        now = time.monotonic()
+        last_ts_raw = metrics.get("last_ts")
+        last_ts = float(last_ts_raw) if last_ts_raw is not None else None
+        if last_ts is None or now - last_ts > 0.1:
+            burst = 1
+        else:
+            burst = int(metrics.get("burst_current", 0)) + 1
+        metrics["burst_current"] = burst
+        metrics["last_ts"] = now
+        if burst > metrics.get("burst_max", 0):
+            metrics["burst_max"] = burst
+            _CLIENT_LOGGER.debug(
+                "Repaint burst updated (%s): current=%d max=%d interval=%.3fs totals=%s",
+                reason,
+                burst,
+                metrics["burst_max"],
+                (now - last_ts) if last_ts is not None else 0.0,
+                counts,
+            )
+
+    def _request_repaint(self, reason: str) -> None:
+        self._record_repaint_event(reason)
+        timer = getattr(self, "_repaint_timer", None)
+        if timer is None:
+            self.update()
+            return
+        if not timer.isActive():
+            timer.start()
+
+    def _trigger_debounced_repaint(self) -> None:
+        self.update()
+
     def set_background_opacity(self, opacity: float) -> None:
         try:
             value = float(opacity)
@@ -2474,7 +2525,7 @@ class OverlayWindow(QWidget):
             if self._cycle_payload_enabled:
                 self._sync_cycle_items()
             self._mark_legacy_cache_dirty()
-            self.update()
+            self._request_repaint("ingest")
 
     def _purge_legacy(self) -> None:
         now = time.monotonic()
@@ -2482,7 +2533,7 @@ class OverlayWindow(QWidget):
             if self._cycle_payload_enabled:
                 self._sync_cycle_items()
             self._mark_legacy_cache_dirty()
-            self.update()
+            self._request_repaint("purge")
         if not len(self._payload_model):
             self._group_log_pending_base.clear()
             self._group_log_pending_transform.clear()
