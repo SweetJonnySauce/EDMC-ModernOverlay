@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate local Python against the EDMC-tested baseline."""
+"""Validate the plugin's Python against the EDMC-tested baseline."""
 from __future__ import annotations
 
 import os

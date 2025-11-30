@@ -28,8 +28,8 @@ These are EDMC best practices. Evaluate the code to make sure it's adhering to t
 - Performance awareness: efficient enough without premature micro-optimizations; measure before tuning.
 
 ## Checks (run per release or compliance review)
-- Confirm target Python version matches the version stated in EDMC core `docs/Releasing`; baseline (as of this review) is Python 3.10.3 32-bit for Windows builds. Update this file if the baseline changes.
-- Run `python scripts/check_edmc_python.py` to enforce the baseline in `docs/compliance/edmc_python_version.txt` (override with `ALLOW_EDMC_PYTHON_MISMATCH=1` only for non-release/dev work).
+- Confirm target Python version matches the version stated in EDMC core `docs/Releasing`; baseline (as of this review) is Python 3.10.3 32-bit for Windows builds. Update this file if the baseline changes. This applies to the EDMC plugin runtime; the controller/client run in their own environments.
+- Run `python scripts/check_edmc_python.py` to enforce the plugin baseline in `docs/compliance/edmc_python_version.txt` (override with `ALLOW_EDMC_PYTHON_MISMATCH=1` only for non-release/dev work).
   - CI runs this via `.github/workflows/ci.yml` (override enabled because CI uses non-baseline Python/arch).
 - Re-scan imports to ensure only supported EDMC APIs/helpers (`config`, `monitor`, `theme`, `timeout_session`, etc.) are used in plugin code.
 - Verify logger wiring (`plugin_name`, folder name, logger name) aligns and that `logger.exception`/`exc_info` is used instead of `print`.
