@@ -19,6 +19,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install system deps (Qt/EGL)
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1
+
       - name: Set up Python (plugin runtime parity)
         uses: actions/setup-python@v5
         with:
@@ -46,6 +49,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install system deps (Qt/EGL)
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1
 
       - name: Set up Python
         uses: actions/setup-python@v5
