@@ -25,7 +25,12 @@ if __package__:
     )
     from .overlay_plugin.overlay_watchdog import OverlayWatchdog
     from .overlay_plugin.overlay_socket_server import WebSocketBroadcaster
-    from .overlay_plugin.preferences import Preferences, PreferencesPanel, STATUS_GUTTER_MAX
+    from .overlay_plugin.preferences import (
+        Preferences,
+        PreferencesPanel,
+        STATUS_GUTTER_MAX,
+        _normalise_launch_command,
+    )
     from .overlay_plugin.version_helper import VersionStatus, evaluate_version_status
     from .overlay_plugin.legacy_tcp_server import LegacyOverlayTCPServer
     from .overlay_plugin.overlay_api import (
@@ -41,7 +46,12 @@ else:  # pragma: no cover - EDMC loads as top-level module
     from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR, is_dev_build
     from overlay_plugin.overlay_watchdog import OverlayWatchdog
     from overlay_plugin.overlay_socket_server import WebSocketBroadcaster
-    from overlay_plugin.preferences import Preferences, PreferencesPanel, STATUS_GUTTER_MAX
+    from overlay_plugin.preferences import (
+        Preferences,
+        PreferencesPanel,
+        STATUS_GUTTER_MAX,
+        _normalise_launch_command,
+    )
     from overlay_plugin.version_helper import VersionStatus, evaluate_version_status
     from overlay_plugin.legacy_tcp_server import LegacyOverlayTCPServer
     from overlay_plugin.overlay_api import (
@@ -340,7 +350,13 @@ class _PluginRuntime:
             name="ModernOverlayVersionCheck",
             daemon=True,
         ).start()
-        self._command_helper = build_command_helper(self, LOGGER)
+        launch_cmd = _normalise_launch_command(str(getattr(self._preferences, "controller_launch_command", "!ovr")))
+        LOGGER.info("Initialising journal command helper with launch prefix=%s", launch_cmd)
+        self._command_helper = build_command_helper(
+            self,
+            LOGGER,
+            command_prefix=launch_cmd,
+        )
         self._controller_launch_lock = threading.Lock()
         self._controller_launch_thread: Optional[threading.Thread] = None
         self._controller_process: Optional[subprocess.Popen] = None
@@ -1117,6 +1133,19 @@ class _PluginRuntime:
             self._preferences.show_connection_status = bool(value)
             self._preferences.save()
         self._send_overlay_config()
+
+    def set_launch_command_preference(self, value: str) -> None:
+        normalised = _normalise_launch_command(str(value))
+        LOGGER.info("Launch command change requested (runtime): raw=%r normalised=%s", value, normalised)
+        with self._prefs_lock:
+            current = getattr(self._preferences, "controller_launch_command", "!ovr")
+            if normalised == current:
+                return
+            self._preferences.controller_launch_command = normalised
+            self._preferences.save()
+            LOGGER.info("Controller launch command changed (runtime): %s -> %s", current, normalised)
+        self._command_helper = build_command_helper(self, LOGGER, command_prefix=normalised)
+        LOGGER.debug("Overlay launch command preference updated to %s", normalised)
 
     def set_debug_overlay_corner_preference(self, value: str) -> None:
         corner = (value or "NW").upper()
@@ -2431,6 +2460,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         cycle_prev_callback = _plugin.cycle_payload_prev if _plugin else None
         cycle_next_callback = _plugin.cycle_payload_next if _plugin else None
         restart_overlay_callback = _plugin.restart_overlay_client if _plugin else None
+        launch_command_callback = _plugin.set_launch_command_preference if _plugin else None
         panel = PreferencesPanel(
             parent,
             _preferences,
@@ -2455,6 +2485,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             cycle_prev_callback,
             cycle_next_callback,
             restart_overlay_callback,
+            launch_command_callback,
             dev_mode=DEV_BUILD,
             plugin_version=MODERN_OVERLAY_VERSION,
             version_update_available=version_update_available,
