@@ -70,8 +70,10 @@ class InteractionController:
             if window_handle is not None:
                 try:
                     self._set_transient_parent(None)
-                except Exception:
-                    pass
+                except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+                    self._log("Failed to clear transient parent on force-render: %s", exc, "")
+                except Exception as exc:  # pragma: no cover - unexpected Qt errors
+                    self._log("Unexpected error clearing transient parent on force-render: %s", exc, "")
             self._clear_transient_parent_ids()
         if sys.platform.startswith("linux"):
             # Best-effort: ask the platform controller to apply transparent input, then restore desired state.

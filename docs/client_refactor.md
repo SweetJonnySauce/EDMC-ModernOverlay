@@ -200,13 +200,27 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 
   | Stage | Description | Status |
   | --- | --- | --- |
-  | 21 | Scope remaining Qt error handling to expected exceptions and add debug/warning logs; avoid silent passes while keeping UI stable. | Planned |
+  | 21 | Scope remaining Qt error handling to expected exceptions and add debug/warning logs; avoid silent passes while keeping UI stable. | Complete |
+
+  | Substage | Description | Status |
+  | --- | --- | --- |
+  | 21.1 | Inventory current Qt try/excepts (click-through child attr toggles, transient parent removal, screen description/monitor ratio collection) and classify expected exceptions vs. unexpected; document fallbacks/log gaps. | Complete (mapping only; no code/tests) |
+  | 21.2 | Refactor scoped handling/logging for the mapped spots, keeping default fallbacks/UI stability while avoiding silent passes; centralize shared helpers if needed. | Complete |
+  | 21.3 | Add tests (headless and PyQt where needed) asserting scoped handling/logging and preserved fallbacks for failure scenarios. | Complete |
+  | 21.4 | Rerun full suite (ruff/mypy/pytest, PYQT_TESTS, resolution) and update logs/status for the refactor. | Complete |
 
 - **J.** `_CLIENT_LOGGER.propagate = False` prevents upstream handlers from receiving client logs, making observability and test integration harder.
 
   | Stage | Description | Status |
   | --- | --- | --- |
   | 22 | Revisit logger propagation (allow propagation or add a configurable hook) to let client logs flow to application handlers without breaking release logging behavior. | Planned |
+
+  | Substage | Description | Status |
+  | --- | --- | --- |
+  | 22.1 | Map current logger setup (handlers/filters/propagate flag), consumers of `_CLIENT_LOGGER`, and release/debug behavior; identify risks of enabling propagation and options for opt-in hooks. | Planned |
+  | 22.2 | Implement propagation strategy (configurable flag or handler hook) with safe defaults preserving release logging; ensure tests/logging utilities adapt. | Planned |
+  | 22.3 | Add tests verifying propagation behavior in both default and opted-in modes (headless where possible); ensure filters/levels remain correct. | Planned |
+  | 22.4 | Run full suite (ruff/mypy/pytest, PYQT_TESTS, resolution) and document outcomes. | Planned |
 
 - **K.** Resolution test (`tests/run_resolution_tests.py`) is currently skipped; leaves a known gap in integration validation.
 
@@ -323,6 +337,62 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 
 #### Stage 20.1 test log (latest)
 - Not run (mapping/documentation only).
+
+### Stage 21 quick summary (intent)
+- Goal: scope remaining Qt try/excepts to expected failures and surface useful logs instead of silent passes, keeping UI stability intact.
+- Scope: click-through child attr toggles, transient parent removal, screen description/device ratio collection, and similar Qt calls that currently swallow errors; identify expected exception types and required fallbacks.
+- Constraints: preserve existing fallbacks/behavior (no new crashes), keep logging noise low, and avoid widening Qt dependencies in pure helpers.
+- Validation: map in 21.1, refactor in 21.2, add headless/PyQt tests in 21.3, then rerun `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`, and `python tests/run_resolution_tests.py --config tests/display_all.json` in 21.4.
+- Status: Complete.
+
+#### Stage 21 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (expected empty-text payloads skipped during replay; overlay running).
+
+### Stage 21.1 quick summary (mapping)
+- `overlay_client/overlay_client.py:_set_children_click_through`: wraps `child.setAttribute(Qt.WA_TransparentForMouseEvents, transparent)` in a bare `except Exception: pass`; expected failure cases are widget destruction or platform Qt errors, but we currently drop all signals/logging when a child rejects the flag.
+- `overlay_client/interaction_controller.py:handle_force_render_enter`: on Wayland, clearing the transient parent calls `set_transient_parent_fn(None)` inside a bare `except Exception: pass`; expected failures include Qt runtime errors when the window handle is gone; fallback is still clearing cached IDs, but no log is emitted.
+- `overlay_client/overlay_client.py:_ensure_transient_parent` (Wayland branch): when a transient parent is already set, `window_handle.setTransientParent(None)` is wrapped in a bare `except Exception: pass`; failures are silent before clearing local IDs and returning.
+- `overlay_client/overlay_client.py:_describe_screen`: wraps `screen.geometry()`/`screen.name()` in a bare `except Exception`, returning `str(screen)` with no log, so screen-query errors are invisible during move/geometry logs.
+- `overlay_client/overlay_client.py:_normalise_tracker_geometry`: `window_handle.devicePixelRatio()` read is wrapped in `except Exception` with no logging and defaults to `0.0` (later ignored); ratio diagnostics are skipped on failure, masking dpr issues.
+- `overlay_client/overlay_client.py:_update_auto_legacy_scale`: `self.devicePixelRatioF()` read uses a bare `except Exception` and defaults to `1.0` with no log, hiding failures when collecting monitor/device ratios for scaling.
+
+#### Stage 21.1 test log (latest)
+- Not run (mapping-only documentation update; no code/tests).
+
+### Stage 21.2 quick summary (status)
+- Scoped Qt try/excepts: child click-through attribute toggles now log failures; Wayland transient-parent clears (force-render and overlay) log scoped errors instead of silent passes; screen description fallback logs failures before returning the stringified screen.
+- Device pixel ratio reads now use scoped exceptions with debug logs and existing fallbacks (window dpr defaults to 0.0 for diagnostics gating; devicePixelRatioF defaults to 1.0) plus warning logs for unexpected Qt errors; behavior remains unchanged.
+- Tests run after logging changes; targeted failure-path coverage still planned for 21.3 before finalising the stage.
+
+#### Stage 21.2 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (expected empty-text payloads skipped during replay; overlay running).
+
+### Stage 21.3 quick summary (status)
+- Added headless/PyQt tests covering the scoped logging paths: child click-through attribute failures, Wayland transient-parent clear in `InteractionController`, screen description fallback, and devicePixelRatioF fallback in `_update_auto_legacy_scale`.
+- Tests assert logs emit on expected exceptions while preserving existing fallbacks; no production code changes beyond prior logging.
+- Full suite (ruff/mypy/pytest), PYQT_TESTS subset, and resolution tests rerun and passing.
+
+#### Stage 21.3 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (expected empty-text payloads skipped during replay; overlay running).
+
+### Stage 21.4 quick summary (status)
+- Full-suite rerun after adding scoped-logging tests: lint/typecheck/pytest, PYQT_TESTS subset, and resolution replay all green; behavior unchanged (expected empty-text payload skips during replay).
+- Stage 21 closed; future logging/propagation work to proceed under Stage 22.
+
+#### Stage 21.4 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (expected empty-text payloads skipped during replay; overlay running).
 
 ### Stage 1 quick summary (intent)
 - Goal: move `OverlayDataClient` into `overlay_client/data_client.py` with no behavior change.

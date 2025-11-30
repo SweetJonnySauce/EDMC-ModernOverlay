@@ -1774,8 +1774,10 @@ class OverlayWindow(QWidget):
             if child is not None:
                 try:
                     child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, transparent)
-                except Exception:
-                    pass
+                except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+                    _CLIENT_LOGGER.debug("Failed to set click-through on child %s: %s", child_name, exc)
+                except Exception as exc:  # pragma: no cover - unexpected Qt errors
+                    _CLIENT_LOGGER.warning("Unexpected error setting click-through on child %s: %s", child_name, exc)
 
     def _clear_transient_parent_ids(self) -> None:
         self._transient_parent_window = None
@@ -1916,7 +1918,11 @@ class OverlayWindow(QWidget):
         if window_handle is not None:
             try:
                 window_dpr = window_handle.devicePixelRatio()
-            except Exception:
+            except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+                _CLIENT_LOGGER.debug("Failed to read devicePixelRatio, defaulting to 0.0: %s", exc)
+                window_dpr = 0.0
+            except Exception as exc:  # pragma: no cover - unexpected Qt errors
+                _CLIENT_LOGGER.warning("Unexpected devicePixelRatio failure, defaulting to 0.0: %s", exc)
                 window_dpr = 0.0
             if window_dpr and normalisation_info is not None:
                 screen_name, norm_scale_x, norm_scale_y, device_ratio = normalisation_info
@@ -2077,8 +2083,10 @@ class OverlayWindow(QWidget):
                 if window_handle is not None:
                     try:
                         window_handle.setTransientParent(None)
-                    except Exception:
-                        pass
+                    except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+                        _CLIENT_LOGGER.debug("Failed to clear transient parent on Wayland: %s", exc)
+                    except Exception as exc:  # pragma: no cover - unexpected Qt errors
+                        _CLIENT_LOGGER.warning("Unexpected error clearing transient parent on Wayland: %s", exc)
                 self._transient_parent_window = None
                 self._transient_parent_id = None
             return
@@ -2235,7 +2243,11 @@ class OverlayWindow(QWidget):
         try:
             geometry = screen.geometry()
             return f"{screen.name()} {geometry.width()}x{geometry.height()}@({geometry.x()},{geometry.y()})"
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+            _CLIENT_LOGGER.debug("Failed to describe screen %r: %s", screen, exc)
+            return str(screen)
+        except Exception as exc:  # pragma: no cover - unexpected Qt errors
+            _CLIENT_LOGGER.warning("Unexpected error describing screen %r: %s", screen, exc)
             return str(screen)
 
     def _sync_base_dimensions_to_widget(self) -> None:
@@ -2309,7 +2321,11 @@ class OverlayWindow(QWidget):
         mapper = self._compute_legacy_mapper()
         try:
             ratio = self.devicePixelRatioF()
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+            _CLIENT_LOGGER.debug("devicePixelRatioF unavailable, defaulting to 1.0: %s", exc)
+            ratio = 1.0
+        except Exception as exc:  # pragma: no cover - unexpected Qt errors
+            _CLIENT_LOGGER.warning("Unexpected devicePixelRatioF failure, defaulting to 1.0: %s", exc)
             ratio = 1.0
         if ratio <= 0.0:
             ratio = 1.0
