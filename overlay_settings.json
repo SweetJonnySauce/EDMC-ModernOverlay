@@ -12,7 +12,7 @@
   "min_font_point": 5.0,
   "max_font_point": 13.0,
   "status_bottom_margin": 50,
-  "title_bar_enabled": true,
+  "title_bar_enabled": false,
   "title_bar_height": 20,
   "cycle_payload_ids": false,
   "copy_payload_id_on_cycle": true,

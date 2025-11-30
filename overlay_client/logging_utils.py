@@ -11,15 +11,16 @@ def resolve_logs_dir(base_path: Path, log_dir_name: str = "EDMCModernOverlay") -
     Resolve the directory to store overlay logs.
 
     Strategy:
-    - Prefer a sibling/parent `logs/<log_dir_name>` directory alongside the plugin root (matches EDMC log layout).
+    - Prefer an EDMC-style `EDMarketConnector/logs/<log_dir_name>` ancestor when available.
     - Fall back to `cwd/logs/<log_dir_name>` if preferred location is unavailable.
     - Final fallback: `base_path/logs/<log_dir_name>`.
     """
     current = base_path.resolve()
     parents = current.parents
     candidates = []
-    if len(parents) >= 3:
-        candidates.append(parents[2] / "logs")
+    edmc_root = next((p for p in parents if p.name == "EDMarketConnector"), None)
+    if edmc_root is not None:
+        candidates.append(edmc_root / "logs")
     candidates.append(Path.cwd() / "logs")
     for base in candidates:
         try:
