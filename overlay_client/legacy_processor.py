@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from collections.abc import Iterable, Sequence
 from typing import Any, Callable, Mapping, MutableMapping, Optional
 
@@ -258,3 +258,4 @@ def process_legacy_payload(
         return False
 
     return False
+UTC = getattr(datetime, "UTC", timezone.utc)

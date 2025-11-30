@@ -13,7 +13,7 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
@@ -243,6 +243,8 @@ def _configure_logger() -> logging.Logger:
     logger.propagate = False
     return logger
 
+
+UTC = getattr(datetime, "UTC", timezone.utc)
 
 LOGGER = _configure_logger()
 if DEV_BUILD:
