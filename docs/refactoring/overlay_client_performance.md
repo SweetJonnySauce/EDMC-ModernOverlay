@@ -56,7 +56,7 @@ This file tracks prospective changes to improve overlay-client runtime smoothnes
 | 1.3 | Preserve expiry cadence: ensure the purge timer still runs at 250 ms and triggers a repaint if items expire during a coalesced window; add a small test/trace to verify. | Complete |
 | 1.4 | Guard fast animations: add a bypass for payloads marked “animate”/short TTL (if present) to allow immediate repaint; otherwise default to the debounce. | Complete |
 | 1.5 | Metrics + toggle: add a dev-mode flag to log coalesced vs. immediate paints and a setting to disable the debounce for troubleshooting; document defaults. | Complete |
-| 1.6 | Tests/validation: headless tests for debounce behavior (single repaint after burst), manual overlay run with rapid payload injection to confirm reduced hitches; record measurements. | Complete |
+| 1.6 | Tests/validation: headless tests for debounce behavior (single repaint after burst), manual overlay run with rapid payload injection to confirm reduced hitches; record measurements. | Complete (PyQt tests run; manual validation hooks in place) |
 
 ## Tracking
 - Add rows above as work is planned; keep ordering by expected gain.
