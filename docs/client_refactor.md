@@ -190,7 +190,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 20.3 | Extract click-through/window-flag management (transient parent resets, WA flags, platform controller hooks) into a helper to narrow the window class surface; preserve logging. | Complete |
   | 20.3a | Audit Windows-specific flag/click-through handling; ensure helper covers Windows parity and preserves existing behavior. | Complete |
   | 20.4 | Extract force-render/visibility/platform toggle helpers (Wayland/X11 handling, apply_click_through/drag restore) to a focused module; behavior unchanged. | Complete |
-  | 20.5 | Extract message/status display presentation into a small presenter/helper to reduce cross-cutting state in `OverlayWindow`; keep UI/logging intact. | Planned |
+  | 20.5 | Extract message/status display presentation into a small presenter/helper to reduce cross-cutting state in `OverlayWindow`; keep UI/logging intact. | Complete |
   | 20.6 | Pull entrypoint/setup (argparse, helper wiring) into a thin launcher module so `overlay_client.py` focuses on UI concerns; preserve behavior. | Planned |
   | 20.7 | Run full test suite (ruff/mypy/pytest + PYQT_TESTS/resolution) and update status/logs after extractions. | Planned |
 
@@ -289,14 +289,11 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 - `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed.
 
 ### Stage 20.5 quick summary (status)
-- Added `StatusPresenter` to handle status banner formatting/dispatch via injected callbacks; `OverlayWindow` delegates status text/show/hide/bottom-margin to the helper. Logging and payload dispatch are unchanged; UI behavior preserved.
-- Set initial bottom margin via helper using existing coerce logic; kept platform suffix formatting via injected platform label callback.
+- Stage bookkeeping: status/message presentation already lives in `overlay_client/status_presenter.py` and `OverlayWindow` delegates status text/show/hide/bottom-margin to it. No new code in this update; marking the substage complete to reflect the existing extraction.
+- Behavior/logging unchanged; platform suffix formatting and bottom-margin coercion remain handled in the presenter via injected callbacks.
 
 #### Stage 20.5 test log (latest)
-- `source overlay_client/.venv/bin/activate && make check` → passed.
-- `source overlay_client/.venv/bin/activate && make test` → passed.
-- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
-- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed.
+- Not rerun for this doc-only completion. Prior full suite from earlier Stage 20 work remains the latest. Recommended quick sanity sweep if needed: `make check && make test && PYQT_TESTS=1 python -m pytest overlay_client/tests`.
 
 ### Stage 20.1 quick summary (mapping)
 - Debug/cycle UI surface: `_paint_debug_overlay` (uses QPainter, `_compute_legacy_mapper`, `_viewport_state`, `_aspect_ratio_label`, follow controller state, overrides) and `_paint_cycle_overlay` + `_sync_cycle_items` (payload model/grouping helper/cycle anchor points, message label) remain embedded; candidates for a view helper that accepts primitives + callbacks for painter draw operations and log formatting.
