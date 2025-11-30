@@ -60,7 +60,7 @@ class StatusPresenter:
         if value == self._status_bottom_margin:
             return
         self._status_bottom_margin = value
-        self._log("Status bottom margin updated to %spx", self._status_bottom_margin, "")
+        self._log("Status bottom margin updated to %spx", self._status_bottom_margin)
         if self._show_status and self._status:
             self._show_overlay_status_message(self._status)
 

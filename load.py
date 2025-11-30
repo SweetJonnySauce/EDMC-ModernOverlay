@@ -1397,12 +1397,10 @@ class _PluginRuntime:
         launch_env: Dict[str, str],
         capture_output: bool,
     ) -> subprocess.Popen:
-        script_path = self.plugin_dir / "overlay_controller" / "overlay_controller.py"
-        if not script_path.exists():
-            raise RuntimeError("overlay_controller.py not found")
-        command = [*python_command, str(script_path)]
+        module_name = "overlay_controller.overlay_controller"
+        command = [*python_command, "-m", module_name]
         LOGGER.debug("Spawning Overlay Controller via %s", command)
-        kwargs: Dict[str, Any] = {"cwd": str(script_path.parent), "env": launch_env}
+        kwargs: Dict[str, Any] = {"cwd": str(self.plugin_dir), "env": launch_env}
         if os.name == "nt":
             creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             if creation_flags:
@@ -2218,7 +2216,12 @@ class _PluginRuntime:
                     cmdline = proc.info.get("cmdline") or []
                     for token in cmdline:
                         name = os.path.basename(token)
-                        if name.lower() == "overlay_controller.py" or name.lower().endswith("/overlay_controller.py"):
+                        token_l = token.lower()
+                        if (
+                            name.lower() == "overlay_controller.py"
+                            or name.lower().endswith("/overlay_controller.py")
+                            or "overlay_controller.overlay_controller" in token_l
+                        ):
                             return True
                 # Fallback: check process names when cmdline is unavailable.
                 for proc in psutil.process_iter(["name"]):
@@ -2233,7 +2236,7 @@ class _PluginRuntime:
             output = ""
         for line in output.splitlines():
             token = line.strip().lower()
-            if "overlay_controller.py" in token:
+            if "overlay_controller.py" in token or "overlay_controller.overlay_controller" in token:
                 return True
         return False
 

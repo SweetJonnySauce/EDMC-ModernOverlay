@@ -11,7 +11,7 @@ from typing import Any, Optional
 try:  # pragma: no cover - overlay client may run without package metadata
     from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR, is_dev_build
 except Exception:  # pragma: no cover - fallback when version module unavailable
-    MODERN_OVERLAY_VERSION = None
+    MODERN_OVERLAY_VERSION: Optional[str] = None
     DEV_MODE_ENV_VAR = "MODERN_OVERLAY_DEV_MODE"
 
     def is_dev_build(version: Optional[str] = None) -> bool:

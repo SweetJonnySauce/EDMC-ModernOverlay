@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import atexit
 import json
 import os
@@ -20,10 +22,16 @@ from pathlib import Path
 from tkinter import ttk
 from typing import Any, Dict, Optional, Tuple
 
+_CONTROLLER_LOGGER: Optional[logging.Logger] = None
+
 from overlay_client.debug_config import DEBUG_CONFIG_ENABLED
 from overlay_client.logging_utils import build_rotating_file_handler, resolve_log_level, resolve_logs_dir
-from input_bindings import BindingConfig, BindingManager
-from selection_overlay import SelectionOverlay
+try:  # When run as a package (`python -m overlay_controller.overlay_controller`)
+    from overlay_controller.input_bindings import BindingConfig, BindingManager
+    from overlay_controller.selection_overlay import SelectionOverlay
+except ImportError:  # Fallback for spec-from-file/test harness
+    from input_bindings import BindingConfig, BindingManager  # type: ignore
+    from selection_overlay import SelectionOverlay  # type: ignore
 
 ABS_BASE_WIDTH = 1280
 ABS_BASE_HEIGHT = 960
