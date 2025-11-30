@@ -344,6 +344,13 @@ class _PluginRuntime:
         self._version_update_notice_sent = False
         self._version_notice_timer_lock = threading.Lock()
         self._version_notice_timers: Set[threading.Timer] = set()
+        self._launch_log_timer: Optional[threading.Timer] = None
+        self._launch_log_pending: Optional[Tuple[str, str]] = None
+        self._last_launch_info_value: str = ""
+        self._last_launch_info_time: float = 0.0
+        self._last_launch_log_value: str = ""
+        self._last_launch_log_time: float = 0.0
+        self._command_helper_prefix: Optional[str] = None
         register_grouping_store(self.plugin_dir / "overlay_groupings.json")
         threading.Thread(
             target=self._evaluate_version_status_once,
@@ -351,12 +358,9 @@ class _PluginRuntime:
             daemon=True,
         ).start()
         launch_cmd = _normalise_launch_command(str(getattr(self._preferences, "controller_launch_command", "!ovr")))
-        LOGGER.info("Initialising journal command helper with launch prefix=%s", launch_cmd)
-        self._command_helper = build_command_helper(
-            self,
-            LOGGER,
-            command_prefix=launch_cmd,
-        )
+        LOGGER.info("Initialising Overlay Controller journal command helper with launch prefix=%s", launch_cmd)
+        self._command_helper = self._build_command_helper(launch_cmd)
+        self._command_helper_prefix = launch_cmd
         self._controller_launch_lock = threading.Lock()
         self._controller_launch_thread: Optional[threading.Thread] = None
         self._controller_process: Optional[subprocess.Popen] = None
@@ -1136,16 +1140,57 @@ class _PluginRuntime:
 
     def set_launch_command_preference(self, value: str) -> None:
         normalised = _normalise_launch_command(str(value))
-        LOGGER.info("Launch command change requested (runtime): raw=%r normalised=%s", value, normalised)
+        now = time.monotonic()
+        if normalised != self._last_launch_info_value or now - self._last_launch_info_time >= 1.0:
+            LOGGER.info("Overlay Controller launch command change requested (runtime): raw=%r normalised=%s", value, normalised)
+            self._last_launch_info_value = normalised
+            self._last_launch_info_time = now
         with self._prefs_lock:
             current = getattr(self._preferences, "controller_launch_command", "!ovr")
-            if normalised == current:
-                return
-            self._preferences.controller_launch_command = normalised
-            self._preferences.save()
-            LOGGER.info("Controller launch command changed (runtime): %s -> %s", current, normalised)
-        self._command_helper = build_command_helper(self, LOGGER, command_prefix=normalised)
-        LOGGER.debug("Overlay launch command preference updated to %s", normalised)
+            current_helper_prefix = self._command_helper_prefix or current
+            changed_pref = normalised != current
+            changed_helper = normalised != current_helper_prefix
+            if changed_pref:
+                self._preferences.controller_launch_command = normalised
+                self._preferences.save()
+        if not changed_pref and not changed_helper:
+            if normalised != self._last_launch_log_value or now - self._last_launch_log_time >= 1.0:
+                LOGGER.debug("Launch command unchanged; current=%s (debounced)", current)
+                self._last_launch_log_value = normalised
+                self._last_launch_log_time = now
+            return
+        if changed_pref:
+            now = time.monotonic()
+            if normalised != self._last_launch_info_value or now - self._last_launch_info_time >= 1.0:
+                LOGGER.info("Overlay Controller launch command changed (runtime): %s -> %s", current, normalised)
+                self._last_launch_info_value = normalised
+                self._last_launch_info_time = now
+        else:
+            LOGGER.debug(
+                "Overlay Controller launch command unchanged in prefs; refreshing command helper with prefix=%s",
+                normalised,
+            )
+        self._command_helper = self._build_command_helper(normalised, previous_prefix=current_helper_prefix)
+        self._command_helper_prefix = normalised
+        LOGGER.info("Overlay Controller launch command preference updated to %s", normalised)
+
+    def _build_command_helper(self, prefix: str, previous_prefix: Optional[str] = None) -> Any:
+        legacy: list[str] = []
+        if prefix == "!overlay":
+            legacy = ["!overlay"]
+        elif previous_prefix and previous_prefix != prefix:
+            LOGGER.debug(
+                "Removing legacy Overlay Controller launch prefix %s; active prefix now %s",
+                previous_prefix,
+                prefix,
+            )
+        helper = build_command_helper(self, LOGGER, command_prefix=prefix, legacy_prefixes=legacy)
+        LOGGER.debug(
+            "Overlay Controller journal command helper configured: primary=%s legacy=%s",
+            prefix,
+            ", ".join(legacy) if legacy else "<none>",
+        )
+        return helper
 
     def set_debug_overlay_corner_preference(self, value: str) -> None:
         corner = (value or "NW").upper()
@@ -2461,6 +2506,8 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         cycle_next_callback = _plugin.cycle_payload_next if _plugin else None
         restart_overlay_callback = _plugin.restart_overlay_client if _plugin else None
         launch_command_callback = _plugin.set_launch_command_preference if _plugin else None
+        if launch_command_callback:
+            LOGGER.debug("Attaching launch command callback with initial value=%s", _preferences.controller_launch_command)
         panel = PreferencesPanel(
             parent,
             _preferences,

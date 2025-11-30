@@ -9,8 +9,8 @@
   "allow_force_render_release": false,
   "force_xwayland": false,
   "show_debug_overlay": false,
-  "min_font_point": 5.0,
-  "max_font_point": 13.0,
+  "min_font_point": 6.0,
+  "max_font_point": 14.0,
   "status_bottom_margin": 50,
   "title_bar_enabled": false,
   "title_bar_height": 20,
@@ -21,5 +21,6 @@
   "payload_nudge_gutter": 10,
   "status_message_gutter": 30,
   "log_payloads": true,
-  "payload_log_delay_seconds": 0.5
+  "payload_log_delay_seconds": 0.5,
+  "controller_launch_command": "!ovr"
 }

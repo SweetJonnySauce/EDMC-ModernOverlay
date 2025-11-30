@@ -32,16 +32,27 @@ class _OverlayCommandContext:
     launch_controller: Optional[Callable[[], None]] = None
 
 
+def _normalise_prefix(value: str) -> str:
+    text = (value or "").strip()
+    if not text.startswith("!"):
+        text = "!" + text
+    return text.lower()
+
+
 class JournalCommandHelper:
     """Parse journal ``SendText`` events and dispatch overlay commands."""
 
-    _HELP_TEXT = (
-        "Overlay commands: !overlay (launch controller), !overlay next (cycle forward), "
-        "!overlay prev (cycle backward), !overlay help"
-    )
-
-    def __init__(self, context: _OverlayCommandContext) -> None:
+    def __init__(self, context: _OverlayCommandContext, command_prefix: str, legacy_prefixes: Optional[list[str]] = None) -> None:
         self._ctx = context
+        primary = _normalise_prefix(command_prefix or "!overlay")
+        extras = [p for p in (legacy_prefixes or []) if p]
+        self._prefixes = [primary] + [p for p in (_normalise_prefix(p) for p in extras) if p != primary]
+        _LOGGER.debug("Configured overlay command prefixes: %s", ", ".join(self._prefixes))
+        help_prefix = self._prefixes[0]
+        self._help_text = (
+            f"Overlay commands: {help_prefix} (launch controller), {help_prefix} next (cycle forward), "
+            f"{help_prefix} prev (cycle backward), {help_prefix} help"
+        )
 
     # Public API ---------------------------------------------------------
 
@@ -57,20 +68,16 @@ class JournalCommandHelper:
         if not isinstance(raw_message, str):
             return False
         message = raw_message.strip()
-        if not message.startswith("!"):
-            return False
-        content = message[1:].strip()
-        if not content:
-            return False
-        tokens = content.split()
-        if not tokens:
-            return False
-        root = tokens[0].lower()
-        args = tokens[1:]
-        if root == "overlay":
-            handled = self._handle_overlay_command(args)
+        message_lower = message.lower()
+        for prefix in self._prefixes:
+            if not message_lower.startswith(prefix):
+                continue
+            _LOGGER.debug("Overlay command candidate matched prefix=%s (active prefixes=%s)", prefix, ", ".join(self._prefixes))
+            content = message[len(prefix) :].strip()
+            tokens = content.split() if content else []
+            handled = self._handle_overlay_command(tokens)
             if handled:
-                _LOGGER.debug("Handled in-game overlay command: %s", message)
+                _LOGGER.debug("Handled in-game overlay command (%s): %s", prefix, message)
             return handled
         return False
 
@@ -93,11 +100,11 @@ class JournalCommandHelper:
             self._invoke_cycle(self._ctx.cycle_prev, success_message="Overlay cycle: previous payload.")
             return True
 
-        self._ctx.send_message(f"Unknown overlay command: {action}. Try !overlay help.")
+        _LOGGER.debug("Ignoring unknown overlay command: %s", action)
         return True
 
     def _emit_help(self) -> None:
-        self._ctx.send_message(self._HELP_TEXT)
+        self._ctx.send_message(self._help_text)
 
     def _launch_controller(self) -> bool:
         callback = self._ctx.launch_controller
@@ -131,6 +138,9 @@ class JournalCommandHelper:
 def build_command_helper(
     plugin_runtime: object,
     logger: Optional[logging.Logger] = None,
+    *,
+    command_prefix: str = "!overlay",
+    legacy_prefixes: Optional[list[str]] = None,
 ) -> JournalCommandHelper:
     """Construct a :class:`JournalCommandHelper` for the active plugin runtime."""
 
@@ -148,4 +158,7 @@ def build_command_helper(
         cycle_prev=getattr(plugin_runtime, "cycle_payload_prev", None),
         launch_controller=getattr(plugin_runtime, "launch_overlay_controller", None),
     )
-    return JournalCommandHelper(context)
+    legacy = legacy_prefixes if legacy_prefixes is not None else ["!overlay"]
+    if command_prefix in legacy:
+        legacy = [p for p in legacy if p != command_prefix]
+    return JournalCommandHelper(context, command_prefix, legacy_prefixes=legacy)
