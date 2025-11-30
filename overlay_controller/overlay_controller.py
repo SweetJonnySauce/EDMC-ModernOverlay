@@ -13,12 +13,15 @@ import subprocess
 import sys
 import time
 import traceback
+import logging
 from math import ceil
 from dataclasses import dataclass
 from pathlib import Path
 from tkinter import ttk
 from typing import Any, Dict, Optional, Tuple
 
+from overlay_client.debug_config import DEBUG_CONFIG_ENABLED
+from overlay_client.logging_utils import build_rotating_file_handler, resolve_log_level, resolve_logs_dir
 from input_bindings import BindingConfig, BindingManager
 from selection_overlay import SelectionOverlay
 
@@ -3448,6 +3451,77 @@ class OverlayConfigApp(tk.Tk):
             pass
 
 
+def _log_startup_failure(root_path: Path, exc: BaseException) -> None:
+    """Write controller startup failures to a log file (best effort)."""
+    _append_controller_log(
+        root_path,
+        [
+            "Failed to start overlay controller:",
+            *traceback.format_exception(type(exc), exc, exc.__traceback__),
+        ],
+        announce=True,
+    )
+
+
+def _log_startup_event(root_path: Path, message: str) -> None:
+    """Write a simple startup confirmation to the controller log."""
+    _append_controller_log(root_path, [message], announce=True)
+
+
+def _append_controller_log(root_path: Path, lines: list[str], *, announce: bool = False) -> None:
+    # Align controller logs with overlay_client/overlay_payloads location (…/EDMarketConnector/logs/EDMCModernOverlay)
+    logger = _ensure_controller_logger(root_path)
+    wrote = False
+    if logger is not None:
+        for line in lines:
+            logger.info(line.rstrip("\n"))
+        wrote = True
+    else:
+        try:
+            for line in lines:
+                sys.stderr.write(line if line.endswith("\n") else line + "\n")
+        except Exception:
+            pass
+    if announce:
+        try:
+            log_path = _resolve_controller_log_path(root_path)
+            sys.stderr.write(
+                f"[overlay-controller] log {'written' if wrote else 'failed'} at {log_path}\n"
+            )
+        except Exception:
+            pass
+
+
+def _resolve_controller_log_path(root_path: Path) -> Path:
+    log_dir = resolve_logs_dir(root_path, log_dir_name="EDMCModernOverlay")
+    return log_dir / "overlay_controller.log"
+
+
+def _ensure_controller_logger(root_path: Path) -> Optional[logging.Logger]:
+    global _CONTROLLER_LOGGER
+    if _CONTROLLER_LOGGER is not None:
+        return _CONTROLLER_LOGGER
+    try:
+        log_dir = resolve_logs_dir(root_path, log_dir_name="EDMCModernOverlay")
+        formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
+        handler = build_rotating_file_handler(
+            log_dir,
+            "overlay_controller.log",
+            retention=5,
+            max_bytes=512 * 1024,
+            formatter=formatter,
+        )
+        logger = logging.getLogger("EDMCModernOverlay.Controller")
+        logger.setLevel(resolve_log_level(DEBUG_CONFIG_ENABLED))
+        logger.propagate = False
+        logger.handlers.clear()
+        logger.addHandler(handler)
+        _CONTROLLER_LOGGER = logger
+        return logger
+    except Exception:
+        return None
+
+
 def launch() -> None:
     """Entry point used by other modules."""
 
@@ -3460,9 +3534,15 @@ def launch() -> None:
     else:
         atexit.register(lambda: pid_path.unlink(missing_ok=True))
 
-    app = OverlayConfigApp()
-    app.mainloop()
+    try:
+        app = OverlayConfigApp()
+        _log_startup_event(root_path, "Overlay controller started")
+        app.mainloop()
+    except Exception as exc:
+        _log_startup_failure(root_path, exc)
+        raise
 
 
 if __name__ == "__main__":
     launch()
+_CONTROLLER_LOGGER: Optional[logging.Logger] = None
