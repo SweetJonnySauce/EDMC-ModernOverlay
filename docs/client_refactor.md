@@ -213,20 +213,26 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 
   | Stage | Description | Status |
   | --- | --- | --- |
-  | 22 | Revisit logger propagation (allow propagation or add a configurable hook) to let client logs flow to application handlers without breaking release logging behavior. | Planned |
+  | 22 | Revisit logger propagation (allow propagation or add a configurable hook) to let client logs flow to application handlers without breaking release logging behavior. | Complete |
 
   | Substage | Description | Status |
   | --- | --- | --- |
-  | 22.1 | Map current logger setup (handlers/filters/propagate flag), consumers of `_CLIENT_LOGGER`, and release/debug behavior; identify risks of enabling propagation and options for opt-in hooks. | Planned |
-  | 22.2 | Implement propagation strategy (configurable flag or handler hook) with safe defaults preserving release logging; ensure tests/logging utilities adapt. | Planned |
-  | 22.3 | Add tests verifying propagation behavior in both default and opted-in modes (headless where possible); ensure filters/levels remain correct. | Planned |
-  | 22.4 | Run full suite (ruff/mypy/pytest, PYQT_TESTS, resolution) and document outcomes. | Planned |
+  | 22.1 | Map current logger setup (handlers/filters/propagate flag), consumers of `_CLIENT_LOGGER`, and release/debug behavior; identify risks of enabling propagation and options for opt-in hooks. | Complete (mapping only; no code/tests) |
+  | 22.2 | Implement propagation strategy (configurable flag or handler hook) with safe defaults preserving release logging; ensure tests/logging utilities adapt. | Complete (env flag hook; tests pending) |
+  | 22.3 | Add tests verifying propagation behavior in both default and opted-in modes (headless where possible); ensure filters/levels remain correct. | Complete |
+  | 22.4 | Run full suite (ruff/mypy/pytest, PYQT_TESTS, resolution) and document outcomes. | Complete |
 
 - **K.** Resolution test (`tests/run_resolution_tests.py`) is currently skipped; leaves a known gap in integration validation.
 
   | Stage | Description | Status |
   | --- | --- | --- |
-  | 23 | Rerun resolution test with overlay running and log results to restore full validation cadence. | Planned |
+  | 23 | Rerun resolution test with overlay running and log results to restore full validation cadence. | Complete |
+
+  | Substage | Description | Status |
+  | --- | --- | --- |
+  | 23.1 | Confirm resolution test prerequisites (overlay running, payload logging enabled, venv setup) and document current skip/retry behavior and gaps. | Complete (mapping only; no code/tests) |
+  | 23.2 | Execute resolution tests in a clean run with overlay running; capture logs/results and note any skips (e.g., empty-text payloads). | Complete |
+  | 23.3 | If failures occur, triage and document issues or fixes; otherwise record green run details for traceability. | Complete |
 
 ----
 # Stage Summary and Test results
@@ -393,6 +399,59 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 - `source overlay_client/.venv/bin/activate && make test` → passed.
 - `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
 - `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (expected empty-text payloads skipped during replay; overlay running).
+
+### Stage 22.1 quick summary (mapping)
+- Current logger setup: `_CLIENT_LOGGER` (`EDMC.ModernOverlay.Client`) with level DEBUG in debug mode else INFO; `propagate = False`; `_ReleaseLogLevelFilter` promotes DEBUG→INFO in release mode. Default handlers come from root logging; tests often attach `NullHandler` or capture `DEBUG` on bespoke loggers.
+- Consumers: `_CLIENT_LOGGER` passed into platform controller, group coordinator, follow controller, interaction controller, status presenter/offscreen logger, and developer helpers. Tests for data client use dedicated loggers, not `_CLIENT_LOGGER` propagation. Root-level handlers are not configured in this module; suppression via `propagate=False` keeps logs local unless handlers attached directly.
+- Risks toggling propagate: double-logging if upstream handlers present; release-mode filter may conflict with upstream level/filters; CLI environments may attach stderr handlers leading to noisy output if DEBUG allowed. Need opt-in or configurable hook rather than unconditional propagation.
+- Options: configurable propagation flag via settings/env, or attaching an opt-in handler for external observers; maintain `_ReleaseLogLevelFilter` behavior and safe defaults (propagate False). Tests should verify default isolation and opt-in propagation without duplicate records.
+
+### Stage 22.2 quick summary (status)
+- Added opt-in propagation hook: `EDMC_OVERLAY_PROPAGATE_LOGS` env var (true/1/yes/on) enables `_CLIENT_LOGGER.propagate`; default remains `False`. Release filter and levels unchanged; behavior defaults preserved.
+- No dedicated tests yet (planned for 22.3); full suite rerun to ensure no regressions.
+
+#### Stage 22.2 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (expected empty-text payloads skipped during replay; overlay running).
+
+### Stage 22.3 quick summary (status)
+- Added propagation behavior tests (`test_logging_propagation.py`) verifying defaults keep `propagate` disabled and `EDMC_OVERLAY_PROPAGATE_LOGS` enables it on import; tests reset logger/env between runs to avoid leaking state.
+- No production changes beyond the existing env hook; behavior remains opt-in.
+- Full suite rerun (lint/typecheck/pytest, PYQT_TESTS subset, resolution) and passing.
+
+#### Stage 22.3 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (expected empty-text payloads skipped during replay; overlay running).
+
+### Stage 22.4 quick summary (status)
+- Stage close-out: propagation env hook and tests validated via full suite (ruff/mypy/pytest), PYQT_TESTS subset, and resolution replay; no further code changes.
+- Default behavior remains non-propagating; opt-in verified through tests; release filter intact.
+
+#### Stage 22.4 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (expected empty-text payloads skipped during replay; overlay running).
+
+### Stage 23.1 quick summary (mapping)
+- Prereqs: overlay process running; payload logging enabled so broadcaster port resolves; use `overlay_client/.venv` with PyQt6; run `python tests/run_resolution_tests.py --config tests/display_all.json` after activating venv. Expect skips for empty-text legacy payloads (logged during replay) but run should complete.
+- Current behavior: prior runs (Stages 21/22) completed successfully with expected empty-text skips; no known blockers. Resolution test depends on overlay broadcaster at 127.0.0.1:41145, derived from overlay payload logging file; retries built into the script.
+- Gaps: none identified; ensure overlay running and payload logs present before Stage 23.2 execution.
+
+### Stage 23.2 quick summary (status)
+- Ran resolution tests with overlay running and payload logging enabled; all payload batches replayed successfully. Expected skips occurred for empty-text legacy payloads; no errors observed.
+- No code changes; confirms integration pipeline still green with current overlay build.
+
+#### Stage 23.2 test log (latest)
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (expected empty-text payloads skipped; overlay running).
+
+### Stage 23.3 quick summary (status)
+- Resolution validation closed: latest run green with only expected empty-text legacy payload skips; no triage required.
+- Stage 23 complete; resolution test cadence restored with documented results.
 
 ### Stage 1 quick summary (intent)
 - Goal: move `OverlayDataClient` into `overlay_client/data_client.py` with no behavior change.

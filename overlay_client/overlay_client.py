@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import sys
 import time
 from pathlib import Path
@@ -119,6 +120,9 @@ _LOGGER_NAME = "EDMC.ModernOverlay.Client"
 _CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
 _CLIENT_LOGGER.setLevel(logging.DEBUG if DEBUG_CONFIG_ENABLED else logging.INFO)
 _CLIENT_LOGGER.propagate = False
+# Opt-in propagation flag for environments/tests that want client logs upstream.
+if os.environ.get("EDMC_OVERLAY_PROPAGATE_LOGS", "").lower() in {"1", "true", "yes", "on"}:
+    _CLIENT_LOGGER.propagate = True
 
 
 class _ReleaseLogLevelFilter(logging.Filter):

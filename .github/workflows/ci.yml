@@ -30,5 +30,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements/dev.txt
 
+      - name: Check EDMC Python baseline
+        run: python scripts/check_edmc_python.py
+        env:
+          ALLOW_EDMC_PYTHON_MISMATCH: "1"
+
       - name: Run checks
         run: make check

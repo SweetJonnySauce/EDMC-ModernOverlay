@@ -17,6 +17,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
+try:
+    from monitor import game_running as _edmc_game_running, is_live_galaxy as _edmc_is_live_galaxy  # type: ignore
+except Exception:  # pragma: no cover - running outside EDMC
+    _edmc_game_running = None  # type: ignore
+    _edmc_is_live_galaxy = None  # type: ignore
+
 if __package__:
     from .version import (
         __version__ as MODERN_OVERLAY_VERSION,
@@ -107,6 +113,24 @@ def _load_edmc_config_module() -> Optional[Any]:
         return importlib.import_module("config")
     except Exception:
         return None
+
+
+def _game_running() -> bool:
+    if _edmc_game_running is None:
+        return True
+    try:
+        return bool(_edmc_game_running())
+    except Exception:
+        return True
+
+
+def _is_live_galaxy() -> bool:
+    if _edmc_is_live_galaxy is None:
+        return True
+    try:
+        return bool(_edmc_is_live_galaxy())
+    except Exception:
+        return True
 
 
 def _resolve_edmc_logger() -> Tuple[Optional[logging.Logger], Optional[Callable[[str], None]]]:
@@ -438,8 +462,15 @@ class _PluginRuntime:
     def handle_journal(self, cmdr: str, system: str, station: str, entry: Dict[str, Any]) -> None:
         if not self._running:
             return
+        # Respect EDMC helpers (PLUGINS.md:113) instead of relying solely on journal-derived state.
+        if not _game_running():
+            return
         event = entry.get("event")
         if not event:
+            return
+        if not _is_live_galaxy():
+            with self._lock:
+                self._state.update({"system": "", "station": "", "docked": False})
             return
         try:
             self._command_helper.handle_entry(entry)
