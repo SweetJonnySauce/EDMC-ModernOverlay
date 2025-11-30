@@ -95,6 +95,7 @@ from overlay_client.transform_helpers import (  # type: ignore  # noqa: E402
     compute_rect_transform as util_compute_rect_transform,
     compute_vector_transform as util_compute_vector_transform,
 )
+from overlay_client.status_presenter import StatusPresenter  # type: ignore  # noqa: E402
 from overlay_client.window_controller import WindowController  # type: ignore  # noqa: E402
 from overlay_client.window_flags_helper import WindowFlagsHelper  # type: ignore  # noqa: E402
 from overlay_client.visibility_helper import VisibilityHelper  # type: ignore  # noqa: E402
@@ -328,6 +329,16 @@ class OverlayWindow(QWidget):
             transparent_input_supported=self._transparent_input_supported,
             set_window_transparent_input_fn=lambda transparent: self.windowHandle().setFlag(Qt.WindowType.WindowTransparentForInput, transparent) if self.windowHandle() else None,
         )
+        self._status_presenter = StatusPresenter(
+            send_payload_fn=self.handle_legacy_payload,
+            platform_label_fn=lambda: self._platform_controller.platform_label(),
+            base_height=DEFAULT_WINDOW_BASE_HEIGHT,
+            log_fn=_CLIENT_LOGGER.debug,
+        )
+        self._status_presenter.set_status_bottom_margin(
+            self._coerce_non_negative(getattr(initial, "status_bottom_margin", 20), default=20),
+            coerce_fn=lambda value, default: self._coerce_non_negative(value, default=default),
+        )
         self._title_bar_enabled: bool = bool(getattr(initial, "title_bar_enabled", False))
         self._title_bar_height: int = self._coerce_non_negative(getattr(initial, "title_bar_height", 0), default=0)
         self._last_title_bar_offset: int = 0
@@ -429,7 +440,6 @@ class OverlayWindow(QWidget):
         self._debug_status_point_size = message_font.pointSizeF()
         self._debug_legacy_point_size = 0.0
         self._show_debug_overlay = bool(getattr(initial, "show_debug_overlay", False))
-        self._status_bottom_margin = self._coerce_non_negative(getattr(initial, "status_bottom_margin", 20), default=20)
         self._debug_overlay_corner: str = self._normalise_debug_corner(getattr(initial, "debug_overlay_corner", "NW"))
         self._font_scale_diag = 1.0
         min_font = getattr(initial, "min_font_point", 6.0)
@@ -1137,7 +1147,11 @@ class OverlayWindow(QWidget):
             self._window_flags_helper.handle_force_render_enter()
             self._update_follow_visibility(True)
             if sys.platform.startswith("linux"):
-                self._window_flags_helper.restore_drag_interactivity(True, False, self.format_scale_debug)
+                self._window_flags_helper.restore_drag_interactivity(
+                    self._drag_enabled,
+                    self._drag_active,
+                    self.format_scale_debug,
+                )
             if self._last_follow_state:
                 self._apply_follow_state(self._last_follow_state)
         else:
@@ -1482,10 +1496,9 @@ class OverlayWindow(QWidget):
         self.message_label.clear()
 
     def set_status_text(self, status: str) -> None:
-        self._status_raw = status
-        self._status = self._format_status_message(status)
-        if self._show_status:
-            self._show_overlay_status_message(self._status)
+        self._status_presenter.set_status_text(status)
+        self._status_raw = self._status_presenter.status_raw
+        self._status = self._status_presenter.status
 
     def _format_status_message(self, status: str) -> str:
         message = status or ""
@@ -1498,23 +1511,15 @@ class OverlayWindow(QWidget):
         return f"{message}{suffix}"
 
     def set_show_status(self, show: bool) -> None:
-        flag = bool(show)
-        if flag == self._show_status:
-            return
-        self._show_status = flag
-        if flag:
-            self._show_overlay_status_message(self._status)
-        else:
-            self._dismiss_overlay_status_message()
+        self._status_presenter.set_show_status(show)
+        self._show_status = self._status_presenter.show_status
 
     def set_status_bottom_margin(self, margin: Optional[int]) -> None:
-        value = self._coerce_non_negative(margin, default=self._status_bottom_margin)
-        if value == self._status_bottom_margin:
-            return
-        self._status_bottom_margin = value
-        _CLIENT_LOGGER.debug("Status bottom margin updated to %spx", self._status_bottom_margin)
-        if self._show_status and self._status:
-            self._show_overlay_status_message(self._status)
+        self._status_presenter.set_status_bottom_margin(
+            margin if margin is not None else self._status_presenter.status_bottom_margin,
+            coerce_fn=lambda value, default: self._coerce_non_negative(value, default=default),
+        )
+        self._status_bottom_margin = self._status_presenter.status_bottom_margin
 
     def set_debug_overlay_corner(self, corner: Optional[str]) -> None:
         normalised = self._normalise_debug_corner(corner)

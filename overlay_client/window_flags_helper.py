@@ -86,4 +86,3 @@ class WindowFlagsHelper:
             self._clear_transient_parent_ids()
         if sys.platform.startswith("linux"):
             self._apply_click_through(True)
-            self.restore_drag_interactivity(True, False, lambda: "")
