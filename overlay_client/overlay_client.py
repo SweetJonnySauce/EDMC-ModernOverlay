@@ -76,6 +76,7 @@ from overlay_client.paint_commands import (  # type: ignore  # noqa: E402
     _RectPaintCommand,
     _VectorPaintCommand,
 )
+from overlay_client.offscreen_logger import log_offscreen_payload  # type: ignore  # noqa: E402
 from overlay_client.anchor_helpers import CommandContext, compute_justification_offsets, build_baseline_bounds  # type: ignore  # noqa: E402
 from overlay_client.payload_builders import build_group_context  # type: ignore  # noqa: E402
 from overlay_client.debug_cycle_overlay import CycleOverlayView, DebugOverlayView  # type: ignore  # noqa: E402
@@ -94,7 +95,7 @@ from overlay_client.transform_helpers import (  # type: ignore  # noqa: E402
 )
 from overlay_client.status_presenter import StatusPresenter  # type: ignore  # noqa: E402
 from overlay_client.window_controller import WindowController  # type: ignore  # noqa: E402
-from overlay_client.window_flags_helper import WindowFlagsHelper  # type: ignore  # noqa: E402
+from overlay_client.interaction_controller import InteractionController  # type: ignore  # noqa: E402
 from overlay_client.visibility_helper import VisibilityHelper  # type: ignore  # noqa: E402
 from overlay_client.window_utils import (  # type: ignore  # noqa: E402
     aspect_ratio_label as util_aspect_ratio_label,
@@ -310,7 +311,7 @@ class OverlayWindow(QWidget):
         )
         self._window_controller = WindowController(log_fn=_CLIENT_LOGGER.debug)
         self._visibility_helper = VisibilityHelper(log_fn=_CLIENT_LOGGER.debug)
-        self._window_flags_helper = WindowFlagsHelper(
+        self._interaction_controller = InteractionController(
             is_wayland_fn=self._is_wayland,
             log_fn=_CLIENT_LOGGER.debug,
             prepare_window_fn=lambda window: self._platform_controller.prepare_window(window),
@@ -1141,10 +1142,10 @@ class OverlayWindow(QWidget):
             return
         self._force_render = flag
         if flag:
-            self._window_flags_helper.handle_force_render_enter()
+            self._interaction_controller.handle_force_render_enter()
             self._update_follow_visibility(True)
             if sys.platform.startswith("linux"):
-                self._window_flags_helper.restore_drag_interactivity(
+                self._interaction_controller.restore_drag_interactivity(
                     self._drag_enabled,
                     self._drag_active,
                     self.format_scale_debug,
@@ -1708,6 +1709,7 @@ class OverlayWindow(QWidget):
         self._platform_controller.update_context(new_context)
         self._platform_controller.prepare_window(self.windowHandle())
         self._platform_controller.apply_click_through(True)
+        self._interaction_controller.reapply_current(reason="platform_context_update")
         self._restore_drag_interactivity()
         _CLIENT_LOGGER.debug(
             "Platform context updated: session=%s compositor=%s force_xwayland=%s flatpak=%s",
@@ -1732,7 +1734,7 @@ class OverlayWindow(QWidget):
             bool(window),
             hex(int(window.flags())) if window is not None else "none",
         )
-        self._window_flags_helper.set_click_through(not self._drag_enabled)
+        self._interaction_controller.set_click_through(not self._drag_enabled, force=True, reason="apply_drag_state")
         if not self._drag_enabled:
             self._move_mode = False
             self._drag_active = False
@@ -1761,10 +1763,10 @@ class OverlayWindow(QWidget):
                 self._cursor_saved = False
 
     def _set_click_through(self, transparent: bool) -> None:
-        self._window_flags_helper.set_click_through(transparent)
+        self._interaction_controller.set_click_through(transparent, force=True, reason="external_set_click_through")
 
     def _restore_drag_interactivity(self) -> None:
-        self._window_flags_helper.restore_drag_interactivity(self._drag_enabled, self._drag_active, self.format_scale_debug)
+        self._interaction_controller.restore_drag_interactivity(self._drag_enabled, self._drag_active, self.format_scale_debug)
 
     def _set_children_click_through(self, transparent: bool) -> None:
         for child_name in ("message_label",):
@@ -2653,7 +2655,15 @@ class OverlayWindow(QWidget):
             justification_dx = getattr(command, "justification_dx", 0.0)
             payload_offset_x = translation_x + justification_dx + nudge_x
             payload_offset_y = translation_y + nudge_y
-            self._log_offscreen_payload(command, payload_offset_x, payload_offset_y, window_width, window_height)
+            log_offscreen_payload(
+                command=command,
+                offset_x=payload_offset_x,
+                offset_y=payload_offset_y,
+                window_width=window_width,
+                window_height=window_height,
+                offscreen_payloads=self._offscreen_payloads,
+                log_fn=_CLIENT_LOGGER.warning,
+            )
             command.paint(self, painter, payload_offset_x, payload_offset_y)
             if draw_vertex_markers and command.bounds:
                 left, top, right, bottom = command.bounds
@@ -3764,49 +3774,6 @@ class OverlayWindow(QWidget):
             bounds.translate(dx_px / base_scale, dy_px / base_scale)
         return overlay_bounds_by_group
 
-
-    def _log_offscreen_payload(
-        self,
-        command: _LegacyPaintCommand,
-        offset_x: float,
-        offset_y: float,
-        window_width: int,
-        window_height: int,
-    ) -> None:
-        bounds = command.bounds
-        payload_id = command.legacy_item.item_id or ""
-        if not bounds or not payload_id:
-            if payload_id:
-                self._offscreen_payloads.discard(payload_id)
-            return
-        left = float(bounds[0]) + float(offset_x)
-        top = float(bounds[1]) + float(offset_y)
-        right = float(bounds[2]) + float(offset_x)
-        bottom = float(bounds[3]) + float(offset_y)
-        offscreen = (
-            right < 0.0
-            or bottom < 0.0
-            or left >= float(window_width)
-            or top >= float(window_height)
-        )
-        if offscreen:
-            if payload_id not in self._offscreen_payloads:
-                plugin_name = command.legacy_item.plugin or "unknown"
-                self._offscreen_payloads.add(payload_id)
-                _CLIENT_LOGGER.warning(
-                    "Payload '%s' from plugin '%s' rendered completely outside the overlay window "
-                    "(bounds=(%.1f, %.1f)-(%.1f, %.1f), window=%dx%d)",
-                    payload_id,
-                    plugin_name,
-                    left,
-                    top,
-                    right,
-                    bottom,
-                    window_width,
-                    window_height,
-                )
-        else:
-            self._offscreen_payloads.discard(payload_id)
 
     def _paint_debug_overlay(self, painter: QPainter) -> None:
         self._debug_overlay_view.paint_debug_overlay(
