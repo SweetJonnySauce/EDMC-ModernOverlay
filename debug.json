@@ -1,13 +1,17 @@
 {
   "capture_client_stderrout": true,
   "group_bounds_outline": true,
+  "log_repaint_debounce": false,
   "overlay_logs_to_keep": 5,
   "overlay_outline": true,
-  "payload_vertex_markers": false,
+  "payload_ids": [],
   "payload_logging": {
     "exclude_plugins": [],
     "overlay_payload_log_enabled": false
   },
+  "payload_vertex_markers": false,
+  "repaint_debounce_enabled": true,
+  "trace_enabled": false,
   "tracing": {
     "enabled": false,
     "payload_ids": [
