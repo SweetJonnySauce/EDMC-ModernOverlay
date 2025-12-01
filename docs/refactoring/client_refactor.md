@@ -239,8 +239,8 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 
   | Stage | Description | Status |
   | --- | --- | --- |
-  | 24 | Define a target split for `OverlayWindow` (e.g., thin orchestration shell + injected render/follow/payload/debug surfaces) with clear interfaces and ownership, based on current code reality. | Planned |
-  | 24.1 | Render/payload pipeline + debug surface (overlay_client/overlay_client.py:2474-4059, ~1,600 lines): legacy payload handling, render passes, command building (`_build_*_command`), justification/anchor translation, group cache/logging, debug overlays, text measurement cache; target dedicated render surface with injected builder/renderer/debug hooks. | Planned |
+  | 24 | Define a target split for `OverlayWindow` (e.g., thin orchestration shell + injected render/follow/payload/debug surfaces) with clear interfaces and ownership, based on current code reality. | In progress |
+  | 24.1 | Render/payload pipeline + debug surface (overlay_client/overlay_client.py:2474-4059, ~1,600 lines): legacy payload handling, render passes, command building (`_build_*_command`), justification/anchor translation, group cache/logging, debug overlays, text measurement cache; target dedicated render surface with injected builder/renderer/debug hooks. | Complete |
   | 24.2 | Follow/window orchestration + platform hooks (overlay_client/overlay_client.py:1881-2473, ~600 lines): drag/click-through toggles, tracker polling, normalization, geometry application, visibility/transient parent/fullscreen handling; move to controller layer with Qt calls at boundary. | Planned |
   | 24.3 | External control/API surface (overlay_client/overlay_client.py:1112-1880, ~770 lines): `set_*`/status methods, cycle overlay helpers, repaint scheduling/metrics, config toggles; extract to control/adaptor feeding orchestrator. | Planned |
   | 24.4 | Interaction/event overrides (overlay_client/overlay_client.py:1011-1111, ~100 lines): mouse/resize/move events and grid caching; relocate to interaction surface with injected callbacks. | Planned |
@@ -440,7 +440,18 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 - Goal: drive further decomposition of the 4k-line `OverlayWindow` into a thin orchestrator with injected render/follow/payload/debug surfaces and clearer ownership boundaries.
 - Scope: map current surface area, define seams, and move non-Qt logic/state out while keeping Qt calls at the boundary; preserve behavior/logging.
 - Tests to run when wiring starts: `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`, and `python tests/run_resolution_tests.py --config tests/display_all.json`.
-- Status: Planned (inventory pending).
+- Status: In progress (24.1 complete; follow-on extractions pending).
+
+### Stage 24.1 quick summary (status)
+- Extracted render/payload/debug surface into `overlay_client/render_surface.py` as `RenderSurfaceMixin`; `OverlayWindow` now inherits it to keep Qt shell thin while moving legacy payload handling, command building, justification, caching, and debug helpers out of the monolith.
+- Moved bounds/debug/text dataclasses to the mixin module and added `_line_width_defaults` plumbing for the shared helper; `_update_auto_legacy_scale` now pulls `legacy_scale_components` via module lookup to keep monkeypatchable behavior.
+- Kept Qt painter/instance wiring at the boundary; core logic and logging now live in the mixin to maximize separation per Stage 24 aggressiveness instruction.
+- Added headless render-surface tests covering line-width defaults, module-scale fallback in `_update_auto_legacy_scale`, and injected text measurer/cache context reset.
+
+#### Stage 24.1 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed (ruff/mypy/pytest; includes new render surface tests).
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → failed earlier (overlay client not running; rerun when overlay process is active).
 
 ### Stage 25 quick summary (intent)
 - Goal: centralize duplicated helpers (`_ReleaseLogLevelFilter`, `_clamp_axis`) into shared utilities to enforce DRY and consistent behavior.
