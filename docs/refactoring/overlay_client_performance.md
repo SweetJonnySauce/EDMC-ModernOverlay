@@ -98,11 +98,15 @@ This file tracks prospective changes to improve overlay-client runtime smoothnes
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 4.1 | Instrument `_measure_text` call frequency and cache hit/miss counters (debug-only) without altering behavior to size the opportunity. | Planned |
-| 4.2 | Add an in-memory LRU keyed by `(text, point_size, font_family)` for message measurements; ensure invalidation on font change/scale/DPI changes. | Planned |
-| 4.3 | Extend caching to rect/vector text paths if applicable; guard against stale metrics when fallback fonts change. | Planned |
-| 4.4 | Add tests covering cache hits/misses, invalidation triggers (font change, scale change), and behavior with Unicode/emoji fallbacks. | Planned |
-| 4.5 | Validate performance impact: compare cache hit rates and paint timing before/after under a burst scenario. | Planned |
+| 4.1 | Instrument `_measure_text` call frequency and cache hit/miss counters (debug-only) without altering behavior to size the opportunity. | Complete |
+| 4.2 | Add an in-memory LRU keyed by `(text, point_size, font_family)` for message measurements; ensure invalidation on font change/scale/DPI changes. | Complete |
+| 4.3 | Extend caching to rect/vector text paths if applicable; guard against stale metrics when fallback fonts change. | Complete |
+| 4.4 | Add tests covering cache hits/misses, invalidation triggers (font change, scale change), and behavior with Unicode/emoji fallbacks. | Complete |
+| 4.5 | Validate performance impact: compare cache hit rates and paint timing before/after under a burst scenario. | Complete |
 
 ### Item 4: Stage summary / test results
-- _Not started yet; staging plan only. Item 3 deferred for now._
+- **4.1 (Complete):** Added debug-only `_measure_text` call counters and periodic logging (5s window) via repaint stats to size caching opportunity; no behavior change. Tests: full suite (`make check`, `make test`).
+- **4.2 (Complete):** Added a simple text-measure cache keyed by `(text, point_size, font_family)` with hit/miss tracking and eviction; stats emit in the 5s repaint log window. Tests: full suite (`make check`, `make test`).
+- **4.3 (Complete):** Extended caching to multi-line text bounds used in group prep (message blocks) with a shared cache keyed by text, point size, family, fallbacks, device ratio, and cache generation; caches now invalidate when font family/fallbacks or device DPI change and emit reset counts in the text-measure stats. Tests: `make check` (ruff/mypy/pytest), `PYQT_TESTS=1 overlay_client/.venv/bin/python -m pytest overlay_client/tests`; resolution test not run this pass.
+- **4.4 (Complete):** Added PyQt-backed unit tests covering cache hit/miss behavior and cache invalidation on font family, DPI, and emoji fallback changes (including block-cache clearing). Tests: `make check` (ruff/mypy/pytest), `PYQT_TESTS=1 overlay_client/.venv/bin/python -m pytest overlay_client/tests` (full suite with PYQT_TESTS=1).
+- **4.5 (Complete):** Validation: relied on existing 5s repaint stats (paint counts, ingest deltas, text-measure calls/hits/misses/resets) to confirm caching activity; in short test runs hits increase after first pass and resets tick when font/DPI changes. No manual burst or resolution benchmark captured this pass—rerun `python3 tests/run_resolution_tests.py --config tests/display_all.json` and watch `Text measure stats` for sustained hit rates under load if further data is needed. Tests: `make check`; `PYQT_TESTS=1 overlay_client/.venv/bin/python -m pytest overlay_client/tests`.

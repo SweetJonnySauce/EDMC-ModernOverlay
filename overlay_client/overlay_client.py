@@ -257,6 +257,8 @@ class OverlayWindow(QWidget):
 
     _WM_OVERRIDE_TTL = 1.25  # seconds
     _REPAINT_DEBOUNCE_MS = 33  # coalesce ingest/purge repaint storms
+    _TEXT_CACHE_MAX = 512
+    _TEXT_BLOCK_CACHE_MAX = 256
 
     def __init__(self, initial: InitialClientSettings, debug_config: DebugConfig) -> None:
         super().__init__()
@@ -389,6 +391,11 @@ class OverlayWindow(QWidget):
             self._paint_log_timer.start()
         self._paint_stats = {"paint_count": 0}
         self._paint_log_state = {"last_ingest": 0, "last_purge": 0, "last_total": 0}
+        self._measure_stats = {"calls": 0}
+        self._text_cache: Dict[Tuple[str, float, str], Tuple[int, int, int]] = {}
+        self._text_block_cache: Dict[Tuple[str, float, str, Tuple[str, ...], float, int], Tuple[int, int]] = {}
+        self._text_cache_generation = 0
+        self._text_cache_context: Optional[Tuple[str, Tuple[str, ...], float]] = None
         _CLIENT_LOGGER.debug(
             "Debug config loaded: dev_mode_enabled=%s group_bounds_outline=%s overlay_outline=%s payload_vertex_markers=%s (DEBUG_CONFIG_ENABLED=%s)",
             self._dev_mode_enabled,
@@ -1721,6 +1728,19 @@ class OverlayWindow(QWidget):
             purge_total,
             total_total,
         )
+        measure_stats = getattr(self, "_measure_stats", {})
+        if isinstance(measure_stats, dict) and measure_stats.get("calls"):
+            _CLIENT_LOGGER.debug(
+                "Text measure stats: calls=%d hits=%d misses=%d resets=%d (window=5s)",
+                measure_stats.get("calls", 0),
+                measure_stats.get("cache_hit", 0),
+                measure_stats.get("cache_miss", 0),
+                measure_stats.get("cache_reset", 0),
+            )
+            measure_stats["calls"] = 0
+            measure_stats["cache_hit"] = 0
+            measure_stats["cache_miss"] = 0
+            measure_stats["cache_reset"] = 0
 
     def set_background_opacity(self, opacity: float) -> None:
         try:
@@ -3180,16 +3200,65 @@ class OverlayWindow(QWidget):
             self._font_max_point,
         )
 
+    def _invalidate_text_cache(self, reason: Optional[str] = None) -> None:
+        cache = getattr(self, "_text_cache", None)
+        block_cache = getattr(self, "_text_block_cache", None)
+        if isinstance(cache, dict):
+            cache.clear()
+        if isinstance(block_cache, dict):
+            block_cache.clear()
+        self._text_cache_generation += 1
+        if isinstance(self._measure_stats, dict):
+            self._measure_stats["cache_reset"] = self._measure_stats.get("cache_reset", 0) + 1
+        if reason and self._dev_mode_enabled:
+            _CLIENT_LOGGER.debug("Text cache invalidated (%s)", reason)
+
+    def _ensure_text_cache_context(self, family: str) -> None:
+        fallback_tuple: Tuple[str, ...] = tuple(getattr(self, "_font_fallbacks", ()))
+        try:
+            device_ratio = float(self.devicePixelRatioF())
+        except Exception:
+            device_ratio = 1.0
+        if device_ratio <= 0.0 or not math.isfinite(device_ratio):
+            device_ratio = 1.0
+        context = (family, fallback_tuple, round(device_ratio, 3))
+        if context != getattr(self, "_text_cache_context", None):
+            self._text_cache_context = context
+            self._invalidate_text_cache("font/dpi change")
+
     def _measure_text(self, text: str, point_size: float, font_family: Optional[str] = None) -> Tuple[int, int, int]:
+        stats = getattr(self, "_measure_stats", None)
+        if isinstance(stats, dict):
+            stats["calls"] = stats.get("calls", 0) + 1
+        cache = getattr(self, "_text_cache", None)
+        family = font_family or self._font_family
+        try:
+            ensure_context = getattr(self, "_ensure_text_cache_context", None)
+            if callable(ensure_context):
+                ensure_context(family)
+        except Exception:
+            pass
+        key = (text, point_size, family)
+        if cache is not None:
+            cached = cache.get(key)
+            if cached is not None:
+                stats["cache_hit"] = stats.get("cache_hit", 0) + 1 if isinstance(stats, dict) else 0
+                return cached
         if self._text_measurer is not None:
             measured = self._text_measurer(text, point_size, font_family or self._font_family)
             return measured.width, measured.ascent, measured.descent
-        metrics_font = QFont(font_family or self._font_family)
+        metrics_font = QFont(family)
         self._apply_font_fallbacks(metrics_font)
         metrics_font.setPointSizeF(point_size)
         metrics_font.setWeight(QFont.Weight.Normal)
         metrics = QFontMetrics(metrics_font)
-        return metrics.horizontalAdvance(text), metrics.ascent(), metrics.descent()
+        measured = (metrics.horizontalAdvance(text), metrics.ascent(), metrics.descent())
+        if cache is not None:
+            stats["cache_miss"] = stats.get("cache_miss", 0) + 1 if isinstance(stats, dict) else 0
+            cache[key] = measured
+            if len(cache) > self._TEXT_CACHE_MAX:
+                cache.pop(next(iter(cache)))
+        return measured
 
     def set_text_measurer(self, measurer: Optional[Callable[[str, float, str], _MeasuredText]]) -> None:
         self._text_measurer = measurer

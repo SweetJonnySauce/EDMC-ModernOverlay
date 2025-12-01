@@ -59,6 +59,14 @@ class FillGroupingHelper:
 
         store = getattr(self._owner, "_payload_model").store
         group_bounds: Dict[Tuple[str, Optional[str]], GroupBounds] = {}
+        text_block_cache = getattr(self._owner, "_text_block_cache", None)
+        cache_generation = getattr(self._owner, "_text_cache_generation", 0)
+        try:
+            device_ratio = float(self._owner.devicePixelRatioF())
+        except Exception:
+            device_ratio = 1.0
+        if device_ratio <= 0.0 or not math.isfinite(device_ratio):
+            device_ratio = 1.0
         for item_id, legacy_item in store.items():
             group_key = self.group_key_for(item_id, legacy_item.plugin)
             key_tuple = group_key.as_tuple()
@@ -70,6 +78,9 @@ class FillGroupingHelper:
                 settings.font_family if settings is not None else self._owner._font_family,
                 preset_point_size,
                 font_fallbacks=settings.font_fallbacks if settings is not None else self._owner._font_fallbacks,
+                text_block_cache=text_block_cache,
+                cache_generation=cache_generation,
+                device_ratio=device_ratio,
             )
 
         base_width = BASE_WIDTH if BASE_WIDTH > 0.0 else 1.0

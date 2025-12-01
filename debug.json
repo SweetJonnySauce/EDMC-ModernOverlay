@@ -1,7 +1,7 @@
 {
   "capture_client_stderrout": true,
   "group_bounds_outline": true,
-  "log_repaint_debounce": false,
+  "log_repaint_debounce": true,
   "overlay_logs_to_keep": 5,
   "overlay_outline": true,
   "payload_ids": [],
