@@ -100,7 +100,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 7.1 | Extract geometry normalization and logging: raw/native→Qt conversion, device ratio logs, title bar offset, aspect guard; keep Qt calls local. | Complete |
   | 7.2 | Extract WM override resolution and geometry application: setGeometry/move-to-screen, override classification/logging, and target adoption. | Complete |
   | 7.3 | Extract follow-state post-processing: follow-state persistence, transient parent handling, fullscreen hint, visibility/show/hide decisions. | Complete |
-  | 8 | Split builder methods (`_build_message_command`, `_build_rect_command`, `_build_vector_command`) into calculation/render sub-helpers; keep font metrics/painter setup intact. | In progress |
+  | 8 | Split builder methods (`_build_message_command`, `_build_rect_command`, `_build_vector_command`) into calculation/render sub-helpers; keep font metrics/painter setup intact. | Complete |
   | 8.1 | Refactor `_build_message_command`: extract calculation helpers (transforms, offsets, anchors, bounds) while keeping font metrics/painter setup in place; preserve logging/tracing. | Complete |
   | 8.2 | Refactor `_build_rect_command`: extract geometry/anchor/translation helpers, leaving pen/brush setup and painter interactions in place; preserve logging/tracing. | Complete |
   | 8.3 | Refactor `_build_vector_command`: extract point remap/anchor/bounds helpers, leaving payload assembly and painter interactions in place; preserve logging/tracing. | Complete |
@@ -239,7 +239,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 
   | Stage | Description | Status |
   | --- | --- | --- |
-  | 24 | Define a target split for `OverlayWindow` (e.g., thin orchestration shell + injected render/follow/payload/debug surfaces) with clear interfaces and ownership, based on current code reality. | In progress |
+  | 24 | Define a target split for `OverlayWindow` (e.g., thin orchestration shell + injected render/follow/payload/debug surfaces) with clear interfaces and ownership, based on current code reality. | Complete |
   | 24.1 | Render/payload pipeline + debug surface (overlay_client/overlay_client.py:2474-4059, ~1,600 lines): legacy payload handling, render passes, command building (`_build_*_command`), justification/anchor translation, group cache/logging, debug overlays, text measurement cache; target dedicated render surface with injected builder/renderer/debug hooks. | Complete |
   | 24.2 | Follow/window orchestration + platform hooks (overlay_client/overlay_client.py:1881-2473, ~600 lines): drag/click-through toggles, tracker polling, normalization, geometry application, visibility/transient parent/fullscreen handling; move to controller layer with Qt calls at boundary. | Complete |
   | 24.3 | External control/API surface (overlay_client/overlay_client.py:1112-1880, ~770 lines): `set_*`/status methods, cycle overlay helpers, repaint scheduling/metrics, config toggles; extract to control/adaptor feeding orchestrator. | Planned |
@@ -436,11 +436,11 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 - `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
 - `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (expected empty-text payloads skipped during replay; overlay running).
 
-### Stage 24 quick summary (intent)
+### Stage 24 quick summary (status)
 - Goal: drive further decomposition of the 4k-line `OverlayWindow` into a thin orchestrator with injected render/follow/payload/debug surfaces and clearer ownership boundaries.
 - Scope: map current surface area, define seams, and move non-Qt logic/state out while keeping Qt calls at the boundary; preserve behavior/logging.
 - Tests to run when wiring starts: `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`, and `python tests/run_resolution_tests.py --config tests/display_all.json`.
-- Status: In progress (24.1 complete; follow-on extractions pending).
+- Status: Complete (24.1 render surface, 24.2 follow surface, 24.3 control/API surface extracted).
 
 ### Stage 24.1 quick summary (status)
 - Extracted render/payload/debug surface into `overlay_client/render_surface.py` as `RenderSurfaceMixin`; `OverlayWindow` now inherits it to keep Qt shell thin while moving legacy payload handling, command building, justification, caching, and debug helpers out of the monolith.
@@ -462,6 +462,17 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 - `source overlay_client/.venv/bin/activate && make check` → passed (ruff/mypy/pytest; includes new follow-surface tests).
 - `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
 - `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → not run this stage (overlay process not active); rerun after overlay is running.
+
+### Stage 24.3 quick summary (status)
+- Extracted external control/API surface into `overlay_client/control_surface.py` (`ControlSurfaceMixin`), covering `set_*`/status setters, cycle overlay helpers, repaint scheduling/metrics, config toggles, and platform-context updates. `OverlayWindow` now delegates while keeping Qt calls at the boundary; public signatures/logging preserved.
+- Shifted cycle overlay paint/sync, status message dispatch, repaint debounce/logging, grid/background toggles, and payload/logging settings out of the monolith; Qt clipboard and window updates remain at call sites via the mixin.
+- No behavior changes expected; cached state and throttling semantics retained.
+
+#### Stage 24.3 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed (part of `make check`).
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay running; expected payload-logging disabled warnings, empty-text payload skips during replay).
 
 ### Stage 25 quick summary (intent)
 - Goal: centralize duplicated helpers (`_ReleaseLogLevelFilter`, `_clamp_axis`) into shared utilities to enforce DRY and consistent behavior.
