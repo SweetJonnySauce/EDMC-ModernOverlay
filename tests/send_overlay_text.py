@@ -8,7 +8,7 @@ import shutil
 import socket
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -207,3 +207,4 @@ if __name__ == "__main__":
             file=sys.stderr,
         )
         raise SystemExit(1)
+UTC = getattr(datetime, "UTC", timezone.utc)

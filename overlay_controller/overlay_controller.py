@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import atexit
 import json
 import os
@@ -13,14 +15,24 @@ import subprocess
 import sys
 import time
 import traceback
+import logging
 from math import ceil
 from dataclasses import dataclass
 from pathlib import Path
 from tkinter import ttk
 from typing import Any, Dict, Optional, Tuple
 
-from input_bindings import BindingConfig, BindingManager
-from selection_overlay import SelectionOverlay
+PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+_CONTROLLER_LOGGER: Optional[logging.Logger] = None
+
+from overlay_client.debug_config import DEBUG_CONFIG_ENABLED
+from overlay_client.logging_utils import build_rotating_file_handler, resolve_log_level, resolve_logs_dir
+try:  # When run as a package (`python -m overlay_controller.overlay_controller`)
+    from overlay_controller.input_bindings import BindingConfig, BindingManager
+    from overlay_controller.selection_overlay import SelectionOverlay
+except ImportError:  # Fallback for spec-from-file/test harness
+    from input_bindings import BindingConfig, BindingManager  # type: ignore
+    from selection_overlay import SelectionOverlay  # type: ignore
 
 ABS_BASE_WIDTH = 1280
 ABS_BASE_HEIGHT = 960
@@ -1414,6 +1426,7 @@ class OverlayConfigApp(tk.Tk):
         self._absolute_tolerance_px = 0.5
         self._last_preview_signature: tuple[object, ...] | None = None
         self._status_poll_interval_ms = 2500
+        _controller_debug("Cache/status poll interval set to %dms", self._status_poll_interval_ms)
         self._status_poll_handle: str | None = None
         self._debounce_handles: dict[str, str | None] = {}
         self._write_debounce_ms = 200
@@ -1964,6 +1977,7 @@ class OverlayConfigApp(tk.Tk):
     def _finalize_close(self) -> None:
         """Close immediately, respecting focus mode behavior."""
 
+        _controller_debug("Overlay controller closing (focus_mode=%s)", getattr(self, "widget_select_mode", False))
         self._cancel_pending_close()
         self._pending_focus_out = False
         self._closing = True
@@ -2382,7 +2396,9 @@ class OverlayConfigApp(tk.Tk):
         except Exception:
             latest = None
         if isinstance(latest, dict):
-            self._groupings_cache = latest
+            if self._cache_changed(latest, self._groupings_cache):
+                _controller_debug("Group cache refreshed from disk at %s", time.strftime("%H:%M:%S"))
+                self._groupings_cache = latest
         self._refresh_current_group_snapshot(force_ui=False)
         self._status_poll_handle = self.after(self._status_poll_interval_ms, self._poll_cache_and_status)
 
@@ -2401,6 +2417,18 @@ class OverlayConfigApp(tk.Tk):
         groups = payload.get("groups") if isinstance(payload, dict) else None
         payload["groups"] = groups if isinstance(groups, dict) else {}
         return payload
+
+    def _cache_changed(self, new_cache: dict[str, object], old_cache: dict[str, object]) -> bool:
+        """Return True if cache differs, ignoring timestamp-only churn."""
+
+        def _strip_timestamps(node: object) -> object:
+            if isinstance(node, dict):
+                return {k: _strip_timestamps(v) for k, v in node.items() if k != "last_updated"}
+            if isinstance(node, list):
+                return [_strip_timestamps(v) for v in node]
+            return node
+
+        return _strip_timestamps(new_cache) != _strip_timestamps(old_cache)
 
     def _write_groupings_config(self) -> None:
         path = getattr(self, "_groupings_path", None)
@@ -2723,6 +2751,14 @@ class OverlayConfigApp(tk.Tk):
             snapshot.offset_x = offset_x
             snapshot.offset_y = offset_y
             self._group_snapshots[selection] = snapshot
+        _controller_debug(
+            "Target updated for %s/%s: offset_x=%.1f offset_y=%.1f debounce_ms=%s",
+            plugin_name,
+            label,
+            offset_x,
+            offset_y,
+            debounce_ms,
+        )
 
     def _handle_idprefix_selected(self, _selection: str | None = None) -> None:
         if not hasattr(self, "idprefix_widget"):
@@ -2766,6 +2802,12 @@ class OverlayConfigApp(tk.Tk):
         if not isinstance(group, dict):
             return
         group["payloadJustification"] = justification
+        _controller_debug(
+            "Justification changed via justification_widget for %s/%s -> %s",
+            plugin_name,
+            label,
+            justification,
+        )
         self._schedule_groupings_config_write()
     def _handle_absolute_changed(self, axis: str) -> None:
         selection = self._get_current_group_selection()
@@ -3111,6 +3153,13 @@ class OverlayConfigApp(tk.Tk):
             return
         group["idPrefixGroupAnchor"] = anchor
         self._schedule_groupings_config_write()
+        _controller_debug(
+            "Anchor changed via anchor_widget for %s/%s -> %s (prefer_user=%s)",
+            plugin_name,
+            label,
+            anchor,
+            prefer_user,
+        )
 
         self._sync_absolute_for_current_group(force_ui=True, prefer_user=prefer_user)
         self._draw_preview()
@@ -3448,10 +3497,100 @@ class OverlayConfigApp(tk.Tk):
             pass
 
 
+def _log_startup_failure(root_path: Path, exc: BaseException) -> None:
+    """Write controller startup failures to a log file (best effort)."""
+    _append_controller_log(
+        root_path,
+        [
+            "Failed to start overlay controller:",
+            *traceback.format_exception(type(exc), exc, exc.__traceback__),
+        ],
+        announce=True,
+    )
+
+
+def _log_startup_event(root_path: Path, message: str) -> None:
+    """Write a simple startup confirmation to the controller log."""
+    _append_controller_log(root_path, [message], announce=True)
+
+
+def _append_controller_log(root_path: Path, lines: list[str], *, announce: bool = False) -> None:
+    # Align controller logs with overlay_client/overlay_payloads location (…/EDMarketConnector/logs/EDMCModernOverlay)
+    logger = _ensure_controller_logger(root_path)
+    wrote = False
+    if logger is not None:
+        for line in lines:
+            logger.info(line.rstrip("\n"))
+        wrote = True
+    else:
+        try:
+            for line in lines:
+                sys.stderr.write(line if line.endswith("\n") else line + "\n")
+        except Exception:
+            pass
+    if announce:
+        try:
+            log_path = _resolve_controller_log_path(root_path)
+            sys.stderr.write(
+                f"[overlay-controller] log {'written' if wrote else 'failed'} at {log_path}\n"
+            )
+        except Exception:
+            pass
+
+
+def _resolve_controller_log_path(root_path: Path) -> Path:
+    log_dir = resolve_logs_dir(root_path, log_dir_name="EDMCModernOverlay")
+    return log_dir / "overlay_controller.log"
+
+
+def _ensure_controller_logger(root_path: Path) -> Optional[logging.Logger]:
+    global _CONTROLLER_LOGGER
+    if _CONTROLLER_LOGGER is not None:
+        return _CONTROLLER_LOGGER
+    try:
+        log_dir = resolve_logs_dir(root_path, log_dir_name="EDMCModernOverlay")
+        formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
+        handler = build_rotating_file_handler(
+            log_dir,
+            "overlay_controller.log",
+            retention=5,
+            max_bytes=512 * 1024,
+            formatter=formatter,
+        )
+        logger = logging.getLogger("EDMCModernOverlay.Controller")
+        logger.setLevel(resolve_log_level(DEBUG_CONFIG_ENABLED))
+        logger.propagate = False
+        logger.handlers.clear()
+        logger.addHandler(handler)
+        logger.debug(
+            "Controller logger initialised: path=%s level=%s retention=%d max_bytes=%d",
+            getattr(handler, "baseFilename", log_dir / "overlay_controller.log"),
+            logging.getLevelName(logger.level),
+            5,
+            512 * 1024,
+        )
+        _CONTROLLER_LOGGER = logger
+        return logger
+    except Exception:
+        return None
+
+
+def _controller_debug(message: str, *args: object) -> None:
+    logger = _ensure_controller_logger(PLUGIN_ROOT)
+    if logger is not None:
+        logger.debug(message, *args)
+    else:
+        try:
+            sys.stderr.write((message % args) + "\n")
+        except Exception:
+            pass
+
+
 def launch() -> None:
     """Entry point used by other modules."""
 
     root_path = Path(__file__).resolve().parents[1]
+    _controller_debug("Launching overlay controller: python=%s cwd=%s", sys.executable, Path.cwd())
     pid_path = root_path / "overlay_controller.pid"
     try:
         pid_path.write_text(str(os.getpid()), encoding="utf-8")
@@ -3460,9 +3599,16 @@ def launch() -> None:
     else:
         atexit.register(lambda: pid_path.unlink(missing_ok=True))
 
-    app = OverlayConfigApp()
-    app.mainloop()
+    try:
+        app = OverlayConfigApp()
+        _log_startup_event(root_path, "Overlay controller started")
+        app.mainloop()
+    except Exception as exc:
+        _controller_debug("Overlay controller launch failed: %s", exc)
+        _log_startup_failure(root_path, exc)
+        raise
 
 
 if __name__ == "__main__":
     launch()
+_CONTROLLER_LOGGER: Optional[logging.Logger] = None

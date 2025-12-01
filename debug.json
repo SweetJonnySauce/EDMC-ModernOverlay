@@ -7,16 +7,13 @@
   "payload_ids": [],
   "payload_logging": {
     "exclude_plugins": [],
-    "overlay_payload_log_enabled": false
+    "overlay_payload_log_enabled": true
   },
   "payload_vertex_markers": false,
   "repaint_debounce_enabled": true,
   "trace_enabled": false,
   "tracing": {
     "enabled": false,
-    "payload_ids": [
-      "bgstally-frame-colonisation",
-      "bgstally-msg-colonisation-0"
-    ]
+    "payload_ids": []
   }
 }

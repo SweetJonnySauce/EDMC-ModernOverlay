@@ -1,11 +1,60 @@
 from __future__ import annotations
 
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from collections.abc import Iterable, Sequence
 from typing import Any, Callable, Mapping, MutableMapping, Optional
+import json
 
 from overlay_client.legacy_store import LegacyItem, LegacyItemStore
+
+
+def _hashable_payload_snapshot(item_type: str, payload: Mapping[str, Any]) -> tuple:
+    if item_type == "message":
+        return (
+            payload.get("text", ""),
+            payload.get("color", ""),
+            payload.get("x", 0),
+            payload.get("y", 0),
+            payload.get("size", ""),
+            payload.get("__mo_transform__", None),
+        )
+    if item_type == "shape":
+        shape_name = str(payload.get("shape") or "").lower()
+        if shape_name == "rect":
+            return (
+                shape_name,
+                payload.get("color", ""),
+                payload.get("fill", ""),
+                payload.get("x", 0),
+                payload.get("y", 0),
+                payload.get("w", 0),
+                payload.get("h", 0),
+                payload.get("__mo_transform__", None),
+            )
+        if shape_name == "vect":
+            vector = payload.get("vector") or []
+            points = []
+            if isinstance(vector, list):
+                for entry in vector:
+                    if not isinstance(entry, Mapping):
+                        continue
+                    points.append(
+                        (
+                            entry.get("x", 0),
+                            entry.get("y", 0),
+                            entry.get("color", ""),
+                            (entry.get("marker") or "").lower(),
+                            entry.get("text", ""),
+                        )
+                    )
+            return (
+                shape_name,
+                payload.get("color", ""),
+                tuple(points),
+                payload.get("__mo_transform__", None),
+            )
+    return (item_type, json.dumps(payload, sort_keys=True, default=str))
 
 
 TraceCallback = Callable[[str, Mapping[str, Any], Mapping[str, Any]], None]
@@ -110,6 +159,13 @@ def process_legacy_payload(
         if not text:
             store.remove(item_id)
             return True
+        if trace_fn:
+            snapshot = _hashable_payload_snapshot(item_type, payload)
+            trace_fn(
+                "legacy_processor:dedupe_snapshot",
+                payload,
+                {"item_id": item_id, "plugin": plugin_name, "snapshot": snapshot},
+            )
         data = {
             "text": text,
             "color": payload.get("color", "white"),
@@ -146,6 +202,13 @@ def process_legacy_payload(
                 "w": int(message.get("w", 0)),
                 "h": int(message.get("h", 0)),
             }
+            if trace_fn:
+                snapshot = _hashable_payload_snapshot("shape", payload)
+                trace_fn(
+                    "legacy_processor:dedupe_snapshot",
+                    payload,
+                    {"item_id": item_id, "plugin": plugin_name, "snapshot": snapshot},
+                )
             transform_meta = message.get("__mo_transform__")
             if isinstance(transform_meta, Mapping):
                 try:
@@ -203,6 +266,13 @@ def process_legacy_payload(
                 "base_color": message.get("color", "white"),
                 "points": points,
             }
+            if trace_fn:
+                snapshot = _hashable_payload_snapshot("shape", payload)
+                trace_fn(
+                    "legacy_processor:dedupe_snapshot",
+                    payload,
+                    {"item_id": item_id, "plugin": plugin_name, "snapshot": snapshot},
+                )
             transform_meta = message.get("__mo_transform__")
             if isinstance(transform_meta, Mapping):
                 try:
@@ -258,3 +328,4 @@ def process_legacy_payload(
         return False
 
     return False
+UTC = getattr(datetime, "UTC", timezone.utc)

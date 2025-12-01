@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import logging
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from overlay_client.client_config import DeveloperHelperConfig, InitialClientSettings
+from overlay_client.logging_utils import build_rotating_file_handler, resolve_logs_dir
 
 if TYPE_CHECKING:
     from overlay_client import OverlayWindow
@@ -117,36 +117,34 @@ class DeveloperHelperController:
 
     def _configure_client_logging(self, retention: int) -> None:
         retention = max(1, retention)
-        logs_dir = self._resolve_logs_dir()
-        log_path = logs_dir / _LOG_FILE_NAME
-        backup_count = max(0, retention - 1)
+        logs_dir = resolve_logs_dir(self._client_root)
         formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
         try:
-            handler = RotatingFileHandler(
-                log_path,
-                maxBytes=_MAX_LOG_BYTES,
-                backupCount=backup_count,
-                encoding="utf-8",
+            handler = build_rotating_file_handler(
+                logs_dir,
+                _LOG_FILE_NAME,
+                retention=retention,
+                max_bytes=_MAX_LOG_BYTES,
+                formatter=formatter,
             )
         except Exception as exc:
             stream_handler = logging.StreamHandler()
             stream_handler.setFormatter(formatter)
             self._replace_handler(stream_handler)
-            self._logger.warning("Failed to initialise file logging at %s: %s", log_path, exc)
+            self._logger.warning("Failed to initialise file logging in %s: %s", logs_dir, exc)
             self._log_path = None
             self._current_log_retention = retention
             return
 
-        handler.setFormatter(formatter)
         self._replace_handler(handler)
-        self._log_path = log_path
+        self._log_path = logs_dir / _LOG_FILE_NAME
         self._current_log_retention = retention
         self._logger.debug(
             "Client logging initialised: path=%s retention=%d max_bytes=%d backup_count=%d",
-            log_path,
+            self._log_path,
             retention,
             _MAX_LOG_BYTES,
-            backup_count,
+            max(0, retention - 1),
         )
 
     def _replace_handler(self, handler: logging.Handler) -> None:
@@ -158,23 +156,3 @@ class DeveloperHelperController:
                 pass
         self._logger.addHandler(handler)
         self._log_handler = handler
-
-    def _resolve_logs_dir(self) -> Path:
-        current = self._client_root.resolve()
-        parents = current.parents
-        candidates = []
-        if len(parents) >= 3:
-            candidates.append(parents[2] / "logs")
-        if len(parents) >= 2:
-            candidates.append(parents[1] / "logs")
-        candidates.append(Path.cwd() / "logs")
-        for base in candidates:
-            try:
-                target = base / _LOG_DIR_NAME
-                target.mkdir(parents=True, exist_ok=True)
-                return target
-            except Exception:
-                continue
-        fallback = current / "logs" / _LOG_DIR_NAME
-        fallback.mkdir(parents=True, exist_ok=True)
-        return fallback

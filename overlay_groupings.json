@@ -45,7 +45,7 @@
         ],
         "offsetX": 190.0,
         "offsetY": 10.0,
-        "payloadJustification": "left"
+        "payloadJustification": "right"
       },
       "BGS-Tally Tickwarn": {
         "idPrefixGroupAnchor": "ne",
@@ -57,7 +57,7 @@
           "bgstally-msg-tickwarn"
         ],
         "offsetX": 190.0,
-        "offsetY": 0.0,
+        "offsetY": 2.0,
         "payloadJustification": "right"
       }
     },
@@ -242,11 +242,13 @@
   "Navroute": {
     "idPrefixGroups": {
       "Navroute Display": {
-        "idPrefixGroupAnchor": "nw",
+        "idPrefixGroupAnchor": "top",
         "idPrefixes": [
           "navroute_display_"
         ],
-        "payloadJustification": "left"
+        "offsetX": 640.0,
+        "offsetY": -60.093,
+        "payloadJustification": "center"
       }
     },
     "matchingPrefixes": [

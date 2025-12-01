@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any, Callable, List, Mapping, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from PyQt6.QtGui import QFont, QFontMetrics
 
@@ -277,6 +277,10 @@ def accumulate_group_bounds(
     font_family: str,
     preset_point_size: Callable[[str], float],
     font_fallbacks: Optional[Sequence[str]] = None,
+    *,
+    text_block_cache: Optional[Dict[Tuple[str, float, str, Tuple[str, ...], float, int], Tuple[int, int]]] = None,
+    cache_generation: int = 0,
+    device_ratio: float = 1.0,
 ) -> None:
     from overlay_client.group_transform import GroupBounds  # local import to avoid cycles
 
@@ -298,12 +302,34 @@ def accumulate_group_bounds(
             x_val = float(logical.get("x", data.get("x", 0.0)))
             y_val = float(logical.get("y", data.get("y", 0.0)))
             size_label = str(data.get("size", "normal")) if isinstance(data, Mapping) else "normal"
+            point_size = preset_point_size(size_label)
+            normalised_text = (
+                str(data.get("text", ""))
+                .replace("\r\n", "\n")
+                .replace("\r", "\n")
+            )
+            fallback_tuple = tuple(font_fallbacks) if font_fallbacks else ()
+            cache_key: Optional[Tuple[str, float, str, Tuple[str, ...], float, int]] = None
+            cached_block: Optional[Tuple[int, int]] = None
+            if text_block_cache is not None:
+                cache_key = (
+                    normalised_text,
+                    point_size,
+                    font_family,
+                    fallback_tuple,
+                    round(device_ratio or 1.0, 3),
+                    int(cache_generation or 0),
+                )
+                cached_block = text_block_cache.get(cache_key)
             font = QFont(font_family)
             apply_font_fallbacks(font, font_fallbacks)
-            font.setPointSizeF(preset_point_size(size_label))
+            font.setPointSizeF(point_size)
             metrics = QFontMetrics(font)
-            text_value = str(data.get("text", ""))
-            text_width_px, block_height_px = _measure_text_block(metrics, text_value)
+            text_value = normalised_text
+            if cached_block is not None:
+                text_width_px, block_height_px = cached_block
+            else:
+                text_width_px, block_height_px = _measure_text_block(metrics, text_value)
             if text_width_px <= 0 and text_value:
                 try:
                     text_width_px = max(metrics.averageCharWidth() * len(text_value), 0)
@@ -311,6 +337,10 @@ def accumulate_group_bounds(
                     text_width_px = 0
             if block_height_px <= 0 and text_value:
                 block_height_px = metrics.height()
+            if cached_block is None and cache_key is not None and text_block_cache is not None:
+                text_block_cache[cache_key] = (text_width_px, block_height_px)
+                if len(text_block_cache) > 512:
+                    text_block_cache.pop(next(iter(text_block_cache)))
             width_logical = max(0.0, text_width_px / pixels_per_overlay_unit)
             height_logical = max(0.0, block_height_px / pixels_per_overlay_unit)
             adj_x, adj_y = transform_point(x_val, y_val)

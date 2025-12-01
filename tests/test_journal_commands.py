@@ -36,7 +36,7 @@ class _DummyRuntime:
 
 def build_helper(runtime: _DummyRuntime | None = None) -> tuple[_DummyRuntime, object]:
     runtime = runtime or _DummyRuntime()
-    helper = build_command_helper(runtime)
+    helper = build_command_helper(runtime, command_prefix="!overlay", legacy_prefixes=["!overlay"])
     return runtime, helper
 
 
@@ -82,7 +82,7 @@ def test_overlay_prev_command():
 def test_overlay_unknown_subcommand():
     runtime, helper = build_helper()
     assert helper.handle_entry({"event": "SendText", "Message": "!overlay foo"}) is True
-    assert "unknown overlay command" in runtime.messages[-1].lower()
+    assert runtime.messages == []
 
 
 def test_overlay_cycle_disabled_message():

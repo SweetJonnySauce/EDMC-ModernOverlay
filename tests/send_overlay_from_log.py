@@ -8,6 +8,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -122,8 +123,15 @@ def _send_payload(port: int, payload: Dict[str, Any], *, timeout: float = 5.0) -
         writer.write("\n")
         writer.flush()
         _print_step("Payload dispatched; awaiting acknowledgement …")
-        for _ in range(10):
-            ack_line = reader.readline()
+        deadline = time.monotonic() + timeout
+        noisy_logs = 0
+        while True:
+            remaining = max(0.1, deadline - time.monotonic())
+            sock.settimeout(remaining)
+            try:
+                ack_line = reader.readline()
+            except Exception as exc:
+                _fail(f"Failed to read acknowledgement: {exc}")
             if not ack_line:
                 _fail("No acknowledgement received from ModernOverlay (connection closed).")
             try:
@@ -132,8 +140,11 @@ def _send_payload(port: int, payload: Dict[str, Any], *, timeout: float = 5.0) -
                 continue
             if isinstance(response, dict) and "status" in response:
                 return response
-            _print_step("Received broadcast payload before acknowledgement; waiting for status …")
-        _fail("Did not receive a CLI acknowledgement after multiple attempts.")
+            if noisy_logs < 3:
+                _print_step("Received broadcast payload before acknowledgement; waiting for status …")
+                noisy_logs += 1
+            if time.monotonic() >= deadline:
+                _fail(f"Did not receive a CLI acknowledgement within {timeout:.1f}s.")
 
 
 def _resolve_logfile(path_str: str) -> Path:

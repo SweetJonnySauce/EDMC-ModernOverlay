@@ -3,26 +3,20 @@ from __future__ import annotations
 
 # ruff: noqa: E402
 
-import argparse
-import asyncio
 import json
 import logging
 import math
 import os
-import queue
 import sys
-import threading
 import time
-from datetime import UTC, datetime
-from fractions import Fraction
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Set
 
 CLIENT_DIR = Path(__file__).resolve().parent
 ROOT_DIR = CLIENT_DIR.parent
 
-from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPoint, QRect, QSize
+from PyQt6.QtCore import Qt, QTimer, QPoint, QRect, QSize
 from PyQt6.QtGui import (
     QColor,
     QFont,
@@ -31,7 +25,6 @@ from PyQt6.QtGui import (
     QPen,
     QBrush,
     QCursor,
-    QFontDatabase,
     QPixmap,
     QGuiApplication,
     QScreen,
@@ -50,42 +43,74 @@ except Exception:  # pragma: no cover - fallback when module unavailable
     MODERN_OVERLAY_VERSION = "unknown"
     DEV_MODE_ENV_VAR = "MODERN_OVERLAY_DEV_MODE"
 
-from overlay_client.client_config import InitialClientSettings, load_initial_settings  # type: ignore  # noqa: E402
-from overlay_client.developer_helpers import DeveloperHelperController  # type: ignore  # noqa: E402
+from overlay_client.data_client import OverlayDataClient  # type: ignore  # noqa: E402
+from overlay_client.client_config import InitialClientSettings  # type: ignore  # noqa: E402
 from overlay_client.platform_integration import MonitorSnapshot, PlatformContext, PlatformController  # type: ignore  # noqa: E402
-from overlay_client.window_tracking import WindowState, WindowTracker, create_elite_window_tracker  # type: ignore  # noqa: E402
+from overlay_client.window_tracking import WindowState, WindowTracker  # type: ignore  # noqa: E402
 from overlay_client.legacy_store import LegacyItem  # type: ignore  # noqa: E402
 from overlay_client.legacy_processor import TraceCallback  # type: ignore  # noqa: E402
-from overlay_client.vector_renderer import render_vector, VectorPainterAdapter  # type: ignore  # noqa: E402
 from overlay_client.plugin_overrides import PluginOverrideManager  # type: ignore  # noqa: E402
-from overlay_client.debug_config import DEBUG_CONFIG_ENABLED, DebugConfig, load_debug_config  # type: ignore  # noqa: E402
+from overlay_client.debug_config import DEBUG_CONFIG_ENABLED, DebugConfig  # type: ignore  # noqa: E402
 from overlay_client.group_transform import GroupTransform, GroupKey  # type: ignore  # noqa: E402
 from group_cache import GroupPlacementCache, resolve_cache_path  # type: ignore  # noqa: E402
-from overlay_client.font_utils import apply_font_fallbacks  # type: ignore  # noqa: E402
 from overlay_client.viewport_helper import (
     BASE_HEIGHT,
     BASE_WIDTH,
     ScaleMode,
-    compute_viewport_transform,
 )  # type: ignore  # noqa: E402
 from overlay_client.grouping_helper import FillGroupingHelper  # type: ignore  # noqa: E402
-from overlay_client.payload_justifier import JustificationRequest, calculate_offsets  # type: ignore  # noqa: E402
 from overlay_client.payload_transform import (
     build_payload_transform_context,
     PayloadTransformContext,
     remap_axis_value,
-    remap_point,
-    remap_rect_points,
-    remap_vector_points,
     transform_components,
 )  # type: ignore  # noqa: E402
+from overlay_client.platform_context import _initial_platform_context  # type: ignore  # noqa: E402
+from overlay_client.fonts import (  # type: ignore  # noqa: E402
+    _apply_font_fallbacks,
+    _resolve_emoji_font_families,
+    _resolve_font_family,
+)
+from overlay_client.paint_commands import (  # type: ignore  # noqa: E402
+    _LegacyPaintCommand,
+    _MessagePaintCommand,
+    _RectPaintCommand,
+    _VectorPaintCommand,
+)
+from overlay_client.offscreen_logger import log_offscreen_payload  # type: ignore  # noqa: E402
+from overlay_client.anchor_helpers import CommandContext, compute_justification_offsets, build_baseline_bounds  # type: ignore  # noqa: E402
+from overlay_client.payload_builders import build_group_context  # type: ignore  # noqa: E402
+from overlay_client.debug_cycle_overlay import CycleOverlayView, DebugOverlayView  # type: ignore  # noqa: E402
+from overlay_client.follow_geometry import (  # type: ignore  # noqa: E402
+    ScreenInfo,
+    _apply_aspect_guard,
+    _apply_title_bar_offset,
+    _convert_native_rect_to_qt,
+)
+from overlay_client.group_coordinator import GroupCoordinator  # type: ignore  # noqa: E402
+from overlay_client.transform_helpers import (  # type: ignore  # noqa: E402
+    apply_inverse_group_scale as util_apply_inverse_group_scale,
+    compute_message_transform as util_compute_message_transform,
+    compute_rect_transform as util_compute_rect_transform,
+    compute_vector_transform as util_compute_vector_transform,
+)
+from overlay_client.status_presenter import StatusPresenter  # type: ignore  # noqa: E402
+from overlay_client.window_controller import WindowController  # type: ignore  # noqa: E402
+from overlay_client.interaction_controller import InteractionController  # type: ignore  # noqa: E402
+from overlay_client.visibility_helper import VisibilityHelper  # type: ignore  # noqa: E402
+from overlay_client.window_utils import (  # type: ignore  # noqa: E402
+    aspect_ratio_label as util_aspect_ratio_label,
+    compute_legacy_mapper as util_compute_legacy_mapper,
+    current_physical_size as util_current_physical_size,
+    legacy_preset_point_size as util_legacy_preset_point_size,
+    line_width as util_line_width,
+    viewport_state as util_viewport_state,
+)
 from overlay_client.viewport_transform import (  # type: ignore  # noqa: E402
     FillViewport,
     LegacyMapper,
     ViewportState,
     build_viewport,
-    compute_proportional_translation,
-    inverse_group_axis,
     map_anchor_axis,
     legacy_scale_components,
     scaled_point_size as viewport_scaled_point_size,
@@ -95,6 +120,9 @@ _LOGGER_NAME = "EDMC.ModernOverlay.Client"
 _CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
 _CLIENT_LOGGER.setLevel(logging.DEBUG if DEBUG_CONFIG_ENABLED else logging.INFO)
 _CLIENT_LOGGER.propagate = False
+# Opt-in propagation flag for environments/tests that want client logs upstream.
+if os.environ.get("EDMC_OVERLAY_PROPAGATE_LOGS", "").lower() in {"1", "true", "yes", "on"}:
+    _CLIENT_LOGGER.propagate = True
 
 
 class _ReleaseLogLevelFilter(logging.Filter):
@@ -188,112 +216,11 @@ class _GroupDebugState:
     nudged: bool
 
 
-@dataclass
-class _LegacyPaintCommand:
-    group_key: GroupKey
-    group_transform: Optional[GroupTransform]
-    legacy_item: LegacyItem
-    bounds: Optional[Tuple[int, int, int, int]]
-    overlay_bounds: Optional[Tuple[float, float, float, float]] = None
-    effective_anchor: Optional[Tuple[float, float]] = None
-    debug_log: Optional[str] = None
-    justification_dx: float = 0.0
-    base_overlay_bounds: Optional[Tuple[float, float, float, float]] = None
-    reference_overlay_bounds: Optional[Tuple[float, float, float, float]] = None
-    debug_vertices: Optional[Sequence[Tuple[int, int]]] = None
-    raw_min_x: Optional[float] = None
-    right_just_multiplier: int = 0
-
-    def paint(self, window: "OverlayWindow", painter: QPainter, offset_x: int, offset_y: int) -> None:
-        raise NotImplementedError
-
-
-@dataclass
-class _MessagePaintCommand(_LegacyPaintCommand):
-    text: str = ""
-    color: QColor = field(default_factory=lambda: QColor("white"))
-    point_size: float = 12.0
-    x: int = 0
-    baseline: int = 0
-    text_width: int = 0
-    ascent: int = 0
-    descent: int = 0
-    cycle_anchor: Optional[Tuple[int, int]] = None
-    trace_fn: Optional[Callable[[str, Mapping[str, Any]], None]] = None
-
-    def paint(self, window: "OverlayWindow", painter: QPainter, offset_x: int, offset_y: int) -> None:
-        font = QFont(window._font_family)
-        window._apply_font_fallbacks(font)
-        font.setPointSizeF(self.point_size)
-        font.setWeight(QFont.Weight.Normal)
-        painter.setFont(font)
-        painter.setPen(self.color)
-        draw_x = int(round(self.x + offset_x))
-        draw_baseline = int(round(self.baseline + offset_y))
-        painter.drawText(draw_x, draw_baseline, self.text)
-        if self.trace_fn:
-            self.trace_fn(
-                "render_message:draw",
-                {
-                    "pixel_x": draw_x,
-                    "baseline": draw_baseline,
-                    "text_width": self.text_width,
-                    "font_size": self.point_size,
-                    "color": self.color.name(),
-                },
-            )
-        if self.cycle_anchor:
-            anchor_x = int(round(self.cycle_anchor[0] + offset_x))
-            anchor_y = int(round(self.cycle_anchor[1] + offset_y))
-            window._register_cycle_anchor(self.legacy_item.item_id, anchor_x, anchor_y)
-
-
-@dataclass
-class _RectPaintCommand(_LegacyPaintCommand):
-    pen: QPen = field(default_factory=lambda: QPen(Qt.PenStyle.NoPen))
-    brush: QBrush = field(default_factory=lambda: QBrush(Qt.BrushStyle.NoBrush))
-    x: int = 0
-    y: int = 0
-    width: int = 0
-    height: int = 0
-    cycle_anchor: Optional[Tuple[int, int]] = None
-
-    def paint(self, window: "OverlayWindow", painter: QPainter, offset_x: int, offset_y: int) -> None:
-        painter.setPen(self.pen)
-        painter.setBrush(self.brush)
-        draw_x = int(round(self.x + offset_x))
-        draw_y = int(round(self.y + offset_y))
-        painter.drawRect(draw_x, draw_y, self.width, self.height)
-        if self.cycle_anchor:
-            anchor_x = int(round(self.cycle_anchor[0] + offset_x))
-            anchor_y = int(round(self.cycle_anchor[1] + offset_y))
-            window._register_cycle_anchor(self.legacy_item.item_id, anchor_x, anchor_y)
-
-
-@dataclass
-class _VectorPaintCommand(_LegacyPaintCommand):
-    vector_payload: Mapping[str, Any] = field(default_factory=dict)
-    scale: float = 1.0
-    base_offset_x: float = 0.0
-    base_offset_y: float = 0.0
-    trace_fn: Optional[Callable[[str, Mapping[str, Any]], None]] = None
-    cycle_anchor: Optional[Tuple[int, int]] = None
-
-    def paint(self, window: "OverlayWindow", painter: QPainter, offset_x: int, offset_y: int) -> None:
-        adapter = _QtVectorPainterAdapter(window, painter)
-        render_vector(
-            adapter,
-            self.vector_payload,
-            self.scale,
-            self.scale,
-            offset_x=self.base_offset_x + offset_x,
-            offset_y=self.base_offset_y + offset_y,
-            trace=self.trace_fn,
-        )
-        if self.cycle_anchor:
-            anchor_x = int(round(self.cycle_anchor[0] + offset_x))
-            anchor_y = int(round(self.cycle_anchor[1] + offset_y))
-            window._register_cycle_anchor(self.legacy_item.item_id, anchor_x, anchor_y)
+@dataclass(frozen=True)
+class _MeasuredText:
+    width: int
+    ascent: int
+    descent: int
 
 
 def _load_line_width_config() -> Dict[str, int]:
@@ -321,202 +248,17 @@ def _load_line_width_config() -> Dict[str, int]:
         _CLIENT_LOGGER.warning("Line width config at %s is not a JSON object; using defaults", path)
     return config
 
-
-def _initial_platform_context(initial: InitialClientSettings) -> PlatformContext:
-    force_env = os.environ.get("EDMC_OVERLAY_FORCE_XWAYLAND") == "1"
-    session = os.environ.get("EDMC_OVERLAY_SESSION_TYPE") or os.environ.get("XDG_SESSION_TYPE") or ""
-    compositor = os.environ.get("EDMC_OVERLAY_COMPOSITOR") or ""
-    flatpak_flag = os.environ.get("EDMC_OVERLAY_IS_FLATPAK") == "1"
-    flatpak_app = os.environ.get("EDMC_OVERLAY_FLATPAK_ID") or ""
-    return PlatformContext(
-        session_type=session,
-        compositor=compositor,
-        force_xwayland=bool(initial.force_xwayland or force_env),
-        flatpak=flatpak_flag,
-        flatpak_app=flatpak_app,
-    )
-
-class OverlayDataClient(QObject):
-    """Async TCP client that forwards messages to the Qt thread."""
-
-    message_received = pyqtSignal(dict)
-    status_changed = pyqtSignal(str)
-
-    def __init__(self, port_file: Path, loop_sleep: float = 1.0) -> None:
-        super().__init__()
-        self._port_file = port_file
-        self._loop_sleep = loop_sleep
-        self._thread: Optional[threading.Thread] = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._stop_event = threading.Event()
-        self._last_metadata: Dict[str, Any] = {}
-        self._outgoing: Optional[asyncio.Queue[Optional[Dict[str, Any]]]] = None
-        self._pending: "queue.Queue[Dict[str, Any]]" = queue.Queue(maxsize=32)
-
-    def start(self) -> None:
-        if self._thread and self._thread.is_alive():
-            return
-        self._stop_event.clear()
-        self._thread = threading.Thread(target=self._thread_main, name="EDMCOverlay-Client", daemon=True)
-        self._thread.start()
-
-    def stop(self) -> None:
-        self._stop_event.set()
-        if self._loop and self._loop.is_running():
-            self._loop.call_soon_threadsafe(lambda: None)
-        if self._thread:
-            self._thread.join(timeout=5.0)
-        self._loop = None
-        self._thread = None
-        self._outgoing = None
-
-    def send_cli_payload(self, payload: Mapping[str, Any]) -> bool:
-        message = dict(payload)
-        loop = self._loop
-        queue_ref = self._outgoing
-        if loop is not None and queue_ref is not None:
-            try:
-                loop.call_soon_threadsafe(queue_ref.put_nowait, message)
-                return True
-            except Exception:
-                pass
-        try:
-            self._pending.put_nowait(message)
-        except queue.Full:
-            return False
-        return True
-
-    # Background thread ----------------------------------------------------
-
-    def _thread_main(self) -> None:
-        loop = asyncio.new_event_loop()
-        self._loop = loop
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(self._run())
-        finally:
-            pending = asyncio.all_tasks(loop)
-            for task in pending:
-                task.cancel()
-            if pending:
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            loop.close()
-
-    async def _run(self) -> None:
-        backoff = 1.0
-        while not self._stop_event.is_set():
-            metadata = self._read_port()
-            if metadata is None:
-                self.status_changed.emit("Waiting for port.json…")
-                await asyncio.sleep(self._loop_sleep)
-                continue
-            port = metadata["port"]
-            reader = None
-            writer = None
-            try:
-                reader, writer = await asyncio.open_connection("127.0.0.1", port)
-            except Exception as exc:
-                self.status_changed.emit(f"Connect failed: {exc}")
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 1.5, 10.0)
-                continue
-
-            script_label = MODERN_OVERLAY_VERSION if MODERN_OVERLAY_VERSION and MODERN_OVERLAY_VERSION != "unknown" else "unknown"
-            if script_label != "unknown" and not script_label.lower().startswith("v"):
-                script_label = f"v{script_label}"
-            connection_prefix = script_label if script_label != "unknown" else "unknown"
-            flatpak_suffix = ""
-            if metadata.get("flatpak"):
-                app_label = metadata.get("flatpak_app")
-                flatpak_suffix = f" (Flatpak: {app_label})" if app_label else " (Flatpak)"
-            connection_message = f"{connection_prefix} - Connected to 127.0.0.1:{port}{flatpak_suffix}"
-            _CLIENT_LOGGER.debug("Status banner updated: %s", connection_message)
-            self.status_changed.emit(connection_message)
-            backoff = 1.0
-            outgoing_queue: asyncio.Queue[Optional[Dict[str, Any]]] = asyncio.Queue()
-            self._outgoing = outgoing_queue
-            while not self._pending.empty():
-                try:
-                    pending_payload = self._pending.get_nowait()
-                except queue.Empty:
-                    break
-                try:
-                    outgoing_queue.put_nowait(pending_payload)
-                except asyncio.QueueFull:
-                    break
-            sender_task = asyncio.create_task(self._flush_outgoing(writer, outgoing_queue))
-            try:
-                while not self._stop_event.is_set():
-                    line = await reader.readline()
-                    if not line:
-                        raise ConnectionError("Server closed the connection")
-                    try:
-                        payload = json.loads(line.decode("utf-8"))
-                    except json.JSONDecodeError:
-                        continue
-                    self.message_received.emit(payload)
-            except Exception as exc:
-                self.status_changed.emit(f"Disconnected: {exc}")
-            finally:
-                self._outgoing = None
-                try:
-                    outgoing_queue.put_nowait(None)
-                except Exception:
-                    pass
-                try:
-                    await sender_task
-                except Exception:
-                    pass
-                if writer is not None:
-                    try:
-                        writer.close()
-                        await writer.wait_closed()
-                    except Exception:
-                        pass
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 1.5, 10.0)
-
-    async def _flush_outgoing(
-        self,
-        writer: asyncio.StreamWriter,
-        queue_ref: "asyncio.Queue[Optional[Dict[str, Any]]]",
-    ) -> None:
-        while not self._stop_event.is_set():
-            try:
-                payload = await queue_ref.get()
-            except Exception:
-                break
-            if payload is None:
-                break
-            try:
-                serialised = json.dumps(payload, ensure_ascii=False)
-            except Exception:
-                continue
-            try:
-                writer.write(serialised.encode("utf-8") + b"\n")
-                await writer.drain()
-            except Exception:
-                break
-
-    def _read_port(self) -> Optional[Dict[str, Any]]:
-        try:
-            data = json.loads(self._port_file.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            return None
-        except json.JSONDecodeError:
-            return None
-        port = data.get("port")
-        if isinstance(port, int) and port > 0:
-            data["port"] = port
-            self._last_metadata = data
-            return data
-        return None
-
 class OverlayWindow(QWidget):
     """Transparent overlay that renders CMDR and location info."""
 
+    _resolve_font_family = _resolve_font_family
+    _resolve_emoji_font_families = _resolve_emoji_font_families
+    _apply_font_fallbacks = _apply_font_fallbacks
+
     _WM_OVERRIDE_TTL = 1.25  # seconds
+    _REPAINT_DEBOUNCE_MS = 33  # coalesce ingest/purge repaint storms
+    _TEXT_CACHE_MAX = 512
+    _TEXT_BLOCK_CACHE_MAX = 256
 
     def __init__(self, initial: InitialClientSettings, debug_config: DebugConfig) -> None:
         super().__init__()
@@ -555,7 +297,6 @@ class OverlayWindow(QWidget):
         self._last_move_log: Optional[Tuple[int, int]] = None
         self._last_screen_name: Optional[str] = None
         self._last_set_geometry: Optional[Tuple[int, int, int, int]] = None
-        self._last_visibility_state: Optional[bool] = None
         self._last_raw_window_log: Optional[Tuple[int, int, int, int]] = None
         self._last_normalised_tracker: Optional[
             Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int], str, float, float]
@@ -575,6 +316,34 @@ class OverlayWindow(QWidget):
             self._platform_context.compositor or "unknown",
             self._platform_context.force_xwayland,
         )
+        self._window_controller = WindowController(log_fn=_CLIENT_LOGGER.debug)
+        self._visibility_helper = VisibilityHelper(log_fn=_CLIENT_LOGGER.debug)
+        self._interaction_controller = InteractionController(
+            is_wayland_fn=self._is_wayland,
+            log_fn=_CLIENT_LOGGER.debug,
+            prepare_window_fn=lambda window: self._platform_controller.prepare_window(window),
+            apply_click_through_fn=lambda transparent: self._platform_controller.apply_click_through(transparent),
+            set_transient_parent_fn=lambda parent: self.windowHandle().setTransientParent(parent) if self.windowHandle() else None,
+            clear_transient_parent_ids_fn=self._clear_transient_parent_ids,
+            window_handle_fn=lambda: self.windowHandle(),
+            set_widget_attribute_fn=lambda attr, enabled: self.setAttribute(attr, enabled),
+            set_window_flag_fn=lambda flag, enabled: self.setWindowFlag(flag, enabled),
+            ensure_visible_fn=lambda: self.show() if not self.isVisible() else None,
+            raise_fn=lambda: self.raise_() if self.isVisible() else None,
+            set_children_attr_fn=lambda transparent: self._set_children_click_through(transparent),
+            transparent_input_supported=self._transparent_input_supported,
+            set_window_transparent_input_fn=lambda transparent: self.windowHandle().setFlag(Qt.WindowType.WindowTransparentForInput, transparent) if self.windowHandle() else None,
+        )
+        self._status_presenter = StatusPresenter(
+            send_payload_fn=self.handle_legacy_payload,
+            platform_label_fn=lambda: self._platform_controller.platform_label(),
+            base_height=DEFAULT_WINDOW_BASE_HEIGHT,
+            log_fn=_CLIENT_LOGGER.debug,
+        )
+        self._status_presenter.set_status_bottom_margin(
+            self._coerce_non_negative(getattr(initial, "status_bottom_margin", 20), default=20),
+            coerce_fn=lambda value, default: self._coerce_non_negative(value, default=default),
+        )
         self._title_bar_enabled: bool = bool(getattr(initial, "title_bar_enabled", False))
         self._title_bar_height: int = self._coerce_non_negative(getattr(initial, "title_bar_height", 0), default=0)
         self._last_title_bar_offset: int = 0
@@ -589,6 +358,7 @@ class OverlayWindow(QWidget):
         self._line_widths: Dict[str, int] = _load_line_width_config()
         self._payload_nudge_enabled: bool = False
         self._payload_nudge_gutter: int = 30
+        self._text_measurer: Optional[Callable[[str, float, str], _MeasuredText]] = None
         self._offscreen_payloads: Set[str] = set()
         dev_mode_active = (
             DEBUG_CONFIG_ENABLED
@@ -598,6 +368,34 @@ class OverlayWindow(QWidget):
             or debug_config.trace_enabled
         )
         self._dev_mode_enabled: bool = dev_mode_active
+        self._repaint_metrics: Dict[str, Any] = {
+            "enabled": dev_mode_active or DEBUG_CONFIG_ENABLED,
+            "counts": {"total": 0, "ingest": 0, "purge": 0},
+            "last_ts": None,
+            "burst_current": 0,
+            "burst_max": 0,
+        }
+        self._repaint_debounce_enabled: bool = True
+        if debug_config.repaint_debounce_enabled is not None:
+            self._repaint_debounce_enabled = bool(debug_config.repaint_debounce_enabled)
+        self._repaint_debounce_log: bool = bool(getattr(debug_config, "log_repaint_debounce", False))
+        self._repaint_log_last: Optional[Dict[str, Any]] = None
+        self._repaint_timer = QTimer(self)
+        self._repaint_timer.setSingleShot(True)
+        self._repaint_timer.setInterval(self._REPAINT_DEBOUNCE_MS)
+        self._repaint_timer.timeout.connect(self._trigger_debounced_repaint)
+        self._paint_log_timer = QTimer(self)
+        self._paint_log_timer.setInterval(5000)
+        self._paint_log_timer.timeout.connect(self._emit_paint_stats)
+        if self._repaint_debounce_log:
+            self._paint_log_timer.start()
+        self._paint_stats = {"paint_count": 0}
+        self._paint_log_state = {"last_ingest": 0, "last_purge": 0, "last_total": 0}
+        self._measure_stats = {"calls": 0}
+        self._text_cache: Dict[Tuple[str, float, str], Tuple[int, int, int]] = {}
+        self._text_block_cache: Dict[Tuple[str, float, str, Tuple[str, ...], float, int], Tuple[int, int]] = {}
+        self._text_cache_generation = 0
+        self._text_cache_context: Optional[Tuple[str, Tuple[str, ...], float]] = None
         _CLIENT_LOGGER.debug(
             "Debug config loaded: dev_mode_enabled=%s group_bounds_outline=%s overlay_outline=%s payload_vertex_markers=%s (DEBUG_CONFIG_ENABLED=%s)",
             self._dev_mode_enabled,
@@ -620,6 +418,7 @@ class OverlayWindow(QWidget):
             debounce_seconds=1.0 if DEBUG_CONFIG_ENABLED else 5.0,
             logger=_CLIENT_LOGGER,
         )
+        self._group_coordinator = GroupCoordinator(cache=self._group_cache, logger=_CLIENT_LOGGER)
         self._render_pipeline = LegacyRenderPipeline(self)
 
         self._legacy_timer = QTimer(self)
@@ -674,7 +473,6 @@ class OverlayWindow(QWidget):
         self._debug_status_point_size = message_font.pointSizeF()
         self._debug_legacy_point_size = 0.0
         self._show_debug_overlay = bool(getattr(initial, "show_debug_overlay", False))
-        self._status_bottom_margin = self._coerce_non_negative(getattr(initial, "status_bottom_margin", 20), default=20)
         self._debug_overlay_corner: str = self._normalise_debug_corner(getattr(initial, "debug_overlay_corner", "NW"))
         self._font_scale_diag = 1.0
         min_font = getattr(initial, "min_font_point", 6.0)
@@ -693,6 +491,8 @@ class OverlayWindow(QWidget):
             self._debug_config,
         )
         self._grouping_adapter = GroupingAdapter(self._grouping_helper, self)
+        self._debug_overlay_view = DebugOverlayView(self._apply_font_fallbacks, self._line_width)
+        self._cycle_overlay_view = CycleOverlayView()
         layout = QVBoxLayout()
         layout.addWidget(self.message_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         layout.addStretch(1)
@@ -718,75 +518,35 @@ class OverlayWindow(QWidget):
 
     def _current_physical_size(self) -> Tuple[float, float]:
         frame = self.frameGeometry()
-        width = max(frame.width(), 1)
-        height = max(frame.height(), 1)
         ratio = 1.0
         window = self.windowHandle()
         if window is not None:
             try:
                 ratio = window.devicePixelRatio()
-            except Exception:
+            except (AttributeError, RuntimeError) as exc:
+                _CLIENT_LOGGER.debug("Failed to read devicePixelRatio, defaulting to 1.0: %s", exc)
                 ratio = 1.0
-        if ratio <= 0.0:
-            ratio = 1.0
-        return width * ratio, height * ratio
+        return util_current_physical_size(frame.width(), frame.height(), ratio)
 
     @staticmethod
     def _aspect_ratio_label(width: int, height: int) -> Optional[str]:
-        if width <= 0 or height <= 0:
-            return None
-        ratio = width / float(height)
-        known_ratios = (
-            ("32:9", 32 / 9),
-            ("21:9", 21 / 9),
-            ("18:9", 18 / 9),
-            ("16:10", 16 / 10),
-            ("16:9", 16 / 9),
-            ("3:2", 3 / 2),
-            ("4:3", 4 / 3),
-            ("5:4", 5 / 4),
-            ("1:1", 1.0),
-        )
-        for label, target in known_ratios:
-            if target <= 0:
-                continue
-            if abs(ratio - target) / target < 0.03:  # within ~3%
-                return label
-        frac = Fraction(width, height).limit_denominator(100)
-        return f"{frac.numerator}:{frac.denominator}"
+        return util_aspect_ratio_label(width, height)
 
     def _compute_legacy_mapper(self) -> LegacyMapper:
         width = max(float(self.width()), 1.0)
         height = max(float(self.height()), 1.0)
         mode_value = (self._scale_mode or "fit").strip().lower()
-        try:
-            mode_enum = ScaleMode(mode_value)
-        except ValueError:
-            mode_enum = ScaleMode.FIT
-        transform = compute_viewport_transform(width, height, mode_enum)
-        base_scale = max(transform.scale, 0.0)
-        scale_x = base_scale
-        scale_y = base_scale
-        offset_x = transform.offset[0]
-        offset_y = transform.offset[1]
-        return LegacyMapper(
-            scale_x=max(scale_x, 0.0),
-            scale_y=max(scale_y, 0.0),
-            offset_x=offset_x,
-            offset_y=offset_y,
-            transform=transform,
-        )
+        return util_compute_legacy_mapper(mode_value, width, height)
 
     def _viewport_state(self) -> ViewportState:
         width = max(float(self.width()), 1.0)
         height = max(float(self.height()), 1.0)
         try:
             ratio = self.devicePixelRatioF()
-        except Exception:
+        except (AttributeError, RuntimeError) as exc:
+            _CLIENT_LOGGER.debug("devicePixelRatioF unavailable, defaulting to 1.0: %s", exc)
             ratio = 1.0
-        if ratio <= 0.0:
-            ratio = 1.0
-        return ViewportState(width=width, height=height, device_ratio=ratio)
+        return util_viewport_state(width, height, ratio)
 
     def _build_fill_viewport(
         self,
@@ -896,30 +656,170 @@ class OverlayWindow(QWidget):
         base_anchor: Optional[Tuple[float, float]],
         fill: FillViewport,
     ) -> Tuple[float, float]:
-        scale = getattr(fill, "scale", 0.0)
-        if not math.isfinite(scale) or math.isclose(scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
-            return value_x, value_y
-        if math.isclose(scale, 1.0, rel_tol=1e-9, abs_tol=1e-9):
-            return value_x, value_y
-        anchor_x = anchor[0] if anchor is not None else None
-        anchor_y = anchor[1] if anchor is not None else None
-        base_x = base_anchor[0] if base_anchor is not None else None
-        base_y = base_anchor[1] if base_anchor is not None else None
-        adjusted_x = inverse_group_axis(
-            value_x,
-            scale,
-            getattr(fill, "overflow_x", False),
-            anchor_x,
-            base_x if (base_x is not None and not getattr(fill, "overflow_x", False)) else anchor_x,
+        return util_apply_inverse_group_scale(value_x, value_y, anchor, base_anchor, fill)
+
+    def _compute_message_transform(
+        self,
+        plugin_name: str,
+        item_id: str,
+        fill: FillViewport,
+        transform_context: PayloadTransformContext,
+        transform_meta: Any,
+        mapper: LegacyMapper,
+        group_transform: Optional[GroupTransform],
+        overlay_bounds_hint: Optional[_OverlayBounds],
+        raw_left: float,
+        raw_top: float,
+        offset_x: float,
+        offset_y: float,
+        selected_anchor: Optional[Tuple[float, float]],
+        base_anchor_point: Optional[Tuple[float, float]],
+        anchor_for_transform: Optional[Tuple[float, float]],
+        base_translation_dx: float,
+        base_translation_dy: float,
+        trace_enabled: bool,
+        collect_only: bool,
+    ) -> Tuple[float, float, float, float, Optional[Tuple[float, float]], float, float]:
+        trace_fn: Optional[Callable[[str, Mapping[str, Any]], None]]
+        if trace_enabled and not collect_only:
+            def trace_fn(stage: str, details: Mapping[str, Any]) -> None:
+                self._log_legacy_trace(plugin_name, item_id, stage, details)
+        else:
+            trace_fn = None
+        return util_compute_message_transform(
+            plugin_name,
+            item_id,
+            fill,
+            transform_context,
+            transform_meta,
+            mapper,
+            group_transform,
+            overlay_bounds_hint,
+            raw_left,
+            raw_top,
+            offset_x,
+            offset_y,
+            selected_anchor,
+            base_anchor_point,
+            anchor_for_transform,
+            base_translation_dx,
+            base_translation_dy,
+            trace_fn,
+            collect_only,
         )
-        adjusted_y = inverse_group_axis(
-            value_y,
-            scale,
-            getattr(fill, "overflow_y", False),
-            anchor_y,
-            base_y if (base_y is not None and not getattr(fill, "overflow_y", False)) else anchor_y,
+
+    def _compute_rect_transform(
+        self,
+        plugin_name: str,
+        item_id: str,
+        fill: FillViewport,
+        transform_context: PayloadTransformContext,
+        transform_meta: Any,
+        mapper: LegacyMapper,
+        group_transform: Optional[GroupTransform],
+        raw_x: float,
+        raw_y: float,
+        raw_w: float,
+        raw_h: float,
+        offset_x: float,
+        offset_y: float,
+        selected_anchor: Optional[Tuple[float, float]],
+        base_anchor_point: Optional[Tuple[float, float]],
+        anchor_for_transform: Optional[Tuple[float, float]],
+        base_translation_dx: float,
+        base_translation_dy: float,
+        trace_enabled: bool,
+        collect_only: bool,
+    ) -> Tuple[
+        List[Tuple[float, float]],
+        List[Tuple[float, float]],
+        Optional[Tuple[float, float, float, float]],
+        Optional[Tuple[float, float]],
+    ]:
+        trace_fn: Optional[Callable[[str, Mapping[str, Any]], None]]
+        if trace_enabled and not collect_only:
+            def trace_fn(stage: str, details: Mapping[str, Any]) -> None:
+                self._log_legacy_trace(plugin_name, item_id, stage, details)
+        else:
+            trace_fn = None
+        return util_compute_rect_transform(
+            plugin_name,
+            item_id,
+            fill,
+            transform_context,
+            transform_meta,
+            mapper,
+            group_transform,
+            raw_x,
+            raw_y,
+            raw_w,
+            raw_h,
+            offset_x,
+            offset_y,
+            selected_anchor,
+            base_anchor_point,
+            anchor_for_transform,
+            base_translation_dx,
+            base_translation_dy,
+            trace_fn,
+            collect_only,
         )
-        return adjusted_x, adjusted_y
+
+    def _compute_vector_transform(
+        self,
+        plugin_name: str,
+        item_id: str,
+        fill: FillViewport,
+        transform_context: PayloadTransformContext,
+        transform_meta: Any,
+        mapper: LegacyMapper,
+        group_transform: Optional[GroupTransform],
+        item_data: Mapping[str, Any],
+        raw_points: Sequence[Mapping[str, Any]],
+        offset_x: float,
+        offset_y: float,
+        selected_anchor: Optional[Tuple[float, float]],
+        base_anchor_point: Optional[Tuple[float, float]],
+        anchor_for_transform: Optional[Tuple[float, float]],
+        base_translation_dx: float,
+        base_translation_dy: float,
+        trace_enabled: bool,
+        collect_only: bool,
+    ) -> Tuple[
+        Optional[Mapping[str, Any]],
+        List[Tuple[int, int]],
+        Optional[Tuple[float, float, float, float]],
+        Optional[Tuple[float, float, float, float]],
+        Optional[Tuple[float, float]],
+        Optional[float],
+        Optional[Callable[[str, Mapping[str, Any]], None]],
+    ]:
+        trace_fn: Optional[Callable[[str, Mapping[str, Any]], None]]
+        if trace_enabled:
+            def trace_fn(stage: str, details: Mapping[str, Any]) -> None:
+                self._log_legacy_trace(plugin_name, item_id, stage, details)
+        else:
+            trace_fn = None
+        return util_compute_vector_transform(
+            plugin_name,
+            item_id,
+            fill,
+            transform_context,
+            transform_meta,
+            mapper,
+            group_transform,
+            item_data,
+            raw_points,
+            offset_x,
+            offset_y,
+            selected_anchor,
+            base_anchor_point,
+            anchor_for_transform,
+            base_translation_dx,
+            base_translation_dy,
+            trace_fn,
+            collect_only,
+        )
 
     def _update_message_font(self) -> None:
         mapper = self._compute_legacy_mapper()
@@ -1052,6 +952,9 @@ class OverlayWindow(QWidget):
         if self._show_debug_overlay:
             self._paint_debug_overlay(painter)
         painter.end()
+        stats = getattr(self, "_paint_stats", None)
+        if isinstance(stats, dict):
+            stats["paint_count"] = stats.get("paint_count", 0) + 1
         super().paintEvent(event)
 
     def _grid_pixmap_for(self, width: int, height: int, spacing: int, grid_alpha: int) -> Optional[QPixmap]:
@@ -1277,19 +1180,14 @@ class OverlayWindow(QWidget):
             return
         self._force_render = flag
         if flag:
-            if sys.platform.startswith("linux") and self._is_wayland():
-                window_handle = self.windowHandle()
-                if window_handle is not None:
-                    try:
-                        window_handle.setTransientParent(None)
-                    except Exception:
-                        pass
-                self._transient_parent_window = None
-                self._transient_parent_id = None
+            self._interaction_controller.handle_force_render_enter()
             self._update_follow_visibility(True)
             if sys.platform.startswith("linux"):
-                self._platform_controller.apply_click_through(True)
-                self._restore_drag_interactivity()
+                self._interaction_controller.restore_drag_interactivity(
+                    self._drag_enabled,
+                    self._drag_active,
+                    self.format_scale_debug,
+                )
             if self._last_follow_state:
                 self._apply_follow_state(self._last_follow_state)
         else:
@@ -1569,180 +1467,24 @@ class OverlayWindow(QWidget):
         return lines
 
     def _paint_cycle_overlay(self, painter: QPainter) -> None:
-        if not self._cycle_payload_enabled:
-            return
-        self._sync_cycle_items()
-        if not self._cycle_current_id:
-            return
-        mapper = self._compute_legacy_mapper()
-        anchor = self._cycle_anchor_points.get(self._cycle_current_id)
-        plugin_name = "unknown"
-        current_item = self._payload_model.get(self._cycle_current_id) if self._cycle_current_id else None
-        if current_item is not None:
-            name = current_item.plugin
-            if isinstance(name, str) and name:
-                plugin_name = name
-        group_transform: Optional[GroupTransform] = None
-        if current_item is not None:
-            group_transform = self._grouping_helper.transform_for_item(current_item.item_id, current_item.plugin)
-        plugin_line = f"Plugin name: {plugin_name}"
-        if anchor is not None:
-            center_line = f"Center: {anchor[0]}, {anchor[1]}"
-        else:
-            center_line = "Center: -, -"
-        data = current_item.data if current_item is not None else {}
-        info_lines: List[str] = []
-        if current_item is not None:
-            if current_item.expiry is None:
-                info_lines.append("ttl: ∞")
-            else:
-                remaining = max(0.0, current_item.expiry - time.monotonic())
-                info_lines.append(f"ttl: {remaining:.1f}s")
-        updated_iso = data.get("__mo_updated__") if isinstance(data, Mapping) else None
-        if isinstance(updated_iso, str):
-            try:
-                updated_dt = datetime.fromisoformat(updated_iso)
-                if updated_dt.tzinfo is None:
-                    updated_dt = updated_dt.replace(tzinfo=UTC)
-                elapsed = datetime.now(UTC) - updated_dt.astimezone(UTC)
-                elapsed_s = max(0.0, elapsed.total_seconds())
-                info_lines.append(f"last seen: {elapsed_s:.1f}s ago")
-            except Exception:
-                info_lines.append(f"last seen: {updated_iso}")
-        kind_label = current_item.kind if current_item is not None else None
-        if kind_label == "message":
-            size_label = str(data.get("size", "unknown"))
-            info_lines.append(f"type: message (size={size_label})")
-        elif kind_label == "rect":
-            w_val = data.get("w")
-            h_val = data.get("h")
-            if isinstance(w_val, (int, float)) and isinstance(h_val, (int, float)):
-                info_lines.append(f"type: rect (w={w_val}, h={h_val})")
-            else:
-                info_lines.append("type: rect")
-        elif kind_label == "vector":
-            points_data = data.get("points")
-            if isinstance(points_data, list):
-                info_lines.append(f"type: vector (points={len(points_data)})")
-            else:
-                info_lines.append("type: vector")
-        elif kind_label:
-            info_lines.append(f"type: {kind_label}")
-
-        def _fmt_number(value: Any) -> Optional[str]:
-            if isinstance(value, (int, float)):
-                return f"{value:g}"
-            return None
-
-        transform_meta = data.get("__mo_transform__") if isinstance(data, Mapping) else None
-        if isinstance(transform_meta, Mapping):
-            original = transform_meta.get("original")
-            if isinstance(original, Mapping):
-                raw_x_fmt = _fmt_number(original.get("x"))
-                raw_y_fmt = _fmt_number(original.get("y"))
-                trans_x_fmt = _fmt_number(data.get("x"))
-                trans_y_fmt = _fmt_number(data.get("y"))
-                if raw_x_fmt is not None and raw_y_fmt is not None and trans_x_fmt is not None and trans_y_fmt is not None:
-                    info_lines.append(f"coords: ({raw_x_fmt},{raw_y_fmt}) → ({trans_x_fmt},{trans_y_fmt})")
-                raw_w_fmt = _fmt_number(original.get("w"))
-                raw_h_fmt = _fmt_number(original.get("h"))
-                trans_w_fmt = _fmt_number(data.get("w"))
-                trans_h_fmt = _fmt_number(data.get("h"))
-                size_parts: List[str] = []
-                if raw_w_fmt is not None and trans_w_fmt is not None:
-                    size_parts.append(f"w={raw_w_fmt}→{trans_w_fmt}")
-                if raw_h_fmt is not None and trans_h_fmt is not None:
-                    size_parts.append(f"h={raw_h_fmt}→{trans_h_fmt}")
-                if size_parts:
-                    info_lines.append("size: " + ", ".join(size_parts))
-        transform_lines = self._format_transform_chain(current_item, mapper, group_transform)
-        override_lines = self._format_override_lines(current_item)
-        painter.save()
-        text = self._cycle_current_id
-        highlight_color = QColor("#ffb347")
-        background = QColor(0, 0, 0, 180)
-        font = QFont(self._font_family)
-        self._apply_font_fallbacks(font)
-        state = self._viewport_state()
-        title_point = max(
-            20.0,
-            viewport_scaled_point_size(
-                state,
-                18.0,
-                self._font_scale_diag,
-                self._font_min_point,
-                self._font_max_point,
-                mapper,
-                use_physical=True,
-            ),
+        self._cycle_current_id, ids = self._cycle_overlay_view.sync_cycle_items(
+            cycle_enabled=self._cycle_payload_enabled,
+            payload_model=self._payload_model,
+            cycle_current_id=self._cycle_current_id,
         )
-        font.setPointSizeF(title_point)
-        font.setWeight(QFont.Weight.Bold)
-        painter.setFont(font)
-        metrics = painter.fontMetrics()
-        text_width = metrics.horizontalAdvance(text)
-        plugin_font = QFont(self._font_family)
-        self._apply_font_fallbacks(plugin_font)
-        plugin_point = max(12.0, min(title_point - 4.0, title_point * 0.8))
-        plugin_font.setPointSizeF(plugin_point)
-        plugin_font.setWeight(QFont.Weight.Normal)
-        plugin_metrics = QFontMetrics(plugin_font)
-        center_x = self.width() // 2
-        center_y = self.height() // 2
-        padding_x = 12
-        padding_y = 8
-        line_height_title = metrics.lineSpacing()
-        line_height_plugin = plugin_metrics.lineSpacing()
-        small_lines = [plugin_line, center_line] + info_lines + transform_lines + override_lines
-        small_widths = [plugin_metrics.horizontalAdvance(line) for line in small_lines]
-        content_width = max([text_width, *small_widths] if small_widths else [text_width])
-        rect_width = content_width + padding_x * 2
-        rect_height = line_height_title + len(small_lines) * line_height_plugin + padding_y * 2
-        rect_left = center_x - rect_width // 2
-        rect_top = center_y - rect_height // 2
-        rect_right = rect_left + rect_width
-        rect_bottom = rect_top + rect_height
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(background)
-        painter.drawRoundedRect(rect_left, rect_top, rect_width, rect_height, 10, 10)
-        painter.setPen(highlight_color)
-        baseline_top = rect_top + padding_y + metrics.ascent()
-        painter.drawText(center_x - text_width // 2, baseline_top, text)
-        painter.setFont(plugin_font)
-        baseline_line = baseline_top + line_height_title
-        for line, width in zip(small_lines, small_widths):
-            painter.drawText(center_x - width // 2, baseline_line, line)
-            baseline_line += line_height_plugin
-        if anchor is not None:
-            start_x = center_x
-            start_y = center_y
-            dx = anchor[0] - center_x
-            dy = anchor[1] - center_y
-            if dx != 0 or dy != 0:
-                candidates: List[float] = []
-                if dx > 0:
-                    candidates.append((rect_right - center_x) / dx)
-                elif dx < 0:
-                    candidates.append((rect_left - center_x) / dx)
-                if dy > 0:
-                    candidates.append((rect_bottom - center_y) / dy)
-                elif dy < 0:
-                    candidates.append((rect_top - center_y) / dy)
-                t_min = min((t for t in candidates if t >= 0.0), default=0.0)
-                if t_min > 0.0:
-                    start_x = int(round(center_x + dx * t_min))
-                    start_y = int(round(center_y + dy * t_min))
-                else:
-                    start_x = center_x
-                    start_y = rect_top + rect_height
-            else:
-                start_x = center_x
-                start_y = rect_top + rect_height
-            painter.setPen(QPen(highlight_color, self._line_width("cycle_connector")))
-            painter.drawLine(start_x, start_y, anchor[0], anchor[1])
-            painter.setBrush(highlight_color)
-            painter.drawEllipse(anchor[0] - 4, anchor[1] - 4, 8, 8)
-        painter.restore()
+        self._cycle_payload_ids = ids
+        self._cycle_overlay_view.paint_cycle_overlay(
+            painter,
+            cycle_enabled=self._cycle_payload_enabled,
+            cycle_current_id=self._cycle_current_id,
+            compute_legacy_mapper=self._compute_legacy_mapper,
+            font_family=self._font_family,
+            window_width=float(self.width()),
+            window_height=float(self.height()),
+            cycle_anchor_points=self._cycle_anchor_points,
+            payload_model=self._payload_model,
+            grouping_helper=self._grouping_helper,
+        )
 
     def set_font_bounds(self, min_point: Optional[float], max_point: Optional[float]) -> None:
         changed = False
@@ -1790,10 +1532,9 @@ class OverlayWindow(QWidget):
         self.message_label.clear()
 
     def set_status_text(self, status: str) -> None:
-        self._status_raw = status
-        self._status = self._format_status_message(status)
-        if self._show_status:
-            self._show_overlay_status_message(self._status)
+        self._status_presenter.set_status_text(status)
+        self._status_raw = self._status_presenter.status_raw
+        self._status = self._status_presenter.status
 
     def _format_status_message(self, status: str) -> str:
         message = status or ""
@@ -1806,23 +1547,15 @@ class OverlayWindow(QWidget):
         return f"{message}{suffix}"
 
     def set_show_status(self, show: bool) -> None:
-        flag = bool(show)
-        if flag == self._show_status:
-            return
-        self._show_status = flag
-        if flag:
-            self._show_overlay_status_message(self._status)
-        else:
-            self._dismiss_overlay_status_message()
+        self._status_presenter.set_show_status(show)
+        self._show_status = self._status_presenter.show_status
 
     def set_status_bottom_margin(self, margin: Optional[int]) -> None:
-        value = self._coerce_non_negative(margin, default=self._status_bottom_margin)
-        if value == self._status_bottom_margin:
-            return
-        self._status_bottom_margin = value
-        _CLIENT_LOGGER.debug("Status bottom margin updated to %spx", self._status_bottom_margin)
-        if self._show_status and self._status:
-            self._show_overlay_status_message(self._status)
+        self._status_presenter.set_status_bottom_margin(
+            margin if margin is not None else self._status_presenter.status_bottom_margin,
+            coerce_fn=lambda value, default: self._coerce_non_negative(value, default=default),
+        )
+        self._status_bottom_margin = self._status_presenter.status_bottom_margin
 
     def set_debug_overlay_corner(self, corner: Optional[str]) -> None:
         normalised = self._normalise_debug_corner(corner)
@@ -1890,6 +1623,124 @@ class OverlayWindow(QWidget):
 
     def _mark_legacy_cache_dirty(self) -> None:
         self._render_pipeline.mark_dirty()
+
+    def _record_repaint_event(self, reason: str) -> None:
+        metrics = self._repaint_metrics
+        if not metrics.get("enabled"):
+            return
+        counts = metrics.setdefault("counts", {})
+        counts["total"] = counts.get("total", 0) + 1
+        counts[reason] = counts.get(reason, 0) + 1
+        now = time.monotonic()
+        last_ts_raw = metrics.get("last_ts")
+        last_ts = float(last_ts_raw) if last_ts_raw is not None else None
+        if last_ts is None or now - last_ts > 0.1:
+            burst = 1
+        else:
+            burst = int(metrics.get("burst_current", 0)) + 1
+        metrics["burst_current"] = burst
+        metrics["last_ts"] = now
+        if burst > metrics.get("burst_max", 0):
+            metrics["burst_max"] = burst
+            _CLIENT_LOGGER.debug(
+                "Repaint burst updated (%s): current=%d max=%d interval=%.3fs totals=%s",
+                reason,
+                burst,
+                metrics["burst_max"],
+                (now - last_ts) if last_ts is not None else 0.0,
+                counts,
+            )
+
+    def _request_repaint(self, reason: str, *, immediate: bool = False) -> None:
+        self._record_repaint_event(reason)
+        debounce_enabled = bool(getattr(self, "_repaint_debounce_enabled", True))
+        timer = getattr(self, "_repaint_timer", None)
+        effective_immediate = immediate or not debounce_enabled or timer is None
+        if self._repaint_debounce_log:
+            should_log = effective_immediate or timer is None or not timer.isActive()
+            if should_log:
+                path_label = "immediate" if effective_immediate else "debounced"
+                now = time.monotonic()
+                last = self._repaint_log_last or {}
+                if (
+                    last.get("reason") != reason
+                    or last.get("path") != path_label
+                    or now - float(last.get("ts", 0.0)) > 1.0
+                ):
+                    _CLIENT_LOGGER.debug(
+                        "Repaint request: reason=%s path=%s debounce_enabled=%s timer_active=%s",
+                        reason,
+                        path_label,
+                        debounce_enabled,
+                        timer.isActive() if timer is not None else False,
+                    )
+                    self._repaint_log_last = {"reason": reason, "path": path_label, "ts": now}
+        if effective_immediate:
+            if timer is not None and timer.isActive():
+                timer.stop()
+            self.update()
+            return
+        if not timer.isActive():
+            timer.start()
+
+    def _trigger_debounced_repaint(self) -> None:
+        self.update()
+
+    @staticmethod
+    def _should_bypass_debounce(payload: Mapping[str, Any]) -> bool:
+        """Allow immediate repaint for fast animations/short-lived payloads."""
+
+        if payload.get("animate"):
+            return True
+        ttl_raw = payload.get("ttl")
+        try:
+            ttl_value = float(ttl_raw)
+        except (TypeError, ValueError):
+            return False
+        return 0.0 < ttl_value <= 1.0
+
+    def _emit_paint_stats(self) -> None:
+        if not self._repaint_debounce_log:
+            return
+        counts = getattr(self, "_repaint_metrics", {}).get("counts", {})
+        stats = getattr(self, "_paint_stats", {})
+        paint_count = stats.get("paint_count", 0) if isinstance(stats, dict) else 0
+        stats["paint_count"] = 0
+        last_state = getattr(self, "_paint_log_state", {}) or {}
+        ingest_total = counts.get("ingest", 0) if isinstance(counts, dict) else 0
+        purge_total = counts.get("purge", 0) if isinstance(counts, dict) else 0
+        total_total = counts.get("total", 0) if isinstance(counts, dict) else 0
+        ingest_delta = ingest_total - int(last_state.get("last_ingest", 0))
+        purge_delta = purge_total - int(last_state.get("last_purge", 0))
+        total_delta = total_total - int(last_state.get("last_total", 0))
+        self._paint_log_state = {
+            "last_ingest": ingest_total,
+            "last_purge": purge_total,
+            "last_total": total_total,
+        }
+        _CLIENT_LOGGER.debug(
+            "Repaint stats: paints=%d ingest_delta=%d purge_delta=%d total_delta=%d ingest_total=%s purge_total=%s total=%s",
+            paint_count,
+            ingest_delta,
+            purge_delta,
+            total_delta,
+            ingest_total,
+            purge_total,
+            total_total,
+        )
+        measure_stats = getattr(self, "_measure_stats", {})
+        if isinstance(measure_stats, dict) and measure_stats.get("calls"):
+            _CLIENT_LOGGER.debug(
+                "Text measure stats: calls=%d hits=%d misses=%d resets=%d (window=5s)",
+                measure_stats.get("calls", 0),
+                measure_stats.get("cache_hit", 0),
+                measure_stats.get("cache_miss", 0),
+                measure_stats.get("cache_reset", 0),
+            )
+            measure_stats["calls"] = 0
+            measure_stats["cache_hit"] = 0
+            measure_stats["cache_miss"] = 0
+            measure_stats["cache_reset"] = 0
 
     def set_background_opacity(self, opacity: float) -> None:
         try:
@@ -2014,6 +1865,7 @@ class OverlayWindow(QWidget):
         self._platform_controller.update_context(new_context)
         self._platform_controller.prepare_window(self.windowHandle())
         self._platform_controller.apply_click_through(True)
+        self._interaction_controller.reapply_current(reason="platform_context_update")
         self._restore_drag_interactivity()
         _CLIENT_LOGGER.debug(
             "Platform context updated: session=%s compositor=%s force_xwayland=%s flatpak=%s",
@@ -2038,7 +1890,7 @@ class OverlayWindow(QWidget):
             bool(window),
             hex(int(window.flags())) if window is not None else "none",
         )
-        self._set_click_through(not self._drag_enabled)
+        self._interaction_controller.set_click_through(not self._drag_enabled, force=True, reason="apply_drag_state")
         if not self._drag_enabled:
             self._move_mode = False
             self._drag_active = False
@@ -2067,42 +1919,25 @@ class OverlayWindow(QWidget):
                 self._cursor_saved = False
 
     def _set_click_through(self, transparent: bool) -> None:
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, transparent)
+        self._interaction_controller.set_click_through(transparent, force=True, reason="external_set_click_through")
+
+    def _restore_drag_interactivity(self) -> None:
+        self._interaction_controller.restore_drag_interactivity(self._drag_enabled, self._drag_active, self.format_scale_debug)
+
+    def _set_children_click_through(self, transparent: bool) -> None:
         for child_name in ("message_label",):
             child = getattr(self, child_name, None)
             if child is not None:
                 try:
                     child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, transparent)
-                except Exception:
-                    pass
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
-        if self._is_wayland():
-            self.setWindowFlag(Qt.WindowType.Tool, False)
-        else:
-            self.setWindowFlag(Qt.WindowType.Tool, True)
-        if not self.isVisible():
-            self.show()
-        window = self.windowHandle()
-        _CLIENT_LOGGER.debug(
-            "Set click-through to %s (WA_Transparent=%s window_flag=%s)",
-            transparent,
-            self.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents),
-            hex(int(window.flags())) if window is not None else "none",
-        )
-        if window is not None:
-            self._platform_controller.prepare_window(window)
-            self._platform_controller.apply_click_through(transparent)
-            if self._transparent_input_supported:
-                window.setFlag(Qt.WindowType.WindowTransparentForInput, transparent)
-        if self.isVisible():
-            self.raise_()
+                except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+                    _CLIENT_LOGGER.debug("Failed to set click-through on child %s: %s", child_name, exc)
+                except Exception as exc:  # pragma: no cover - unexpected Qt errors
+                    _CLIENT_LOGGER.warning("Unexpected error setting click-through on child %s: %s", child_name, exc)
 
-    def _restore_drag_interactivity(self) -> None:
-        if not self._drag_enabled or self._drag_active:
-            return
-        _CLIENT_LOGGER.debug("Restoring interactive overlay input because drag is enabled; %s", self.format_scale_debug())
-        self._set_click_through(False)
+    def _clear_transient_parent_ids(self) -> None:
+        self._transient_parent_window = None
+        self._transient_parent_id = None
 
     # Follow mode ----------------------------------------------------------
 
@@ -2140,65 +1975,63 @@ class OverlayWindow(QWidget):
         self._last_tracker_state = self._follow_controller.last_tracker_state
         self._apply_follow_state(state)
 
+    def _convert_native_rect_to_qt(
+        self,
+        rect: Tuple[int, int, int, int],
+    ) -> Tuple[Tuple[int, int, int, int], Optional[Tuple[str, float, float, float]]]:
+        screen_info = self._screen_info_for_native_rect(rect)
+        return _convert_native_rect_to_qt(rect, screen_info)
+
     def _apply_title_bar_offset(
         self,
         geometry: Tuple[int, int, int, int],
         *,
         scale_y: float = 1.0,
     ) -> Tuple[Tuple[int, int, int, int], int]:
-        previous_offset = self._last_title_bar_offset
-        if not self._title_bar_enabled or self._title_bar_height <= 0:
-            self._last_title_bar_offset = 0
-            if previous_offset != 0:
-                _CLIENT_LOGGER.debug(
-                    "Title bar offset updated: enabled=%s height=%d offset=%d scale_y=%.3f",
-                    False,
-                    self._title_bar_height,
-                    0,
-                    float(scale_y),
-                )
-            return geometry, 0
-        x, y, width, height = geometry
-        if height <= 1:
-            self._last_title_bar_offset = 0
-            if previous_offset != 0:
-                _CLIENT_LOGGER.debug(
-                    "Title bar offset updated: enabled=%s height=%d offset=%d scale_y=%.3f",
-                    self._title_bar_enabled,
-                    self._title_bar_height,
-                    0,
-                    float(scale_y),
-                )
-            return geometry, 0
-        safe_scale = max(scale_y, 0.0)
-        scaled_offset = float(self._title_bar_height) * safe_scale
-        offset = min(int(round(scaled_offset)), max(0, height - 1))
-        if offset <= 0:
-            self._last_title_bar_offset = 0
-            if previous_offset != 0:
-                _CLIENT_LOGGER.debug(
-                    "Title bar offset updated: enabled=%s height=%d offset=%d scale_y=%.3f",
-                    self._title_bar_enabled,
-                    self._title_bar_height,
-                    0,
-                    float(scale_y),
-                )
-            return geometry, 0
-        adjusted_height = max(1, height - offset)
+        adjusted, offset = _apply_title_bar_offset(
+            geometry,
+            title_bar_enabled=self._title_bar_enabled,
+            title_bar_height=self._title_bar_height,
+            scale_y=scale_y,
+            previous_offset=self._last_title_bar_offset,
+        )
         self._last_title_bar_offset = offset
-        if offset != previous_offset:
-            _CLIENT_LOGGER.debug(
-                "Title bar offset updated: enabled=%s height=%d offset=%d scale_y=%.3f",
-                self._title_bar_enabled,
-                self._title_bar_height,
-                offset,
-                float(scale_y),
-            )
-        return (x, y + offset, width, adjusted_height), offset
+        return adjusted, offset
+
+    def _apply_aspect_guard(
+        self,
+        geometry: Tuple[int, int, int, int],
+        *,
+        original_geometry: Optional[Tuple[int, int, int, int]] = None,
+        applied_title_offset: int = 0,
+    ) -> Tuple[int, int, int, int]:
+        adjusted, self._aspect_guard_skip_logged = _apply_aspect_guard(
+            geometry,
+            base_width=DEFAULT_WINDOW_BASE_WIDTH,
+            base_height=DEFAULT_WINDOW_BASE_HEIGHT,
+            original_geometry=original_geometry,
+            applied_title_offset=applied_title_offset,
+            aspect_guard_skip_logged=self._aspect_guard_skip_logged,
+        )
+        return adjusted
 
     def _apply_follow_state(self, state: WindowState) -> None:
         self._lost_window_logged = False
 
+        tracker_qt_tuple, tracker_native_tuple, normalisation_info, desired_tuple = self._normalise_tracker_geometry(state)
+
+        target_tuple = self._resolve_and_apply_geometry(tracker_qt_tuple, desired_tuple)
+        self._post_process_follow_state(state, target_tuple)
+
+    def _normalise_tracker_geometry(
+        self,
+        state: WindowState,
+    ) -> Tuple[
+        Tuple[int, int, int, int],
+        Tuple[int, int, int, int],
+        Optional[Tuple[str, float, float, float]],
+        Tuple[int, int, int, int],
+    ]:
         tracker_global_x = state.global_x if state.global_x is not None else state.x
         tracker_global_y = state.global_y if state.global_y is not None else state.y
         width = max(1, state.width)
@@ -2241,7 +2074,11 @@ class OverlayWindow(QWidget):
         if window_handle is not None:
             try:
                 window_dpr = window_handle.devicePixelRatio()
-            except Exception:
+            except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+                _CLIENT_LOGGER.debug("Failed to read devicePixelRatio, defaulting to 0.0: %s", exc)
+                window_dpr = 0.0
+            except Exception as exc:  # pragma: no cover - unexpected Qt errors
+                _CLIENT_LOGGER.warning("Unexpected devicePixelRatio failure, defaulting to 0.0: %s", exc)
                 window_dpr = 0.0
             if window_dpr and normalisation_info is not None:
                 screen_name, norm_scale_x, norm_scale_y, device_ratio = normalisation_info
@@ -2264,65 +2101,36 @@ class OverlayWindow(QWidget):
             original_geometry=tracker_qt_tuple,
             applied_title_offset=applied_title_offset,
         )
+        return tracker_qt_tuple, tracker_native_tuple, normalisation_info, desired_tuple
 
-        target_tuple = desired_tuple
+    def _resolve_and_apply_geometry(
+        self,
+        tracker_qt_tuple: Tuple[int, int, int, int],
+        desired_tuple: Tuple[int, int, int, int],
+    ) -> Tuple[int, int, int, int]:
         override_rect = self._follow_controller.wm_override
         override_tracker = self._follow_controller.wm_override_tracker
         override_expired = self._follow_controller.override_expired()
-        if override_rect is not None:
-            if tracker_qt_tuple == override_rect:
-                self._clear_wm_override(reason="tracker realigned with WM")
-            elif override_tracker is not None and tracker_qt_tuple != override_tracker:
-                self._clear_wm_override(reason="tracker changed")
-            elif override_expired:
-                self._clear_wm_override(reason="override timeout")
-            else:
-                target_tuple = override_rect
 
-        target_rect = QRect(*target_tuple)
-        current_rect = self.frameGeometry()
-        actual_tuple = (
-            current_rect.x(),
-            current_rect.y(),
-            current_rect.width(),
-            current_rect.height(),
-        )
-
-        if target_tuple != self._last_geometry_log:
-            _CLIENT_LOGGER.debug(
-                "Calculated overlay geometry: target=%s; %s",
-                target_tuple,
-                self.format_scale_debug(),
-            )
-
-        needs_geometry_update = actual_tuple != target_tuple
-
-        if needs_geometry_update:
-            _CLIENT_LOGGER.debug("Applying geometry via setGeometry: target=%s; %s", target_tuple, self.format_scale_debug())
-            self._move_to_screen(target_rect)
-            self._last_set_geometry = target_tuple
-            self.setGeometry(target_rect)
-            self._sync_base_dimensions_to_widget()
-            self.raise_()
+        def _current_geometry() -> Tuple[int, int, int, int]:
             current_rect = self.frameGeometry()
-            actual_tuple = (
+            return (
                 current_rect.x(),
                 current_rect.y(),
                 current_rect.width(),
                 current_rect.height(),
             )
-        else:
-            self._last_set_geometry = target_tuple
-            self._sync_base_dimensions_to_widget()
 
-        if actual_tuple != target_tuple:
-            _CLIENT_LOGGER.debug(
-                "Window manager override detected: actual=%s target=%s; %s",
-                actual_tuple,
-                target_tuple,
-                self.format_scale_debug(),
-            )
-            classification = self._classify_geometry_override(target_tuple, actual_tuple)
+        def _move_to_screen(target: Tuple[int, int, int, int]) -> None:
+            self._move_to_screen(QRect(*target))
+
+        def _set_geometry(target: Tuple[int, int, int, int]) -> None:
+            self._last_set_geometry = target
+            self.setGeometry(QRect(*target))
+            self.raise_()
+
+        def _classify_override(target: Tuple[int, int, int, int], actual: Tuple[int, int, int, int]) -> str:
+            classification = self._classify_geometry_override(target, actual)
             if classification == "layout":
                 try:
                     size_hint = self.sizeHint()
@@ -2335,7 +2143,7 @@ class OverlayWindow(QWidget):
                 _CLIENT_LOGGER.debug(
                     "Adopting layout-constrained geometry from WM: tracker=%s actual=%s sizeHint=%s minimumSizeHint=%s",
                     tracker_qt_tuple,
-                    actual_tuple,
+                    actual,
                     size_hint,
                     min_hint,
                 )
@@ -2343,22 +2151,62 @@ class OverlayWindow(QWidget):
                 _CLIENT_LOGGER.debug(
                     "Adopting WM authoritative geometry: tracker=%s actual=%s (classification=%s)",
                     tracker_qt_tuple,
-                    actual_tuple,
+                    actual,
                     classification,
                 )
-            self._set_wm_override(
-                actual_tuple,
-                tracker_qt_tuple,
-                reason="geometry mismatch",
-                classification=classification,
-            )
-            target_tuple = actual_tuple
-            target_rect = QRect(*target_tuple)
-        elif override_rect and tracker_qt_tuple == target_tuple:
-            self._clear_wm_override(reason="tracker matched actual")
+            return classification
+
+        target_tuple = self._window_controller.resolve_and_apply_geometry(
+            tracker_qt_tuple,
+            desired_tuple,
+            override_rect=override_rect,
+            override_tracker=override_tracker,
+            override_expired=override_expired,
+            current_geometry_fn=_current_geometry,
+            move_to_screen_fn=_move_to_screen,
+            set_geometry_fn=_set_geometry,
+            sync_base_dimensions_fn=self._sync_base_dimensions_to_widget,
+            classify_override_fn=_classify_override,
+            clear_override_fn=self._clear_wm_override,
+            set_override_fn=self._set_wm_override,
+            format_scale_debug_fn=self.format_scale_debug,
+        )
 
         self._last_geometry_log = target_tuple
-        self._last_follow_state = WindowState(
+        return target_tuple
+
+    def _post_process_follow_state(
+        self,
+        state: WindowState,
+        target_tuple: Tuple[int, int, int, int],
+    ) -> None:
+        def _ensure_parent(identifier: str) -> None:
+            self._ensure_transient_parent(state)
+
+        def _fullscreen_hint() -> bool:
+            if (
+                not sys.platform.startswith("linux")
+                or self._fullscreen_hint_logged
+                or self._window_controller._fullscreen_hint_logged  # internal flag mirrors hint emission
+                or not state.is_foreground
+            ):
+                return False
+            screen = self.windowHandle().screen() if self.windowHandle() else None
+            if screen is None:
+                screen = QGuiApplication.primaryScreen()
+            if screen is None:
+                return False
+            geometry = screen.geometry()
+            if state.width >= geometry.width() and state.height >= geometry.height():
+                _CLIENT_LOGGER.info(
+                    "Overlay running in compositor-managed mode; for true fullscreen use borderless windowed in Elite or enable compositor vsync. (%s)",
+                    self.format_scale_debug(),
+                )
+                self._fullscreen_hint_logged = True
+                return True
+            return False
+
+        normalized_state = WindowState(
             x=state.x,
             y=state.y,
             width=state.width,
@@ -2370,27 +2218,17 @@ class OverlayWindow(QWidget):
             global_y=state.global_y if state.global_y is not None else state.y,
         )
 
-        self._update_auto_legacy_scale(target_tuple[2], target_tuple[3])
-        self._ensure_transient_parent(state)
-        if (
-            sys.platform.startswith("linux")
-            and not self._fullscreen_hint_logged
-            and state.is_foreground
-        ):
-            screen = self.windowHandle().screen() if self.windowHandle() else None
-            if screen is None:
-                screen = QGuiApplication.primaryScreen()
-            if screen is not None:
-                geometry = screen.geometry()
-                if state.width >= geometry.width() and state.height >= geometry.height():
-                    _CLIENT_LOGGER.info(
-                        "Overlay running in compositor-managed mode; for true fullscreen use borderless windowed in Elite or enable compositor vsync. (%s)",
-                        self.format_scale_debug(),
-                    )
-                    self._fullscreen_hint_logged = True
-
-        should_show = self._force_render or (state.is_visible and state.is_foreground)
-        self._update_follow_visibility(should_show)
+        self._window_controller.post_process_follow_state(
+            normalized_state,
+            target_tuple,
+            force_render=self._force_render,
+            update_follow_visibility_fn=self._update_follow_visibility,
+            update_auto_scale_fn=self._update_auto_legacy_scale,
+            ensure_transient_parent_fn=_ensure_parent,
+            fullscreen_hint_fn=_fullscreen_hint,
+        )
+        # Mirror controller flag back to overlay state for future checks.
+        self._fullscreen_hint_logged = self._window_controller._fullscreen_hint_logged
 
     def _ensure_transient_parent(self, state: WindowState) -> None:
         if not sys.platform.startswith("linux"):
@@ -2401,8 +2239,10 @@ class OverlayWindow(QWidget):
                 if window_handle is not None:
                     try:
                         window_handle.setTransientParent(None)
-                    except Exception:
-                        pass
+                    except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+                        _CLIENT_LOGGER.debug("Failed to clear transient parent on Wayland: %s", exc)
+                    except Exception as exc:  # pragma: no cover - unexpected Qt errors
+                        _CLIENT_LOGGER.warning("Unexpected error clearing transient parent on Wayland: %s", exc)
                 self._transient_parent_window = None
                 self._transient_parent_id = None
             return
@@ -2452,17 +2292,17 @@ class OverlayWindow(QWidget):
             self._update_follow_visibility(False)
 
     def _update_follow_visibility(self, show: bool) -> None:
-        if show:
-            if not self.isVisible():
-                self.show()
-                self.raise_()
-                self._apply_drag_state()
-        else:
-            if self.isVisible():
-                self.hide()
-        if self._last_visibility_state != show:
-            _CLIENT_LOGGER.debug("Overlay visibility set to %s; %s", "visible" if show else "hidden", self.format_scale_debug())
-            self._last_visibility_state = show
+        new_state = self._visibility_helper.update_visibility(
+            show,
+            is_visible_fn=lambda: self.isVisible(),
+            show_fn=lambda: self.show(),
+            hide_fn=lambda: self.hide(),
+            raise_fn=lambda: self.raise_(),
+            apply_drag_state_fn=self._apply_drag_state,
+            format_scale_debug_fn=self.format_scale_debug,
+        )
+        # keep compatibility for any consumers expecting cached state
+        self._last_visibility_state = new_state
 
     def _move_to_screen(self, rect: QRect) -> None:
         window = self.windowHandle()
@@ -2517,110 +2357,41 @@ class OverlayWindow(QWidget):
             return best_screen
         return QGuiApplication.primaryScreen()
 
-    def _convert_native_rect_to_qt(
-        self,
-        rect: Tuple[int, int, int, int],
-    ) -> Tuple[Tuple[int, int, int, int], Optional[Tuple[str, float, float, float]]]:
-        x, y, width, height = rect
-        if width <= 0 or height <= 0:
-            return rect, None
-        native_rect = QRect(x, y, width, height)
+    def _screen_info_for_native_rect(self, rect: Tuple[int, int, int, int]) -> Optional[ScreenInfo]:
+        native_rect = QRect(*rect)
         screen = self._screen_for_native_rect(native_rect)
         if screen is None:
-            return rect, None
+            return None
         try:
             native_geometry = screen.nativeGeometry()
         except AttributeError:
             native_geometry = screen.geometry()
         logical_geometry = screen.geometry()
-        native_width = native_geometry.width()
-        native_height = native_geometry.height()
         device_ratio = 1.0
+        screen_name = screen.name() or screen.manufacturer() or "unknown"
         try:
             device_ratio = float(screen.devicePixelRatio())
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+            _CLIENT_LOGGER.debug("devicePixelRatio unavailable for screen %s; defaulting to 1.0 (%s)", screen_name, exc)
             device_ratio = 1.0
         if device_ratio <= 0.0:
             device_ratio = 1.0
-
-        scale_x = logical_geometry.width() / native_width if native_width else 1.0
-        scale_y = logical_geometry.height() / native_height if native_height else 1.0
-
-        if math.isclose(scale_x, 1.0, abs_tol=1e-4):
-            scale_x = 1.0 / device_ratio
-        if math.isclose(scale_y, 1.0, abs_tol=1e-4):
-            scale_y = 1.0 / device_ratio
-
-        native_origin_x = native_geometry.x()
-        native_origin_y = native_geometry.y()
-        if math.isclose(native_origin_x, logical_geometry.x(), abs_tol=1e-4):
-            native_origin_x = logical_geometry.x() * device_ratio
-        if math.isclose(native_origin_y, logical_geometry.y(), abs_tol=1e-4):
-            native_origin_y = logical_geometry.y() * device_ratio
-
-        qt_x = logical_geometry.x() + (x - native_origin_x) * scale_x
-        qt_y = logical_geometry.y() + (y - native_origin_y) * scale_y
-        qt_width = width * scale_x
-        qt_height = height * scale_y
-        converted = (
-            int(round(qt_x)),
-            int(round(qt_y)),
-            max(1, int(round(qt_width))),
-            max(1, int(round(qt_height))),
+        return ScreenInfo(
+            name=screen_name,
+            logical_geometry=(
+                logical_geometry.x(),
+                logical_geometry.y(),
+                logical_geometry.width(),
+                logical_geometry.height(),
+            ),
+            native_geometry=(
+                native_geometry.x(),
+                native_geometry.y(),
+                native_geometry.width(),
+                native_geometry.height(),
+            ),
+            device_ratio=device_ratio,
         )
-        screen_name = screen.name() or screen.manufacturer() or "unknown"
-        return converted, (screen_name, float(scale_x), float(scale_y), device_ratio)
-
-    def _apply_aspect_guard(
-        self,
-        geometry: Tuple[int, int, int, int],
-        *,
-        original_geometry: Optional[Tuple[int, int, int, int]] = None,
-        applied_title_offset: int = 0,
-    ) -> Tuple[int, int, int, int]:
-        x, y, width, height = geometry
-        if width <= 0 or height <= 0:
-            return geometry
-        base_ratio = DEFAULT_WINDOW_BASE_WIDTH / float(DEFAULT_WINDOW_BASE_HEIGHT)
-        current_ratio = width / float(height)
-        original_ratio = None
-        if original_geometry is not None:
-            _, _, original_width, original_height = original_geometry
-            if original_width > 0 and original_height > 0:
-                original_ratio = original_width / float(original_height)
-        ratio_for_check = original_ratio if original_ratio is not None else current_ratio
-        if abs(ratio_for_check - base_ratio) > 0.04:
-            if not self._aspect_guard_skip_logged:
-                _CLIENT_LOGGER.debug(
-                    "Aspect guard skipped: tracker_ratio=%.3f current_ratio=%.3f base_ratio=%.3f offset=%d",
-                    ratio_for_check,
-                    current_ratio,
-                    base_ratio,
-                    int(applied_title_offset),
-                )
-                self._aspect_guard_skip_logged = True
-            return geometry
-        self._aspect_guard_skip_logged = False
-        expected_height = int(round(width * DEFAULT_WINDOW_BASE_HEIGHT / float(DEFAULT_WINDOW_BASE_WIDTH)))
-        tolerance = max(2, int(round(expected_height * 0.01)))
-        if height <= expected_height:
-            return geometry
-        height_delta = height - expected_height
-        max_delta = max(6, int(round(width * 0.02)))
-        if height_delta > max_delta:
-            return geometry
-        if height_delta > 0:
-            adjusted = (x, y, width, expected_height)
-            _CLIENT_LOGGER.debug(
-                "Aspect guard trimmed overlay height: width=%d height=%d expected=%d tolerance=%d -> adjusted=%s",
-                width,
-                height,
-                expected_height,
-                tolerance,
-                adjusted,
-            )
-            return adjusted
-        return geometry
 
     def _describe_screen(self, screen) -> str:
         if screen is None:
@@ -2628,7 +2399,11 @@ class OverlayWindow(QWidget):
         try:
             geometry = screen.geometry()
             return f"{screen.name()} {geometry.width()}x{geometry.height()}@({geometry.x()},{geometry.y()})"
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+            _CLIENT_LOGGER.debug("Failed to describe screen %r: %s", screen, exc)
+            return str(screen)
+        except Exception as exc:  # pragma: no cover - unexpected Qt errors
+            _CLIENT_LOGGER.warning("Unexpected error describing screen %r: %s", screen, exc)
             return str(screen)
 
     def _sync_base_dimensions_to_widget(self) -> None:
@@ -2702,7 +2477,11 @@ class OverlayWindow(QWidget):
         mapper = self._compute_legacy_mapper()
         try:
             ratio = self.devicePixelRatioF()
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+            _CLIENT_LOGGER.debug("devicePixelRatioF unavailable, defaulting to 1.0: %s", exc)
+            ratio = 1.0
+        except Exception as exc:  # pragma: no cover - unexpected Qt errors
+            _CLIENT_LOGGER.warning("Unexpected devicePixelRatioF failure, defaulting to 1.0: %s", exc)
             ratio = 1.0
         if ratio <= 0.0:
             ratio = 1.0
@@ -2843,19 +2622,33 @@ class OverlayWindow(QWidget):
             def trace_fn(stage: str, _payload: Mapping[str, Any], extra: Mapping[str, Any]) -> None:
                 self._log_legacy_trace(plugin_name, message_id, stage, extra)
 
-        if self._payload_model.ingest(payload, trace_fn=trace_fn):
+        group_label = self._override_manager.grouping_label_for_id(message_id)
+        if self._payload_model.ingest(
+            payload,
+            trace_fn=trace_fn,
+            override_generation=self._override_manager.generation,
+            group_label=group_label,
+        ):
             if self._cycle_payload_enabled:
                 self._sync_cycle_items()
             self._mark_legacy_cache_dirty()
-            self.update()
+            self._request_repaint("ingest", immediate=self._should_bypass_debounce(payload))
 
     def _purge_legacy(self) -> None:
         now = time.monotonic()
+        previous_count = len(self._payload_model)
         if self._payload_model.purge_expired(now):
             if self._cycle_payload_enabled:
                 self._sync_cycle_items()
             self._mark_legacy_cache_dirty()
-            self.update()
+            expired_count = max(0, previous_count - len(self._payload_model))
+            if expired_count and self._repaint_metrics.get("enabled"):
+                _CLIENT_LOGGER.debug(
+                    "Expired payloads purged: count=%d timer_active=%s",
+                    expired_count,
+                    getattr(self, "_repaint_timer", None).isActive() if getattr(self, "_repaint_timer", None) else False,
+                )
+            self._request_repaint("purge")
         if not len(self._payload_model):
             self._group_log_pending_base.clear()
             self._group_log_pending_transform.clear()
@@ -3048,7 +2841,15 @@ class OverlayWindow(QWidget):
             justification_dx = getattr(command, "justification_dx", 0.0)
             payload_offset_x = translation_x + justification_dx + nudge_x
             payload_offset_y = translation_y + nudge_y
-            self._log_offscreen_payload(command, payload_offset_x, payload_offset_y, window_width, window_height)
+            log_offscreen_payload(
+                command=command,
+                offset_x=payload_offset_x,
+                offset_y=payload_offset_y,
+                window_width=window_width,
+                window_height=window_height,
+                offscreen_payloads=self._offscreen_payloads,
+                log_fn=_CLIENT_LOGGER.warning,
+            )
             command.paint(self, painter, payload_offset_x, payload_offset_y)
             if draw_vertex_markers and command.bounds:
                 left, top, right, bottom = command.bounds
@@ -3100,7 +2901,11 @@ class OverlayWindow(QWidget):
         effective_anchor_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
         transform_by_group: Dict[Tuple[str, Optional[str]], Optional[GroupTransform]] = {}
         for item_id, legacy_item in self._payload_model.store.items():
-            group_key = self._grouping_helper.group_key_for(item_id, legacy_item.plugin)
+            group_key = self._group_coordinator.resolve_group_key(
+                item_id,
+                legacy_item.plugin,
+                self._override_manager,
+            )
             group_transform = self._grouping_helper.get_transform(group_key)
             transform_by_group[group_key.as_tuple()] = group_transform
             has_explicit_offset = False
@@ -3214,8 +3019,7 @@ class OverlayWindow(QWidget):
         base_overlay_bounds: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
         base_scale: float,
     ) -> Dict[Tuple[str, Optional[str]], _ScreenBounds]:
-        requests: List[JustificationRequest] = []
-        trace_targets: Dict[int, Tuple[Optional[str], str, str, float, Optional[float], float]] = {}
+        command_contexts: List[CommandContext] = []
         for command in commands:
             command.justification_dx = 0.0
             bounds = command.bounds
@@ -3223,79 +3027,76 @@ class OverlayWindow(QWidget):
                 continue
             key = command.group_key.as_tuple()
             transform = transform_by_group.get(key)
-            justification = getattr(transform, "payload_justification", "left") if transform else "left"
+            justification = (getattr(transform, "payload_justification", "left") or "left").strip().lower()
             suffix = command.group_key.suffix
-            if suffix is None:
-                continue
-            if justification not in {"center", "right"}:
-                continue
-            width = float(bounds[2]) - float(bounds[0])
-            base_bounds = base_overlay_bounds.get(key)
-            baseline_width = None
-            if base_bounds is not None and base_bounds.is_valid():
-                scale_value = base_scale
-                if not math.isfinite(scale_value) or math.isclose(scale_value, 0.0, rel_tol=1e-9, abs_tol=1e-9):
-                    scale_value = 1.0
-                baseline_width = (base_bounds.max_x - base_bounds.min_x) * scale_value
             plugin = getattr(command.legacy_item, "plugin", None)
             item_id = command.legacy_item.item_id
-            should_trace = self._should_trace_payload(plugin, item_id)
-            if should_trace:
-                self._log_legacy_trace(
-                    plugin,
-                    item_id,
-                    "justify:measure",
-                    {
-                        "width_px": width,
-                        "baseline_px": baseline_width,
-                        "suffix": suffix,
-                        "justification": justification,
-                    },
-                )
-            delta = 0.0
-            if justification == "right" and command.raw_min_x is not None:
-                multiplier = getattr(command, "right_just_multiplier", 0) or 0
-                if multiplier and transform is not None:
-                    base_delta = self._right_justification_delta(transform, command.raw_min_x)
-                    delta = base_delta * float(multiplier)
-            if should_trace:
-                trace_targets[id(command)] = (plugin, item_id, suffix, width, baseline_width, delta)
-            requests.append(
-                JustificationRequest(
+            command_contexts.append(
+                CommandContext(
                     identifier=id(command),
                     key=key,
-                    suffix=suffix,
+                    bounds=(float(bounds[0]), float(bounds[1]), float(bounds[2]), float(bounds[3])),
+                    raw_min_x=command.raw_min_x,
+                    right_just_multiplier=getattr(command, "right_just_multiplier", 0),
                     justification=justification,
-                    width=width,
-                    baseline_width=baseline_width,
-                    right_justification_delta_px=delta,
+                    suffix=suffix,
+                    plugin=plugin,
+                    item_id=item_id,
                 )
             )
-        if not requests:
-            return translated_bounds_by_group
-        offset_map = calculate_offsets(requests)
+
+        def _trace(plugin: Optional[str], item_id: str, stage: str, details: Dict[str, float]) -> None:
+            self._log_legacy_trace(plugin, item_id, stage, details)
+
+        base_bounds_map: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
+        for key, bounds in base_overlay_bounds.items():
+            if bounds is None or not bounds.is_valid():
+                continue
+            base_bounds_map[key] = (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y)
+        overlay_bounds_map: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
+        for key, bounds in overlay_bounds_by_group.items():
+            if bounds is None or not bounds.is_valid():
+                continue
+            overlay_bounds_map[key] = (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y)
+        baseline_bounds = build_baseline_bounds(base_bounds_map, overlay_bounds_map)
+
+        offset_map = compute_justification_offsets(
+            command_contexts,
+            transform_by_group,
+            baseline_bounds,
+            base_scale,
+            trace_fn=_trace,
+        )
         if not offset_map:
             return translated_bounds_by_group
-        if not math.isfinite(base_scale) or math.isclose(base_scale, 0.0, rel_tol=1e-9, abs_tol=1e-9):
-            base_scale = 1.0
+
+        updated_bounds: Dict[Tuple[str, Optional[str]], _ScreenBounds] = {}
         for command in commands:
+            bounds = command.bounds
+            if not bounds:
+                continue
+            key = command.group_key.as_tuple()
             command.justification_dx = offset_map.get(id(command), 0.0)
-            trace_target = trace_targets.get(id(command))
-            if trace_target:
-                plugin, item_id, suffix, width_px, baseline_px, delta_px = trace_target
-                self._log_legacy_trace(
-                    plugin,
-                    item_id,
-                    "justify:apply",
-                    {
-                        "offset_px": command.justification_dx,
-                        "suffix": suffix,
-                        "width_px": width_px,
-                        "baseline_px": baseline_px,
-                        "right_justification_delta": delta_px,
-                    },
-                )
-        return self._rebuild_translated_bounds(commands, anchor_translation_by_group, translated_bounds_by_group)
+            translation_x, translation_y = anchor_translation_by_group.get(key, (0.0, 0.0))
+            offset_x = translation_x + command.justification_dx
+            offset_y = translation_y
+            clone = updated_bounds.setdefault(key, _ScreenBounds())
+            clone.include_rect(
+                float(bounds[0]) + offset_x,
+                float(bounds[1]) + offset_y,
+                float(bounds[2]) + offset_x,
+                float(bounds[3]) + offset_y,
+            )
+        for key, original in translated_bounds_by_group.items():
+            if key in updated_bounds:
+                continue
+            clone = _ScreenBounds()
+            clone.min_x = original.min_x
+            clone.max_x = original.max_x
+            clone.min_y = original.min_y
+            clone.max_y = original.max_y
+            updated_bounds[key] = clone
+        return updated_bounds
 
     def _rebuild_translated_bounds(
         self,
@@ -3390,23 +3191,77 @@ class OverlayWindow(QWidget):
 
     def _legacy_preset_point_size(self, preset: str, state: ViewportState, mapper: LegacyMapper) -> float:
         """Return the scaled font size for a legacy preset relative to normal."""
-        normal_point = viewport_scaled_point_size(
+        return util_legacy_preset_point_size(
+            preset,
             state,
-            10.0,
+            mapper,
             self._font_scale_diag,
             self._font_min_point,
             self._font_max_point,
-            mapper,
-            use_physical=True,
         )
-        offsets = {
-            "small": -2.0,
-            "normal": 0.0,
-            "large": 2.0,
-            "huge": 4.0,
-        }
-        target = normal_point + offsets.get(preset.lower(), 0.0)
-        return max(1.0, target)
+
+    def _invalidate_text_cache(self, reason: Optional[str] = None) -> None:
+        cache = getattr(self, "_text_cache", None)
+        block_cache = getattr(self, "_text_block_cache", None)
+        if isinstance(cache, dict):
+            cache.clear()
+        if isinstance(block_cache, dict):
+            block_cache.clear()
+        self._text_cache_generation += 1
+        if isinstance(self._measure_stats, dict):
+            self._measure_stats["cache_reset"] = self._measure_stats.get("cache_reset", 0) + 1
+        if reason and self._dev_mode_enabled:
+            _CLIENT_LOGGER.debug("Text cache invalidated (%s)", reason)
+
+    def _ensure_text_cache_context(self, family: str) -> None:
+        fallback_tuple: Tuple[str, ...] = tuple(getattr(self, "_font_fallbacks", ()))
+        try:
+            device_ratio = float(self.devicePixelRatioF())
+        except Exception:
+            device_ratio = 1.0
+        if device_ratio <= 0.0 or not math.isfinite(device_ratio):
+            device_ratio = 1.0
+        context = (family, fallback_tuple, round(device_ratio, 3))
+        if context != getattr(self, "_text_cache_context", None):
+            self._text_cache_context = context
+            self._invalidate_text_cache("font/dpi change")
+
+    def _measure_text(self, text: str, point_size: float, font_family: Optional[str] = None) -> Tuple[int, int, int]:
+        stats = getattr(self, "_measure_stats", None)
+        if isinstance(stats, dict):
+            stats["calls"] = stats.get("calls", 0) + 1
+        cache = getattr(self, "_text_cache", None)
+        family = font_family or self._font_family
+        try:
+            ensure_context = getattr(self, "_ensure_text_cache_context", None)
+            if callable(ensure_context):
+                ensure_context(family)
+        except Exception:
+            pass
+        key = (text, point_size, family)
+        if cache is not None:
+            cached = cache.get(key)
+            if cached is not None:
+                stats["cache_hit"] = stats.get("cache_hit", 0) + 1 if isinstance(stats, dict) else 0
+                return cached
+        if self._text_measurer is not None:
+            measured = self._text_measurer(text, point_size, font_family or self._font_family)
+            return measured.width, measured.ascent, measured.descent
+        metrics_font = QFont(family)
+        self._apply_font_fallbacks(metrics_font)
+        metrics_font.setPointSizeF(point_size)
+        metrics_font.setWeight(QFont.Weight.Normal)
+        metrics = QFontMetrics(metrics_font)
+        measured = (metrics.horizontalAdvance(text), metrics.ascent(), metrics.descent())
+        if cache is not None:
+            stats["cache_miss"] = stats.get("cache_miss", 0) + 1 if isinstance(stats, dict) else 0
+            cache[key] = measured
+            if len(cache) > self._TEXT_CACHE_MAX:
+                cache.pop(next(iter(cache)))
+        return measured
+
+    def set_text_measurer(self, measurer: Optional[Callable[[str, float, str], _MeasuredText]]) -> None:
+        self._text_measurer = measurer
 
     def _build_message_command(
         self,
@@ -3425,131 +3280,68 @@ class OverlayWindow(QWidget):
         size = str(item.get("size", "normal")).lower()
         state = self._viewport_state()
         scaled_point_size = self._legacy_preset_point_size(size, state, mapper)
-        fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
-        transform_context = build_payload_transform_context(fill)
         offset_x, offset_y = self._group_offsets(group_transform)
-        base_width_norm = BASE_WIDTH if BASE_WIDTH > 0.0 else 1.0
-        base_height_norm = BASE_HEIGHT if BASE_HEIGHT > 0.0 else 1.0
-        offset_norm_x = offset_x / base_width_norm
-        offset_norm_y = offset_y / base_height_norm
-        scale = fill.scale
-        base_offset_x = fill.base_offset_x
-        base_offset_y = fill.base_offset_y
-        selected_anchor: Optional[Tuple[float, float]] = None
-        base_anchor_point: Optional[Tuple[float, float]] = None
-        anchor_for_transform: Optional[Tuple[float, float]] = None
-        base_translation_dx = 0.0
-        base_translation_dy = 0.0
-        effective_anchor: Optional[Tuple[float, float]] = None
-        if mapper.transform.mode is ScaleMode.FILL:
-            use_overlay_bounds_x = (
-                overlay_bounds_hint is not None
-                and overlay_bounds_hint.is_valid()
-                and not fill.overflow_x
-            )
-            base_anchor_point = self._group_base_point(
-                group_transform,
-                transform_context,
-                overlay_bounds_hint,
-                use_overlay_bounds_x=use_overlay_bounds_x,
-            )
-            anchor_for_transform = base_anchor_point
-            if overlay_bounds_hint is not None and overlay_bounds_hint.is_valid():
-                selected_anchor = self._group_anchor_point(
-                    group_transform,
-                    transform_context,
-                    overlay_bounds_hint,
-                    use_overlay_bounds_x=use_overlay_bounds_x,
-                )
-            if group_transform is not None and anchor_for_transform is not None:
-                anchor_norm_override = (
-                    (group_transform.band_min_x or 0.0) + offset_norm_x,
-                    (group_transform.band_min_y or 0.0) + offset_norm_y,
-                )
-                base_translation_dx, base_translation_dy = compute_proportional_translation(
-                    fill,
-                    group_transform,
-                    anchor_for_transform,
-                    anchor_norm_override=anchor_norm_override,
-                )
+        group_ctx = build_group_context(
+            mapper,
+            state,
+            group_transform,
+            overlay_bounds_hint,
+            offset_x,
+            offset_y,
+            group_anchor_point=self._group_anchor_point,
+            group_base_point=self._group_base_point,
+        )
+        fill = group_ctx.fill
+        transform_context = group_ctx.transform_context
+        scale = group_ctx.scale
+        base_offset_x = group_ctx.base_offset_x
+        base_offset_y = group_ctx.base_offset_y
+        selected_anchor = group_ctx.selected_anchor
+        base_anchor_point = group_ctx.base_anchor_point
+        anchor_for_transform = group_ctx.anchor_for_transform
+        base_translation_dx = group_ctx.base_translation_dx
+        base_translation_dy = group_ctx.base_translation_dy
         transform_meta = item.get("__mo_transform__")
         self._debug_legacy_point_size = scaled_point_size
         raw_left = float(item.get("x", 0))
         raw_top = float(item.get("y", 0))
-        right_justification_delta = 0.0
-        if trace_enabled and not collect_only:
-            self._log_legacy_trace(
-                plugin_name,
-                item_id,
-                "paint:message_input",
-                {
-                    "x": raw_left,
-                    "y": raw_top,
-                    "scale": scale,
-                    "offset_x": base_offset_x,
-                    "offset_y": base_offset_y,
-                    "mode": mapper.transform.mode.value,
-                    "font_size": scaled_point_size,
-                },
-            )
-        adjusted_left, adjusted_top = remap_point(fill, transform_meta, raw_left, raw_top, context=transform_context)
-        if offset_x or offset_y:
-            adjusted_left += offset_x
-            adjusted_top += offset_y
-        if mapper.transform.mode is ScaleMode.FILL:
-            adjusted_left, adjusted_top = self._apply_inverse_group_scale(
-                adjusted_left,
-                adjusted_top,
-                anchor_for_transform,
-                base_anchor_point or anchor_for_transform,
-                fill,
-            )
-        base_left_logical = adjusted_left
-        base_top_logical = adjusted_top
-        if mapper.transform.mode is ScaleMode.FILL:
-            # right_justification_delta = self._right_justification_delta(group_transform, raw_left)
-            translation_dx = base_translation_dx
-            if trace_enabled and not collect_only:
-                self._log_legacy_trace(
-                    plugin_name,
-                    item_id,
-                    "paint:message_translation",
-                    {
-                        "base_translation_dx": base_translation_dx,
-                        "base_translation_dy": base_translation_dy,
-                        "right_justification_delta": right_justification_delta,
-                        "applied_translation_dx": translation_dx,
-                    },
-                )
-            adjusted_left += translation_dx
-            adjusted_top += base_translation_dy
-            if selected_anchor is not None:
-                transformed_anchor = self._apply_inverse_group_scale(
-                    selected_anchor[0],
-                    selected_anchor[1],
-                    anchor_for_transform,
-                    base_anchor_point or anchor_for_transform,
-                    fill,
-                )
-                effective_anchor = (
-                    transformed_anchor[0] + translation_dx,
-                    transformed_anchor[1] + base_translation_dy,
-                )
-        else:
-            pass
+        (
+            adjusted_left,
+            adjusted_top,
+            base_left_logical,
+            base_top_logical,
+            effective_anchor,
+            translation_dx,
+            translation_dy,
+        ) = self._compute_message_transform(
+            plugin_name,
+            item_id,
+            fill,
+            transform_context,
+            transform_meta,
+            mapper,
+            group_transform,
+            overlay_bounds_hint,
+            raw_left,
+            raw_top,
+            offset_x,
+            offset_y,
+            selected_anchor,
+            base_anchor_point,
+            anchor_for_transform,
+            base_translation_dx,
+            base_translation_dy,
+            trace_enabled,
+            collect_only,
+        )
         text = str(item.get("text", ""))
-        metrics_font = QFont(self._font_family)
-        self._apply_font_fallbacks(metrics_font)
-        metrics_font.setPointSizeF(scaled_point_size)
-        metrics_font.setWeight(QFont.Weight.Normal)
-        metrics = QFontMetrics(metrics_font)
-        text_width = metrics.horizontalAdvance(text)
+        text_width, ascent, descent = self._measure_text(text, scaled_point_size, self._font_family)
         x = int(round(fill.screen_x(adjusted_left)))
         payload_point_y = int(round(fill.screen_y(adjusted_top)))
-        baseline = int(round(payload_point_y + metrics.ascent()))
+        baseline = int(round(payload_point_y + ascent))
         center_x = x + text_width // 2
-        top = baseline - metrics.ascent()
-        bottom = baseline + metrics.descent()
+        top = baseline - ascent
+        bottom = baseline + descent
         center_y = int(round((top + bottom) / 2.0))
         bounds = (x, top, x + text_width, bottom)
         overlay_bounds: Optional[Tuple[float, float, float, float]] = None
@@ -3562,9 +3354,9 @@ class OverlayWindow(QWidget):
             overlay_bounds = (overlay_left, overlay_top, overlay_right, overlay_bottom)
             base_x = int(round(fill.screen_x(base_left_logical)))
             base_base_y = int(round(fill.screen_y(base_top_logical)))
-            base_baseline = int(round(base_base_y + metrics.ascent()))
-            base_top = base_baseline - metrics.ascent()
-            base_bottom = base_baseline + metrics.descent()
+            base_baseline = int(round(base_base_y + ascent))
+            base_top = base_baseline - ascent
+            base_bottom = base_baseline + descent
             base_bounds = (base_x, base_top, base_x + text_width, base_bottom)
             base_overlay_left = (base_bounds[0] - base_offset_x) / scale
             base_overlay_top = (base_bounds[1] - base_offset_y) / scale
@@ -3609,8 +3401,8 @@ class OverlayWindow(QWidget):
             x=x,
             baseline=baseline,
             text_width=text_width,
-            ascent=metrics.ascent(),
-            descent=metrics.descent(),
+            ascent=ascent,
+            descent=descent,
             cycle_anchor=(center_x, center_y),
             trace_fn=trace_fn,
             base_overlay_bounds=base_overlay_bounds,
@@ -3653,133 +3445,53 @@ class OverlayWindow(QWidget):
             brush = QBrush(fill_color)
 
         state = self._viewport_state()
-        fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
-        transform_context = build_payload_transform_context(fill)
         offset_x, offset_y = self._group_offsets(group_transform)
-        base_width_norm = BASE_WIDTH if BASE_WIDTH > 0.0 else 1.0
-        base_height_norm = BASE_HEIGHT if BASE_HEIGHT > 0.0 else 1.0
-        offset_norm_x = offset_x / base_width_norm
-        offset_norm_y = offset_y / base_height_norm
-        scale = fill.scale
-        selected_anchor: Optional[Tuple[float, float]] = None
-        base_anchor_point: Optional[Tuple[float, float]] = None
-        anchor_for_transform: Optional[Tuple[float, float]] = None
-        base_translation_dx = 0.0
-        base_translation_dy = 0.0
-        effective_anchor: Optional[Tuple[float, float]] = None
-        right_justification_delta = 0.0
-        if mapper.transform.mode is ScaleMode.FILL:
-            use_overlay_bounds_x = (
-                overlay_bounds_hint is not None
-                and overlay_bounds_hint.is_valid()
-                and not fill.overflow_x
-            )
-            base_anchor_point = self._group_base_point(
-                group_transform,
-                transform_context,
-                overlay_bounds_hint,
-                use_overlay_bounds_x=use_overlay_bounds_x,
-            )
-            anchor_for_transform = base_anchor_point
-            if overlay_bounds_hint is not None and overlay_bounds_hint.is_valid():
-                selected_anchor = self._group_anchor_point(
-                    group_transform,
-                    transform_context,
-                    overlay_bounds_hint,
-                    use_overlay_bounds_x=use_overlay_bounds_x,
-                )
-            if group_transform is not None and anchor_for_transform is not None:
-                anchor_norm_override = (
-                    (group_transform.band_min_x or 0.0) + offset_norm_x,
-                    (group_transform.band_min_y or 0.0) + offset_norm_y,
-                )
-                base_translation_dx, base_translation_dy = compute_proportional_translation(
-                    fill,
-                    group_transform,
-                    anchor_for_transform,
-                    anchor_norm_override=anchor_norm_override,
-                )
-        base_offset_x = fill.base_offset_x
-        base_offset_y = fill.base_offset_y
+        group_ctx = build_group_context(
+            mapper,
+            state,
+            group_transform,
+            overlay_bounds_hint,
+            offset_x,
+            offset_y,
+            group_anchor_point=self._group_anchor_point,
+            group_base_point=self._group_base_point,
+        )
+        fill = group_ctx.fill
+        transform_context = group_ctx.transform_context
+        scale = group_ctx.scale
+        selected_anchor = group_ctx.selected_anchor
+        base_anchor_point = group_ctx.base_anchor_point
+        anchor_for_transform = group_ctx.anchor_for_transform
+        base_translation_dx = group_ctx.base_translation_dx
+        base_translation_dy = group_ctx.base_translation_dy
         transform_meta = item.get("__mo_transform__")
-        right_justification_delta = 0.0
         trace_enabled = self._should_trace_payload(plugin_name, item_id)
         raw_x = float(item.get("x", 0))
         raw_y = float(item.get("y", 0))
         raw_w = float(item.get("w", 0))
         raw_h = float(item.get("h", 0))
-        if trace_enabled and not collect_only:
-            self._log_legacy_trace(
-                plugin_name,
-                item_id,
-                "paint:rect_input",
-                {
-                    "x": raw_x,
-                    "y": raw_y,
-                    "w": raw_w,
-                    "h": raw_h,
-                    "scale": scale,
-                    "offset_x": base_offset_x,
-                    "offset_y": base_offset_y,
-                    "mode": mapper.transform.mode.value,
-                },
-            )
-        transformed_overlay = remap_rect_points(fill, transform_meta, raw_x, raw_y, raw_w, raw_h, context=transform_context)
-        if offset_x or offset_y:
-            transformed_overlay = [
-                (px + offset_x, py + offset_y)
-                for px, py in transformed_overlay
-            ]
-        base_overlay_points: List[Tuple[float, float]] = []
-        reference_overlay_bounds: Optional[Tuple[float, float, float, float]] = None
-        if mapper.transform.mode is ScaleMode.FILL:
-            # right_justification_delta = self._right_justification_delta(group_transform, raw_x)
-            transformed_overlay = [
-                self._apply_inverse_group_scale(px, py, anchor_for_transform, base_anchor_point or anchor_for_transform, fill)
-                for px, py in transformed_overlay
-            ]
-            base_overlay_points = [tuple(pt) for pt in transformed_overlay]
-            if base_overlay_points:
-                base_xs = [pt[0] for pt in base_overlay_points]
-                base_ys = [pt[1] for pt in base_overlay_points]
-                reference_overlay_bounds = (
-                    min(base_xs) + base_translation_dx,
-                    min(base_ys) + base_translation_dy,
-                    max(base_xs) + base_translation_dx,
-                    max(base_ys) + base_translation_dy,
-                )
-            translation_dx = base_translation_dx
-            if trace_enabled and not collect_only:
-                self._log_legacy_trace(
-                    plugin_name,
-                    item_id,
-                    "paint:rect_translation",
-                    {
-                        "base_translation_dx": base_translation_dx,
-                        "base_translation_dy": base_translation_dy,
-                        "right_justification_delta": right_justification_delta,
-                        "applied_translation_dx": translation_dx,
-                    },
-                )
-            if translation_dx or base_translation_dy:
-                transformed_overlay = [
-                    (px + translation_dx, py + base_translation_dy)
-                    for px, py in transformed_overlay
-                ]
-            if selected_anchor is not None:
-                transformed_anchor = self._apply_inverse_group_scale(
-                    selected_anchor[0],
-                    selected_anchor[1],
-                    anchor_for_transform,
-                    base_anchor_point or anchor_for_transform,
-                    fill,
-                )
-                effective_anchor = (
-                    transformed_anchor[0] + translation_dx,
-                    transformed_anchor[1] + base_translation_dy,
-                )
-        else:
-            base_overlay_points = [tuple(pt) for pt in transformed_overlay]
+        transformed_overlay, base_overlay_points, reference_overlay_bounds, effective_anchor = self._compute_rect_transform(
+            plugin_name,
+            item_id,
+            fill,
+            transform_context,
+            transform_meta,
+            mapper,
+            group_transform,
+            raw_x,
+            raw_y,
+            raw_w,
+            raw_h,
+            offset_x,
+            offset_y,
+            selected_anchor,
+            base_anchor_point,
+            anchor_for_transform,
+            base_translation_dx,
+            base_translation_dy,
+            trace_enabled,
+            collect_only,
+        )
         xs_overlay = [pt[0] for pt in transformed_overlay]
         ys_overlay = [pt[1] for pt in transformed_overlay]
         min_x_overlay = min(xs_overlay)
@@ -3862,188 +3574,59 @@ class OverlayWindow(QWidget):
         plugin_name = legacy_item.plugin
         trace_enabled = self._should_trace_payload(plugin_name, item_id)
         state = self._viewport_state()
-        fill = build_viewport(mapper, state, group_transform, BASE_WIDTH, BASE_HEIGHT)
-        transform_context = build_payload_transform_context(fill)
         offset_x, offset_y = self._group_offsets(group_transform)
-        base_width_norm = BASE_WIDTH if BASE_WIDTH > 0.0 else 1.0
-        base_height_norm = BASE_HEIGHT if BASE_HEIGHT > 0.0 else 1.0
-        offset_norm_x = offset_x / base_width_norm
-        offset_norm_y = offset_y / base_height_norm
-        scale = fill.scale
-        selected_anchor: Optional[Tuple[float, float]] = None
-        base_anchor_point: Optional[Tuple[float, float]] = None
-        anchor_for_transform: Optional[Tuple[float, float]] = None
-        base_translation_dx = 0.0
-        base_translation_dy = 0.0
-        effective_anchor: Optional[Tuple[float, float]] = None
+        group_ctx = build_group_context(
+            mapper,
+            state,
+            group_transform,
+            overlay_bounds_hint,
+            offset_x,
+            offset_y,
+            group_anchor_point=self._group_anchor_point,
+            group_base_point=self._group_base_point,
+        )
+        fill = group_ctx.fill
+        transform_context = group_ctx.transform_context
+        scale = group_ctx.scale
+        selected_anchor = group_ctx.selected_anchor
+        base_anchor_point = group_ctx.base_anchor_point
+        anchor_for_transform = group_ctx.anchor_for_transform
+        base_translation_dx = group_ctx.base_translation_dx
+        base_translation_dy = group_ctx.base_translation_dy
         raw_points = item.get("points") or []
-        raw_min_x: Optional[float] = None
-        for point in raw_points:
-            if not isinstance(point, Mapping):
-                continue
-            try:
-                px = float(point.get("x", 0.0))
-            except (TypeError, ValueError):
-                continue
-            if raw_min_x is None or px < raw_min_x:
-                raw_min_x = px
-        if mapper.transform.mode is ScaleMode.FILL:
-            use_overlay_bounds_x = (
-                overlay_bounds_hint is not None
-                and overlay_bounds_hint.is_valid()
-                and not fill.overflow_x
-            )
-            selected_anchor = self._group_anchor_point(
-                group_transform,
-                transform_context,
-                overlay_bounds_hint,
-                use_overlay_bounds_x=use_overlay_bounds_x,
-            )
-            base_anchor_point = self._group_base_point(
-                group_transform,
-                transform_context,
-                overlay_bounds_hint,
-                use_overlay_bounds_x=use_overlay_bounds_x,
-            )
-            anchor_for_transform = base_anchor_point or selected_anchor
-            if group_transform is not None and anchor_for_transform is not None:
-                anchor_norm_override = (
-                    (group_transform.band_min_x or 0.0) + offset_norm_x,
-                    (group_transform.band_min_y or 0.0) + offset_norm_y,
-                )
-                base_translation_dx, base_translation_dy = compute_proportional_translation(
-                    fill,
-                    group_transform,
-                    anchor_for_transform,
-                    anchor_norm_override=anchor_norm_override,
-                )
-        translation_dx = base_translation_dx
-        translation_dy = base_translation_dy
-        justification_delta = 0.0
-        if mapper.transform.mode is ScaleMode.FILL and raw_min_x is not None:
-            # justification_delta = self._right_justification_delta(group_transform, raw_min_x)
-            translation_dx = base_translation_dx
-            if trace_enabled:
-                self._log_legacy_trace(
-                    plugin_name,
-                    item_id,
-                    "paint:vector_translation",
-                    {
-                        "base_translation_dx": base_translation_dx,
-                        "base_translation_dy": base_translation_dy,
-                        "right_justification_delta": justification_delta,
-                        "applied_translation_dx": translation_dx,
-                        "raw_min_x": raw_min_x,
-                    },
-                )
-        base_offset_x = fill.base_offset_x
-        base_offset_y = fill.base_offset_y
         transform_meta = item.get("__mo_transform__")
-        if trace_enabled and not collect_only:
-            self._log_legacy_trace(
-                plugin_name,
-                item_id,
-                "paint:scale_factors",
-                {
-                    "scale": scale,
-                    "offset_x": base_offset_x,
-                    "offset_y": base_offset_y,
-                    "mode": mapper.transform.mode.value,
-                },
-            )
-            self._log_legacy_trace(
-                plugin_name,
-                item_id,
-                "paint:raw_points",
-                {"points": item.get("points")},
-            )
-        transformed_points: List[Mapping[str, Any]] = []
-        remapped = remap_vector_points(fill, transform_meta, raw_points, context=transform_context)
-        if offset_x or offset_y:
-            remapped = [
-                (ox + offset_x, oy + offset_y, original_point)
-                for ox, oy, original_point in remapped
-            ]
-        overlay_min_x = float("inf")
-        overlay_min_y = float("inf")
-        overlay_max_x = float("-inf")
-        overlay_max_y = float("-inf")
-        base_overlay_min_x = float("inf")
-        base_overlay_min_y = float("inf")
-        base_overlay_max_x = float("-inf")
-        base_overlay_max_y = float("-inf")
-        for ox, oy, original_point in remapped:
-            if mapper.transform.mode is ScaleMode.FILL:
-                ox, oy = self._apply_inverse_group_scale(
-                    ox,
-                    oy,
-                    anchor_for_transform,
-                    base_anchor_point or anchor_for_transform,
-                    fill,
-                )
-                base_ox = ox
-                base_oy = oy
-                ox += translation_dx
-                oy += translation_dy
-            else:
-                base_ox = ox
-                base_oy = oy
-            new_point = dict(original_point)
-            new_point["x"] = ox
-            new_point["y"] = oy
-            if ox < overlay_min_x:
-                overlay_min_x = ox
-            if ox > overlay_max_x:
-                overlay_max_x = ox
-            if oy < overlay_min_y:
-                overlay_min_y = oy
-            if oy > overlay_max_y:
-                overlay_max_y = oy
-            if base_ox < base_overlay_min_x:
-                base_overlay_min_x = base_ox
-            if base_ox > base_overlay_max_x:
-                base_overlay_max_x = base_ox
-            if base_oy < base_overlay_min_y:
-                base_overlay_min_y = base_oy
-            if base_oy > base_overlay_max_y:
-                base_overlay_max_y = base_oy
-            transformed_points.append(new_point)
-        if mapper.transform.mode is ScaleMode.FILL and selected_anchor is not None:
-            transformed_anchor = self._apply_inverse_group_scale(
-                selected_anchor[0],
-                selected_anchor[1],
-                anchor_for_transform,
-                base_anchor_point or anchor_for_transform,
-                fill,
-            )
-            effective_anchor = (
-                transformed_anchor[0] + translation_dx,
-                transformed_anchor[1] + translation_dy,
-            )
-        if len(transformed_points) < 2:
-            return None, None
-        vector_payload = {
-            "base_color": item.get("base_color"),
-            "points": transformed_points,
-        }
-        trace_fn = None
-        if trace_enabled:
-            def trace_fn(stage: str, details: Mapping[str, Any]) -> None:
-                self._log_legacy_trace(plugin_name, item_id, stage, details)
-
-        screen_points: List[Tuple[int, int]] = []
-        for point in vector_payload.get("points", []):
-            try:
-                mapped_x = float(point.get("x", 0.0)) * scale + base_offset_x
-                mapped_y = float(point.get("y", 0.0)) * scale + base_offset_y
-            except (TypeError, ValueError):
-                continue
-            px = int(round(mapped_x))
-            py = int(round(mapped_y))
-            screen_points.append((px, py))
+        (
+            vector_payload,
+            screen_points,
+            overlay_bounds,
+            base_overlay_bounds,
+            effective_anchor,
+            raw_min_x,
+            trace_fn,
+        ) = self._compute_vector_transform(
+            plugin_name,
+            item_id,
+            fill,
+            transform_context,
+            transform_meta,
+            mapper,
+            group_transform,
+            item,
+            raw_points,
+            offset_x,
+            offset_y,
+            selected_anchor,
+            base_anchor_point,
+            anchor_for_transform,
+            base_translation_dx,
+            base_translation_dy,
+            trace_enabled,
+            collect_only,
+        )
+        if vector_payload is None:
+            return None
         bounds: Optional[Tuple[int, int, int, int]]
         cycle_anchor: Optional[Tuple[int, int]]
-        overlay_bounds: Optional[Tuple[float, float, float, float]]
         if screen_points:
             xs = [pt[0] for pt in screen_points]
             ys = [pt[1] for pt in screen_points]
@@ -4052,37 +3635,9 @@ class OverlayWindow(QWidget):
                 int(round((min(xs) + max(xs)) / 2.0)),
                 int(round((min(ys) + max(ys)) / 2.0)),
             )
-            if (
-                math.isfinite(overlay_min_x)
-                and math.isfinite(overlay_max_x)
-                and math.isfinite(overlay_min_y)
-                and math.isfinite(overlay_max_y)
-                and overlay_min_x <= overlay_max_x
-                and overlay_min_y <= overlay_max_y
-            ):
-                overlay_bounds = (overlay_min_x, overlay_min_y, overlay_max_x, overlay_max_y)
-            else:
-                overlay_bounds = None
         else:
             bounds = None
             cycle_anchor = None
-            overlay_bounds = None
-        if (
-            math.isfinite(base_overlay_min_x)
-            and math.isfinite(base_overlay_max_x)
-            and math.isfinite(base_overlay_min_y)
-            and math.isfinite(base_overlay_max_y)
-            and base_overlay_min_x <= base_overlay_max_x
-            and base_overlay_min_y <= base_overlay_max_y
-        ):
-            base_overlay_bounds = (
-                base_overlay_min_x,
-                base_overlay_min_y,
-                base_overlay_max_x,
-                base_overlay_max_y,
-            )
-        else:
-            base_overlay_bounds = None
         command = _VectorPaintCommand(
             group_key=group_key,
             group_transform=group_transform,
@@ -4093,8 +3648,8 @@ class OverlayWindow(QWidget):
             debug_log=None,
             vector_payload=vector_payload,
             scale=scale,
-            base_offset_x=base_offset_x,
-            base_offset_y=base_offset_y,
+            base_offset_x=fill.base_offset_x,
+            base_offset_y=fill.base_offset_y,
             trace_fn=trace_fn,
             cycle_anchor=cycle_anchor,
             base_overlay_bounds=base_overlay_bounds,
@@ -4108,20 +3663,13 @@ class OverlayWindow(QWidget):
         self,
         bounds_by_group: Mapping[Tuple[str, Optional[str]], _ScreenBounds],
     ) -> Dict[Tuple[str, Optional[str]], Tuple[int, int]]:
-        if not self._payload_nudge_enabled or not bounds_by_group:
-            return {}
-        width = max(self.width(), 1)
-        height = max(self.height(), 1)
-        gutter = max(0, int(self._payload_nudge_gutter))
-        translations: Dict[Tuple[str, Optional[str]], Tuple[int, int]] = {}
-        for key, bounds in bounds_by_group.items():
-            if not bounds.is_valid():
-                continue
-            dx = self._compute_axis_nudge(bounds.min_x, bounds.max_x, width, gutter)
-            dy = self._compute_axis_nudge(bounds.min_y, bounds.max_y, height, gutter)
-            if dx or dy:
-                translations[key] = (dx, dy)
-        return translations
+        return self._group_coordinator.compute_group_nudges(
+            bounds_by_group,
+            self.width(),
+            self.height(),
+            self._payload_nudge_enabled,
+            self._payload_nudge_gutter,
+        )
 
     def _collect_base_overlay_bounds(
         self,
@@ -4214,74 +3762,15 @@ class OverlayWindow(QWidget):
 
         return _emit
 
-    @staticmethod
-    def _cache_safe_float(value: Any) -> float:
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            return 0.0
-        if not math.isfinite(number):
-            return 0.0
-        return round(number, 3)
-
-    @staticmethod
-    def _cache_safe_int(value: Any) -> int:
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return 0
-
-    def _base_cache_payload(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
-        return {
-            "base_min_x": self._cache_safe_float(payload.get("min_x")),
-            "base_min_y": self._cache_safe_float(payload.get("min_y")),
-            "base_width": self._cache_safe_float(payload.get("width")),
-            "base_height": self._cache_safe_float(payload.get("height")),
-            "base_max_x": self._cache_safe_float(payload.get("max_x")),
-            "base_max_y": self._cache_safe_float(payload.get("max_y")),
-            "has_transformed": bool(payload.get("has_transformed", False)),
-        }
-
-    def _transformed_cache_payload(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
-        anchor_raw = payload.get("anchor") or "nw"
-        justification_raw = payload.get("justification") or "left"
-        return {
-            "trans_min_x": self._cache_safe_float(payload.get("min_x")),
-            "trans_min_y": self._cache_safe_float(payload.get("min_y")),
-            "trans_width": self._cache_safe_float(payload.get("width")),
-            "trans_height": self._cache_safe_float(payload.get("height")),
-            "trans_max_x": self._cache_safe_float(payload.get("max_x")),
-            "trans_max_y": self._cache_safe_float(payload.get("max_y")),
-            "anchor": str(anchor_raw).strip().lower(),
-            "justification": str(justification_raw).strip().lower(),
-            "nudge_dx": self._cache_safe_int(payload.get("nudge_dx")),
-            "nudge_dy": self._cache_safe_int(payload.get("nudge_dy")),
-            "nudged": bool(payload.get("nudged", False)),
-            "offset_dx": self._cache_safe_float(payload.get("offset_dx")),
-            "offset_dy": self._cache_safe_float(payload.get("offset_dy")),
-        }
-
     def _update_group_cache_from_payloads(
         self,
         base_payloads: Mapping[Tuple[str, Optional[str]], Mapping[str, Any]],
         transform_payloads: Mapping[Tuple[str, Optional[str]], Mapping[str, Any]],
     ) -> None:
-        cache = getattr(self, "_group_cache", None)
-        if cache is None:
-            return
-        for key, base_payload in base_payloads.items():
-            plugin_label = (base_payload.get("plugin") or "").strip()
-            suffix_label = base_payload.get("suffix")
-            normalized = self._base_cache_payload(base_payload)
-            transformed_payload = None
-            if normalized.get("has_transformed"):
-                raw_transform = transform_payloads.get(key)
-                if raw_transform is not None:
-                    transformed_payload = self._transformed_cache_payload(raw_transform)
-            try:
-                cache.update_group(plugin_label, suffix_label, normalized, transformed_payload)
-            except Exception:
-                pass
+        self._group_coordinator.update_cache_from_payloads(
+            base_payloads=base_payloads,
+            transform_payloads=transform_payloads,
+        )
 
     def _draw_payload_vertex_markers(self, painter: QPainter, points: Sequence[Tuple[int, int]]) -> None:
         if not points:
@@ -4521,378 +4010,44 @@ class OverlayWindow(QWidget):
         return overlay_bounds_by_group
 
 
-    def _log_offscreen_payload(
-        self,
-        command: _LegacyPaintCommand,
-        offset_x: float,
-        offset_y: float,
-        window_width: int,
-        window_height: int,
-    ) -> None:
-        bounds = command.bounds
-        payload_id = command.legacy_item.item_id or ""
-        if not bounds or not payload_id:
-            if payload_id:
-                self._offscreen_payloads.discard(payload_id)
-            return
-        left = float(bounds[0]) + float(offset_x)
-        top = float(bounds[1]) + float(offset_y)
-        right = float(bounds[2]) + float(offset_x)
-        bottom = float(bounds[3]) + float(offset_y)
-        offscreen = (
-            right < 0.0
-            or bottom < 0.0
-            or left >= float(window_width)
-            or top >= float(window_height)
-        )
-        if offscreen:
-            if payload_id not in self._offscreen_payloads:
-                plugin_name = command.legacy_item.plugin or "unknown"
-                self._offscreen_payloads.add(payload_id)
-                _CLIENT_LOGGER.warning(
-                    "Payload '%s' from plugin '%s' rendered completely outside the overlay window "
-                    "(bounds=(%.1f, %.1f)-(%.1f, %.1f), window=%dx%d)",
-                    payload_id,
-                    plugin_name,
-                    left,
-                    top,
-                    right,
-                    bottom,
-                    window_width,
-                    window_height,
-                )
-        else:
-            self._offscreen_payloads.discard(payload_id)
-
-    @staticmethod
-    def _compute_axis_nudge(min_coord: float, max_coord: float, window_span: int, gutter: int) -> int:
-        if window_span <= 0:
-            return 0
-        if not (math.isfinite(min_coord) and math.isfinite(max_coord)):
-            return 0
-        span = max(0.0, max_coord - min_coord)
-        if span <= 0.0:
-            return 0
-        left_overflow = min_coord < 0.0
-        right_overflow = max_coord > window_span
-        if not (left_overflow or right_overflow):
-            return 0
-        dx = 0.0
-        current_min = min_coord
-        current_max = max_coord
-        if left_overflow:
-            shift = -current_min
-            dx += shift
-            current_min += shift
-            current_max += shift
-        if current_max > window_span:
-            shift = current_max - window_span
-            dx -= shift
-            current_min -= shift
-            current_max -= shift
-        effective_gutter = min(max(0.0, float(gutter)), max(window_span - span, 0.0))
-        if effective_gutter > 0.0:
-            if left_overflow:
-                extra = min(effective_gutter, max(0.0, window_span - current_max))
-                dx += extra
-                current_min += extra
-                current_max += extra
-            if right_overflow:
-                extra = min(effective_gutter, max(0.0, current_min))
-                dx -= extra
-                current_min -= extra
-                current_max -= extra
-        return int(round(dx))
-
     def _paint_debug_overlay(self, painter: QPainter) -> None:
-        if not self._show_debug_overlay:
-            return
-        frame = self.frameGeometry()
-        mapper = self._compute_legacy_mapper()
-        state = self._viewport_state()
-        scale_x, scale_y = legacy_scale_components(mapper, state)
-        diagonal_scale = self._font_scale_diag
-        if diagonal_scale <= 0.0:
-            diagonal_scale = math.sqrt((scale_x * scale_x + scale_y * scale_y) / 2.0)
-        width_px, height_px = self._current_physical_size()
-        size_labels = [("S", "small"), ("N", "normal"), ("L", "large"), ("H", "huge")]
-        legacy_sizes_str = " ".join(
-            "{}={:.1f}".format(label, self._legacy_preset_point_size(name, state, mapper))
-            for label, name in size_labels
+        self._debug_overlay_view.paint_debug_overlay(
+            painter,
+            show_debug_overlay=self._show_debug_overlay,
+            frame_geometry=self.frameGeometry(),
+            width_px=self._current_physical_size()[0],
+            height_px=self._current_physical_size()[1],
+            mapper=self._compute_legacy_mapper(),
+            viewport_state=self._viewport_state(),
+            font_family=self._font_family,
+            font_scale_diag=self._font_scale_diag,
+            font_min_point=self._font_min_point,
+            font_max_point=self._font_max_point,
+            debug_message_pt=self._debug_message_point_size,
+            debug_status_pt=self._debug_status_point_size,
+            debug_legacy_pt=self._debug_legacy_point_size,
+            aspect_ratio_label_fn=self._aspect_ratio_label,
+            last_screen_name=self._last_screen_name,
+            describe_screen_fn=self._describe_screen,
+            active_screen=self.windowHandle().screen() if self.windowHandle() else None,
+            last_follow_state=self._last_follow_state,
+            follow_controller=self._follow_controller,
+            last_raw_window_log=self._last_raw_window_log,
+            title_bar_enabled=self._title_bar_enabled,
+            title_bar_height=self._title_bar_height,
+            last_title_bar_offset=self._last_title_bar_offset,
+            debug_overlay_corner=self._debug_overlay_corner,
+            legacy_preset_point_size_fn=self._legacy_preset_point_size,
         )
-        active_screen = self.windowHandle().screen() if self.windowHandle() else None
-        monitor_desc = self._last_screen_name or self._describe_screen(active_screen)
-        active_ratio = None
-        if active_screen is not None:
-            try:
-                geo = active_screen.geometry()
-                active_ratio = self._aspect_ratio_label(geo.width(), geo.height())
-            except Exception:
-                active_ratio = None
-        active_line = f"  active={monitor_desc or 'unknown'}"
-        if active_ratio:
-            active_line += f" ({active_ratio})"
-        monitor_lines = ["Monitor:", active_line]
-        if self._last_follow_state is not None:
-            tracker_ratio = self._aspect_ratio_label(
-                max(1, int(self._last_follow_state.width)),
-                max(1, int(self._last_follow_state.height)),
-            )
-            tracker_line = "  tracker=({},{}) {}x{}".format(
-                self._last_follow_state.x,
-                self._last_follow_state.y,
-                self._last_follow_state.width,
-                self._last_follow_state.height,
-            )
-            if tracker_ratio:
-                tracker_line += f" ({tracker_ratio})"
-            monitor_lines.append(tracker_line)
-        override_rect = self._follow_controller.wm_override
-        override_class = self._follow_controller.wm_override_classification
-        if override_rect is not None and override_class is not None:
-            rect = override_rect
-            monitor_lines.append(
-                "  wm_rect=({},{}) {}x{} [{}]".format(
-                    rect[0],
-                    rect[1],
-                    rect[2],
-                    rect[3],
-                    override_class,
-                )
-            )
-
-        widget_ratio = self._aspect_ratio_label(self.width(), self.height())
-        frame_ratio = self._aspect_ratio_label(frame.width(), frame.height())
-        phys_ratio = self._aspect_ratio_label(int(round(width_px)), int(round(height_px)))
-        overlay_lines = ["Overlay:"]
-        widget_line = "  widget={}x{}".format(self.width(), self.height())
-        if widget_ratio:
-            widget_line += f" ({widget_ratio})"
-        overlay_lines.append(widget_line)
-        frame_line = "  frame={}x{}".format(frame.width(), frame.height())
-        if frame_ratio:
-            frame_line += f" ({frame_ratio})"
-        overlay_lines.append(frame_line)
-        phys_line = "  phys={}x{}".format(int(round(width_px)), int(round(height_px)))
-        if phys_ratio:
-            phys_line += f" ({phys_ratio})"
-        overlay_lines.append(phys_line)
-        if self._last_raw_window_log is not None:
-            raw_x, raw_y, raw_w, raw_h = self._last_raw_window_log
-            raw_ratio = self._aspect_ratio_label(raw_w, raw_h)
-            raw_line = "  raw=({},{}) {}x{}".format(raw_x, raw_y, raw_w, raw_h)
-            if raw_ratio:
-                raw_line += f" ({raw_ratio})"
-            overlay_lines.append(raw_line)
-
-        transform = mapper.transform
-        scaling_lines = [
-            "Scaling:",
-            "  mode={} base_scale={:.4f}".format(transform.mode.value, transform.scale),
-            "  scaled_canvas={:.1f}x{:.1f} offset=({:.1f},{:.1f})".format(
-                transform.scaled_size[0],
-                transform.scaled_size[1],
-                mapper.offset_x,
-                mapper.offset_y,
-            ),
-            "  overflow_x={} overflow_y={}".format(
-                "yes" if transform.overflow_x else "no",
-                "yes" if transform.overflow_y else "no",
-            ),
-        ]
-
-        font_lines = [
-            "Fonts:",
-            "  scale_x={:.2f} scale_y={:.2f} diag={:.2f}".format(scale_x, scale_y, diagonal_scale),
-            "  ui_scale={:.2f}".format(self._font_scale_diag),
-            "  bounds={:.1f}-{:.1f}".format(self._font_min_point, self._font_max_point),
-            "  message={:.1f} status={:.1f} legacy={:.1f}".format(
-                self._debug_message_point_size,
-                self._debug_status_point_size,
-                self._debug_legacy_point_size,
-            ),
-            "  legacy presets: {}".format(legacy_sizes_str),
-        ]
-
-        settings_lines = [
-            "Settings:",
-            "  title_bar_compensation={}".format("on" if self._title_bar_enabled else "off"),
-            "  title_bar_height={}".format(self._title_bar_height),
-            "  applied_offset={}".format(self._last_title_bar_offset),
-        ]
-
-        info_lines = (
-            monitor_lines
-            + [""]
-            + overlay_lines
-            + [""]
-            + scaling_lines
-            + [""]
-            + font_lines
-            + [""]
-            + settings_lines
-        )
-        painter.save()
-        debug_font = QFont(self._font_family, 10)
-        self._apply_font_fallbacks(debug_font)
-        painter.setFont(debug_font)
-        metrics = painter.fontMetrics()
-        line_height = metrics.height()
-        text_width = max(metrics.horizontalAdvance(line) for line in info_lines)
-        padding = 6
-        panel_width = text_width + padding * 2
-        panel_height = line_height * len(info_lines) + padding * 2
-        rect = QRect(0, 0, panel_width, panel_height)
-        margin = 10
-        corner = self._debug_overlay_corner
-        if corner in {"NW", "SW"}:
-            left = margin
-        else:
-            left = max(margin, self.width() - panel_width - margin)
-        if corner in {"NW", "NE"}:
-            top = margin
-        else:
-            top = max(margin, self.height() - panel_height - margin)
-        rect.moveTo(left, top)
-        painter.setBrush(QColor(0, 0, 0, 160))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(rect, 6, 6)
-        painter.setPen(QColor(220, 220, 220))
-        for index, line in enumerate(info_lines):
-            painter.drawText(
-                rect.left() + padding,
-                rect.top() + padding + metrics.ascent() + index * line_height,
-                line,
-            )
-        painter.restore()
 
     def _paint_overlay_outline(self, painter: QPainter) -> None:
-        if not self._debug_config.overlay_outline:
-            return
-        mapper = self._compute_legacy_mapper()
-        transform = mapper.transform
-        offset_x, offset_y = transform.offset
-        scaled_w, scaled_h = transform.scaled_size
-        window_w = float(self.width())
-        window_h = float(self.height())
-        left = offset_x
-        top = offset_y
-        right = offset_x + scaled_w
-        bottom = offset_y + scaled_h
-        overflow_left = left < 0.0
-        overflow_right = right > window_w
-        overflow_top = top < 0.0
-        overflow_bottom = bottom > window_h
-        vis_left = max(left, 0.0)
-        vis_right = min(right, window_w)
-        vis_top = max(top, 0.0)
-        vis_bottom = min(bottom, window_h)
-
-        painter.save()
-        pen = QPen(QColor(255, 136, 0))
-        pen.setWidth(self._line_width("viewport_indicator"))
-        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
-        painter.setPen(pen)
-
-        def draw_vertical_line(x_pos: float) -> None:
-            if vis_top >= vis_bottom:
-                return
-            x = int(round(x_pos))
-            painter.drawLine(x, int(round(vis_top)), x, int(round(vis_bottom)))
-
-        def draw_horizontal_line(y_pos: float) -> None:
-            if vis_left >= vis_right:
-                return
-            y = int(round(y_pos))
-            painter.drawLine(int(round(vis_left)), y, int(round(vis_right)), y)
-
-        arrow_length = 18.0
-        arrow_span_min = 60.0
-        arrow_count = 3
-
-        arrow_tip_margin = 4.0
-
-        def draw_vertical_arrows(edge_x: float, direction: int) -> None:
-            span_start = max(vis_top, 0.0)
-            span_end = min(vis_bottom, window_h)
-            if span_end <= span_start:
-                span_start = 0.0
-                span_end = window_h
-            span = max(span_end - span_start, arrow_span_min)
-            step = span / (arrow_count + 1)
-            if direction > 0:
-                tip_x = min(edge_x - arrow_tip_margin, window_w - arrow_tip_margin)
-                base_x = tip_x - arrow_length
-            else:
-                tip_x = max(edge_x + arrow_tip_margin, arrow_tip_margin)
-                base_x = tip_x + arrow_length
-            for i in range(1, arrow_count + 1):
-                y = span_start + step * i
-                painter.drawLine(int(round(base_x)), int(round(y)), int(round(tip_x)), int(round(y)))
-                painter.drawLine(
-                    int(round(tip_x)),
-                    int(round(y)),
-                    int(round(tip_x - direction * arrow_length * 0.45)),
-                    int(round(y - arrow_length * 0.4)),
-                )
-                painter.drawLine(
-                    int(round(tip_x)),
-                    int(round(y)),
-                    int(round(tip_x - direction * arrow_length * 0.45)),
-                    int(round(y + arrow_length * 0.4)),
-                )
-
-        def draw_horizontal_arrows(edge_y: float, direction: int) -> None:
-            span_start = max(vis_left, 0.0)
-            span_end = min(vis_right, window_w)
-            if span_end <= span_start:
-                span_start = 0.0
-                span_end = window_w
-            span = max(span_end - span_start, arrow_span_min)
-            step = span / (arrow_count + 1)
-            for i in range(1, arrow_count + 1):
-                x = span_start + step * i
-                if direction > 0:
-                    tip_y = min(edge_y - arrow_tip_margin, window_h - arrow_tip_margin)
-                    base_y = tip_y - arrow_length
-                else:
-                    tip_y = max(edge_y + arrow_tip_margin, arrow_tip_margin)
-                    base_y = tip_y + arrow_length
-                painter.drawLine(int(round(x)), int(round(base_y)), int(round(x)), int(round(tip_y)))
-                painter.drawLine(
-                    int(round(x)),
-                    int(round(tip_y)),
-                    int(round(x - arrow_length * 0.35)),
-                    int(round(tip_y - direction * arrow_length * 0.4)),
-                )
-                painter.drawLine(
-                    int(round(x)),
-                    int(round(tip_y)),
-                    int(round(x + arrow_length * 0.35)),
-                    int(round(tip_y - direction * arrow_length * 0.4)),
-                )
-
-        if not overflow_left:
-            draw_vertical_line(vis_left)
-        else:
-            draw_vertical_arrows(max(vis_left, 0.0), direction=-1)
-
-        if not overflow_right:
-            draw_vertical_line(vis_right)
-        else:
-            draw_vertical_arrows(min(vis_right, window_w), direction=1)
-
-        if not overflow_top:
-            draw_horizontal_line(vis_top)
-        else:
-            draw_horizontal_arrows(max(vis_top, 0.0), direction=-1)
-
-        if not overflow_bottom:
-            draw_horizontal_line(vis_bottom)
-        else:
-            draw_horizontal_arrows(min(vis_bottom, window_h), direction=1)
-
-        painter.restore()
+        self._debug_overlay_view.paint_overlay_outline(
+            painter,
+            debug_outline=self._debug_config.overlay_outline,
+            mapper=self._compute_legacy_mapper(),
+            window_width=float(self.width()),
+            window_height=float(self.height()),
+        )
 
     def _apply_legacy_scale(self) -> None:
         self.update()
@@ -4900,370 +4055,31 @@ class OverlayWindow(QWidget):
     def _apply_window_dimensions(self, *, force: bool = False) -> None:
         return
 
-    def _resolve_font_family(self) -> str:
-        fonts_dir = Path(__file__).resolve().parent / "fonts"
-        default_family = "Segoe UI"
-
-        def try_font_file(font_path: Path, label: str) -> Optional[str]:
-            if not font_path.exists():
-                return None
-            try:
-                font_id = QFontDatabase.addApplicationFont(str(font_path))
-            except Exception as exc:
-                _CLIENT_LOGGER.warning("Failed to load %s font from %s: %s", label, font_path, exc)
-                return None
-            if font_id == -1:
-                _CLIENT_LOGGER.warning("%s font file at %s could not be registered; falling back", label, font_path)
-                return None
-            families = QFontDatabase.applicationFontFamilies(font_id)
-            if families:
-                family = families[0]
-                _CLIENT_LOGGER.debug("Using %s font family '%s' from %s", label, family, font_path)
-                return family
-            _CLIENT_LOGGER.warning("%s font registered but no families reported; falling back", label)
-            return None
-
-        def find_font_case_insensitive(filename: str) -> Optional[Path]:
-            if not filename:
-                return None
-            target = filename.lower()
-            if not fonts_dir.exists():
-                return None
-            for child in fonts_dir.iterdir():
-                if child.is_file() and child.name.lower() == target:
-                    return child
-            return None
-
-        preferred_marker = fonts_dir / "preferred_fonts.txt"
-        preferred_files: list[Path] = []
-        if preferred_marker.exists():
-            try:
-                for raw_line in preferred_marker.read_text(encoding="utf-8").splitlines():
-                    candidate_name = raw_line.strip()
-                    if not candidate_name or candidate_name.startswith(("#", ";")):
-                        continue
-                    candidate_path = find_font_case_insensitive(candidate_name)
-                    if candidate_path:
-                        preferred_files.append(candidate_path)
-                    else:
-                        _CLIENT_LOGGER.warning(
-                            "Preferred font '%s' listed in %s but not found", candidate_name, preferred_marker
-                        )
-            except Exception as exc:
-                _CLIENT_LOGGER.warning("Failed to read preferred fonts list at %s: %s", preferred_marker, exc)
-
-        standard_candidates = [
-            ("SourceSans3-Regular.ttf", "Source Sans 3"),
-            ("Eurocaps.ttf", "Eurocaps"),
-        ]
-
-        candidate_paths: list[Tuple[Path, str]] = []
-        seen: set[Path] = set()
-
-        def add_candidate(path: Optional[Path], label: str) -> None:
-            if not path:
-                return
-            try:
-                resolved = path.resolve()
-            except Exception:
-                resolved = path
-            if resolved in seen:
-                return
-            seen.add(resolved)
-            candidate_paths.append((path, label))
-
-        for preferred_path in preferred_files:
-            add_candidate(preferred_path, f"Preferred font '{preferred_path.name}'")
-
-        for filename, label in standard_candidates:
-            add_candidate(find_font_case_insensitive(filename), label)
-
-        for path, label in candidate_paths:
-            family = try_font_file(path, label)
-            if family:
-                return family
-
-        installed_candidates = [
-            "Source Sans 3",
-            "SourceSans3",
-            "Source Sans",
-            "Source Sans 3 Regular",
-            "Eurocaps",
-            "Euro Caps",
-            "EUROCAPS",
-        ]
-        try:
-            available = set(QFontDatabase.families())
-        except Exception as exc:
-            _CLIENT_LOGGER.warning("Could not enumerate installed fonts: %s", exc)
-            available = set()
-        for candidate in installed_candidates:
-            if candidate in available:
-                _CLIENT_LOGGER.debug("Using installed font family '%s'", candidate)
-                return candidate
-
-        _CLIENT_LOGGER.warning("Preferred fonts unavailable; falling back to %s", default_family)
-        return default_family
-
-    def _resolve_emoji_font_families(self) -> Tuple[str, ...]:
-        fonts_dir = Path(__file__).resolve().parent / "fonts"
-
-        def find_font_case_insensitive(filename: str) -> Optional[Path]:
-            if not filename:
-                return None
-            target = filename.lower()
-            if not fonts_dir.exists():
-                return None
-            for child in fonts_dir.iterdir():
-                if child.is_file() and child.name.lower() == target:
-                    return child
-            return None
-
-        try:
-            available_lookup = {name.casefold(): name for name in QFontDatabase.families()}
-        except Exception as exc:
-            _CLIENT_LOGGER.warning("Could not enumerate installed fonts for emoji fallbacks: %s", exc)
-            available_lookup = {}
-
-        fallback_families: list[str] = []
-        seen: set[str] = set()
-        base_family = (self._font_family or "").strip()
-        if base_family:
-            seen.add(base_family.casefold())
-
-        def add_family(name: Optional[str]) -> None:
-            if not name:
-                return
-            lowered = name.casefold()
-            if lowered in seen:
-                return
-            seen.add(lowered)
-            fallback_families.append(name)
-
-        def register_font_file(path: Optional[Path], label: str) -> None:
-            if not path:
-                return
-            try:
-                font_id = QFontDatabase.addApplicationFont(str(path))
-            except Exception as exc:
-                _CLIENT_LOGGER.warning("Failed to load %s font from %s: %s", label, path, exc)
-                return
-            if font_id == -1:
-                _CLIENT_LOGGER.warning("%s font file at %s could not be registered; skipping", label, path)
-                return
-            families = QFontDatabase.applicationFontFamilies(font_id)
-            if not families:
-                _CLIENT_LOGGER.warning("%s font registered but reported no families; skipping", label)
-                return
-            for family in families:
-                available_lookup[family.casefold()] = family
-                add_family(family)
-
-        def add_if_available(candidate: str, *, warn: bool = False) -> None:
-            resolved = available_lookup.get(candidate.casefold())
-            if resolved:
-                add_family(resolved)
-            elif warn:
-                _CLIENT_LOGGER.warning("Emoji fallback '%s' listed in emoji_fallbacks.txt but not installed", candidate)
-
-        fallback_marker = fonts_dir / "emoji_fallbacks.txt"
-        if fallback_marker.exists():
-            try:
-                for raw_line in fallback_marker.read_text(encoding="utf-8").splitlines():
-                    candidate = raw_line.strip()
-                    if not candidate or candidate.startswith(("#", ";")):
-                        continue
-                    path = find_font_case_insensitive(candidate)
-                    if path:
-                        register_font_file(path, f"emoji fallback '{path.name}'")
-                    else:
-                        add_if_available(candidate, warn=True)
-            except Exception as exc:
-                _CLIENT_LOGGER.warning("Failed to read emoji fallback list at %s: %s", fallback_marker, exc)
-
-        bundled_candidates = [
-            "unifont-17.0.03.otf",
-        ]
-        
-        for filename in bundled_candidates:
-            register_font_file(find_font_case_insensitive(filename), f"emoji fallback '{filename}'")
-
-        # installed_candidates = [
-        #     "Noto Color Emoji",
-        #     "Noto Emoji",
-        #     "Noto Emoji Black",
-        #     "Segoe UI Emoji",
-        #     "Segoe UI Symbol",
-        #     "Apple Color Emoji",
-        #     "Twemoji Mozilla",
-        #     "JoyPixels",
-        #     "EmojiOne Color",
-        #     "OpenMoji Color",
-        #     "OpenMoji",
-        # ]
-        # for candidate in installed_candidates:
-        #     add_if_available(candidate, warn=False)
-
-        if fallback_families:
-            _CLIENT_LOGGER.debug("Emoji fallbacks enabled: %s", ", ".join(fallback_families))
-        else:
-            _CLIENT_LOGGER.debug("No emoji fallback fonts discovered; %s will be used alone", self._font_family)
-        return tuple(fallback_families)
-
     def _line_width(self, key: str) -> int:
-        default = _LINE_WIDTH_DEFAULTS.get(key, 1)
-        value = self._line_widths.get(key, default)
-        try:
-            width = int(round(float(value)))
-        except (TypeError, ValueError):
-            width = default
-        return max(0, width)
+        return util_line_width(self._line_widths, _LINE_WIDTH_DEFAULTS, key)
 
-    def _apply_font_fallbacks(self, font: QFont) -> None:
-        apply_font_fallbacks(font, getattr(self, "_font_fallbacks", ()))
-
-
-class _QtVectorPainterAdapter(VectorPainterAdapter):
-    def __init__(self, window: "OverlayWindow", painter: QPainter) -> None:
-        self._window = window
-        self._painter = painter
-
-    def set_pen(self, color: str, *, width: Optional[int] = None) -> None:
-        q_color = QColor(color)
-        if not q_color.isValid():
-            q_color = QColor("white")
-        pen = QPen(q_color)
-        pen_width = self._window._line_width("vector_line") if width is None else max(0, int(width))
-        pen.setWidth(pen_width)
-        self._painter.setPen(pen)
-        self._painter.setBrush(Qt.BrushStyle.NoBrush)
-
-    def draw_line(self, x1: int, y1: int, x2: int, y2: int) -> None:
-        self._painter.drawLine(x1, y1, x2, y2)
-
-    def draw_circle_marker(self, x: int, y: int, radius: int, color: str) -> None:
-        q_color = QColor(color)
-        if not q_color.isValid():
-            q_color = QColor("white")
-        pen = QPen(q_color)
-        pen.setWidth(self._window._line_width("vector_marker"))
-        self._painter.setPen(pen)
-        self._painter.setBrush(QBrush(q_color))
-        self._painter.drawEllipse(QPoint(x, y), radius, radius)
-
-    def draw_cross_marker(self, x: int, y: int, size: int, color: str) -> None:
-        self.set_pen(color, width=self._window._line_width("vector_cross"))
-        self._painter.drawLine(x - size, y - size, x + size, y + size)
-        self._painter.drawLine(x - size, y + size, x + size, y - size)
-
-    def draw_text(self, x: int, y: int, text: str, color: str) -> None:
-        q_color = QColor(color)
-        if not q_color.isValid():
-            q_color = QColor("white")
-        pen = QPen(q_color)
-        self._painter.setPen(pen)
-        font = QFont(self._window._font_family)
-        self._window._apply_font_fallbacks(font)
-        mapper = self._window._compute_legacy_mapper()
-        state = self._window._viewport_state()
-        font.setPointSizeF(self._window._legacy_preset_point_size("small", state, mapper))
-        font.setWeight(QFont.Weight.Normal)
-        self._painter.setFont(font)
-        metrics = QFontMetrics(font)
-        baseline = int(round(y + metrics.ascent()))
-        self._painter.drawText(x, baseline, text)
 
 def resolve_port_file(args_port: Optional[str]) -> Path:
-    if args_port:
-        return Path(args_port).expanduser().resolve()
-    env_override = os.getenv("EDMC_OVERLAY_PORT_FILE")
-    if env_override:
-        return Path(env_override).expanduser().resolve()
-    return (Path(__file__).resolve().parent.parent / "port.json").resolve()
+    """Compatibility shim; real implementation lives in overlay_client.launcher."""
+    from overlay_client.launcher import resolve_port_file as _resolve_port_file
+
+    return _resolve_port_file(args_port)
+
 
 def main(argv: Optional[list[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="EDMC Modern Overlay client")
-    parser.add_argument("--port-file", help="Path to port.json emitted by the plugin")
-    args = parser.parse_args(argv)
+    """Compatibility shim; delegates to overlay_client.launcher.main."""
+    from overlay_client.launcher import main as _launcher_main
 
-    port_file = resolve_port_file(args.port_file)
-    settings_path = (CLIENT_DIR.parent / "overlay_settings.json").resolve()
-    initial_settings = load_initial_settings(settings_path)
-    debug_config_path = (CLIENT_DIR.parent / "debug.json").resolve()
-    debug_config = load_debug_config(debug_config_path)
-    if not DEBUG_CONFIG_ENABLED:
-        _CLIENT_LOGGER.debug(
-            "debug.json ignored (release mode). Export %s=1 or use a -dev version to enable trace toggles.",
-            DEV_MODE_ENV_VAR,
-        )
-    helper = DeveloperHelperController(_CLIENT_LOGGER, CLIENT_DIR, initial_settings)
-    if debug_config.overlay_logs_to_keep is not None:
-        helper.set_log_retention(debug_config.overlay_logs_to_keep)
-
-    _CLIENT_LOGGER.info("Starting overlay client (pid=%s)", os.getpid())
-    _CLIENT_LOGGER.debug("Resolved port file path to %s", port_file)
-    _CLIENT_LOGGER.debug(
-        "Loaded initial settings from %s: retention=%d force_render=%s force_xwayland=%s",
-        settings_path,
-        initial_settings.client_log_retention,
-        initial_settings.force_render,
-        initial_settings.force_xwayland,
-    )
-    if debug_config.trace_enabled:
-        payload_filter = ",".join(debug_config.trace_payload_ids) if debug_config.trace_payload_ids else "*"
-        _CLIENT_LOGGER.debug("Debug tracing enabled (payload_ids=%s)", payload_filter)
-
-    app = QApplication(sys.argv)
-    data_client = OverlayDataClient(port_file)
-    window = OverlayWindow(initial_settings, debug_config)
-    window.set_data_client(data_client)
-    helper.apply_initial_window_state(window, initial_settings)
-    tracker = create_elite_window_tracker(_CLIENT_LOGGER, monitor_provider=window.monitor_snapshots)
-    if tracker is not None:
-        window.set_window_tracker(tracker)
-    else:
-        _CLIENT_LOGGER.info("Window tracker unavailable; overlay will remain stationary")
-    _CLIENT_LOGGER.debug(
-        "Overlay window created; size=%dx%d; %s",
-        window.width(),
-        window.height(),
-        window.format_scale_debug(),
-    )
-
-    def _handle_payload(payload: Dict[str, Any]) -> None:
-        event = payload.get("event")
-        if event == "OverlayConfig":
-            helper.apply_config(window, payload)
-            return
-        if event == "LegacyOverlay":
-            helper.handle_legacy_payload(window, payload)
-            return
-        if event == "OverlayCycle":
-            action = payload.get("action")
-            if isinstance(action, str):
-                window.handle_cycle_action(action)
-            return
-        message_text = payload.get("message")
-        ttl: Optional[float] = None
-        if event == "TestMessage" and payload.get("message"):
-            message_text = payload["message"]
-            ttl = 10.0
-        if message_text is not None:
-            window.display_message(str(message_text), ttl=ttl)
-
-    data_client.message_received.connect(_handle_payload)
-    data_client.status_changed.connect(window.set_status_text)
-
-    window.show()
-    data_client.start()
-
-    exit_code = app.exec()
-    data_client.stop()
-    _CLIENT_LOGGER.info("Overlay client exiting with code %s", exit_code)
-    return int(exit_code)
+    return _launcher_main(argv)
 
 
 OverlayClient = OverlayWindow
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import sys
+
+    sys.modules.setdefault("overlay_client.overlay_client", sys.modules[__name__])
+
+    from overlay_client.launcher import main as _launcher_main
+
+    raise SystemExit(_launcher_main())

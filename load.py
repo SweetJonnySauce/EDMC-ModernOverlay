@@ -13,9 +13,16 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import UTC, datetime
+from copy import deepcopy
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
+
+try:
+    from monitor import game_running as _edmc_game_running, is_live_galaxy as _edmc_is_live_galaxy  # type: ignore
+except Exception:  # pragma: no cover - running outside EDMC
+    _edmc_game_running = None  # type: ignore
+    _edmc_is_live_galaxy = None  # type: ignore
 
 if __package__:
     from .version import (
@@ -25,7 +32,12 @@ if __package__:
     )
     from .overlay_plugin.overlay_watchdog import OverlayWatchdog
     from .overlay_plugin.overlay_socket_server import WebSocketBroadcaster
-    from .overlay_plugin.preferences import Preferences, PreferencesPanel, STATUS_GUTTER_MAX
+    from .overlay_plugin.preferences import (
+        Preferences,
+        PreferencesPanel,
+        STATUS_GUTTER_MAX,
+        _normalise_launch_command,
+    )
     from .overlay_plugin.version_helper import VersionStatus, evaluate_version_status
     from .overlay_plugin.legacy_tcp_server import LegacyOverlayTCPServer
     from .overlay_plugin.overlay_api import (
@@ -41,7 +53,12 @@ else:  # pragma: no cover - EDMC loads as top-level module
     from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR, is_dev_build
     from overlay_plugin.overlay_watchdog import OverlayWatchdog
     from overlay_plugin.overlay_socket_server import WebSocketBroadcaster
-    from overlay_plugin.preferences import Preferences, PreferencesPanel, STATUS_GUTTER_MAX
+    from overlay_plugin.preferences import (
+        Preferences,
+        PreferencesPanel,
+        STATUS_GUTTER_MAX,
+        _normalise_launch_command,
+    )
     from overlay_plugin.version_helper import VersionStatus, evaluate_version_status
     from overlay_plugin.legacy_tcp_server import LegacyOverlayTCPServer
     from overlay_plugin.overlay_api import (
@@ -97,6 +114,24 @@ def _load_edmc_config_module() -> Optional[Any]:
         return importlib.import_module("config")
     except Exception:
         return None
+
+
+def _game_running() -> bool:
+    if _edmc_game_running is None:
+        return True
+    try:
+        return bool(_edmc_game_running())
+    except Exception:
+        return True
+
+
+def _is_live_galaxy() -> bool:
+    if _edmc_is_live_galaxy is None:
+        return True
+    try:
+        return bool(_edmc_is_live_galaxy())
+    except Exception:
+        return True
 
 
 def _resolve_edmc_logger() -> Tuple[Optional[logging.Logger], Optional[Callable[[str], None]]]:
@@ -210,6 +245,8 @@ def _configure_logger() -> logging.Logger:
     return logger
 
 
+UTC = getattr(datetime, "UTC", timezone.utc)
+
 LOGGER = _configure_logger()
 if DEV_BUILD:
     LOGGER.info(
@@ -227,6 +264,8 @@ CLIENT_LOG_RETENTION_MAX = 20
 
 DEFAULT_DEBUG_CONFIG: Dict[str, Any] = {
     "capture_client_stderrout": True,
+    "trace_enabled": False,
+    "payload_ids": [],
     "overlay_logs_to_keep": 5,
     "tracing": {
         "enabled": False,
@@ -238,6 +277,9 @@ DEFAULT_DEBUG_CONFIG: Dict[str, Any] = {
     },
     "overlay_outline": True,
     "group_bounds_outline": True,
+    "payload_vertex_markers": False,
+    "repaint_debounce_enabled": True,
+    "log_repaint_debounce": False,
 }
 
 def _is_force_render_enabled(preferences: Optional[Preferences]) -> bool:
@@ -334,13 +376,23 @@ class _PluginRuntime:
         self._version_update_notice_sent = False
         self._version_notice_timer_lock = threading.Lock()
         self._version_notice_timers: Set[threading.Timer] = set()
+        self._launch_log_timer: Optional[threading.Timer] = None
+        self._launch_log_pending: Optional[Tuple[str, str]] = None
+        self._last_launch_info_value: str = ""
+        self._last_launch_info_time: float = 0.0
+        self._last_launch_log_value: str = ""
+        self._last_launch_log_time: float = 0.0
+        self._command_helper_prefix: Optional[str] = None
         register_grouping_store(self.plugin_dir / "overlay_groupings.json")
         threading.Thread(
             target=self._evaluate_version_status_once,
             name="ModernOverlayVersionCheck",
             daemon=True,
         ).start()
-        self._command_helper = build_command_helper(self, LOGGER)
+        launch_cmd = _normalise_launch_command(str(getattr(self._preferences, "controller_launch_command", "!ovr")))
+        LOGGER.info("Initialising Overlay Controller journal command helper with launch prefix=%s", launch_cmd)
+        self._command_helper = self._build_command_helper(launch_cmd)
+        self._command_helper_prefix = launch_cmd
         self._controller_launch_lock = threading.Lock()
         self._controller_launch_thread: Optional[threading.Thread] = None
         self._controller_process: Optional[subprocess.Popen] = None
@@ -418,8 +470,15 @@ class _PluginRuntime:
     def handle_journal(self, cmdr: str, system: str, station: str, entry: Dict[str, Any]) -> None:
         if not self._running:
             return
+        # Respect EDMC helpers (PLUGINS.md:113) instead of relying solely on journal-derived state.
+        if not _game_running():
+            return
         event = entry.get("event")
         if not event:
+            return
+        if not _is_live_galaxy():
+            with self._lock:
+                self._state.update({"system": "", "station": "", "docked": False})
             return
         try:
             self._command_helper.handle_entry(entry)
@@ -816,6 +875,35 @@ class _PluginRuntime:
             self._payload_filter_mtime = stat.st_mtime
             return
         excludes: Set[str] = set()
+        updated_defaults = False
+        if isinstance(data, Mapping):
+            mutable_data = dict(data)
+            for key, value in DEFAULT_DEBUG_CONFIG.items():
+                if key not in mutable_data:
+                    mutable_data[key] = deepcopy(value)
+                    updated_defaults = True
+            payload_logging_defaults = DEFAULT_DEBUG_CONFIG.get("payload_logging")
+            if isinstance(payload_logging_defaults, Mapping):
+                payload_section = mutable_data.setdefault("payload_logging", {})
+                if isinstance(payload_section, Mapping):
+                    payload_section = dict(payload_section)
+                    for key, value in payload_logging_defaults.items():
+                        if key not in payload_section:
+                            payload_section[key] = deepcopy(value)
+                            updated_defaults = True
+                    mutable_data["payload_logging"] = payload_section
+            tracing_defaults = DEFAULT_DEBUG_CONFIG.get("tracing")
+            if isinstance(tracing_defaults, Mapping):
+                tracing_section = mutable_data.setdefault("tracing", {})
+                if isinstance(tracing_section, Mapping):
+                    tracing_section = dict(tracing_section)
+                    for key, value in tracing_defaults.items():
+                        if key not in tracing_section:
+                            tracing_section[key] = deepcopy(value)
+                            updated_defaults = True
+                    mutable_data["tracing"] = tracing_section
+            data = mutable_data
+        needs_write = updated_defaults
         logging_override: Optional[bool] = None
         trace_enabled = False
         trace_payload_ids: Tuple[str, ...] = ()
@@ -909,6 +997,11 @@ class _PluginRuntime:
         retention_changed = self._set_log_retention_override(log_retention_override)
         if retention_changed:
             self._on_log_retention_changed()
+        if needs_write:
+            try:
+                self._payload_filter_path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            except Exception:
+                LOGGER.debug("Failed to backfill defaults into debug.json", exc_info=True)
 
     def _start_watchdog(self) -> bool:
         overlay_root = self._locate_overlay_client()
@@ -1117,6 +1210,60 @@ class _PluginRuntime:
             self._preferences.show_connection_status = bool(value)
             self._preferences.save()
         self._send_overlay_config()
+
+    def set_launch_command_preference(self, value: str) -> None:
+        normalised = _normalise_launch_command(str(value))
+        now = time.monotonic()
+        if normalised != self._last_launch_info_value or now - self._last_launch_info_time >= 1.0:
+            LOGGER.info("Overlay Controller launch command change requested (runtime): raw=%r normalised=%s", value, normalised)
+            self._last_launch_info_value = normalised
+            self._last_launch_info_time = now
+        with self._prefs_lock:
+            current = getattr(self._preferences, "controller_launch_command", "!ovr")
+            current_helper_prefix = self._command_helper_prefix or current
+            changed_pref = normalised != current
+            changed_helper = normalised != current_helper_prefix
+            if changed_pref:
+                self._preferences.controller_launch_command = normalised
+                self._preferences.save()
+        if not changed_pref and not changed_helper:
+            if normalised != self._last_launch_log_value or now - self._last_launch_log_time >= 1.0:
+                LOGGER.debug("Launch command unchanged; current=%s (debounced)", current)
+                self._last_launch_log_value = normalised
+                self._last_launch_log_time = now
+            return
+        if changed_pref:
+            now = time.monotonic()
+            if normalised != self._last_launch_info_value or now - self._last_launch_info_time >= 1.0:
+                LOGGER.info("Overlay Controller launch command changed (runtime): %s -> %s", current, normalised)
+                self._last_launch_info_value = normalised
+                self._last_launch_info_time = now
+        else:
+            LOGGER.debug(
+                "Overlay Controller launch command unchanged in prefs; refreshing command helper with prefix=%s",
+                normalised,
+            )
+        self._command_helper = self._build_command_helper(normalised, previous_prefix=current_helper_prefix)
+        self._command_helper_prefix = normalised
+        LOGGER.info("Overlay Controller launch command preference updated to %s", normalised)
+
+    def _build_command_helper(self, prefix: str, previous_prefix: Optional[str] = None) -> Any:
+        legacy: list[str] = []
+        if prefix == "!overlay":
+            legacy = ["!overlay"]
+        elif previous_prefix and previous_prefix != prefix:
+            LOGGER.debug(
+                "Removing legacy Overlay Controller launch prefix %s; active prefix now %s",
+                previous_prefix,
+                prefix,
+            )
+        helper = build_command_helper(self, LOGGER, command_prefix=prefix, legacy_prefixes=legacy)
+        LOGGER.debug(
+            "Overlay Controller journal command helper configured: primary=%s legacy=%s",
+            prefix,
+            ", ".join(legacy) if legacy else "<none>",
+        )
+        return helper
 
     def set_debug_overlay_corner_preference(self, value: str) -> None:
         corner = (value or "NW").upper()
@@ -1397,12 +1544,10 @@ class _PluginRuntime:
         launch_env: Dict[str, str],
         capture_output: bool,
     ) -> subprocess.Popen:
-        script_path = self.plugin_dir / "overlay_controller" / "overlay_controller.py"
-        if not script_path.exists():
-            raise RuntimeError("overlay_controller.py not found")
-        command = [*python_command, str(script_path)]
+        module_name = "overlay_controller.overlay_controller"
+        command = [*python_command, "-m", module_name]
         LOGGER.debug("Spawning Overlay Controller via %s", command)
-        kwargs: Dict[str, Any] = {"cwd": str(script_path.parent), "env": launch_env}
+        kwargs: Dict[str, Any] = {"cwd": str(self.plugin_dir), "env": launch_env}
         if os.name == "nt":
             creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             if creation_flags:
@@ -2218,7 +2363,12 @@ class _PluginRuntime:
                     cmdline = proc.info.get("cmdline") or []
                     for token in cmdline:
                         name = os.path.basename(token)
-                        if name.lower() == "overlay_controller.py" or name.lower().endswith("/overlay_controller.py"):
+                        token_l = token.lower()
+                        if (
+                            name.lower() == "overlay_controller.py"
+                            or name.lower().endswith("/overlay_controller.py")
+                            or "overlay_controller.overlay_controller" in token_l
+                        ):
                             return True
                 # Fallback: check process names when cmdline is unavailable.
                 for proc in psutil.process_iter(["name"]):
@@ -2233,7 +2383,7 @@ class _PluginRuntime:
             output = ""
         for line in output.splitlines():
             token = line.strip().lower()
-            if "overlay_controller.py" in token:
+            if "overlay_controller.py" in token or "overlay_controller.overlay_controller" in token:
                 return True
         return False
 
@@ -2428,6 +2578,9 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         cycle_prev_callback = _plugin.cycle_payload_prev if _plugin else None
         cycle_next_callback = _plugin.cycle_payload_next if _plugin else None
         restart_overlay_callback = _plugin.restart_overlay_client if _plugin else None
+        launch_command_callback = _plugin.set_launch_command_preference if _plugin else None
+        if launch_command_callback:
+            LOGGER.debug("Attaching launch command callback with initial value=%s", _preferences.controller_launch_command)
         panel = PreferencesPanel(
             parent,
             _preferences,
@@ -2452,6 +2605,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             cycle_prev_callback,
             cycle_next_callback,
             restart_overlay_callback,
+            launch_command_callback,
             dev_mode=DEV_BUILD,
             plugin_version=MODERN_OVERLAY_VERSION,
             version_update_available=version_update_available,

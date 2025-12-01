@@ -123,6 +123,24 @@ Enable **Show debug overlay** to surface a live diagnostics panel in the corner 
 
 These details are helpful when debugging sizing issues (e.g., 21:9 vs. 4:3 monitors) or verifying that Fill-mode remaps are behaving as expected.
 
+## debug.json flags (dev mode only)
+
+The file `debug.json` is honoured only in dev builds (`MODERN_OVERLAY_DEV_MODE=1` or `__version__` suffixed with `-dev`). Missing keys are auto-populated with defaults; edits require an overlay restart.
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `trace_enabled` / `tracing.enabled` | `false` | Enable legacy payload tracing (mirrors payloads to `overlay-payloads.log` and adds per-payload trace hooks). |
+| `payload_ids` / `tracing.payload_ids` | `[]` | Optional allowlist of payload IDs/prefixes to trace; leave empty to trace all when `trace_enabled` is true. |
+| `payload_logging.overlay_payload_log_enabled` | `true` | Mirror payloads to `logs/EDMCModernOverlay/overlay-payloads.log`; combine with `exclude_plugins` to suppress noisy sources. |
+| `payload_logging.exclude_plugins` | `[]` | Lowercase prefixes of plugins to skip when mirroring payloads (e.g., `"bgstally-"`). |
+| `capture_client_stderrout` | `true` | Pipe overlay stdout/stderr back to EDMC logs (only emitted when EDMC log level is DEBUG). |
+| `overlay_logs_to_keep` | `5` | Rotating overlay log retention (count of files), clamped to [1,20]. |
+| `overlay_outline` | `true` | Draw a dashed border around the overlay window (debug overlay aid). |
+| `group_bounds_outline` | `true` | Draw dashed rectangles/anchors for cached groups (useful for Fill tuning). |
+| `payload_vertex_markers` | `false` | Render per-vertex debug markers for vector payloads. |
+| `repaint_debounce_enabled` | `true` | Enable the 33 ms repaint debounce for ingest/purge bursts; set `false` to bypass for troubleshooting. |
+| `log_repaint_debounce` | `false` | Emit debug logs for repaint requests/debounce path plus 5s repaint/text-measure stats. |
+
 ### Fill-mode diagnostics
 
 Enable `group_bounds_outline` in `debug.json` to render dashed rectangles (plus anchor dots) for each cached group while tuning Fill mode behaviour. Because Fill scales the legacy canvas until one axis overflows, these outlines make it easy to confirm that related payloads are translating together and remaining rigid even when they extend beyond the visible window.

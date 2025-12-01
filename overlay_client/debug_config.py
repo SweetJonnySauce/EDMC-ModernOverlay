@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -11,7 +12,7 @@ from typing import Any, Optional
 try:  # pragma: no cover - overlay client may run without package metadata
     from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR, is_dev_build
 except Exception:  # pragma: no cover - fallback when version module unavailable
-    MODERN_OVERLAY_VERSION = None
+    MODERN_OVERLAY_VERSION: Optional[str] = None
     DEV_MODE_ENV_VAR = "MODERN_OVERLAY_DEV_MODE"
 
     def is_dev_build(version: Optional[str] = None) -> bool:
@@ -39,25 +40,49 @@ class DebugConfig:
     group_bounds_outline: bool = False
     payload_vertex_markers: bool = False
     overlay_logs_to_keep: Optional[int] = None
+    repaint_debounce_enabled: Optional[bool] = None
+    log_repaint_debounce: bool = False
 
 
 def load_debug_config(path: Path) -> DebugConfig:
     if not DEBUG_CONFIG_ENABLED:
         return DebugConfig()
+    defaults = {
+        "trace_enabled": False,
+        "payload_ids": [],
+        "overlay_outline": False,
+        "group_bounds_outline": False,
+        "payload_vertex_markers": False,
+        "overlay_logs_to_keep": None,
+        "repaint_debounce_enabled": True,
+        "log_repaint_debounce": False,
+    }
+    raw_data: dict[str, Any] = {}
+    needs_write = False
     try:
         raw_text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        return DebugConfig()
+        raw_data = deepcopy(defaults)
+        needs_write = True
     except OSError:
-        return DebugConfig()
+        raw_data = deepcopy(defaults)
+        needs_write = True
+    else:
+        try:
+            loaded = json.loads(raw_text)
+        except json.JSONDecodeError:
+            raw_data = deepcopy(defaults)
+            needs_write = True
+        else:
+            raw_data = loaded if isinstance(loaded, dict) else {}
+            if not isinstance(loaded, dict):
+                needs_write = True
 
-    try:
-        data = json.loads(raw_text)
-    except json.JSONDecodeError:
-        return DebugConfig()
-
-    if not isinstance(data, dict):
-        return DebugConfig()
+    data: dict[str, Any] = deepcopy(raw_data) if isinstance(raw_data, dict) else {}
+    for key, default_value in defaults.items():
+        if key not in data:
+            data[key] = default_value
+            needs_write = True
 
     tracing_section = data.get("tracing")
     if isinstance(tracing_section, dict):
@@ -83,6 +108,16 @@ def load_debug_config(path: Path) -> DebugConfig:
     overlay_outline = bool(data.get("overlay_outline", False))
     group_bounds_outline = bool(data.get("group_bounds_outline", False))
     payload_vertex_markers = bool(data.get("payload_vertex_markers", False))
+    repaint_debounce_enabled_raw = data.get("repaint_debounce_enabled")
+    repaint_debounce_enabled: Optional[bool] = None
+    if repaint_debounce_enabled_raw is not None:
+        repaint_debounce_enabled = bool(repaint_debounce_enabled_raw)
+    else:
+        disable_raw = data.get("disable_repaint_debounce")
+        if disable_raw is not None:
+            repaint_debounce_enabled = not bool(disable_raw)
+
+    log_repaint_debounce = bool(data.get("log_repaint_debounce", False))
 
     def _coerce_log_retention(value: Any) -> Optional[int]:
         if value is None:
@@ -99,11 +134,22 @@ def load_debug_config(path: Path) -> DebugConfig:
 
     overlay_logs_to_keep = _coerce_log_retention(data.get("overlay_logs_to_keep"))
 
-    return DebugConfig(
+    normalized = DebugConfig(
         trace_enabled=trace_enabled,
         trace_payload_ids=payload_ids,
         overlay_outline=overlay_outline,
         group_bounds_outline=group_bounds_outline,
         payload_vertex_markers=payload_vertex_markers,
         overlay_logs_to_keep=overlay_logs_to_keep,
+        repaint_debounce_enabled=repaint_debounce_enabled,
+        log_repaint_debounce=log_repaint_debounce,
     )
+
+    if needs_write:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        except Exception:
+            pass
+
+    return normalized
