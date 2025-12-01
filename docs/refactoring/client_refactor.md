@@ -244,7 +244,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 24.2 | Follow/window orchestration + platform hooks (overlay_client/overlay_client.py:1881-2473, ~600 lines): drag/click-through toggles, tracker polling, normalization, geometry application, visibility/transient parent/fullscreen handling; move to controller layer with Qt calls at boundary. | Complete |
   | 24.3 | External control/API surface (overlay_client/overlay_client.py:1112-1880, ~770 lines): `set_*`/status methods, cycle overlay helpers, repaint scheduling/metrics, config toggles; extract to control/adaptor feeding orchestrator. | Complete |
   | 24.4 | Interaction/event overrides (overlay_client/overlay_client.py:1011-1111, ~100 lines): mouse/resize/move events and grid caching; relocate to interaction surface with injected callbacks. | Complete |
-  | 24.5 | Widget setup + baseline helpers (overlay_client/overlay_client.py:263-1010, ~750 lines): `__init__`, font/layout setup, transform wrappers, metrics/publish hooks, show/paint events; leave thin Qt shell, push pure helpers/metrics into shared modules. | Planned |
+  | 24.5 | Widget setup + baseline helpers (overlay_client/overlay_client.py:263-1010, ~750 lines): `__init__`, font/layout setup, transform wrappers, metrics/publish hooks, show/paint events; leave thin Qt shell, push pure helpers/metrics into shared modules. | Complete |
 
 - **M.** DRY gaps: duplicated helpers (`_ReleaseLogLevelFilter` in `overlay_client.py` and `data_client.py`; duplicated `_clamp_axis` in `payload_transform.py`) and scattered logging filters reduce consistency and increase maintenance risk.
 
@@ -511,6 +511,25 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 - `source overlay_client/.venv/bin/activate && make test` → passed.
 - `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
 - `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay running; expected empty-text payload skips during replay).
+
+### Stage 24.5 quick summary (status)
+- Extracted setup/baseline logic into `overlay_client/setup_surface.py` (`SetupSurfaceMixin`); `OverlayWindow` now delegates constructor plumbing, font/layout defaults, repaint/text cache setup, grouping helpers, and controller wiring to `_setup_overlay` while keeping the Qt shell minimal.
+- Show/paint event overrides now defer to mixin helpers (`_handle_show_event`, `_paint_overlay`); grid pixmap helper moved to the mixin. `__init__` still calls `QWidget` directly, with platform/controller/log side effects preserved and monkeypatchable hooks retained.
+- Added PyQt tests for setup mixin defaults, show-event delegation, and paint-event delegation with stubbed callbacks.
+
+#### Stage 24.5 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay running; expected empty-text payload skips during replay).
+
+| Substage | Description | Status |
+| --- | --- | --- |
+| 24.5.1 | Map constructor/setup/show/paint responsibilities, distinguishing Qt creations from pure state and identifying extraction seams. | Complete |
+| 24.5.2 | Build setup/baseline helper/mixin with injected callbacks for Qt objects; cover font/layout/text cache/metrics setup and baseline helper wiring. | Complete |
+| 24.5.3 | Rewire `OverlayWindow` `__init__`/show/paint hooks to delegate to the helper while preserving logging and debug/config side effects. | Complete |
+| 24.5.4 | Add/extend tests for constructor defaults, metrics/publish hooks, show/paint wiring, and text cache init (headless preferred; PyQt for show/paint). | Complete |
+| 24.5.5 | Run validation suite (`make check`, `make test`, `PYQT_TESTS=1 pytest`, resolution test with overlay running) and document results. | Complete |
 
 ### Stage 25 quick summary (intent)
 - Goal: centralize duplicated helpers (`_ReleaseLogLevelFilter`, `_clamp_axis`) into shared utilities to enforce DRY and consistent behavior.
