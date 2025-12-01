@@ -86,7 +86,7 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
    - Font scaling bounds for payload text. This sets the min/max size of the normal font on different display sizes. 
    - Elite title-bar compensation toggle + height. Turn this true if running in windowed mode with a title bar.
    - Nudge overflowing payloads back into view” + gutter. Useful in `Fill` if you find text extending beyond the right or bottom edges of the screen.
-
+   
 ## Programmatic API
 
 > ⚠️ **Caution: Here Be Dragons!**
