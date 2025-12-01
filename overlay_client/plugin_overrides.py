@@ -58,6 +58,7 @@ class PluginOverrideManager:
         self._plugins: Dict[str, _PluginConfig] = {}
         self._debug_config = debug_config or DebugConfig()
         self._diagnostic_spans: Dict[Tuple[str, str], Tuple[float, float, float]] = {}
+        self._generation: int = 0
         self._load_config()
 
     # ------------------------------------------------------------------
@@ -396,6 +397,11 @@ class PluginOverrideManager:
             len(self._plugins),
             self._path,
         )
+        self._generation += 1
+
+    @property
+    def generation(self) -> int:
+        return self._generation
 
     def force_reload(self) -> None:
         """Forcefully reload the override configuration from disk."""
@@ -423,6 +429,20 @@ class PluginOverrideManager:
                 continue
             if any(payload_cf.startswith(prefix) for prefix in config.match_id_prefixes):
                 return config
+        return None
+
+    def grouping_label_for_id(self, payload_id: str) -> Optional[str]:
+        """Return the first matching grouping label for a payload id, if any."""
+
+        config = self._config_for_payload_id(payload_id)
+        if config is None:
+            return None
+        payload_cf = payload_id.casefold()
+        for spec in config.group_specs:
+            for entry in spec.prefixes:
+                prefix = entry.value.casefold()
+                if payload_cf.startswith(prefix):
+                    return spec.label
         return None
 
     def _determine_plugin_name(self, payload: Mapping[str, Any]) -> Optional[str]:

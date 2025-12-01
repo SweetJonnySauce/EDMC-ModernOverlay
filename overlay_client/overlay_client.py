@@ -388,6 +388,7 @@ class OverlayWindow(QWidget):
         if self._repaint_debounce_log:
             self._paint_log_timer.start()
         self._paint_stats = {"paint_count": 0}
+        self._paint_log_state = {"last_ingest": 0, "last_purge": 0, "last_total": 0}
         _CLIENT_LOGGER.debug(
             "Debug config loaded: dev_mode_enabled=%s group_bounds_outline=%s overlay_outline=%s payload_vertex_markers=%s (DEBUG_CONFIG_ENABLED=%s)",
             self._dev_mode_enabled,
@@ -1698,12 +1699,27 @@ class OverlayWindow(QWidget):
         stats = getattr(self, "_paint_stats", {})
         paint_count = stats.get("paint_count", 0) if isinstance(stats, dict) else 0
         stats["paint_count"] = 0
+        last_state = getattr(self, "_paint_log_state", {}) or {}
+        ingest_total = counts.get("ingest", 0) if isinstance(counts, dict) else 0
+        purge_total = counts.get("purge", 0) if isinstance(counts, dict) else 0
+        total_total = counts.get("total", 0) if isinstance(counts, dict) else 0
+        ingest_delta = ingest_total - int(last_state.get("last_ingest", 0))
+        purge_delta = purge_total - int(last_state.get("last_purge", 0))
+        total_delta = total_total - int(last_state.get("last_total", 0))
+        self._paint_log_state = {
+            "last_ingest": ingest_total,
+            "last_purge": purge_total,
+            "last_total": total_total,
+        }
         _CLIENT_LOGGER.debug(
-            "Repaint stats: paints=%d ingest=%s purge=%s total=%s",
+            "Repaint stats: paints=%d ingest_delta=%d purge_delta=%d total_delta=%d ingest_total=%s purge_total=%s total=%s",
             paint_count,
-            counts.get("ingest"),
-            counts.get("purge"),
-            counts.get("total"),
+            ingest_delta,
+            purge_delta,
+            total_delta,
+            ingest_total,
+            purge_total,
+            total_total,
         )
 
     def set_background_opacity(self, opacity: float) -> None:
@@ -2586,7 +2602,13 @@ class OverlayWindow(QWidget):
             def trace_fn(stage: str, _payload: Mapping[str, Any], extra: Mapping[str, Any]) -> None:
                 self._log_legacy_trace(plugin_name, message_id, stage, extra)
 
-        if self._payload_model.ingest(payload, trace_fn=trace_fn):
+        group_label = self._override_manager.grouping_label_for_id(message_id)
+        if self._payload_model.ingest(
+            payload,
+            trace_fn=trace_fn,
+            override_generation=self._override_manager.generation,
+            group_label=group_label,
+        ):
             if self._cycle_payload_enabled:
                 self._sync_cycle_items()
             self._mark_legacy_cache_dirty()

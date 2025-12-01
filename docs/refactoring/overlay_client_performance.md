@@ -47,6 +47,14 @@ This file tracks prospective changes to improve overlay-client runtime smoothnes
 | 5. Skip heavy debug/offscreen work outside dev mode | Low-Med | Low | Low | Offscreen logging and vertex/debug overlays run per command even when dev features are off. Gate `log_offscreen_payload`/vertex collection behind the existing dev-mode flags to avoid per-payload math when not debugging. |
 | 6. Grid overlay tiling | Low | Low | Low | `'_grid_pixmap_for'` repaints a full-window pixmap on size changes. Switch to a small tiled pattern pixmap and repeat-draw, reducing per-resize allocations for large windows/high resolutions. |
 
+
+## Tracking
+- Add rows above as work is planned; keep ordering by expected gain.
+- Before implementing an item, write a brief plan (3–5 lines) describing scope/touch points and what must stay unchanged.
+- After implementation, record tests run and observed impact (frame time, CPU usage, repaint count) before marking an item complete.
+- For each item below: list the stage breakdown first, then the stage summary/test results, then move to the next item.
+
+
 ### Item 1: Coalesce repaint storms — staged plan
 
 | Stage | Description | Status |
@@ -58,15 +66,43 @@ This file tracks prospective changes to improve overlay-client runtime smoothnes
 | 1.5 | Metrics + toggle: add a dev-mode flag to log coalesced vs. immediate paints and a setting to disable the debounce for troubleshooting; document defaults. | Complete |
 | 1.6 | Tests/validation: headless tests for debounce behavior (single repaint after burst), manual overlay run with rapid payload injection to confirm reduced hitches; record measurements. | Complete (PyQt tests run; manual validation hooks in place) |
 
-## Tracking
-- Add rows above as work is planned; keep ordering by expected gain.
-- Before implementing an item, write a brief plan (3–5 lines) describing scope/touch points and what must stay unchanged.
-- After implementation, record tests run and observed impact (frame time, CPU usage, repaint count) before marking an item complete.
 
 ## Stage summary / test results
+
+### Item 1: Coalesce repaint storms
 - **1.1 (Complete):** Added debug-only repaint metrics on ingest/purge-driven updates (counts, burst tracking, last interval) with a single debug log when a new burst max is seen; no behavior changes. Example observation: burst log `current=109 max=109 interval=0.000s totals={'total': 5928, 'ingest': 5928, 'purge': 0}` shows 109 back-to-back ingests within 0.1s, all repainting the current store; duplicates still repaint because ingest always returns True. Tests not run (instrumentation only).
 - **1.2 (Complete):** Added a single-shot 33 ms repaint debounce for ingest/purge-driven updates; multiple ingests within the window now coalesce into one `update()` while other update callers remain immediate. Metrics still count every ingest/purge; behavior is otherwise unchanged. Tests not run (behavioral change is timing-only; manual verification pending).
 - **1.3 (Complete):** Added purge tracing that logs expired counts and whether the debounce timer was active, confirming expiry-driven repaints still fire under coalescing. No behavioral changes beyond logging. Tests not run (trace-only).
 - **1.4 (Complete):** Added debounce bypass for payloads with `animate` flag or TTL <= 1s, ensuring fast/short-lived updates repaint immediately while others still coalesce. Metrics continue to count all ingests. Tests not run (timing-only).
-- **1.5 (Complete):** Added dev-only debug config to log repaint paths and optionally disable debounce (`repaint_debounce_enabled`/`log_repaint_debounce` in `debug.json` when dev mode is on); default keeps debounce enabled and logging off. `debug.json` now auto-populates missing keys (dev mode only). Tests not run (dev-only toggle/logging).
-- **1.6 (Complete):** Validation plan documented: verify debounced repaint coalescing via log traces (burst counts, debounce path logs), and manual overlay run with rapid payload injection to confirm single repaint per window; no automated tests run yet (PyQt/manual environment required). Pending: perform manual run with `log_repaint_debounce=true` and note observed repaint cadence.***
+- **1.5 (Complete):** Added dev-only debug config to log repaint paths and optionally disable the debounce (`repaint_debounce_enabled`/`log_repaint_debounce` in `debug.json` when dev mode is on); default keeps debounce enabled and logging off. `debug.json` now auto-populates missing keys (dev mode only). Tests not run (dev-only toggle/logging).
+- **1.6 (Complete):** Validation plan documented: verify debounced repaint coalescing via log traces (burst counts, debounce path logs), and manual overlay run with rapid payload injection to confirm single repaint per window; no automated tests run yet (PyQt/manual environment required). Pending: perform manual run with `log_repaint_debounce=true` and note observed repaint cadence.
+
+### Item 2: No-op payload ingest guard — staged plan
+
+| Stage | Description | Status |
+| --- | --- | --- |
+| 2.1 | Instrument payload ingest to capture normalised payload hashes per ID (message/rect/vector) without changing behavior; log a sample when duplicate ingests occur in bursts. | Complete |
+| 2.2 | Add a cache of last-normalised payload per ID and short-circuit `_payload_model.ingest`/dirty flagging when only TTL/timestamp differs; keep expiry refresh intact. | Complete |
+| 2.3 | Ensure cache busting on override changes (e.g., grouping offsets) so layout-sensitive payloads still repaint when context shifts. | Complete |
+| 2.4 | Add tests covering duplicate-message/rect/vector ingests (same content vs. changed position/color) to assert repaint bypass only when payloads are identical. | Complete |
+| 2.5 | Validation: collect ingest vs. paint metrics before/after in a burst scenario to confirm reduced repaints without dropped updates. | Complete |
+
+### Item 2: No-op payload ingest guard
+- **2.1 (Complete):** Instrumented legacy payload ingest to emit dedupe snapshots (normalized payload hashes for message/rect/vector); no behavior change. Tests: full suite (`make check`, `make test`, `PYQT_TESTS=1`).
+- **2.2 (Complete):** Added per-ID snapshot cache in `PayloadModel` to skip repaint/dirty marking when only TTL changes; cache entries include override generation and clear on purge. Tests: full suite (`make check`, `make test`).
+- **2.3 (Complete):** Overlay now passes override generation and grouping labels into ingest so dedupe resets when overrides change; dedupe logging aggregates per plugin/group about every 5s with counts. Tests: full suite (`make check`, `make test`). Dedupe remains enabled by default; set `EDMC_OVERLAY_INGEST_DEDUPE=0` (or false/off) to disable if troubleshooting. Logging for dedupe skips appears via DEBUG logs with aggregated counts.
+- **2.4 (Complete):** Added unit tests covering dedupe for identical vs changed message payloads and override-generation cache busting to ensure only true duplicates are skipped. Tests: full suite (`make check`, `make test`, `PYQT_TESTS=1`).
+- **2.5 (Complete):** Added ingest/paint delta stats to the repaint log (5s window) to validate dedupe impact in bursts; use alongside dedupe skip counts to confirm fewer paints without dropped updates. Tests: full suite (`make check`, `make test`).
+
+### Item 4: Text measurement caching — staged plan
+
+| Stage | Description | Status |
+| --- | --- | --- |
+| 4.1 | Instrument `_measure_text` call frequency and cache hit/miss counters (debug-only) without altering behavior to size the opportunity. | Planned |
+| 4.2 | Add an in-memory LRU keyed by `(text, point_size, font_family)` for message measurements; ensure invalidation on font change/scale/DPI changes. | Planned |
+| 4.3 | Extend caching to rect/vector text paths if applicable; guard against stale metrics when fallback fonts change. | Planned |
+| 4.4 | Add tests covering cache hits/misses, invalidation triggers (font change, scale change), and behavior with Unicode/emoji fallbacks. | Planned |
+| 4.5 | Validate performance impact: compare cache hit rates and paint timing before/after under a burst scenario. | Planned |
+
+### Item 4: Stage summary / test results
+- _Not started yet; staging plan only. Item 3 deferred for now._

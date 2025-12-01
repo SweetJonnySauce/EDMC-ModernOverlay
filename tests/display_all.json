@@ -19,6 +19,11 @@
       "ttl": 10
     },
     {
+      "name": "landingpad",
+      "source": "payload_store/landingpad.log",
+      "ttl": 10
+    },
+    {
       "name": "Bioscan",
       "source": "payload_store/bioscan_radar.log",
       "ttl": 10
