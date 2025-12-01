@@ -239,9 +239,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | Stage | Description | Status |
   | --- | --- | --- |
   | 24 | Define a target split for `OverlayWindow` (e.g., thin orchestration shell + injected render/follow/payload/debug surfaces) with clear interfaces and ownership, based on current code reality. | Planned |
-  | 24.1 | Inventory current `OverlayWindow` surface area (public methods, injected deps, state fields) and map candidate module seams (orchestrator vs. render view vs. follow/payload controllers); no code changes. | Planned |
-  | 24.2 | Introduce a small orchestrator wrapper around a leaner view/controller set; move state/handlers for non-Qt logic out, keeping Qt calls at the boundary; preserve behavior/logging. | Planned |
-  | 24.3 | Add/adjust tests to cover the new seams (orchestrator wiring, render/follow/payload delegation) and rerun full suite including PYQT/resolution. | Planned |
+ 
 
 - **M.** DRY gaps: duplicated helpers (`_ReleaseLogLevelFilter` in `overlay_client.py` and `data_client.py`; duplicated `_clamp_axis` in `payload_transform.py`) and scattered logging filters reduce consistency and increase maintenance risk.
 
