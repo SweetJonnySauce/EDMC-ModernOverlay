@@ -7,7 +7,7 @@
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
         ],
-        "offsetX": 256.0,
+        "offsetX": 0.0,
         "offsetY": 0.0,
         "payloadJustification": "left"
       },

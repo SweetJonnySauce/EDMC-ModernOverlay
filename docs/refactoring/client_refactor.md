@@ -242,8 +242,8 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 24 | Define a target split for `OverlayWindow` (e.g., thin orchestration shell + injected render/follow/payload/debug surfaces) with clear interfaces and ownership, based on current code reality. | Complete |
   | 24.1 | Render/payload pipeline + debug surface (overlay_client/overlay_client.py:2474-4059, ~1,600 lines): legacy payload handling, render passes, command building (`_build_*_command`), justification/anchor translation, group cache/logging, debug overlays, text measurement cache; target dedicated render surface with injected builder/renderer/debug hooks. | Complete |
   | 24.2 | Follow/window orchestration + platform hooks (overlay_client/overlay_client.py:1881-2473, ~600 lines): drag/click-through toggles, tracker polling, normalization, geometry application, visibility/transient parent/fullscreen handling; move to controller layer with Qt calls at boundary. | Complete |
-  | 24.3 | External control/API surface (overlay_client/overlay_client.py:1112-1880, ~770 lines): `set_*`/status methods, cycle overlay helpers, repaint scheduling/metrics, config toggles; extract to control/adaptor feeding orchestrator. | Planned |
-  | 24.4 | Interaction/event overrides (overlay_client/overlay_client.py:1011-1111, ~100 lines): mouse/resize/move events and grid caching; relocate to interaction surface with injected callbacks. | Planned |
+  | 24.3 | External control/API surface (overlay_client/overlay_client.py:1112-1880, ~770 lines): `set_*`/status methods, cycle overlay helpers, repaint scheduling/metrics, config toggles; extract to control/adaptor feeding orchestrator. | Complete |
+  | 24.4 | Interaction/event overrides (overlay_client/overlay_client.py:1011-1111, ~100 lines): mouse/resize/move events and grid caching; relocate to interaction surface with injected callbacks. | Complete |
   | 24.5 | Widget setup + baseline helpers (overlay_client/overlay_client.py:263-1010, ~750 lines): `__init__`, font/layout setup, transform wrappers, metrics/publish hooks, show/paint events; leave thin Qt shell, push pure helpers/metrics into shared modules. | Planned |
 
 - **M.** DRY gaps: duplicated helpers (`_ReleaseLogLevelFilter` in `overlay_client.py` and `data_client.py`; duplicated `_clamp_axis` in `payload_transform.py`) and scattered logging filters reduce consistency and increase maintenance risk.
@@ -473,6 +473,44 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 - `source overlay_client/.venv/bin/activate && make test` → passed (part of `make check`).
 - `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
 - `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay running; expected payload-logging disabled warnings, empty-text payload skips during replay).
+
+### Stage 24.4.1 quick summary (mapping)
+- Event handlers in `overlay_client.py` today: `resizeEvent` invalidates grid cache, enforces follow size when `_follow_enabled` and `_last_set_geometry` differ (using `_enforcing_follow_size` guard), updates auto legacy scale, and publishes metrics. `mousePressEvent` starts drag when left-button + `_drag_enabled` + `_move_mode`, sets drag state on the follow controller, suspends follow, saves cursor, sets closed-hand cursor, and accepts; otherwise defers to `super()`. `mouseMoveEvent` moves the window while dragging and accepts; otherwise defers. `mouseReleaseEvent` ends drag on left-button, updates follow controller state, suspends follow, raises window, restores cursor, reapplies drag/click-through state, logs, and accepts; otherwise defers. `moveEvent` logs position/geometry/monitor details once per move and, if follow is enabled and geometry diverges from `_last_set_geometry`, records a WM override with classification `wm_intervention`.
+- Shared state/callbacks: `_invalidate_grid_cache` (control surface), `_update_auto_legacy_scale` + `_publish_metrics`, `_follow_controller` (`set_drag_state`, `record_override`), `_suspend_follow`, `_apply_drag_state`, `_describe_screen`, `format_scale_debug`, `_set_wm_override`, `_last_set_geometry`, `_last_move_log`, `_drag_enabled`, `_drag_active`, `_drag_offset`, `_move_mode`, `_cursor_saved`, `_saved_cursor`, `_follow_enabled`, `_window_tracker`, `_last_follow_state`, `_enforcing_follow_size`.
+- Platform nuances: move logging includes `windowHandle().screen()` description; WM override classification needs to remain `wm_intervention`. Drag sequencing must keep click-through flag updates via `_apply_drag_state`/interaction controller; cursor save/restore must guard against missing cursor handles.
+- No tests run yet (mapping only).
+
+### Stage 24.4 quick summary (plan)
+- Goal: move interaction/event overrides (mouse/resize/move events, grid caching) into an interaction surface so `OverlayWindow` retains only Qt shell wiring; keep logging and behavior identical.
+- Scope: wrap `mousePress/Release/MoveEvent` click-through/drag toggles, resize/move event hooks, grid cache invalidation, and cursor/drag state into a helper class with injected callbacks to window/controller methods; ensure Qt types stay at call sites.
+- Risks/constraints: preserve drag/click-through flag sequencing and platform-specific handling (Wayland/Windows hints); avoid regressions to grid redraw cadence or cycle overlay sync; keep event propagation intact.
+- Plan: map current event handlers and shared state, create `interaction_surface.py` (or extend interaction controller) with clear inputs/outputs, rewire `OverlayWindow` to delegate while leaving Qt event signatures, and add focused tests (headless where possible, PyQt for event hooks) to guard logging/state updates.
+- Validation to run once wired: `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`, and `python tests/run_resolution_tests.py --config tests/display_all.json` (overlay running).
+- Mitigations:
+  - Trace current drag/click-through sequencing and platform branches before refactor; mirror ordering in the helper and keep platform guards intact.
+  - Preserve event propagation by asserting/snapshotting `super().mouse*Event`/`super().resizeEvent` calls; add tests that exercise acceptance/propagation and ensure logging stays unchanged.
+  - Keep grid/cache invalidation tied to resize/move in the helper with explicit hooks; add a test to assert cache resets fire once per move/resize.
+  - Inject callbacks for platform-specific flag setters/transient-parent clearing so platform nuances stay localized; cover sequencing with a focused headless/PyQt test where feasible.
+  - Retain shared state handoff (cursor/drag/cycle overlay sync, repaint debounce) via explicit helper inputs/outputs; add assertions in tests for state updates/logs.
+
+| Substage | Description | Status |
+| --- | --- | --- |
+| 24.4.1 | Map current event handlers (mouse/resize/move, grid cache invalidation, drag/click-through flow) and identify shared state/callback seams; note platform nuances. | Complete |
+| 24.4.2 | Define/build interaction surface helper (or extend interaction controller) with injected callbacks/state holders; keep Qt event signatures at the window boundary. | Complete |
+| 24.4.3 | Wire `OverlayWindow` event methods to delegate to the helper while preserving logging/propagation and platform-specific flag sequencing. | Complete |
+| 24.4.4 | Add/extend focused tests for interaction surface (headless where possible; PyQt for event hooks) covering drag toggle sequencing, grid cache invalidation, and logging. | Complete |
+| 24.4.5 | Run validation suite (`make check`, `make test`, `PYQT_TESTS=1 pytest`, resolution test with overlay running) and document results. | Complete |
+
+### Stage 24.4 quick summary (status)
+- Extracted interaction/event overrides into `overlay_client/interaction_surface.py` (`InteractionSurfaceMixin`), covering resize/mouse/move handlers and keeping Qt calls at the boundary via QWidget delegates; `OverlayWindow` now inherits the mixin first to ensure overrides apply.
+- Behavior preserved: grid cache invalidation and follow-size enforcement remain tied to resize events; drag start/move/end sequencing still updates follow controller state, suspends follow, manages cursors, and reapplies drag/click-through state; move-event logging still records monitor/geometry and issues WM overrides with `wm_intervention` classification when geometry diverges.
+- Added PyQt tests for interaction surface covering follow-size enforcement + cache invalidation, drag toggle offsets/state transitions, and move-event override logging with stubbed callbacks.
+
+#### Stage 24.4 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay running; expected empty-text payload skips during replay).
 
 ### Stage 25 quick summary (intent)
 - Goal: centralize duplicated helpers (`_ReleaseLogLevelFilter`, `_clamp_axis`) into shared utilities to enforce DRY and consistent behavior.
