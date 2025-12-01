@@ -234,6 +234,39 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 23.2 | Execute resolution tests in a clean run with overlay running; capture logs/results and note any skips (e.g., empty-text payloads). | Complete |
   | 23.3 | If failures occur, triage and document issues or fixes; otherwise record green run details for traceability. | Complete |
 
+- **L.** `OverlayWindow` remains ~4k lines with mixed responsibilities (state, rendering, payload ingestion, debug UIs, follow orchestration) and still carries implicit coupling despite earlier extractions; further decomposition and interface tightening are needed to meet clarity/small-surface goals.
+
+  | Stage | Description | Status |
+  | --- | --- | --- |
+  | 24 | Define a target split for `OverlayWindow` (e.g., thin orchestration shell + injected render/follow/payload/debug surfaces) with clear interfaces and ownership, based on current code reality. | Planned |
+  | 24.1 | Inventory current `OverlayWindow` surface area (public methods, injected deps, state fields) and map candidate module seams (orchestrator vs. render view vs. follow/payload controllers); no code changes. | Planned |
+  | 24.2 | Introduce a small orchestrator wrapper around a leaner view/controller set; move state/handlers for non-Qt logic out, keeping Qt calls at the boundary; preserve behavior/logging. | Planned |
+  | 24.3 | Add/adjust tests to cover the new seams (orchestrator wiring, render/follow/payload delegation) and rerun full suite including PYQT/resolution. | Planned |
+
+- **M.** DRY gaps: duplicated helpers (`_ReleaseLogLevelFilter` in `overlay_client.py` and `data_client.py`; duplicated `_clamp_axis` in `payload_transform.py`) and scattered logging filters reduce consistency and increase maintenance risk.
+
+  | Stage | Description | Status |
+  | --- | --- | --- |
+  | 25 | Centralize shared logging helpers and axis clamps; remove duplicates and wire modules to the shared utilities without behavior changes. | Planned |
+  | 25.1 | Map current filter/clamp usages and consumers; define shared utility surface (likely in `logging_utils`/`payload_transform`). | Planned |
+  | 25.2 | Replace local copies with shared helpers; keep existing behavior/levels and add targeted tests if needed; rerun check/test suites. | Planned |
+
+- **N.** Extensive `# type: ignore` use in `overlay_client.py` and related imports hides type drift and weakens mypy coverage on the core client.
+
+  | Stage | Description | Status |
+  | --- | --- | --- |
+  | 26 | Reduce `type: ignore` usage by fixing import/type issues in the client entrypoint and enabling meaningful mypy coverage on core modules. | Planned |
+  | 26.1 | Inventory `type: ignore` entries in client modules; categorize root causes (cycles, missing stubs, real type gaps). | Planned |
+  | 26.2 | Resolve root causes (stub fixes, interface tweaks, cycle-safe imports) and remove/convert ignores; rerun mypy/pytest to verify. | Planned |
+
+- **O.** Helper boundaries leak `OverlayWindow` internals (e.g., `FillGroupingHelper` reaches into window caches/state), reducing reusability and testability.
+
+  | Stage | Description | Status |
+  | --- | --- | --- |
+  | 27 | Tighten helper interfaces (notably grouping/fill helpers) to consume explicit inputs instead of window internals; improve seams for injection/testing. | Planned |
+  | 27.1 | Map current helper/window coupling points and define the explicit data/callbacks each helper should own. | Planned |
+  | 27.2 | Refactor helpers to use injected inputs (cache accessors, metrics, device ratio, settings) and adjust callers; add/extend tests to cover new seams. | Planned |
+
 ----
 # Stage Summary and Test results
 
@@ -399,6 +432,30 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 - `source overlay_client/.venv/bin/activate && make test` → passed.
 - `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
 - `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (expected empty-text payloads skipped during replay; overlay running).
+
+### Stage 24 quick summary (intent)
+- Goal: drive further decomposition of the 4k-line `OverlayWindow` into a thin orchestrator with injected render/follow/payload/debug surfaces and clearer ownership boundaries.
+- Scope: map current surface area, define seams, and move non-Qt logic/state out while keeping Qt calls at the boundary; preserve behavior/logging.
+- Tests to run when wiring starts: `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`, and `python tests/run_resolution_tests.py --config tests/display_all.json`.
+- Status: Planned (inventory pending).
+
+### Stage 25 quick summary (intent)
+- Goal: centralize duplicated helpers (`_ReleaseLogLevelFilter`, `_clamp_axis`) into shared utilities to enforce DRY and consistent behavior.
+- Scope: map current usages, move helpers into shared modules (`logging_utils`, `payload_transform`), and wire callers without behavior changes.
+- Validation: `make check`, `make test`, targeted unit tests around logging filters/axis clamps; rerun PYQT/resolution if code paths touch rendering/logging.
+- Status: Planned.
+
+### Stage 26 quick summary (intent)
+- Goal: reduce `# type: ignore` in core client modules by fixing root causes so mypy meaningfully guards the entrypoint and overlays.
+- Scope: inventory ignores, address cycles/stub gaps/interface issues, remove or narrow ignores; keep behavior unchanged.
+- Validation: `make check` (ruff/mypy) and `make test`; rerun PYQT/resolution if wiring changes touch runtime behavior.
+- Status: Planned.
+
+### Stage 27 quick summary (intent)
+- Goal: tighten helper boundaries (e.g., `FillGroupingHelper`) so they consume explicit inputs/callbacks instead of reaching into `OverlayWindow` internals, improving testability.
+- Scope: map coupling points, define explicit inputs, refactor helpers/callers, and add/extend tests to cover new seams.
+- Validation: `make check`, `make test`, targeted helper tests; run PYQT/resolution if behavior surfaces change.
+- Status: Planned.
 
 ### Stage 22.1 quick summary (mapping)
 - Current logger setup: `_CLIENT_LOGGER` (`EDMC.ModernOverlay.Client`) with level DEBUG in debug mode else INFO; `propagate = False`; `_ReleaseLogLevelFilter` promotes DEBUG→INFO in release mode. Default handlers come from root logging; tests often attach `NullHandler` or capture `DEBUG` on bespoke loggers.
