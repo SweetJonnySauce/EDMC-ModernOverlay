@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
@@ -263,6 +264,8 @@ CLIENT_LOG_RETENTION_MAX = 20
 
 DEFAULT_DEBUG_CONFIG: Dict[str, Any] = {
     "capture_client_stderrout": True,
+    "trace_enabled": False,
+    "payload_ids": [],
     "overlay_logs_to_keep": 5,
     "tracing": {
         "enabled": False,
@@ -274,6 +277,9 @@ DEFAULT_DEBUG_CONFIG: Dict[str, Any] = {
     },
     "overlay_outline": True,
     "group_bounds_outline": True,
+    "payload_vertex_markers": False,
+    "repaint_debounce_enabled": True,
+    "log_repaint_debounce": False,
 }
 
 def _is_force_render_enabled(preferences: Optional[Preferences]) -> bool:
@@ -869,6 +875,35 @@ class _PluginRuntime:
             self._payload_filter_mtime = stat.st_mtime
             return
         excludes: Set[str] = set()
+        updated_defaults = False
+        if isinstance(data, Mapping):
+            mutable_data = dict(data)
+            for key, value in DEFAULT_DEBUG_CONFIG.items():
+                if key not in mutable_data:
+                    mutable_data[key] = deepcopy(value)
+                    updated_defaults = True
+            payload_logging_defaults = DEFAULT_DEBUG_CONFIG.get("payload_logging")
+            if isinstance(payload_logging_defaults, Mapping):
+                payload_section = mutable_data.setdefault("payload_logging", {})
+                if isinstance(payload_section, Mapping):
+                    payload_section = dict(payload_section)
+                    for key, value in payload_logging_defaults.items():
+                        if key not in payload_section:
+                            payload_section[key] = deepcopy(value)
+                            updated_defaults = True
+                    mutable_data["payload_logging"] = payload_section
+            tracing_defaults = DEFAULT_DEBUG_CONFIG.get("tracing")
+            if isinstance(tracing_defaults, Mapping):
+                tracing_section = mutable_data.setdefault("tracing", {})
+                if isinstance(tracing_section, Mapping):
+                    tracing_section = dict(tracing_section)
+                    for key, value in tracing_defaults.items():
+                        if key not in tracing_section:
+                            tracing_section[key] = deepcopy(value)
+                            updated_defaults = True
+                    mutable_data["tracing"] = tracing_section
+            data = mutable_data
+        needs_write = updated_defaults
         logging_override: Optional[bool] = None
         trace_enabled = False
         trace_payload_ids: Tuple[str, ...] = ()
@@ -962,6 +997,11 @@ class _PluginRuntime:
         retention_changed = self._set_log_retention_override(log_retention_override)
         if retention_changed:
             self._on_log_retention_changed()
+        if needs_write:
+            try:
+                self._payload_filter_path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            except Exception:
+                LOGGER.debug("Failed to backfill defaults into debug.json", exc_info=True)
 
     def _start_watchdog(self) -> bool:
         overlay_root = self._locate_overlay_client()
