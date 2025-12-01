@@ -235,11 +235,16 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 23.3 | If failures occur, triage and document issues or fixes; otherwise record green run details for traceability. | Complete |
 
 - **L.** `OverlayWindow` remains ~4k lines with mixed responsibilities (state, rendering, payload ingestion, debug UIs, follow orchestration) and still carries implicit coupling despite earlier extractions; further decomposition and interface tightening are needed to meet clarity/small-surface goals.
+  - Special instruction: for Stage 24 sub-stages, be more aggressive than prior steps—extract every piece within each identified seam so the separation is maximal, not just minimal-risk slices.
 
   | Stage | Description | Status |
   | --- | --- | --- |
   | 24 | Define a target split for `OverlayWindow` (e.g., thin orchestration shell + injected render/follow/payload/debug surfaces) with clear interfaces and ownership, based on current code reality. | Planned |
- 
+  | 24.1 | Render/payload pipeline + debug surface (overlay_client/overlay_client.py:2474-4059, ~1,600 lines): legacy payload handling, render passes, command building (`_build_*_command`), justification/anchor translation, group cache/logging, debug overlays, text measurement cache; target dedicated render surface with injected builder/renderer/debug hooks. | Planned |
+  | 24.2 | Follow/window orchestration + platform hooks (overlay_client/overlay_client.py:1881-2473, ~600 lines): drag/click-through toggles, tracker polling, normalization, geometry application, visibility/transient parent/fullscreen handling; move to controller layer with Qt calls at boundary. | Planned |
+  | 24.3 | External control/API surface (overlay_client/overlay_client.py:1112-1880, ~770 lines): `set_*`/status methods, cycle overlay helpers, repaint scheduling/metrics, config toggles; extract to control/adaptor feeding orchestrator. | Planned |
+  | 24.4 | Interaction/event overrides (overlay_client/overlay_client.py:1011-1111, ~100 lines): mouse/resize/move events and grid caching; relocate to interaction surface with injected callbacks. | Planned |
+  | 24.5 | Widget setup + baseline helpers (overlay_client/overlay_client.py:263-1010, ~750 lines): `__init__`, font/layout setup, transform wrappers, metrics/publish hooks, show/paint events; leave thin Qt shell, push pure helpers/metrics into shared modules. | Planned |
 
 - **M.** DRY gaps: duplicated helpers (`_ReleaseLogLevelFilter` in `overlay_client.py` and `data_client.py`; duplicated `_clamp_axis` in `payload_transform.py`) and scattered logging filters reduce consistency and increase maintenance risk.
 
