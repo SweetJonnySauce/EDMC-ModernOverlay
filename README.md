@@ -11,12 +11,24 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
 
 # Key Features
 - Backwards compatibility with [EDMCOverlay](https://github.com/inorton/EDMCOverlay)
+- Custom placement of Plugin overlays using the Overlay Controller (see below)
 - Works in borderless or windowed mode on any display size
 - Cross platform for Windows and Linux
 - Support 4 distributions for Linux (Debian, Fedora, OpenSUSE, Arch) and can be extended
 - Supports host and Flatpak installs of EDMC on Linux
 - Code is 100% Python
 - Numerous development features for EDMC Plugin Developers
+
+## Overlay Controller
+- Type `!ovr` in the in-game Comms panel on any channel to launch
+- Change X/Y position via selectors on the screen with "pinning" capabilities (i.e. hug an edge of the screen)
+- Change absolute X/Y values using px or % values
+- Change the anchor point on the group to define where and how it's placed. Anchor points include nw, top, ne, right, se, bottom, sw, left, center.
+- Change justification within the payload (doesn't work on vector based images)
+- A preview window can be expanded with the right arrow (when a widget is not in focus) to see original placement, actual placement, and target. The delay is due to payload TTL values.
+
+<img width="162" height="340" alt="image" src="https://github.com/user-attachments/assets/5e4fbc0b-57ac-4414-92d9-602de1521a51" />
+<img width="578" height="347" alt="image" src="https://github.com/user-attachments/assets/2626cfe7-8abf-40df-b71f-65b5d7e818fa" />
 
 # Installation
 
