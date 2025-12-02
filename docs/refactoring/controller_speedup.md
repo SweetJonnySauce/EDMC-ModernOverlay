@@ -174,6 +174,14 @@ Use this doc to jot requirements, constraints, and experiments as we iterate.
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 5.1 | Redesign anchor widget so the anchor dot stays centered and the highlighted square moves relative to center (e.g., NW anchor highlights lower-right quadrant). | Not started |
+| 5.1 | Redesign anchor widget so the anchor dot stays centered and the highlighted square moves relative to center (e.g., NW anchor highlights lower-right quadrant). | Completed |
 | 5.2 | Implement visual-only update in the controller widget; no changes to payload placement math. Ensure highlight/anchor positions remain consistent. | Not started |
 | 5.3 | Add/update tests or visual sanity checks (e.g., screenshot baseline or geometry assertions) to confirm the widget reflects HUD placement semantics. | Not started |
+
+#### 5.1 Plan (anchor widget alignment with HUD)
+
+- Goal: anchor widget shows the anchor dot fixed at center and highlights the quadrant relative to that center (e.g., NW highlights lower-right), matching HUD target-box behavior; widget-only change (no HUD math changes).
+- Mapping: define an anchor→quadrant/edge mapping table and reuse it in rendering; keep the anchor dot centered; use relative positioning so it scales with widget size.
+- Rendering: update widget drawing to move the highlight relative to the center dot; keep styling consistent with existing UI.
+- Validation: headless check for anchor→quadrant mapping; manual visual check to confirm the widget mirrors the HUD target box; ensure placement math is untouched.
+- Risks/mitigations: visual mismatch (covered by mapping + manual check), avoid touching placement logic, keep relative layout stable across sizes, keep visuals clear/consistent.

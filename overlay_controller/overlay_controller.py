@@ -923,12 +923,14 @@ class AnchorSelectorWidget(tk.Frame):
             bg=self.cget("background"),
         )
         self.canvas.pack(fill="both", expand=True)
-        self.canvas.bind("<Configure>", lambda _e: self._draw())
-        self.after_idle(self._draw)
+        self._draw_handle: str | None = None
+        self.canvas.bind("<Configure>", lambda _e: self._schedule_draw())
+        self.after_idle(self._schedule_draw)
         self.canvas.bind("<Button-1>", self._handle_click)
         self._positions: list[tuple[float, float]] = []
 
     def _draw(self) -> None:
+        self._draw_handle = None
         self.canvas.delete("all")
         self.canvas.update_idletasks()
         w = max(1, int(self.canvas.winfo_width() or self.canvas.winfo_reqwidth()))
@@ -1037,17 +1039,62 @@ class AnchorSelectorWidget(tk.Frame):
             ey = getattr(event, "y", None)
             if ex is not None and ey is not None:
                 try:
-                    nearest = min(
-                        enumerate(self._positions),
-                        key=lambda item: (item[1][0] - ex) ** 2 + (item[1][1] - ey) ** 2,
-                    )[0]
-                    if nearest != self._active_index:
-                        self._active_index = nearest
-                        self._draw()
+                    idx = self._anchor_index_from_point(ex, ey)
+                    if idx != self._active_index:
+                        self._active_index = idx
+                        self._schedule_draw()
                         self._emit_change()
                 except Exception:
                     pass
         return "break"
+
+    def _anchor_index_from_point(self, x: float, y: float) -> int:
+        if len(self._positions) < 9:
+            return self._active_index
+        center_x, center_y = self._positions[4]
+        spacing = abs(self._positions[1][0] - self._positions[0][0]) if len(self._positions) > 1 else 0.0
+        tol = spacing * 0.2 if spacing > 0 else 5.0
+        dx = x - center_x
+        dy = y - center_y
+
+        def _token_for(dx: float, dy: float) -> str:
+            # Click location is where the box should be relative to the anchor, so we invert.
+            if abs(dx) <= tol and abs(dy) <= tol:
+                return "center"
+            if abs(dx) <= tol:
+                return "bottom" if dy < 0 else "top"
+            if abs(dy) <= tol:
+                return "right" if dx < 0 else "left"
+            if dx < 0 and dy < 0:
+                return "se"
+            if dx > 0 and dy < 0:
+                return "sw"
+            if dx < 0 and dy > 0:
+                return "ne"
+            return "nw"
+
+        token = _token_for(dx, dy)
+        mapping = {
+            "nw": 0,
+            "top": 1,
+            "ne": 2,
+            "left": 3,
+            "center": 4,
+            "right": 5,
+            "sw": 6,
+            "bottom": 7,
+            "se": 8,
+        }
+        return mapping.get(token, self._active_index)
+
+    def _schedule_draw(self) -> None:
+        if self._draw_handle is not None:
+            return
+        try:
+            handle = self.after_idle(self._draw)
+            self._draw_handle = handle
+        except Exception:
+            self._draw_handle = None
 
     def set_focus_request_callback(self, callback: callable | None) -> None:
         self._request_focus = callback
@@ -1064,7 +1111,7 @@ class AnchorSelectorWidget(tk.Frame):
 
     def on_focus_exit(self) -> None:
         self._has_focus = False
-        self._draw()
+        self._schedule_draw()
         try:
             self.winfo_toplevel().focus_set()
         except Exception:
@@ -1079,19 +1126,64 @@ class AnchorSelectorWidget(tk.Frame):
             return None
 
         key = keysym.lower()
-        row, col = divmod(self._active_index, 3)
-        if key == "left" and col > 0:
-            col -= 1
-        elif key == "right" and col < 2:
-            col += 1
-        elif key == "up" and row > 0:
-            row -= 1
-        elif key == "down" and row < 2:
-            row += 1
-        else:
+        deltas = {
+            "left": (-1, 0),
+            "right": (1, 0),
+            "up": (0, -1),
+            "down": (0, 1),
+        }
+        delta = deltas.get(key)
+        if delta is None:
             return None
-        self._active_index = row * 3 + col
-        self._draw()
+
+        tokens = [
+            "nw",
+            "top",
+            "ne",
+            "left",
+            "center",
+            "right",
+            "sw",
+            "bottom",
+            "se",
+        ]
+        token = tokens[self._active_index] if 0 <= self._active_index < len(tokens) else "center"
+        coords = {
+            "nw": (1, 1),
+            "top": (0, 1),
+            "ne": (-1, 1),
+            "left": (1, 0),
+            "center": (0, 0),
+            "right": (-1, 0),
+            "sw": (1, -1),
+            "bottom": (0, -1),
+            "se": (-1, -1),
+        }
+        coord = coords.get(token, (0, 0))
+        new_coord = (max(-1, min(1, coord[0] + delta[0])), max(-1, min(1, coord[1] + delta[1])))
+        target_token = None
+        for tok, c in coords.items():
+            if c == new_coord:
+                target_token = tok
+                break
+        if target_token is None:
+            return "break"
+        mapping = {
+            "nw": 0,
+            "top": 1,
+            "ne": 2,
+            "left": 3,
+            "center": 4,
+            "right": 5,
+            "sw": 6,
+            "bottom": 7,
+            "se": 8,
+        }
+        idx = mapping.get(target_token, self._active_index)
+        if idx == self._active_index:
+            return "break"
+        self._active_index = idx
+        self._schedule_draw()
         self._emit_change()
         return "break"
 
