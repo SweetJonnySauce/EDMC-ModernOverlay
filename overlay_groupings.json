@@ -28,7 +28,7 @@
           "bgstally-frame-indicator",
           "bgstally-frame-system_info"
         ],
-        "offsetX": 86.0,
+        "offsetX": 88.0,
         "offsetY": 0.0,
         "payloadJustification": "center"
       },
@@ -72,6 +72,8 @@
         "idPrefixes": [
           "bioscan_details_"
         ],
+        "offsetX": 0.0030000000000001137,
+        "offsetY": -1.0470000000000006,
         "payloadJustification": "left"
       },
       "Bioscan Radar": {
@@ -230,6 +232,8 @@
           "pad-",
           "station-"
         ],
+        "offsetX": 0.0,
+        "offsetY": 0.0,
         "payloadJustification": "left"
       }
     },

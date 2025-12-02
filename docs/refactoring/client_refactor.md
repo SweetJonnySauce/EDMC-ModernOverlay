@@ -537,17 +537,39 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 - Validation: `make check`, `make test`, targeted unit tests around logging filters/axis clamps; rerun PYQT/resolution if code paths touch rendering/logging.
 - Status: Planned.
 
+**Priority note:** Remaining work should run in this order: Stage 27 (boundary/tests/observability), Stage 26 (types/intent), then Stage 25 (DRY).
+
+| Substage | Description | Status |
+| --- | --- | --- |
+| 25.1 | Inventory duplicated helpers (logging filter, axis clamp) and consumers; define shared utility surface. | Planned |
+| 25.2 | Move duplicates to shared modules and rewire callers without behavior changes. | Planned |
+| 25.3 | Add targeted tests for shared helpers (logging filters/axis clamps) and rerun check/test suites. | Planned |
+
 ### Stage 26 quick summary (intent)
 - Goal: reduce `# type: ignore` in core client modules by fixing root causes so mypy meaningfully guards the entrypoint and overlays.
 - Scope: inventory ignores, address cycles/stub gaps/interface issues, remove or narrow ignores; keep behavior unchanged.
 - Validation: `make check` (ruff/mypy) and `make test`; rerun PYQT/resolution if wiring changes touch runtime behavior.
 - Status: Planned.
 
+| Substage | Description | Status |
+| --- | --- | --- |
+| 26.1 | Inventory `type: ignore` usage and root causes (cycles/stubs/interface gaps). | Planned |
+| 26.2 | Address ignores and add docstrings/type hints for public hooks (`_text_measurer`, `_state`, `_MeasuredText` export clarity) to improve intent while reducing ignores. | Planned |
+| 26.3 | Rerun `make check`/`make test` (and PYQT/resolution if wiring touched) and update docs/status. | Planned |
+
 ### Stage 27 quick summary (intent)
 - Goal: tighten helper boundaries (e.g., `FillGroupingHelper`) so they consume explicit inputs/callbacks instead of reaching into `OverlayWindow` internals, improving testability.
 - Scope: map coupling points, define explicit inputs, refactor helpers/callers, and add/extend tests to cover new seams.
 - Validation: `make check`, `make test`, targeted helper tests; run PYQT/resolution if behavior surfaces change.
 - Status: Planned.
+
+| Substage | Description | Status |
+| --- | --- | --- |
+| 27.1 | Map helper/window coupling and friend imports; define minimal public surface and target pure module moves. | Planned |
+| 27.2 | Move anchor/base/transform wrapper helpers out of `OverlayWindow` into pure modules; reduce direct imports accordingly. | Planned |
+| 27.3 | Add MRO-sensitive tests to ensure resize/mouse/paint resolve to intended mixins; adjust wiring if needed. | Planned |
+| 27.4 | Add scoped debug/assertions around setup timers/caches (repaint/message_clear/tracking) to improve observability. | Planned |
+| 27.5 | Rerun validation (`make check`, `make test`, PYQT/resolution as needed) and update docs/status. | Planned |
 
 ### Stage 22.1 quick summary (mapping)
 - Current logger setup: `_CLIENT_LOGGER` (`EDMC.ModernOverlay.Client`) with level DEBUG in debug mode else INFO; `propagate = False`; `_ReleaseLogLevelFilter` promotes DEBUG→INFO in release mode. Default handlers come from root logging; tests often attach `NullHandler` or capture `DEBUG` on bespoke loggers.
