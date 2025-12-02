@@ -22,5 +22,5 @@
   "status_message_gutter": 20,
   "log_payloads": false,
   "payload_log_delay_seconds": 0.5,
-  "controller_launch_command": "!ovr"
+  "controller_launch_command": "!x"
 }

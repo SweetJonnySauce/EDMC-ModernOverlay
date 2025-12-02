@@ -914,6 +914,8 @@ class AnchorSelectorWidget(tk.Frame):
         self._active_index = 0  # start at NW
         self._on_change: callable | None = None
         self._enabled = True
+        self._needs_static = True
+        self._layout: dict[str, object] | None = None
         self.canvas = tk.Canvas(
             self,
             width=120,
@@ -931,8 +933,6 @@ class AnchorSelectorWidget(tk.Frame):
 
     def _draw(self) -> None:
         self._draw_handle = None
-        self.canvas.delete("all")
-        self.canvas.update_idletasks()
         w = max(1, int(self.canvas.winfo_width() or self.canvas.winfo_reqwidth()))
         h = max(1, int(self.canvas.winfo_height() or self.canvas.winfo_reqheight()))
         size = min(w, h)
@@ -949,21 +949,59 @@ class AnchorSelectorWidget(tk.Frame):
         highlight_color = "#707070" if disabled else "#000000"
         focus_fill = "#dcdcdc" if disabled else "#cfe6ff"
         focus_outline = "#b5b5b5" if disabled else "#5a7cae"
+        palette = (disabled, self._has_focus)
 
-        # Outer square (dashed)
-        self.canvas.create_line(xs[0], ys[0], xs[2], ys[0], fill=line_color, dash=(2, 3))
-        self.canvas.create_line(xs[2], ys[0], xs[2], ys[2], fill=line_color, dash=(2, 3))
-        self.canvas.create_line(xs[2], ys[2], xs[0], ys[2], fill=line_color, dash=(2, 3))
-        self.canvas.create_line(xs[0], ys[2], xs[0], ys[0], fill=line_color, dash=(2, 3))
+        if self._layout is None or self._layout.get("size") != (w, h):
+            self._needs_static = True
+        if self._layout is None or self._layout.get("palette") != palette:
+            self._needs_static = True
 
-        positions: list[tuple[float, float]] = []
-        for j in range(3):
-            for i in range(3):
-                positions.append((xs[i], ys[j]))
-        self._positions = positions
+        if self._needs_static:
+            self.canvas.delete("all")
+            positions: list[tuple[float, float]] = []
+            for j in range(3):
+                for i in range(3):
+                    positions.append((xs[i], ys[j]))
+            self._positions = positions
+
+            # Outer square (dashed)
+            self.canvas.create_line(xs[0], ys[0], xs[2], ys[0], fill=line_color, dash=(2, 3), tags=("static",))
+            self.canvas.create_line(xs[2], ys[0], xs[2], ys[2], fill=line_color, dash=(2, 3), tags=("static",))
+            self.canvas.create_line(xs[2], ys[2], xs[0], ys[2], fill=line_color, dash=(2, 3), tags=("static",))
+            self.canvas.create_line(xs[0], ys[2], xs[0], ys[0], fill=line_color, dash=(2, 3), tags=("static",))
+
+            dot_r = 8
+            for idx, (px, py) in enumerate(positions):
+                self.canvas.create_oval(
+                    px - dot_r,
+                    py - dot_r,
+                    px + dot_r,
+                    py + dot_r,
+                    outline=dot_color,
+                    fill=dot_color,
+                    tags=("static",),
+                )
+                if idx == 4:
+                    self.canvas.create_oval(
+                        px - (dot_r + 4),
+                        py - (dot_r + 4),
+                        px + (dot_r + 4),
+                        py + (dot_r + 4),
+                        outline=highlight_color,
+                        width=2,
+                        tags=("static",),
+                    )
+
+            self._layout = {
+                "size": (w, h),
+                "positions": self._positions,
+                "highlight_size": spacing,
+                "palette": palette,
+            }
+            self._needs_static = False
 
         # Anchor dot stays centered; highlight moves relative to center based on anchor.
-        center_x, center_y = positions[4]
+        center_x, center_y = self._positions[4] if len(self._positions) >= 5 else (w / 2, h / 2)
         highlight_size = spacing
         anchor_tokens = [
             "nw",
@@ -1001,30 +1039,13 @@ class AnchorSelectorWidget(tk.Frame):
         hx0, hy0 = _highlight_origin(anchor_token)
         hx1 = hx0 + highlight_size
         hy1 = hy0 + highlight_size
+        self.canvas.delete("highlight")
         if self._has_focus:
-            self.canvas.create_rectangle(hx0, hy0, hx1, hy1, fill=focus_fill, outline=focus_outline, width=1.2)
-        else:
-            self.canvas.create_rectangle(hx0, hy0, hx1, hy1, outline=line_color, width=1)
-
-        dot_r = 8
-        for idx, (px, py) in enumerate(positions):
-            self.canvas.create_oval(
-                px - dot_r,
-                py - dot_r,
-                px + dot_r,
-                py + dot_r,
-                outline=dot_color,
-                fill=dot_color,
+            self.canvas.create_rectangle(
+                hx0, hy0, hx1, hy1, fill=focus_fill, outline=focus_outline, width=1.2, tags=("highlight",)
             )
-            if idx == 4:
-                self.canvas.create_oval(
-                    px - (dot_r + 4),
-                    py - (dot_r + 4),
-                    px + (dot_r + 4),
-                    py + (dot_r + 4),
-                    outline=highlight_color,
-                    width=2,
-                )
+        else:
+            self.canvas.create_rectangle(hx0, hy0, hx1, hy1, outline=line_color, width=1, tags=("highlight",))
 
     def _handle_click(self, event: tk.Event[tk.Misc]) -> str | None:  # type: ignore[name-defined]
         if not self._enabled:
@@ -1103,7 +1124,8 @@ class AnchorSelectorWidget(tk.Frame):
         if not self._enabled:
             return
         self._has_focus = True
-        self._draw()
+        self._needs_static = True
+        self._schedule_draw()
         try:
             self.focus_set()
         except Exception:
@@ -1111,6 +1133,7 @@ class AnchorSelectorWidget(tk.Frame):
 
     def on_focus_exit(self) -> None:
         self._has_focus = False
+        self._needs_static = True
         self._schedule_draw()
         try:
             self.winfo_toplevel().focus_set()
@@ -1240,7 +1263,8 @@ class AnchorSelectorWidget(tk.Frame):
         self._enabled = enabled
         if not enabled:
             self._has_focus = False
-        self._draw()
+        self._needs_static = True
+        self._schedule_draw()
 
 
 class AbsoluteXYWidget(tk.Frame):

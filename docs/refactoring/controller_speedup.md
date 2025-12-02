@@ -175,8 +175,8 @@ Use this doc to jot requirements, constraints, and experiments as we iterate.
 | Stage | Description | Status |
 | --- | --- | --- |
 | 5.1 | Redesign anchor widget so the anchor dot stays centered and the highlighted square moves relative to center (e.g., NW anchor highlights lower-right quadrant). | Completed |
-| 5.2 | Implement visual-only update in the controller widget; no changes to payload placement math. Ensure highlight/anchor positions remain consistent. | Not started |
-| 5.3 | Add/update tests or visual sanity checks (e.g., screenshot baseline or geometry assertions) to confirm the widget reflects HUD placement semantics. | Not started |
+| 5.2 | Implement visual-only update in the controller widget; no changes to payload placement math. Ensure highlight/anchor positions remain consistent. | Completed |
+| 5.3 | Add/update tests or visual sanity checks (e.g., screenshot baseline or geometry assertions) to confirm the widget reflects HUD placement semantics. | Completed |
 
 #### 5.1 Plan (anchor widget alignment with HUD)
 
