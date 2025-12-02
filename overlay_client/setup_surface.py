@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import QLabel, QVBoxLayout
 from group_cache import GroupPlacementCache, resolve_cache_path
 
 from overlay_client.client_config import InitialClientSettings
-from overlay_client.controller_mode import ControllerModeTracker
+from overlay_client.controller_mode import ControllerModeProfile, ControllerModeTracker, ModeProfile
 from overlay_client.data_client import OverlayDataClient
 from overlay_client.debug_config import DEBUG_CONFIG_ENABLED, DebugConfig
 from overlay_client.debug_cycle_overlay import CycleOverlayView, DebugOverlayView
@@ -56,6 +56,27 @@ class SetupSurfaceMixin:
             "message": "",
         }
         self._debug_config = debug_config
+        self._last_override_reload_nonce: Optional[str] = None
+        self._mode_profile_overrides: Dict[str, object] = {}
+        if DEBUG_CONFIG_ENABLED:
+            # Preserve faster dev-mode cache flush cadence as an explicit override.
+            self._mode_profile_overrides["cache_flush_seconds"] = 1.0
+        self._mode_profile = ControllerModeProfile(
+            active=ModeProfile(
+                write_debounce_ms=75,
+                offset_write_debounce_ms=75,
+                status_poll_ms=750,
+                cache_flush_seconds=1.0,
+            ),
+            inactive=ModeProfile(
+                write_debounce_ms=200,
+                offset_write_debounce_ms=200,
+                status_poll_ms=2500,
+                cache_flush_seconds=5.0,
+            ),
+            logger=_CLIENT_LOGGER.debug,
+        )
+        self._current_mode_profile = self._mode_profile.resolve("inactive", self._mode_profile_overrides)
         self._payload_model = payload_model_factory(self._trace_legacy_store_event)
         self._background_opacity: float = 0.0
         self._gridlines_enabled: bool = False
@@ -202,9 +223,7 @@ class SetupSurfaceMixin:
         self._logged_group_transforms: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
         self._controller_mode = ControllerModeTracker(
             timeout_seconds=30.0,
-            on_state_change=lambda prev, curr: _CLIENT_LOGGER.debug(
-                "Controller mode changed: %s -> %s", prev, curr
-            ),
+            on_state_change=self._handle_controller_mode_change,
         )
         self._controller_mode_timer = QTimer(self)
         self._controller_mode_timer.setSingleShot(True)
@@ -215,9 +234,10 @@ class SetupSurfaceMixin:
         self._controller_mode_timer.timeout.connect(self._handle_controller_timeout)
         self._group_cache = GroupPlacementCache(
             resolve_cache_path(root_dir),
-            debounce_seconds=1.0 if DEBUG_CONFIG_ENABLED else 5.0,
+            debounce_seconds=self._current_mode_profile.cache_flush_seconds,
             logger=_CLIENT_LOGGER,
         )
+        self._mode_profile.log_profile("inactive", self._current_mode_profile, "initial")
         self._group_coordinator = GroupCoordinator(cache=self._group_cache, logger=_CLIENT_LOGGER)
         self._render_pipeline = LegacyRenderPipeline(self)
 
@@ -333,6 +353,35 @@ class SetupSurfaceMixin:
             geometry = screen.geometry()
             self._update_auto_legacy_scale(max(geometry.width(), 1), max(geometry.height(), 1))
         self._publish_metrics()
+
+    def _handle_controller_mode_change(self, previous: str, current: str) -> None:
+        _CLIENT_LOGGER.debug("Controller mode changed: %s -> %s", previous, current)
+        self._apply_controller_mode_profile(current, reason="state_change")
+
+    def _apply_controller_mode_profile(self, mode: str, reason: Optional[str] = None) -> None:
+        profile = self._mode_profile.resolve(mode, self._mode_profile_overrides)
+        previous = getattr(self, "_current_mode_profile", None)
+        self._current_mode_profile = profile
+        if previous == profile:
+            if reason:
+                self._mode_profile.log_profile(mode, profile, f"{reason} (unchanged)")
+            return
+        self._mode_profile.log_profile(mode, profile, reason or "apply")
+        self._set_group_cache_debounce(profile.cache_flush_seconds)
+
+    def _set_group_cache_debounce(self, debounce_seconds: float) -> None:
+        cache = getattr(self, "_group_cache", None)
+        if cache is None:
+            return
+        try:
+            cache.configure_debounce(debounce_seconds)
+        except Exception as exc:
+            _CLIENT_LOGGER.debug(
+                "Failed to update group cache debounce to %.2fs: %s",
+                debounce_seconds,
+                exc,
+                exc_info=exc,
+            )
 
     def handle_controller_active_signal(self) -> None:
         self._controller_mode.mark_active()

@@ -122,6 +122,25 @@ class GroupPlacementCache:
             self._flush_timer = timer
             timer.start()
 
+    def configure_debounce(self, debounce_seconds: float) -> None:
+        """Update debounce interval and re-arm pending flushes if needed."""
+
+        new_value = max(0.05, float(debounce_seconds))
+        timer: Optional[threading.Timer]
+        dirty = False
+        with self._lock:
+            self._debounce_seconds = new_value
+            timer = self._flush_timer
+            dirty = self._dirty
+            self._flush_timer = None
+        if timer is not None:
+            try:
+                timer.cancel()
+            except Exception:
+                pass
+        if dirty:
+            self._schedule_flush()
+
     def _flush(self) -> None:
         with self._flush_guard:
             with self._lock:

@@ -398,6 +398,7 @@ class _PluginRuntime:
         self._controller_process: Optional[subprocess.Popen] = None
         self._controller_status_id = "overlay-controller-status"
         self._controller_pid_path = self.plugin_dir / "overlay_controller.pid"
+        self._last_override_reload_nonce: Optional[str] = None
 
     # Lifecycle ------------------------------------------------------------
 
@@ -1930,6 +1931,21 @@ class _PluginRuntime:
                 return {"status": "ok"}
             if command == "controller_heartbeat":
                 self._emit_controller_active_notice()
+                return {"status": "ok"}
+            if command == "controller_override_reload":
+                nonce_raw = payload.get("nonce")
+                nonce = str(nonce_raw).strip() if nonce_raw is not None else ""
+                if nonce and nonce == getattr(self, "_last_override_reload_nonce", None):
+                    LOGGER.debug("Controller override reload ignored (duplicate nonce=%s)", nonce)
+                    return {"status": "ok", "duplicate": True}
+                self._last_override_reload_nonce = nonce or self._last_override_reload_nonce
+                message = {
+                    "event": "OverlayOverrideReload",
+                    "nonce": nonce,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+                self._publish_payload(message)
+                LOGGER.debug("Controller override reload dispatched (nonce=%s)", nonce or "none")
                 return {"status": "ok"}
             if command == "test_message":
                 text = str(payload.get("message") or "").strip()

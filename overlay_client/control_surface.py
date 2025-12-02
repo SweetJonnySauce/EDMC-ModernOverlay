@@ -11,6 +11,7 @@ from PyQt6.QtGui import QGuiApplication, QPainter
 
 from overlay_client.group_transform import GroupTransform
 from overlay_client.legacy_store import LegacyItem
+from overlay_client.override_reload import force_reload_overrides, parse_reload_nonce
 from overlay_client.payload_transform import (
     build_payload_transform_context,
     remap_axis_value,
@@ -686,6 +687,25 @@ class ControlSurfaceMixin:
 
     def handle_legacy_payload(self, payload: Dict[str, Any]) -> None:
         self._handle_legacy(payload)
+
+    def handle_override_reload(self, payload: Optional[Mapping[str, Any]] = None) -> None:
+        nonce = parse_reload_nonce(payload)
+        if nonce and nonce == getattr(self, "_last_override_reload_nonce", None):
+            _CLIENT_LOGGER.debug("Override reload ignored (duplicate nonce=%s)", nonce)
+            return
+        self._last_override_reload_nonce = nonce or getattr(self, "_last_override_reload_nonce", None)
+        try:
+            force_reload_overrides(
+                self._override_manager,
+                self._grouping_helper,
+                self._payload_model,
+                _CLIENT_LOGGER.debug,
+            )
+            self._mark_legacy_cache_dirty()
+            self._request_repaint("override_reload", immediate=True)
+            _CLIENT_LOGGER.debug("Override reload handled (nonce=%s)", nonce or "none")
+        except Exception as exc:
+            _CLIENT_LOGGER.debug("Override reload failed: %s", exc, exc_info=exc)
 
     def update_platform_context(self, context_payload: Optional[Dict[str, Any]]) -> None:
         if context_payload is None:

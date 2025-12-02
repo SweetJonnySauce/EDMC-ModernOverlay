@@ -31,6 +31,9 @@ def _build_payload_handler(helper: DeveloperHelperController, window: OverlayWin
         if event == "OverlayConfig":
             helper.apply_config(window, payload)
             return
+        if event == "OverlayOverrideReload":
+            window.handle_override_reload(payload)
+            return
         if event == "LegacyOverlay":
             payload_id = str(payload.get("id") or "").strip().lower()
             if payload_id == "overlay-controller-status":

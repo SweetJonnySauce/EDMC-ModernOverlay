@@ -33,6 +33,12 @@ Use this doc to jot requirements, constraints, and experiments as we iterate.
 - Toggle with Active mode; in Inactive mode, the HUD stays clean (no target box).
 - Only the active idPrefix group being edited should show a target box; avoid regressions that draw multiple or unrelated boxes.
 
+## Requirement: Anchor Widget Mirrors HUD Placement
+
+- The anchor widget should reflect HUD positioning: keep the anchor dot centered in the widget, and show the highlighted square relative to that center point (e.g., NW anchor highlights the lower-right quadrant).
+- This is a visual-only change to the anchor widget preview; no changes to payload placement math on the HUD.
+- Ensure the widget highlight and anchor marker stay in a consistent location while the group square moves relative to it, matching the on-HUD experience.
+
 ## Requirement: Filter Groups by Cache Presence
 
 - Controller dropdown should only list groups present in the cache; if a group is missing from `overlay_group_cache.json`, omit it entirely instead of showing a disabled/greyed option.
@@ -51,10 +57,35 @@ Use this doc to jot requirements, constraints, and experiments as we iterate.
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 1.1 | Reuse existing controller-active signal (“Overlay Controller is Active”) as the mode flag; add heartbeat/timeout to auto-revert. Mitigate risks: strict payload schema/validation, UI-thread timers, timeout > heartbeat interval, keep legacy status untouched, log mode flips. | In progress |
-| 1.2 | Gate fast-path behaviors on mode; keep defaults safe in Inactive. | Not started |
-| 1.3 | Add controller-triggered override reload signal after writes; overlay forces immediate reload (bypass mtime) and resets grouping helper. | Not started |
-| 1.4 | Add/update tests covering mode signal/timeout and override force-reload path; include invalid/duplicate signal handling. | Not started |
+| 1.1 | Reuse existing controller-active signal (“Overlay Controller is Active”) as the mode flag; add heartbeat/timeout to auto-revert. Mitigate risks: strict payload schema/validation, UI-thread timers, timeout > heartbeat interval, keep legacy status untouched, log mode flips. | Completed |
+| 1.2 | Gate fast-path behaviors on mode; keep defaults safe in Inactive. | Completed |
+| 1.3 | Add controller-triggered override reload signal after writes; overlay forces immediate reload (bypass mtime) and resets grouping helper. | Completed |
+| 1.4 | Add/update tests covering mode signal/timeout and override force-reload path; include invalid/duplicate signal handling. | Completed |
+
+#### 1.2 Plan (mode-aware fast path)
+
+- Knobs + targets: controller debounces (`_write_debounce_ms`, `_offset_write_debounce_ms`) ~50–75 ms Active vs 200 ms Inactive; controller status/cache poll `_status_poll_interval_ms` ~500–750 ms Active vs 2500 ms Inactive; overlay cache flush debounce (`GroupPlacementCache`) ~0.5–1.0 s Active vs 5 s Inactive. Keep heartbeat timeout > heartbeat interval; clamp minimums to avoid zero/hammering.
+- Profile helper: central per-mode profile near `ControllerModeTracker`, with precedence `user/debug override > mode profile > defaults`; log chosen values.
+- Apply on transitions: `mark_active` applies Active profile and restarts timers after cancel; timeout/`mark_inactive` reverts to Inactive defaults; controller launch starts in Active but can restore defaults on shutdown.
+- Observability: log mode flips and applied profile values; keep extra cadence logging behind dev mode to reduce churn in release.
+- Risk guards: cancel timers before rearm to avoid overlap; revert on missed heartbeat to avoid mode drift; fall back to Inactive on any signal parse failure; rate-limit cache/log churn if Active sticks; keep Inactive unchanged from today.
+
+#### 1.3 Plan (controller-triggered override reload)
+
+- Signal shape & transport: controller sends a lightweight reload signal after it writes `overlay_groupings.json`/offset updates (e.g., `LegacyOverlay` with `id=controller-override-reload` and a nonce/ts). Only emit once per flush; coalesce rapid writes.
+- Plugin listener: `load.py` listens for the signal and immediately forces override reload (bypass mtime), resetting grouping helper state the same way the periodic reload does; ensure normal timers/mtime remain as fallback.
+- Overlay client reaction: add a force-reload hook on grouping helper/cache so the broadcast triggers an immediate refresh without waiting for mtime; keep behavior identical to a fresh load.
+- Safety/edge cases: ignore malformed/duplicate signals (nonce/ts check), rate-limit logs, and bound emission to post-flush only (not cache reads). Accept only the expected type/id to avoid arbitrary-triggered reloads.
+- Risks: duplicate/malformed signals causing extra reloads; spam if not debounced; desync if signals are missed; state regression if force-reload interferes with in-progress edits or overrides normal cadence; security/log noise if validation/rate limits are weak.
+
+#### 1.4 Plan (tests for mode signal/timeout and override force-reload)
+
+- Controller mode/heartbeat tests: cover `ControllerModeTracker` timeout handling and duplicate active signals (already partly covered) plus integration hooks to ensure timer cancel/rearm happens on state flips; add a heartbeat timeout test in client with QTimer stub to verify `mark_inactive` fires after lapse.
+- Mode profile application tests: assert mode profile logging/apply paths rearm cache debounce/status polls and clamp values; verify no-op when profile unchanged.
+- Override reload signal tests: controller emits `controller_override_reload` once per flush with nonce; duplicates suppressed; payload shape validated. Plugin CLI handler ignores malformed payloads, dedupes by nonce, and broadcasts `OverlayOverrideReload`.
+- Client reload handling tests: force-reload hook resets grouping helper/override manager/payload snapshots, triggers repaint/cache dirty, and ignores duplicate nonce.
+- Negative/edge tests: malformed reload payload rejected, unknown command returns error, and reload path preserves fallback mtime-based reload (ensure state not broken if signal missed—doc in test notes).
+- Mitigations: stub timers instead of real QTimer delays to avoid flake; gate PyQt-dependent tests with skips/markers; prefer minimal stubs over heavy mocking; assert on key fields/flags instead of exact log strings; include duplicate/missing-signal/error-path coverage and rely on mtime/timer reload as fallback to cover missed signals.
 
 ### Phase 2: Group list filtering and cache cadence
 
@@ -80,3 +111,11 @@ Use this doc to jot requirements, constraints, and experiments as we iterate.
 | 4.1 | Add lightweight metadata hook to record presence of a captured sample payload per group (e.g., in overlay_groupings.json or cache). | Not started |
 | 4.2 | Add a cheap presence check seam for future sample replay when the active group is offscreen; include a dev_mode flush hook placeholder. | Not started |
 | 4.3 | Add/update tests for metadata presence checks and dev_mode flush hook (even if stubbed). | Not started |
+
+### Phase 5: Anchor widget alignment with HUD
+
+| Stage | Description | Status |
+| --- | --- | --- |
+| 5.1 | Redesign anchor widget so the anchor dot stays centered and the highlighted square moves relative to center (e.g., NW anchor highlights lower-right quadrant). | Not started |
+| 5.2 | Implement visual-only update in the controller widget; no changes to payload placement math. Ensure highlight/anchor positions remain consistent. | Not started |
+| 5.3 | Add/update tests or visual sanity checks (e.g., screenshot baseline or geometry assertions) to confirm the widget reflects HUD placement semantics. | Not started |

@@ -25,6 +25,7 @@ from typing import Any, Dict, Optional, Tuple
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 _CONTROLLER_LOGGER: Optional[logging.Logger] = None
 
+from overlay_client.controller_mode import ControllerModeProfile, ModeProfile
 from overlay_client.debug_config import DEBUG_CONFIG_ENABLED
 from overlay_client.logging_utils import build_rotating_file_handler, resolve_log_level, resolve_logs_dir
 try:  # When run as a package (`python -m overlay_controller.overlay_controller`)
@@ -1425,17 +1426,34 @@ class OverlayConfigApp(tk.Tk):
         self._anchor_restore_handles: dict[tuple[str, str], str | None] = {}
         self._absolute_tolerance_px = 0.5
         self._last_preview_signature: tuple[object, ...] | None = None
-        self._status_poll_interval_ms = 2500
-        _controller_debug("Cache/status poll interval set to %dms", self._status_poll_interval_ms)
+        self._mode_profile = ControllerModeProfile(
+            active=ModeProfile(
+                write_debounce_ms=75,
+                offset_write_debounce_ms=75,
+                status_poll_ms=750,
+                cache_flush_seconds=1.0,
+            ),
+            inactive=ModeProfile(
+                write_debounce_ms=200,
+                offset_write_debounce_ms=200,
+                status_poll_ms=2500,
+                cache_flush_seconds=5.0,
+            ),
+            logger=_controller_debug,
+        )
+        self._current_mode_profile = self._mode_profile.resolve("active")
         self._status_poll_handle: str | None = None
         self._debounce_handles: dict[str, str | None] = {}
-        self._write_debounce_ms = 200
-        self._offset_write_debounce_ms = 200
+        self._write_debounce_ms = self._current_mode_profile.write_debounce_ms
+        self._offset_write_debounce_ms = self._current_mode_profile.offset_write_debounce_ms
+        self._status_poll_interval_ms = self._current_mode_profile.status_poll_ms
         self._offset_step_px = 10.0
         self._initial_geometry_applied = False
         self._port_path = root / "port.json"
         self._controller_heartbeat_ms = 15000
         self._controller_heartbeat_handle: str | None = None
+        self._last_override_reload_nonce: Optional[str] = None
+        self._last_override_reload_ts: float = 0.0
 
         self._build_layout()
         self._groupings_cache = self._load_groupings_cache()
@@ -1501,7 +1519,8 @@ class OverlayConfigApp(tk.Tk):
         self.bind("<ButtonPress-1>", self._start_window_drag, add="+")
         self.bind("<B1-Motion>", self._on_window_drag, add="+")
         self.bind("<ButtonRelease-1>", self._end_window_drag, add="+")
-        self._status_poll_handle = self.after(self._status_poll_interval_ms, self._poll_cache_and_status)
+        self._apply_mode_profile("active", reason="startup")
+        self._status_poll_handle = self.after(self._current_mode_profile.status_poll_ms, self._poll_cache_and_status)
         self.after(0, self._activate_force_render_override)
         self.after(0, self._start_controller_heartbeat)
         self.after(0, self._center_and_show)
@@ -2488,6 +2507,7 @@ class OverlayConfigApp(tk.Tk):
     def _flush_groupings_config(self) -> None:
         self._debounce_handles["config_write"] = None
         self._write_groupings_config()
+        self._emit_override_reload_signal()
 
     def _flush_groupings_cache(self) -> None:
         self._debounce_handles["cache_write"] = None
@@ -2517,6 +2537,54 @@ class OverlayConfigApp(tk.Tk):
                 self.after_cancel(existing)
             except Exception:
                 pass
+
+    def _emit_override_reload_signal(self) -> None:
+        now = time.monotonic()
+        last = getattr(self, "_last_override_reload_ts", 0.0)
+        if last and now - last < 0.25:
+            return
+        nonce = f"{int(time.time() * 1000)}-{os.getpid()}"
+        self._last_override_reload_ts = now
+        self._last_override_reload_nonce = nonce
+        payload = {
+            "cli": "controller_override_reload",
+            "nonce": nonce,
+            "timestamp": time.time(),
+        }
+        self._send_plugin_cli(payload)
+        _controller_debug("Controller override reload signal sent (nonce=%s)", nonce)
+
+    def _apply_mode_profile(self, mode: str, reason: str = "apply") -> None:
+        profile = self._mode_profile.resolve(mode)
+        previous = getattr(self, "_current_mode_profile", None)
+        if previous == profile:
+            _controller_debug(
+                "Controller mode profile unchanged (%s): write_debounce=%dms offset_debounce=%dms status_poll=%dms reason=%s",
+                mode,
+                profile.write_debounce_ms,
+                profile.offset_write_debounce_ms,
+                profile.status_poll_ms,
+                reason,
+            )
+            return
+        self._current_mode_profile = profile
+        self._write_debounce_ms = profile.write_debounce_ms
+        self._offset_write_debounce_ms = profile.offset_write_debounce_ms
+        self._status_poll_interval_ms = profile.status_poll_ms
+        rescheduled = False
+        if self._status_poll_handle is not None:
+            self._cancel_status_poll()
+            self._status_poll_handle = self.after(self._status_poll_interval_ms, self._poll_cache_and_status)
+            rescheduled = True
+        _controller_debug(
+            "Controller mode profile applied (%s): write_debounce=%dms offset_debounce=%dms status_poll=%dms rescheduled=%s reason=%s",
+            mode,
+            profile.write_debounce_ms,
+            profile.offset_write_debounce_ms,
+            profile.status_poll_ms,
+            rescheduled,
+            reason,
+        )
 
     def _cancel_status_poll(self) -> None:
         handle = self._status_poll_handle
