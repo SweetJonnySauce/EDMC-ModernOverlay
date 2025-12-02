@@ -1,8 +1,15 @@
 import logging
 from types import SimpleNamespace
+from pathlib import Path
+import sys
 
-import load
-import overlay_controller.overlay_controller as oc
+# Ensure repository root is on sys.path for overlay_controller package imports.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import load  # noqa: E402
+import overlay_controller.overlay_controller as oc  # noqa: E402
 
 
 def test_plugin_cli_override_reload_dedupes_and_broadcasts():

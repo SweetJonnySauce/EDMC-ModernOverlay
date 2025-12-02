@@ -87,14 +87,48 @@ Use this doc to jot requirements, constraints, and experiments as we iterate.
 - Negative/edge tests: malformed reload payload rejected, unknown command returns error, and reload path preserves fallback mtime-based reload (ensure state not broken if signal missed—doc in test notes).
 - Mitigations: stub timers instead of real QTimer delays to avoid flake; gate PyQt-dependent tests with skips/markers; prefer minimal stubs over heavy mocking; assert on key fields/flags instead of exact log strings; include duplicate/missing-signal/error-path coverage and rely on mtime/timer reload as fallback to cover missed signals.
 
+
+
 ### Phase 2: Group list filtering and cache cadence
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 2.1 | Filter dropdown to cache-present groups only; omit missing groups instead of greying out. | Not started |
-| 2.2 | Add cache polling to refresh the list when new groups appear; preserve selection when possible. | Not started |
-| 2.3 | Tie cache flush cadence/poll interval to mode (fast in Active, normal in Inactive) with fallback to normal on heartbeat timeout; replace debug vs. release timing with mode-based timing. | Not started |
-| 2.4 | Add/update tests for cache-based filtering and mode-tied cadence behavior. | Not started |
+| 2.1 | Filter dropdown to cache-present groups only; omit missing groups instead of greying out. | Completed |
+| 2.2 | Add cache polling to refresh the list when new groups appear; preserve selection when possible. | Completed |
+| 2.3 | Tie cache flush cadence/poll interval to mode (fast in Active, normal in Inactive) with fallback to normal on heartbeat timeout; replace debug vs. release timing with mode-based timing. | Completed |
+| 2.4 | Add/update tests for cache-based filtering and mode-tied cadence behavior. | Completed |
+
+#### 2.1 Plan (filter dropdown to cache-present groups only)
+
+- Behavior: controller dropdown lists only groups present in `overlay_group_cache.json`; missing groups are omitted (no disabled/greyed options).
+- Data source: use the controller’s in-memory cache from `overlay_group_cache.json`; presence of a group entry is the inclusion criterion.
+- UI refresh: rebuild options from cache on refresh; preserve current selection when still present, otherwise clear selection and disable controls gracefully; re-enable when selection returns.
+- Polling: tie dropdown refresh to existing cache/status poll; debounce/batch UI refresh to avoid flicker; if a poll fails, keep the previous list instead of clearing it.
+- Safety/UX: defensive parsing to skip malformed entries without throwing; log when a selection is dropped due to missing cache; keep focus stable during rebuilds.
+
+#### 2.2 Plan (cache polling refresh with selection preservation)
+
+- Goal: keep the dropdown in sync with `overlay_group_cache.json` as new groups appear, without flicker; preserve selection when still present.
+- Poll cadence: reuse existing cache/status poll; compute a simple diff/signature of cache groups and rebuild only when it changes; debounce UI rebuilds.
+- Selection handling: keep selection if the group still exists; only clear/disable when it truly disappears; restore selection and controls when it reappears; log drops/restores at debug level.
+- Safety/observability: defensive JSON parsing (no-op on errors); wrap refresh in try/except to keep the poll loop alive; skip malformed entries; keep focus stable.
+- Mode-aware tuning: keep mode-based poll intervals, and cap rebuild frequency in Active mode to avoid churn; ensure Inactive isn’t too sluggish.
+
+#### 2.3 Plan (mode-tied cache flush and poll cadence)
+
+- Goal: Active mode uses faster cache flush debounce and controller status/cache poll interval; Inactive reverts to safe defaults; auto-revert on heartbeat timeout.
+- Controller: set poll interval from the mode profile; cancel/rearm on mode flips with clamped minimums (e.g., ≥500 ms Active, ≥2.5 s Inactive); avoid double-start.
+- Client: adjust `GroupPlacementCache` debounce and any cache poll cadence on `mark_active`/`mark_inactive`; cancel/rearm timers cleanly; keep defaults if profile lookup fails.
+- Fallbacks: heartbeat timeout forces Inactive cadence; treat malformed/missed signals as no-ops; keep current timings on errors.
+- Safety/logging: clamp intervals to prevent hammering; rate-limit cadence-change logs; add a grace period to avoid false-negative timeouts; log only on value changes.
+
+#### 2.4 Plan (tests for cache filtering and mode-tied cadence)
+
+- Dropdown/cache filtering: test `_load_idprefix_options` to ensure only cache-present groups appear; malformed entries are skipped without exceptions; selection preserved when present and controls only disabled when missing.
+- Refresh polling: test `_refresh_idprefix_options` change detection (no rebuild on unchanged cache, rebuild on added groups), selection drop/restore when cache removes/returns a group.
+- Mode cadence: tests that controller poll interval clamps/reschedules on mode change (Active fast, Inactive default) and no-op when unchanged; client cache debounce flips with mode and cancels/rearms timers cleanly.
+- Heartbeat/timeout: test timeout/mark_inactive reverts cadence and doesn’t leave fast timers running.
+- Mitigations in tests: stub timers/callbacks to stay synchronous; use minimal fakes instead of heavy mocks; assert on key substrings in logs; guard PyQt/platform deps with skips; include malformed-cache and selection drop/restore edge cases.
 
 ### Phase 3: Target box overlay (Active-only)
 

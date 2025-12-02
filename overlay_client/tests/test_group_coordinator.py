@@ -164,3 +164,15 @@ def test_resolve_group_key_propagates_override_error():
 
     with pytest.raises(RuntimeError):
         coordinator.resolve_group_key("boom", "base_plugin", overrides)
+
+
+def test_update_cache_skips_controller_status():
+    cache = _StubCache()
+    coordinator = GroupCoordinator(cache=cache)
+    key = ("unknown", "item:overlay-controller-status")
+    base_payloads = {key: {"plugin": "unknown", "suffix": "item:overlay-controller-status", "has_transformed": False}}
+    transform_payloads = {}
+
+    coordinator.update_cache_from_payloads(base_payloads, transform_payloads)
+
+    assert cache.calls == []

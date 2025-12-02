@@ -268,6 +268,26 @@ class IdPrefixGroupWidget(tk.Frame):
 
         self.dropdown.grid(row=0, column=1, padx=0, pady=0)
 
+    def update_options(self, options: list[str], selected_index: int | None = None) -> None:
+        """Replace dropdown options and apply selection if provided."""
+
+        self._choices = options or []
+        try:
+            self.dropdown.configure(values=self._choices)
+        except Exception:
+            pass
+        if selected_index is not None and 0 <= selected_index < len(self._choices):
+            try:
+                self.dropdown.current(selected_index)
+            except Exception:
+                selected_index = None
+        if selected_index is None:
+            try:
+                self._selection.set("")
+                self.dropdown.set("")
+            except Exception:
+                pass
+
     def on_focus_enter(self) -> None:
         """Called when the host enters focus mode for this widget."""
 
@@ -1455,8 +1475,8 @@ class OverlayConfigApp(tk.Tk):
         self._last_override_reload_nonce: Optional[str] = None
         self._last_override_reload_ts: float = 0.0
 
-        self._build_layout()
         self._groupings_cache = self._load_groupings_cache()
+        self._build_layout()
         self._handle_idprefix_selected()
         self._binding_config = BindingConfig.load()
         if sys.platform.startswith("win"):
@@ -2259,12 +2279,14 @@ class OverlayConfigApp(tk.Tk):
         self._groupings_data = payload if isinstance(payload, dict) else {}
         options: list[str] = []
         self._idprefix_entries.clear()
+        cache_groups = self._groupings_cache.get("groups") if isinstance(self._groupings_cache, dict) else {}
         if isinstance(self._groupings_data, dict):
             for plugin_name, entry in sorted(self._groupings_data.items(), key=lambda item: item[0].casefold()):
                 groups = entry.get("idPrefixGroups") if isinstance(entry, dict) else None
                 if not isinstance(groups, dict):
                     continue
                 labels = sorted(groups.keys(), key=str.casefold)
+
                 def _prefix(label: str) -> str:
                     for sep in ("-", " "):
                         head, *rest = label.split(sep, 1)
@@ -2274,7 +2296,11 @@ class OverlayConfigApp(tk.Tk):
 
                 first_parts = {_prefix(lbl) for lbl in labels}
                 show_plugin = len(first_parts) > 1
+                plugin_cache = cache_groups.get(plugin_name) if isinstance(cache_groups, dict) else {}
                 for label in labels:
+                    has_cache = isinstance(plugin_cache, dict) and isinstance(plugin_cache.get(label), dict)
+                    if not has_cache:
+                        continue
                     display = f"{plugin_name}: {label}" if show_plugin else label
                     options.append(display)
                     self._idprefix_entries.append((plugin_name, label))
@@ -2459,8 +2485,35 @@ class OverlayConfigApp(tk.Tk):
             if self._cache_changed(latest, self._groupings_cache):
                 _controller_debug("Group cache refreshed from disk at %s", time.strftime("%H:%M:%S"))
                 self._groupings_cache = latest
+                self._refresh_idprefix_options()
         self._refresh_current_group_snapshot(force_ui=False)
         self._status_poll_handle = self.after(self._status_poll_interval_ms, self._poll_cache_and_status)
+    def _refresh_idprefix_options(self) -> None:
+        selection = self._get_current_group_selection()
+        options = self._load_idprefix_options()
+        selected_index: int | None = None
+        if selection is not None:
+            try:
+                selected_index = next(
+                    idx for idx, entry in enumerate(self._idprefix_entries) if entry == selection
+                )
+            except StopIteration:
+                selected_index = None
+        if hasattr(self, "idprefix_widget"):
+            try:
+                self.idprefix_widget.update_options(options, selected_index)
+            except Exception:
+                pass
+        if selected_index is None:
+            self._grouping = ""
+            self._id_prefix = ""
+            self._set_group_controls_enabled(False)
+        else:
+            try:
+                self.idprefix_widget.dropdown.current(selected_index)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            self._handle_idprefix_selected()
 
     def _load_groupings_cache(self) -> dict[str, object]:
         path = getattr(self, "_groupings_cache_path", None)
@@ -2568,9 +2621,9 @@ class OverlayConfigApp(tk.Tk):
             )
             return
         self._current_mode_profile = profile
-        self._write_debounce_ms = profile.write_debounce_ms
-        self._offset_write_debounce_ms = profile.offset_write_debounce_ms
-        self._status_poll_interval_ms = profile.status_poll_ms
+        self._write_debounce_ms = max(25, profile.write_debounce_ms)
+        self._offset_write_debounce_ms = max(25, profile.offset_write_debounce_ms)
+        self._status_poll_interval_ms = max(250, profile.status_poll_ms)
         rescheduled = False
         if self._status_poll_handle is not None:
             self._cancel_status_poll()
@@ -2877,6 +2930,10 @@ class OverlayConfigApp(tk.Tk):
         except Exception:
             idx = -1
         if not (0 <= idx < len(self._idprefix_entries)):
+            self._grouping = ""
+            self._id_prefix = ""
+            _controller_debug("No cached idPrefix groups available; controls disabled.")
+            self._set_group_controls_enabled(False)
             return
         plugin_name, label = self._idprefix_entries[idx]
         cfg = self._get_group_config(plugin_name, label)
