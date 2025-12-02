@@ -960,13 +960,43 @@ class AnchorSelectorWidget(tk.Frame):
                 positions.append((xs[i], ys[j]))
         self._positions = positions
 
-        # Highlight square anchored on active dot
-        px, py = positions[self._active_index]
+        # Anchor dot stays centered; highlight moves relative to center based on anchor.
+        center_x, center_y = positions[4]
         highlight_size = spacing
-        min_x, max_x = xs[0], xs[2]
-        min_y, max_y = ys[0], ys[2]
-        hx0 = min(max(px - highlight_size / 2, min_x), max_x - highlight_size)
-        hy0 = min(max(py - highlight_size / 2, min_y), max_y - highlight_size)
+        anchor_tokens = [
+            "nw",
+            "top",
+            "ne",
+            "left",
+            "center",
+            "right",
+            "sw",
+            "bottom",
+            "se",
+        ]
+        anchor_token = anchor_tokens[self._active_index] if 0 <= self._active_index < len(anchor_tokens) else "nw"
+
+        def _highlight_origin(token: str) -> tuple[float, float]:
+            if token in {"nw"}:
+                return center_x, center_y
+            if token in {"ne"}:
+                return center_x - highlight_size, center_y
+            if token in {"sw"}:
+                return center_x, center_y - highlight_size
+            if token in {"se"}:
+                return center_x - highlight_size, center_y - highlight_size
+            if token in {"top", "n"}:
+                return center_x - highlight_size / 2, center_y
+            if token in {"bottom", "s"}:
+                return center_x - highlight_size / 2, center_y - highlight_size
+            if token in {"left", "w"}:
+                return center_x, center_y - highlight_size / 2
+            if token in {"right", "e"}:
+                return center_x - highlight_size, center_y - highlight_size / 2
+            # center/default
+            return center_x - highlight_size / 2, center_y - highlight_size / 2
+
+        hx0, hy0 = _highlight_origin(anchor_token)
         hx1 = hx0 + highlight_size
         hy1 = hy0 + highlight_size
         if self._has_focus:
@@ -984,7 +1014,7 @@ class AnchorSelectorWidget(tk.Frame):
                 outline=dot_color,
                 fill=dot_color,
             )
-            if idx == self._active_index:
+            if idx == 4:
                 self.canvas.create_oval(
                     px - (dot_r + 4),
                     py - (dot_r + 4),
