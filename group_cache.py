@@ -167,6 +167,15 @@ class GroupPlacementCache:
             self._log_debug(f"Failed to write group cache: {exc}")
             return False
 
+    def get_group(self, plugin: str, suffix: Optional[str]) -> Optional[Dict[str, Any]]:
+        groups = self._state.get("groups", {})
+        if not isinstance(groups, dict):
+            return None
+        plugin_entry = groups.get(plugin)
+        if not isinstance(plugin_entry, dict):
+            return None
+        return plugin_entry.get(suffix) if isinstance(plugin_entry, dict) else None
+
 
 def resolve_cache_path(root: Optional[Path] = None) -> Path:
     """Return the resolved cache path rooted at the given folder."""

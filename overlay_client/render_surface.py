@@ -347,6 +347,11 @@ class RenderSurfaceMixin:
                 report_overlay_bounds,
                 mapper,
             )
+            try:
+                self._last_overlay_bounds_for_target = self._clone_overlay_bounds_map(overlay_bounds_for_draw)
+                self._last_transform_by_group = dict(transform_by_group)
+            except Exception:
+                pass
             # Paint commands and collect offscreen/debug helpers.
             self._render_commands(
                 painter,
@@ -1561,6 +1566,194 @@ class RenderSurfaceMixin:
         return x, y
 
     @staticmethod
+    def _overlay_bounds_from_cache_entry(
+        entry: Mapping[str, Any],
+    ) -> Tuple[Optional[_OverlayBounds], Optional[str], float, float]:
+        if not isinstance(entry, Mapping):
+            return None, None, 0.0, 0.0
+        base = entry.get("base") if isinstance(entry, Mapping) else None
+        transformed = entry.get("transformed") if isinstance(entry, Mapping) else None
+
+        def _f(value: Any, default: float = 0.0) -> float:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return default
+
+        width = height = 0.0
+        if isinstance(transformed, Mapping):
+            min_x = _f(transformed.get("trans_min_x"))
+            min_y = _f(transformed.get("trans_min_y"))
+            max_x = _f(transformed.get("trans_max_x"))
+            max_y = _f(transformed.get("trans_max_y"))
+            anchor = transformed.get("anchor") if isinstance(transformed.get("anchor"), str) else None
+            width = _f(transformed.get("trans_width"), max_x - min_x)
+            height = _f(transformed.get("trans_height"), max_y - min_y)
+        else:
+            anchor = None
+            if not isinstance(base, Mapping):
+                return None, None, 0.0, 0.0
+            min_x = _f(base.get("base_min_x"))
+            min_y = _f(base.get("base_min_y"))
+            max_x = _f(base.get("base_max_x"))
+            max_y = _f(base.get("base_max_y"))
+            width = _f(base.get("base_width"), max_x - min_x)
+            height = _f(base.get("base_height"), max_y - min_y)
+        bounds = _OverlayBounds(min_x=min_x, min_y=min_y, max_x=max_x, max_y=max_y)
+        if not bounds.is_valid():
+            return None, None, 0.0, 0.0
+        return bounds, anchor or "nw", width if width else (max_x - min_x), height if height else (max_y - min_y)
+
+    @staticmethod
+    def _build_bounds_with_anchor(width: float, height: float, anchor: str, anchor_x: float, anchor_y: float) -> _OverlayBounds:
+        w = max(0.0, float(width))
+        h = max(0.0, float(height))
+        token = (anchor or "nw").strip().lower()
+        if token == "center":
+            min_x = anchor_x - w / 2.0
+            min_y = anchor_y - h / 2.0
+        elif token in {"n", "top"}:
+            min_x = anchor_x - w / 2.0
+            min_y = anchor_y
+        elif token in {"s", "bottom"}:
+            min_x = anchor_x - w / 2.0
+            min_y = anchor_y - h
+        elif token in {"e", "right"}:
+            min_x = anchor_x - w
+            min_y = anchor_y - h / 2.0
+        elif token in {"w", "left"}:
+            min_x = anchor_x
+            min_y = anchor_y - h / 2.0
+        elif token in {"ne"}:
+            min_x = anchor_x - w
+            min_y = anchor_y
+        elif token in {"se"}:
+            min_x = anchor_x - w
+            min_y = anchor_y - h
+        elif token in {"sw"}:
+            min_x = anchor_x
+            min_y = anchor_y - h
+        else:  # nw and default
+            min_x = anchor_x
+            min_y = anchor_y
+        return _OverlayBounds(min_x=min_x, min_y=min_y, max_x=min_x + w, max_y=min_y + h)
+
+    def _paint_controller_target_box(self, painter: QPainter) -> None:
+        active_group = getattr(self, "_controller_active_group", None)
+        if not active_group:
+            return
+        mode_state = getattr(self, "controller_mode_state", None)
+        if callable(mode_state) and mode_state() != "active":
+            return
+        bounds_map = getattr(self, "_last_overlay_bounds_for_target", {}) or {}
+        transform_map = getattr(self, "_last_transform_by_group", {}) or {}
+        bounds = self._resolve_bounds_for_active_group(active_group, bounds_map)
+        anchor_token = None
+        if bounds is None or not bounds.is_valid():
+            bounds, anchor_token = self._fallback_bounds_from_cache(active_group)
+            if bounds is None or not bounds.is_valid():
+                return
+        mapper = self._compute_legacy_mapper()
+        rect = self._overlay_bounds_to_rect(bounds, mapper)
+        if rect.width() <= 0 or rect.height() <= 0:
+            return
+        pen = QPen(QColor(255, 140, 0))
+        pen.setWidth(max(1, self._line_width("group_outline")))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(pen)
+        painter.drawRect(rect)
+
+        transform = transform_map.get(active_group)
+        if anchor_token is None and transform is not None:
+            anchor_token = getattr(transform, "anchor_token", None)
+        anchor_point = self._anchor_from_overlay_bounds(bounds, anchor_token) if anchor_token else None
+        if anchor_point is None:
+            return
+        anchor_px = self._overlay_point_to_screen(anchor_point, mapper)
+        marker_pen = QPen(QColor(0, 0, 0))
+        marker_pen.setWidth(max(1, self._line_width("vector_marker")))
+        painter.setPen(marker_pen)
+        painter.setBrush(QColor(255, 255, 255))
+        radius = 5
+        painter.drawEllipse(QPoint(anchor_px[0], anchor_px[1]), radius, radius)
+
+    @staticmethod
+    def _match_group_key(target: Tuple[str, Optional[str]], candidates: Mapping[Tuple[str, Optional[str]], Any]) -> Optional[Tuple[str, Optional[str]]]:
+        if target in candidates:
+            return target
+        tgt_plugin = (target[0] or "").casefold()
+        tgt_suffix = (target[1] or "").casefold() if target[1] is not None else None
+        for key in candidates.keys():
+            plugin_cf = (key[0] or "").casefold()
+            suffix_cf = (key[1] or "").casefold() if key[1] is not None else None
+            if plugin_cf == tgt_plugin and suffix_cf == tgt_suffix:
+                return key
+        return None
+
+    def _resolve_bounds_for_active_group(
+        self,
+        active_group: Tuple[str, Optional[str]],
+        bounds_map: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+    ) -> Optional[_OverlayBounds]:
+        matched = self._match_group_key(active_group, bounds_map)
+        if matched is None:
+            return None
+        return bounds_map.get(matched)
+
+    def _fallback_bounds_from_cache(
+        self, active_group: Tuple[str, Optional[str]]
+    ) -> Tuple[Optional[_OverlayBounds], Optional[str]]:
+        cache = getattr(self, "_group_cache", None)
+        if cache is None or not hasattr(cache, "get_group"):
+            return None, None
+        plugin, suffix = active_group
+        entry = None
+        try:
+            entry = cache.get_group(plugin, suffix)
+        except Exception:
+            entry = None
+        if entry is None:
+            # try case-insensitive match across cache
+            try:
+                groups = getattr(cache, "_state", {}).get("groups", {})
+                if isinstance(groups, dict):
+                    for p_key, plugin_entry in groups.items():
+                        if not isinstance(plugin_entry, dict):
+                            continue
+                        if (p_key or "").casefold() != (plugin or "").casefold():
+                            continue
+                        for s_key, group_entry in plugin_entry.items():
+                            if (s_key or "").casefold() == (suffix or "").casefold():
+                                entry = group_entry
+                                break
+                        if entry is not None:
+                            break
+            except Exception:
+                entry = None
+        if entry is None:
+            return None, None
+        offset_dx = 0.0
+        offset_dy = 0.0
+        anchor_override = None
+        override_manager = getattr(self, "_override_manager", None)
+        if override_manager is not None:
+            try:
+                offset_dx, offset_dy = override_manager.group_offsets(plugin, suffix)
+            except Exception:
+                offset_dx = offset_dy = 0.0
+            try:
+                _, anchor_token = override_manager.group_preserve_fill_aspect(plugin, suffix)
+                anchor_override = anchor_token
+            except Exception:
+                anchor_override = None
+        bounds, anchor_token, width, height = self._overlay_bounds_from_cache_entry(entry or {})
+        if bounds is None or not bounds.is_valid():
+            return None, None
+        token = anchor_override or anchor_token or "nw"
+        bounds = self._build_bounds_with_anchor(width, height, token, offset_dx, offset_dy)
+        return bounds, token
+
+    @staticmethod
     def _anchor_label_position(
         anchor_token: str,
         anchor_px: Tuple[int, int],
@@ -1690,6 +1883,7 @@ class RenderSurfaceMixin:
             window_width=float(self.width()),
             window_height=float(self.height()),
         )
+        self._paint_controller_target_box(painter)
 
     def _apply_legacy_scale(self) -> None:
         self.update()

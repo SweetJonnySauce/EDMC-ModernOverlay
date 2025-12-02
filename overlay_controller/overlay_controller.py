@@ -1474,6 +1474,7 @@ class OverlayConfigApp(tk.Tk):
         self._controller_heartbeat_handle: str | None = None
         self._last_override_reload_nonce: Optional[str] = None
         self._last_override_reload_ts: float = 0.0
+        self._last_active_group_sent: Optional[tuple[str, str]] = None
 
         self._groupings_cache = self._load_groupings_cache()
         self._build_layout()
@@ -1814,6 +1815,10 @@ class OverlayConfigApp(tk.Tk):
 
     def _send_controller_heartbeat(self) -> None:
         self._send_plugin_cli({"cli": "controller_heartbeat"})
+        selection = self._get_current_group_selection()
+        if selection is not None:
+            plugin_name, label = selection
+            self._send_active_group_selection(plugin_name, label)
 
     def _start_controller_heartbeat(self) -> None:
         self._stop_controller_heartbeat()
@@ -2934,6 +2939,7 @@ class OverlayConfigApp(tk.Tk):
             self._id_prefix = ""
             _controller_debug("No cached idPrefix groups available; controls disabled.")
             self._set_group_controls_enabled(False)
+            self._send_active_group_selection("", "")
             return
         plugin_name, label = self._idprefix_entries[idx]
         cfg = self._get_group_config(plugin_name, label)
@@ -2950,6 +2956,7 @@ class OverlayConfigApp(tk.Tk):
             except Exception:
                 pass
         self._sync_absolute_for_current_group(force_ui=True)
+        self._send_active_group_selection(plugin_name, label)
 
     def _handle_justification_changed(self, justification: str) -> None:
         selection = self._get_current_group_selection()
@@ -3078,6 +3085,17 @@ class OverlayConfigApp(tk.Tk):
             except Exception:
                 pass
             self._handle_anchor_changed(anchor_target, prefer_user=True)
+
+    def _send_active_group_selection(self, plugin_name: Optional[str], label: Optional[str]) -> None:
+        plugin = (str(plugin_name or "").strip())
+        group = (str(label or "").strip())
+        key = (plugin, group)
+        if key == self._last_active_group_sent:
+            return
+        payload = {"cli": "controller_active_group", "plugin": plugin, "label": group}
+        self._send_plugin_cli(payload)
+        self._last_active_group_sent = key
+        _controller_debug("Controller active group signal sent: %s/%s", plugin or "<none>", group or "<none>")
     def _get_current_group_selection(self) -> tuple[str, str] | None:
         if not hasattr(self, "idprefix_widget"):
             return None

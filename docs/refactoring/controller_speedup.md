@@ -134,10 +134,34 @@ Use this doc to jot requirements, constraints, and experiments as we iterate.
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 3.1 | Render HUD target box in Active mode, matching preview style (outline + anchor) and tracking transformed bounds (offset/anchor/justification/nudge). | Not started |
-| 3.2 | Ensure only the active idPrefix group shows a target box; no multiple/unrelated boxes. | Not started |
-| 3.3 | Add/update tests for target-box gating to the active group and mode-only rendering. | Not started |
+| 3.1 | Render HUD target box in Active mode, matching preview style (outline + anchor) and tracking transformed bounds (offset/anchor/justification/nudge). | Completed |
+| 3.2 | Ensure only the active idPrefix group shows a target box; no multiple/unrelated boxes. | Completed |
+| 3.3 | Add/update tests for target-box gating to the active group and mode-only rendering. | Completed |
 
+#### 3.1 Plan (Active-mode target box on HUD)
+
+- Goal: render a HUD target box in Active mode matching the controller preview (outline + anchor marker), driven by transformed bounds (offset/anchor/justification/nudge) for the active idPrefix group.
+- Gating: draw only when controller is Active and an active group exists; hide in Inactive/no-selection; ensure only one box renders (no stray groups).
+- Data source: reuse existing grouping/transform data so HUD box matches actual placement; avoid new math paths.
+- Rendering: lightweight outline + anchor marker layer that updates on movement/offset changes; align style to the preview (color/stroke/marker) and respect existing repaint debounce.
+- Validation: tests for gating (Active only, correct group) and manual check for visual alignment with preview/HUD.
+- Risks/mitigations: wrong gating (restrict to Active + selected group), misaligned bounds (reuse current transform helpers), performance churn (piggyback on existing paint/debounce), style regression (match preview styles), stale boxes (clear on selection change/inactive). Mitigate signal risks by debouncing/deduping selection-change signals, validating plugin/label, clearing state on timeout/invalid payloads, logging at debug on change only, and optionally resending selection on controller activation/heartbeat to heal misses.
+
+#### 3.2 Plan (only active idPrefix shows HUD box)
+
+- Gate rendering strictly to the current controller-selected idPrefix while Active; clear the box on selection change, controller exit, or inactive timeout.
+- Use the active-group signal (controller→plugin→client) and the latest live/cached bounds/anchor for that group; ignore all other groups.
+- Clear on malformed/missing plugin/label; ignore duplicate signals; process selection changes atomically to avoid flicker.
+- Match cache fallback only to the active group (case-insensitive), never to other groups.
+- Tests: selection swap removes old box and shows new; no box when inactive/empty selection; invalid signals don’t render anything.
+
+#### 3.3 Plan (tests for target-box gating and Active-only rendering)
+
+- Active-only gating: test HUD target box appears only in Active mode; clears on inactivity/timeout/controller exit.
+- Active group only: switching active idPrefix moves the box to the new group and removes it from the old; other groups (even cached) never show a box.
+- Cache fallback: when no live payload is present, box uses cache bounds/anchor/offsets for the active group; malformed/missing cache yields no box.
+- Signal handling: `OverlayControllerActiveGroup` updates/clears active group and triggers repaint; duplicate/malformed signals don’t render extra boxes.
+- Tests/guardrails: stub timers/mode transitions to stay synchronous; use minimal fakes; assert on box presence/absence rather than exact pixels; guard PyQt deps with skips/markers; include malformed/duplicate signal and bad cache-entry cases.
 ### Phase 4: Scaffolding for sample payloads (future)
 
 | Stage | Description | Status |

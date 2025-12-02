@@ -57,6 +57,7 @@ class SetupSurfaceMixin:
         }
         self._debug_config = debug_config
         self._last_override_reload_nonce: Optional[str] = None
+        self._controller_active_group: Optional[tuple[str, str]] = None
         self._mode_profile_overrides: Dict[str, object] = {}
         if DEBUG_CONFIG_ENABLED:
             # Preserve faster dev-mode cache flush cadence as an explicit override.
@@ -221,6 +222,8 @@ class SetupSurfaceMixin:
         self._group_log_next_allowed: Dict[Tuple[str, Optional[str]], float] = {}
         self._logged_group_bounds: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
         self._logged_group_transforms: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
+        self._last_overlay_bounds_for_target: Dict[Tuple[str, Optional[str]], Any] = {}
+        self._last_transform_by_group: Dict[Tuple[str, Optional[str]], Any] = {}
         self._controller_mode = ControllerModeTracker(
             timeout_seconds=30.0,
             on_state_change=self._handle_controller_mode_change,
@@ -357,6 +360,8 @@ class SetupSurfaceMixin:
     def _handle_controller_mode_change(self, previous: str, current: str) -> None:
         _CLIENT_LOGGER.debug("Controller mode changed: %s -> %s", previous, current)
         self._apply_controller_mode_profile(current, reason="state_change")
+        if current != "active":
+            self.set_active_controller_group(None, None)
 
     def _apply_controller_mode_profile(self, mode: str, reason: Optional[str] = None) -> None:
         profile = self._mode_profile.resolve(mode, self._mode_profile_overrides)
@@ -391,6 +396,7 @@ class SetupSurfaceMixin:
 
     def _handle_controller_timeout(self) -> None:
         self._controller_mode.mark_inactive()
+        self.set_active_controller_group(None, None)
 
     def _paint_overlay(self, painter: QPainter) -> None:
         bg_opacity = max(0.0, min(1.0, self._background_opacity))

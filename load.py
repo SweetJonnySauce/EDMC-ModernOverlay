@@ -383,6 +383,7 @@ class _PluginRuntime:
         self._last_launch_log_value: str = ""
         self._last_launch_log_time: float = 0.0
         self._command_helper_prefix: Optional[str] = None
+        self._controller_active_group: Optional[Tuple[str, str]] = None
         register_grouping_store(self.plugin_dir / "overlay_groupings.json")
         threading.Thread(
             target=self._evaluate_version_status_once,
@@ -1599,6 +1600,11 @@ class _PluginRuntime:
             "ttl": 0,
         }
         self._publish_payload(payload)
+        self._controller_active_group = None
+        try:
+            self._publish_payload({"event": "OverlayControllerActiveGroup", "plugin": "", "label": ""})
+        except Exception:
+            pass
 
     def _read_controller_pid_file(self) -> Optional[int]:
         try:
@@ -1931,6 +1937,23 @@ class _PluginRuntime:
                 return {"status": "ok"}
             if command == "controller_heartbeat":
                 self._emit_controller_active_notice()
+                return {"status": "ok"}
+            if command == "controller_active_group":
+                plugin_name_raw = payload.get("plugin")
+                label_raw = payload.get("label")
+                plugin_name = str(plugin_name_raw or "").strip()
+                label = str(label_raw or "").strip()
+                if plugin_name and label:
+                    self._controller_active_group = (plugin_name, label)
+                else:
+                    self._controller_active_group = None
+                message = {
+                    "event": "OverlayControllerActiveGroup",
+                    "plugin": plugin_name,
+                    "label": label,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+                self._publish_payload(message)
                 return {"status": "ok"}
             if command == "controller_override_reload":
                 nonce_raw = payload.get("nonce")

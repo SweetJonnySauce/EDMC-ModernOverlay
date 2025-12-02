@@ -7,8 +7,8 @@
           "bgstally-msg-colonisation-",
           "bgstally-frame-colonisation"
         ],
-        "offsetX": 120.0,
-        "offsetY": 20.0,
+        "offsetX": 0.0,
+        "offsetY": 0.0,
         "payloadJustification": "left"
       },
       "BGS-Tally Ready": {
@@ -223,7 +223,7 @@
   "LandingPad": {
     "idPrefixGroups": {
       "LandingPad": {
-        "idPrefixGroupAnchor": "nw",
+        "idPrefixGroupAnchor": "center",
         "idPrefixes": [
           "shell-",
           "line-",
@@ -232,8 +232,8 @@
           "pad-",
           "station-"
         ],
-        "offsetX": 0.0,
-        "offsetY": 0.0,
+        "offsetX": 40.0,
+        "offsetY": 37.0,
         "payloadJustification": "left"
       }
     },
