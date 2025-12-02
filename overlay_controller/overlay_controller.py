@@ -1433,6 +1433,9 @@ class OverlayConfigApp(tk.Tk):
         self._offset_write_debounce_ms = 200
         self._offset_step_px = 10.0
         self._initial_geometry_applied = False
+        self._port_path = root / "port.json"
+        self._controller_heartbeat_ms = 15000
+        self._controller_heartbeat_handle: str | None = None
 
         self._build_layout()
         self._groupings_cache = self._load_groupings_cache()
@@ -1500,6 +1503,7 @@ class OverlayConfigApp(tk.Tk):
         self.bind("<ButtonRelease-1>", self._end_window_drag, add="+")
         self._status_poll_handle = self.after(self._status_poll_interval_ms, self._poll_cache_and_status)
         self.after(0, self._activate_force_render_override)
+        self.after(0, self._start_controller_heartbeat)
         self.after(0, self._center_and_show)
 
     def _compute_default_placement_width(self) -> int:
@@ -1751,6 +1755,42 @@ class OverlayConfigApp(tk.Tk):
         except Exception:
             traceback.print_exc(file=sys.stderr)
 
+    def _send_plugin_cli(self, payload: Dict[str, Any]) -> None:
+        port_path = getattr(self, "_port_path", Path(__file__).resolve().parents[1] / "port.json")
+        try:
+            data = json.loads(port_path.read_text(encoding="utf-8"))
+            port = int(data.get("port", 0))
+        except Exception:
+            return
+        if port <= 0:
+            return
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1.5) as sock:
+                writer = sock.makefile("w", encoding="utf-8", newline="\n")
+                writer.write(json.dumps(payload, ensure_ascii=False))
+                writer.write("\n")
+                writer.flush()
+        except Exception:
+            return
+
+    def _send_controller_heartbeat(self) -> None:
+        self._send_plugin_cli({"cli": "controller_heartbeat"})
+
+    def _start_controller_heartbeat(self) -> None:
+        self._stop_controller_heartbeat()
+        self._send_controller_heartbeat()
+        interval = max(1000, int(getattr(self, "_controller_heartbeat_ms", 15000)))
+        self._controller_heartbeat_handle = self.after(interval, self._start_controller_heartbeat)
+
+    def _stop_controller_heartbeat(self) -> None:
+        handle = getattr(self, "_controller_heartbeat_handle", None)
+        if handle is not None:
+            try:
+                self.after_cancel(handle)
+            except Exception:
+                pass
+        self._controller_heartbeat_handle = None
+
     def toggle_placement_window(self) -> None:
         """Switch between the open and closed placement window layouts."""
 
@@ -1982,6 +2022,7 @@ class OverlayConfigApp(tk.Tk):
         self._pending_focus_out = False
         self._closing = True
         self._cancel_status_poll()
+        self._stop_controller_heartbeat()
         self._deactivate_force_render_override()
         self.destroy()
 

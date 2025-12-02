@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QLabel, QVBoxLayout
 from group_cache import GroupPlacementCache, resolve_cache_path
 
 from overlay_client.client_config import InitialClientSettings
+from overlay_client.controller_mode import ControllerModeTracker
 from overlay_client.data_client import OverlayDataClient
 from overlay_client.debug_config import DEBUG_CONFIG_ENABLED, DebugConfig
 from overlay_client.debug_cycle_overlay import CycleOverlayView, DebugOverlayView
@@ -199,6 +200,19 @@ class SetupSurfaceMixin:
         self._group_log_next_allowed: Dict[Tuple[str, Optional[str]], float] = {}
         self._logged_group_bounds: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
         self._logged_group_transforms: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
+        self._controller_mode = ControllerModeTracker(
+            timeout_seconds=30.0,
+            on_state_change=lambda prev, curr: _CLIENT_LOGGER.debug(
+                "Controller mode changed: %s -> %s", prev, curr
+            ),
+        )
+        self._controller_mode_timer = QTimer(self)
+        self._controller_mode_timer.setSingleShot(True)
+        self._controller_mode.configure_timeout_hooks(
+            arm_timeout=lambda seconds: self._controller_mode_timer.start(int(max(0.5, seconds) * 1000)),
+            cancel_timeout=lambda: self._controller_mode_timer.stop(),
+        )
+        self._controller_mode_timer.timeout.connect(self._handle_controller_timeout)
         self._group_cache = GroupPlacementCache(
             resolve_cache_path(root_dir),
             debounce_seconds=1.0 if DEBUG_CONFIG_ENABLED else 5.0,
@@ -319,6 +333,15 @@ class SetupSurfaceMixin:
             geometry = screen.geometry()
             self._update_auto_legacy_scale(max(geometry.width(), 1), max(geometry.height(), 1))
         self._publish_metrics()
+
+    def handle_controller_active_signal(self) -> None:
+        self._controller_mode.mark_active()
+
+    def controller_mode_state(self) -> str:
+        return self._controller_mode.state
+
+    def _handle_controller_timeout(self) -> None:
+        self._controller_mode.mark_inactive()
 
     def _paint_overlay(self, painter: QPainter) -> None:
         bg_opacity = max(0.0, min(1.0, self._background_opacity))

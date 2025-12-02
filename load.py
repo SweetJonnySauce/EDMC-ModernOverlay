@@ -1928,6 +1928,9 @@ class _PluginRuntime:
             if command == "overlay_metrics":
                 self._update_overlay_metrics(payload)
                 return {"status": "ok"}
+            if command == "controller_heartbeat":
+                self._emit_controller_active_notice()
+                return {"status": "ok"}
             if command == "test_message":
                 text = str(payload.get("message") or "").strip()
                 if not text:
