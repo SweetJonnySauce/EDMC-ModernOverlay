@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Dict, Iterable, List, Optional, Tuple
@@ -12,6 +13,7 @@ if TYPE_CHECKING:
     import tkinter as tk
 
 DEFAULT_CONFIG_PATH = Path(__file__).with_name("keybindings.json")
+LOGGER = logging.getLogger("EDMCModernOverlay.Controller")
 
 # Default layout that can be extended by the user later on.
 DEFAULT_CONFIG = {
@@ -35,7 +37,7 @@ DEFAULT_CONFIG = {
         "widget_activate": ["<Return>"],
         "exit_focus": ["<Control-w>", "<Escape>"],
         "absolute_focus_next": ["<Tab>", "<Return>", "<KP_Enter>", "<Down>"],
-        "absolute_focus_prev": ["<Shift-Tab>", "<ISO_Left_Tab>", "<Up>"],
+        "absolute_focus_prev": ["<Shift-Tab>", "<Up>"],
     },
 }
     },
@@ -149,9 +151,28 @@ class BindingManager:
                 target_widgets = [self.widget]
             callback = self._get_wrapped_handler(action)
             for sequence in sequences:
-                normalized = self._normalize_sequence(sequence)
+                try:
+                    normalized = self._normalize_sequence(sequence)
+                except Exception as exc:
+                    LOGGER.warning(
+                        "Skipping invalid binding for action '%s': sequence='%s' (%s)",
+                        action,
+                        sequence,
+                        exc,
+                    )
+                    continue
                 for target_widget in target_widgets:
-                    target_widget.bind(normalized, callback, add="+")
+                    try:
+                        target_widget.bind(normalized, callback, add="+")
+                    except Exception as exc:
+                        LOGGER.warning(
+                            "Skipping unsupported binding for action '%s' on %s: sequence='%s' (%s)",
+                            action,
+                            target_widget,
+                            normalized,
+                            exc,
+                        )
+                        continue
                     self._bound_sequences.append((target_widget, normalized))
 
     def _unbind_sequences(self, sequences: Iterable[str]) -> None:

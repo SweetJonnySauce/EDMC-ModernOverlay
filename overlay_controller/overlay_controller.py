@@ -25,6 +25,7 @@ from typing import Any, Dict, Optional, Tuple
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 _CONTROLLER_LOGGER: Optional[logging.Logger] = None
 
+from overlay_client.controller_mode import ControllerModeProfile, ModeProfile
 from overlay_client.debug_config import DEBUG_CONFIG_ENABLED
 from overlay_client.logging_utils import build_rotating_file_handler, resolve_log_level, resolve_logs_dir
 try:  # When run as a package (`python -m overlay_controller.overlay_controller`)
@@ -220,7 +221,6 @@ class IdPrefixGroupWidget(tk.Frame):
         self._dropdown_posted = False
         self._request_focus: callable | None = None
         self._on_selection_changed: callable | None = None
-
         self.dropdown = ttk.Combobox(
             self,
             values=self._choices,
@@ -266,6 +266,26 @@ class IdPrefixGroupWidget(tk.Frame):
         self.rowconfigure(0, weight=1)
 
         self.dropdown.grid(row=0, column=1, padx=0, pady=0)
+
+    def update_options(self, options: list[str], selected_index: int | None = None) -> None:
+        """Replace dropdown options and apply selection if provided."""
+
+        self._choices = options or []
+        try:
+            self.dropdown.configure(values=self._choices)
+        except Exception:
+            pass
+        if selected_index is not None and 0 <= selected_index < len(self._choices):
+            try:
+                self.dropdown.current(selected_index)
+            except Exception:
+                selected_index = None
+        if selected_index is None:
+            try:
+                self._selection.set("")
+                self.dropdown.set("")
+            except Exception:
+                pass
 
     def on_focus_enter(self) -> None:
         """Called when the host enters focus mode for this widget."""
@@ -532,6 +552,7 @@ class OffsetSelectorWidget(tk.Frame):
         self._request_focus: callable | None = None
         self._on_change: callable | None = None
         self._enabled = True
+        self._flash_handles: dict[str, str | None] = {}
         self._build_grid()
 
     def _build_grid(self) -> None:
@@ -607,14 +628,18 @@ class OffsetSelectorWidget(tk.Frame):
         if not entry:
             return
         canvas, poly_id = entry
+        self._cancel_flash(direction)
+
+        def _reset() -> None:
+            self._flash_handles[direction] = None
+            self._apply_arrow_colors()
+
         try:
             canvas.itemconfigure(poly_id, fill=self._active_color, outline=self._active_color)
-            canvas.after(
-                flash_ms,
-                self._apply_arrow_colors,
-            )
+            handle = canvas.after(flash_ms, _reset)
+            self._flash_handles[direction] = handle
         except Exception:
-            pass
+            self._flash_handles[direction] = None
 
     def _handle_click(self, direction: str, event: object | None = None) -> None:
         """Handle mouse click on an arrow, ensuring focus is acquired first."""
@@ -707,7 +732,26 @@ class OffsetSelectorWidget(tk.Frame):
         self._enabled = enabled
         if not enabled:
             self._pinned.clear()
+            self._cancel_flash()
         self._apply_arrow_colors()
+
+    def _cancel_flash(self, direction: str | None = None) -> None:
+        """Cancel any outstanding flash timers for one or all arrows."""
+
+        targets = [direction] if direction else list(self._flash_handles.keys())
+        for dir_key in targets:
+            handle = self._flash_handles.get(dir_key)
+            if handle is None:
+                continue
+            canvas_entry = self._arrows.get(dir_key)
+            canvas = canvas_entry[0] if canvas_entry else None
+            if canvas is None:
+                continue
+            try:
+                canvas.after_cancel(handle)
+            except Exception:
+                pass
+            self._flash_handles[dir_key] = None
 
     def clear_pins(self, axis: str | None = None) -> bool:
         """Clear pinned highlights for the given axis ('x' or 'y') or both."""
@@ -893,6 +937,8 @@ class AnchorSelectorWidget(tk.Frame):
         self._active_index = 0  # start at NW
         self._on_change: callable | None = None
         self._enabled = True
+        self._needs_static = True
+        self._layout: dict[str, object] | None = None
         self.canvas = tk.Canvas(
             self,
             width=120,
@@ -902,14 +948,14 @@ class AnchorSelectorWidget(tk.Frame):
             bg=self.cget("background"),
         )
         self.canvas.pack(fill="both", expand=True)
-        self.canvas.bind("<Configure>", lambda _e: self._draw())
-        self.after_idle(self._draw)
+        self._draw_handle: str | None = None
+        self.canvas.bind("<Configure>", lambda _e: self._schedule_draw())
+        self.after_idle(self._schedule_draw)
         self.canvas.bind("<Button-1>", self._handle_click)
         self._positions: list[tuple[float, float]] = []
 
     def _draw(self) -> None:
-        self.canvas.delete("all")
-        self.canvas.update_idletasks()
+        self._draw_handle = None
         w = max(1, int(self.canvas.winfo_width() or self.canvas.winfo_reqwidth()))
         h = max(1, int(self.canvas.winfo_height() or self.canvas.winfo_reqheight()))
         size = min(w, h)
@@ -926,52 +972,109 @@ class AnchorSelectorWidget(tk.Frame):
         highlight_color = "#707070" if disabled else "#000000"
         focus_fill = "#dcdcdc" if disabled else "#cfe6ff"
         focus_outline = "#b5b5b5" if disabled else "#5a7cae"
+        palette = (disabled, self._has_focus)
 
-        # Outer square (dashed)
-        self.canvas.create_line(xs[0], ys[0], xs[2], ys[0], fill=line_color, dash=(2, 3))
-        self.canvas.create_line(xs[2], ys[0], xs[2], ys[2], fill=line_color, dash=(2, 3))
-        self.canvas.create_line(xs[2], ys[2], xs[0], ys[2], fill=line_color, dash=(2, 3))
-        self.canvas.create_line(xs[0], ys[2], xs[0], ys[0], fill=line_color, dash=(2, 3))
+        if self._layout is None or self._layout.get("size") != (w, h):
+            self._needs_static = True
+        if self._layout is None or self._layout.get("palette") != palette:
+            self._needs_static = True
 
-        positions: list[tuple[float, float]] = []
-        for j in range(3):
-            for i in range(3):
-                positions.append((xs[i], ys[j]))
-        self._positions = positions
+        if self._needs_static:
+            self.canvas.delete("all")
+            positions: list[tuple[float, float]] = []
+            for j in range(3):
+                for i in range(3):
+                    positions.append((xs[i], ys[j]))
+            self._positions = positions
 
-        # Highlight square anchored on active dot
-        px, py = positions[self._active_index]
+            # Outer square (dashed)
+            self.canvas.create_line(xs[0], ys[0], xs[2], ys[0], fill=line_color, dash=(2, 3), tags=("static",))
+            self.canvas.create_line(xs[2], ys[0], xs[2], ys[2], fill=line_color, dash=(2, 3), tags=("static",))
+            self.canvas.create_line(xs[2], ys[2], xs[0], ys[2], fill=line_color, dash=(2, 3), tags=("static",))
+            self.canvas.create_line(xs[0], ys[2], xs[0], ys[0], fill=line_color, dash=(2, 3), tags=("static",))
+
+            dot_r = 8
+            for idx, (px, py) in enumerate(positions):
+                self.canvas.create_oval(
+                    px - dot_r,
+                    py - dot_r,
+                    px + dot_r,
+                    py + dot_r,
+                    outline=dot_color,
+                    fill=dot_color,
+                    tags=("static",),
+                )
+                if idx == 4:
+                    self.canvas.create_oval(
+                        px - (dot_r + 4),
+                        py - (dot_r + 4),
+                        px + (dot_r + 4),
+                        py + (dot_r + 4),
+                        outline=highlight_color,
+                        width=2,
+                        tags=("static",),
+                    )
+
+            self._layout = {
+                "size": (w, h),
+                "positions": self._positions,
+                "highlight_size": spacing,
+                "palette": palette,
+            }
+            self._needs_static = False
+
+        # Anchor dot stays centered; highlight moves relative to center based on anchor.
+        center_x, center_y = self._positions[4] if len(self._positions) >= 5 else (w / 2, h / 2)
         highlight_size = spacing
-        min_x, max_x = xs[0], xs[2]
-        min_y, max_y = ys[0], ys[2]
-        hx0 = min(max(px - highlight_size / 2, min_x), max_x - highlight_size)
-        hy0 = min(max(py - highlight_size / 2, min_y), max_y - highlight_size)
+        anchor_tokens = [
+            "nw",
+            "top",
+            "ne",
+            "left",
+            "center",
+            "right",
+            "sw",
+            "bottom",
+            "se",
+        ]
+        anchor_token = anchor_tokens[self._active_index] if 0 <= self._active_index < len(anchor_tokens) else "nw"
+
+        def _highlight_origin(token: str) -> tuple[float, float]:
+            if token in {"nw"}:
+                return center_x, center_y
+            if token in {"ne"}:
+                return center_x - highlight_size, center_y
+            if token in {"sw"}:
+                return center_x, center_y - highlight_size
+            if token in {"se"}:
+                return center_x - highlight_size, center_y - highlight_size
+            if token in {"top", "n"}:
+                return center_x - highlight_size / 2, center_y
+            if token in {"bottom", "s"}:
+                return center_x - highlight_size / 2, center_y - highlight_size
+            if token in {"left", "w"}:
+                return center_x, center_y - highlight_size / 2
+            if token in {"right", "e"}:
+                return center_x - highlight_size, center_y - highlight_size / 2
+            # center/default
+            return center_x - highlight_size / 2, center_y - highlight_size / 2
+
+        hx0, hy0 = _highlight_origin(anchor_token)
         hx1 = hx0 + highlight_size
         hy1 = hy0 + highlight_size
+        self.canvas.delete("highlight")
+        # Draw highlight first so dots render above it.
         if self._has_focus:
-            self.canvas.create_rectangle(hx0, hy0, hx1, hy1, fill=focus_fill, outline=focus_outline, width=1.2)
-        else:
-            self.canvas.create_rectangle(hx0, hy0, hx1, hy1, outline=line_color, width=1)
-
-        dot_r = 8
-        for idx, (px, py) in enumerate(positions):
-            self.canvas.create_oval(
-                px - dot_r,
-                py - dot_r,
-                px + dot_r,
-                py + dot_r,
-                outline=dot_color,
-                fill=dot_color,
+            self.canvas.create_rectangle(
+                hx0, hy0, hx1, hy1, fill=focus_fill, outline=focus_outline, width=1.2, tags=("highlight",)
             )
-            if idx == self._active_index:
-                self.canvas.create_oval(
-                    px - (dot_r + 4),
-                    py - (dot_r + 4),
-                    px + (dot_r + 4),
-                    py + (dot_r + 4),
-                    outline=highlight_color,
-                    width=2,
-                )
+        else:
+            self.canvas.create_rectangle(hx0, hy0, hx1, hy1, outline=line_color, width=1, tags=("highlight",))
+        try:
+            self.canvas.tag_lower("highlight")
+            self.canvas.tag_raise("static")
+        except Exception:
+            pass
 
     def _handle_click(self, event: tk.Event[tk.Misc]) -> str | None:  # type: ignore[name-defined]
         if not self._enabled:
@@ -986,17 +1089,62 @@ class AnchorSelectorWidget(tk.Frame):
             ey = getattr(event, "y", None)
             if ex is not None and ey is not None:
                 try:
-                    nearest = min(
-                        enumerate(self._positions),
-                        key=lambda item: (item[1][0] - ex) ** 2 + (item[1][1] - ey) ** 2,
-                    )[0]
-                    if nearest != self._active_index:
-                        self._active_index = nearest
-                        self._draw()
+                    idx = self._anchor_index_from_point(ex, ey)
+                    if idx != self._active_index:
+                        self._active_index = idx
+                        self._schedule_draw()
                         self._emit_change()
                 except Exception:
                     pass
         return "break"
+
+    def _anchor_index_from_point(self, x: float, y: float) -> int:
+        if len(self._positions) < 9:
+            return self._active_index
+        center_x, center_y = self._positions[4]
+        spacing = abs(self._positions[1][0] - self._positions[0][0]) if len(self._positions) > 1 else 0.0
+        tol = spacing * 0.2 if spacing > 0 else 5.0
+        dx = x - center_x
+        dy = y - center_y
+
+        def _token_for(dx: float, dy: float) -> str:
+            # Click location is where the box should be relative to the anchor, so we invert.
+            if abs(dx) <= tol and abs(dy) <= tol:
+                return "center"
+            if abs(dx) <= tol:
+                return "bottom" if dy < 0 else "top"
+            if abs(dy) <= tol:
+                return "right" if dx < 0 else "left"
+            if dx < 0 and dy < 0:
+                return "se"
+            if dx > 0 and dy < 0:
+                return "sw"
+            if dx < 0 and dy > 0:
+                return "ne"
+            return "nw"
+
+        token = _token_for(dx, dy)
+        mapping = {
+            "nw": 0,
+            "top": 1,
+            "ne": 2,
+            "left": 3,
+            "center": 4,
+            "right": 5,
+            "sw": 6,
+            "bottom": 7,
+            "se": 8,
+        }
+        return mapping.get(token, self._active_index)
+
+    def _schedule_draw(self) -> None:
+        if self._draw_handle is not None:
+            return
+        try:
+            handle = self.after_idle(self._draw)
+            self._draw_handle = handle
+        except Exception:
+            self._draw_handle = None
 
     def set_focus_request_callback(self, callback: callable | None) -> None:
         self._request_focus = callback
@@ -1005,7 +1153,8 @@ class AnchorSelectorWidget(tk.Frame):
         if not self._enabled:
             return
         self._has_focus = True
-        self._draw()
+        self._needs_static = True
+        self._schedule_draw()
         try:
             self.focus_set()
         except Exception:
@@ -1013,7 +1162,8 @@ class AnchorSelectorWidget(tk.Frame):
 
     def on_focus_exit(self) -> None:
         self._has_focus = False
-        self._draw()
+        self._needs_static = True
+        self._schedule_draw()
         try:
             self.winfo_toplevel().focus_set()
         except Exception:
@@ -1028,19 +1178,64 @@ class AnchorSelectorWidget(tk.Frame):
             return None
 
         key = keysym.lower()
-        row, col = divmod(self._active_index, 3)
-        if key == "left" and col > 0:
-            col -= 1
-        elif key == "right" and col < 2:
-            col += 1
-        elif key == "up" and row > 0:
-            row -= 1
-        elif key == "down" and row < 2:
-            row += 1
-        else:
+        deltas = {
+            "left": (-1, 0),
+            "right": (1, 0),
+            "up": (0, -1),
+            "down": (0, 1),
+        }
+        delta = deltas.get(key)
+        if delta is None:
             return None
-        self._active_index = row * 3 + col
-        self._draw()
+
+        tokens = [
+            "nw",
+            "top",
+            "ne",
+            "left",
+            "center",
+            "right",
+            "sw",
+            "bottom",
+            "se",
+        ]
+        token = tokens[self._active_index] if 0 <= self._active_index < len(tokens) else "center"
+        coords = {
+            "nw": (1, 1),
+            "top": (0, 1),
+            "ne": (-1, 1),
+            "left": (1, 0),
+            "center": (0, 0),
+            "right": (-1, 0),
+            "sw": (1, -1),
+            "bottom": (0, -1),
+            "se": (-1, -1),
+        }
+        coord = coords.get(token, (0, 0))
+        new_coord = (max(-1, min(1, coord[0] + delta[0])), max(-1, min(1, coord[1] + delta[1])))
+        target_token = None
+        for tok, c in coords.items():
+            if c == new_coord:
+                target_token = tok
+                break
+        if target_token is None:
+            return "break"
+        mapping = {
+            "nw": 0,
+            "top": 1,
+            "ne": 2,
+            "left": 3,
+            "center": 4,
+            "right": 5,
+            "sw": 6,
+            "bottom": 7,
+            "se": 8,
+        }
+        idx = mapping.get(target_token, self._active_index)
+        if idx == self._active_index:
+            return "break"
+        self._active_index = idx
+        self._schedule_draw()
         self._emit_change()
         return "break"
 
@@ -1097,7 +1292,8 @@ class AnchorSelectorWidget(tk.Frame):
         self._enabled = enabled
         if not enabled:
             self._has_focus = False
-        self._draw()
+        self._needs_static = True
+        self._schedule_draw()
 
 
 class AbsoluteXYWidget(tk.Frame):
@@ -1425,17 +1621,40 @@ class OverlayConfigApp(tk.Tk):
         self._anchor_restore_handles: dict[tuple[str, str], str | None] = {}
         self._absolute_tolerance_px = 0.5
         self._last_preview_signature: tuple[object, ...] | None = None
-        self._status_poll_interval_ms = 2500
-        _controller_debug("Cache/status poll interval set to %dms", self._status_poll_interval_ms)
+        self._mode_profile = ControllerModeProfile(
+            active=ModeProfile(
+                write_debounce_ms=75,
+                offset_write_debounce_ms=75,
+                status_poll_ms=50,
+                cache_flush_seconds=1.0,
+            ),
+            inactive=ModeProfile(
+                write_debounce_ms=200,
+                offset_write_debounce_ms=200,
+                status_poll_ms=2500,
+                cache_flush_seconds=5.0,
+            ),
+            logger=_controller_debug,
+        )
+        self._current_mode_profile = self._mode_profile.resolve("active")
         self._status_poll_handle: str | None = None
         self._debounce_handles: dict[str, str | None] = {}
-        self._write_debounce_ms = 200
-        self._offset_write_debounce_ms = 200
+        self._write_debounce_ms = self._current_mode_profile.write_debounce_ms
+        self._offset_write_debounce_ms = self._current_mode_profile.offset_write_debounce_ms
+        self._status_poll_interval_ms = self._current_mode_profile.status_poll_ms
         self._offset_step_px = 10.0
+        self._offset_live_edit_until: float = 0.0
+        self._offset_resync_handle: str | None = None
         self._initial_geometry_applied = False
+        self._port_path = root / "port.json"
+        self._controller_heartbeat_ms = 15000
+        self._controller_heartbeat_handle: str | None = None
+        self._last_override_reload_nonce: Optional[str] = None
+        self._last_override_reload_ts: float = 0.0
+        self._last_active_group_sent: Optional[tuple[str, str]] = None
 
-        self._build_layout()
         self._groupings_cache = self._load_groupings_cache()
+        self._build_layout()
         self._handle_idprefix_selected()
         self._binding_config = BindingConfig.load()
         if sys.platform.startswith("win"):
@@ -1498,8 +1717,10 @@ class OverlayConfigApp(tk.Tk):
         self.bind("<ButtonPress-1>", self._start_window_drag, add="+")
         self.bind("<B1-Motion>", self._on_window_drag, add="+")
         self.bind("<ButtonRelease-1>", self._end_window_drag, add="+")
-        self._status_poll_handle = self.after(self._status_poll_interval_ms, self._poll_cache_and_status)
+        self._apply_mode_profile("active", reason="startup")
+        self._status_poll_handle = self.after(self._current_mode_profile.status_poll_ms, self._poll_cache_and_status)
         self.after(0, self._activate_force_render_override)
+        self.after(0, self._start_controller_heartbeat)
         self.after(0, self._center_and_show)
 
     def _compute_default_placement_width(self) -> int:
@@ -1751,6 +1972,46 @@ class OverlayConfigApp(tk.Tk):
         except Exception:
             traceback.print_exc(file=sys.stderr)
 
+    def _send_plugin_cli(self, payload: Dict[str, Any]) -> None:
+        port_path = getattr(self, "_port_path", Path(__file__).resolve().parents[1] / "port.json")
+        try:
+            data = json.loads(port_path.read_text(encoding="utf-8"))
+            port = int(data.get("port", 0))
+        except Exception:
+            return
+        if port <= 0:
+            return
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1.5) as sock:
+                writer = sock.makefile("w", encoding="utf-8", newline="\n")
+                writer.write(json.dumps(payload, ensure_ascii=False))
+                writer.write("\n")
+                writer.flush()
+        except Exception:
+            return
+
+    def _send_controller_heartbeat(self) -> None:
+        self._send_plugin_cli({"cli": "controller_heartbeat"})
+        selection = self._get_current_group_selection()
+        if selection is not None:
+            plugin_name, label = selection
+            self._send_active_group_selection(plugin_name, label)
+
+    def _start_controller_heartbeat(self) -> None:
+        self._stop_controller_heartbeat()
+        self._send_controller_heartbeat()
+        interval = max(1000, int(getattr(self, "_controller_heartbeat_ms", 15000)))
+        self._controller_heartbeat_handle = self.after(interval, self._start_controller_heartbeat)
+
+    def _stop_controller_heartbeat(self) -> None:
+        handle = getattr(self, "_controller_heartbeat_handle", None)
+        if handle is not None:
+            try:
+                self.after_cancel(handle)
+            except Exception:
+                pass
+        self._controller_heartbeat_handle = None
+
     def toggle_placement_window(self) -> None:
         """Switch between the open and closed placement window layouts."""
 
@@ -1982,6 +2243,7 @@ class OverlayConfigApp(tk.Tk):
         self._pending_focus_out = False
         self._closing = True
         self._cancel_status_poll()
+        self._stop_controller_heartbeat()
         self._deactivate_force_render_override()
         self.destroy()
 
@@ -2199,12 +2461,14 @@ class OverlayConfigApp(tk.Tk):
         self._groupings_data = payload if isinstance(payload, dict) else {}
         options: list[str] = []
         self._idprefix_entries.clear()
+        cache_groups = self._groupings_cache.get("groups") if isinstance(self._groupings_cache, dict) else {}
         if isinstance(self._groupings_data, dict):
             for plugin_name, entry in sorted(self._groupings_data.items(), key=lambda item: item[0].casefold()):
                 groups = entry.get("idPrefixGroups") if isinstance(entry, dict) else None
                 if not isinstance(groups, dict):
                     continue
                 labels = sorted(groups.keys(), key=str.casefold)
+
                 def _prefix(label: str) -> str:
                     for sep in ("-", " "):
                         head, *rest = label.split(sep, 1)
@@ -2214,7 +2478,11 @@ class OverlayConfigApp(tk.Tk):
 
                 first_parts = {_prefix(lbl) for lbl in labels}
                 show_plugin = len(first_parts) > 1
+                plugin_cache = cache_groups.get(plugin_name) if isinstance(cache_groups, dict) else {}
                 for label in labels:
+                    has_cache = isinstance(plugin_cache, dict) and isinstance(plugin_cache.get(label), dict)
+                    if not has_cache:
+                        continue
                     display = f"{plugin_name}: {label}" if show_plugin else label
                     options.append(display)
                     self._idprefix_entries.append((plugin_name, label))
@@ -2370,6 +2638,19 @@ class OverlayConfigApp(tk.Tk):
             self._draw_preview()
             return
         plugin_name, label = selection
+
+        # While the user is actively holding offset arrows, prefer the in-memory snapshot
+        # so the preview target does not snap back when the cache polls.
+        now = time.time()
+        if now < getattr(self, "_offset_live_edit_until", 0.0):
+            snapshot = self._group_snapshots.get(selection)
+            if snapshot is not None:
+                self._set_group_controls_enabled(True)
+                self._apply_snapshot_to_absolute_widget(selection, snapshot, force_ui=force_ui)
+                self._update_absolute_widget_color(snapshot)
+                self._draw_preview()
+                return
+
         snapshot = self._build_group_snapshot(plugin_name, label)
         if snapshot is None:
             self._group_snapshots.pop(selection, None)
@@ -2399,8 +2680,35 @@ class OverlayConfigApp(tk.Tk):
             if self._cache_changed(latest, self._groupings_cache):
                 _controller_debug("Group cache refreshed from disk at %s", time.strftime("%H:%M:%S"))
                 self._groupings_cache = latest
+                self._refresh_idprefix_options()
         self._refresh_current_group_snapshot(force_ui=False)
         self._status_poll_handle = self.after(self._status_poll_interval_ms, self._poll_cache_and_status)
+    def _refresh_idprefix_options(self) -> None:
+        selection = self._get_current_group_selection()
+        options = self._load_idprefix_options()
+        selected_index: int | None = None
+        if selection is not None:
+            try:
+                selected_index = next(
+                    idx for idx, entry in enumerate(self._idprefix_entries) if entry == selection
+                )
+            except StopIteration:
+                selected_index = None
+        if hasattr(self, "idprefix_widget"):
+            try:
+                self.idprefix_widget.update_options(options, selected_index)
+            except Exception:
+                pass
+        if selected_index is None:
+            self._grouping = ""
+            self._id_prefix = ""
+            self._set_group_controls_enabled(False)
+        else:
+            try:
+                self.idprefix_widget.dropdown.current(selected_index)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            self._handle_idprefix_selected()
 
     def _load_groupings_cache(self) -> dict[str, object]:
         path = getattr(self, "_groupings_cache_path", None)
@@ -2447,6 +2755,7 @@ class OverlayConfigApp(tk.Tk):
     def _flush_groupings_config(self) -> None:
         self._debounce_handles["config_write"] = None
         self._write_groupings_config()
+        self._emit_override_reload_signal()
 
     def _flush_groupings_cache(self) -> None:
         self._debounce_handles["cache_write"] = None
@@ -2476,6 +2785,54 @@ class OverlayConfigApp(tk.Tk):
                 self.after_cancel(existing)
             except Exception:
                 pass
+
+    def _emit_override_reload_signal(self) -> None:
+        now = time.monotonic()
+        last = getattr(self, "_last_override_reload_ts", 0.0)
+        if last and now - last < 0.25:
+            return
+        nonce = f"{int(time.time() * 1000)}-{os.getpid()}"
+        self._last_override_reload_ts = now
+        self._last_override_reload_nonce = nonce
+        payload = {
+            "cli": "controller_override_reload",
+            "nonce": nonce,
+            "timestamp": time.time(),
+        }
+        self._send_plugin_cli(payload)
+        _controller_debug("Controller override reload signal sent (nonce=%s)", nonce)
+
+    def _apply_mode_profile(self, mode: str, reason: str = "apply") -> None:
+        profile = self._mode_profile.resolve(mode)
+        previous = getattr(self, "_current_mode_profile", None)
+        if previous == profile:
+            _controller_debug(
+                "Controller mode profile unchanged (%s): write_debounce=%dms offset_debounce=%dms status_poll=%dms reason=%s",
+                mode,
+                profile.write_debounce_ms,
+                profile.offset_write_debounce_ms,
+                profile.status_poll_ms,
+                reason,
+            )
+            return
+        self._current_mode_profile = profile
+        self._write_debounce_ms = max(25, profile.write_debounce_ms)
+        self._offset_write_debounce_ms = max(25, profile.offset_write_debounce_ms)
+        self._status_poll_interval_ms = max(50, profile.status_poll_ms)
+        rescheduled = False
+        if self._status_poll_handle is not None:
+            self._cancel_status_poll()
+            self._status_poll_handle = self.after(self._status_poll_interval_ms, self._poll_cache_and_status)
+            rescheduled = True
+        _controller_debug(
+            "Controller mode profile applied (%s): write_debounce=%dms offset_debounce=%dms status_poll=%dms rescheduled=%s reason=%s",
+            mode,
+            profile.write_debounce_ms,
+            profile.offset_write_debounce_ms,
+            profile.status_poll_ms,
+            rescheduled,
+            reason,
+        )
 
     def _cancel_status_poll(self) -> None:
         handle = self._status_poll_handle
@@ -2768,6 +3125,11 @@ class OverlayConfigApp(tk.Tk):
         except Exception:
             idx = -1
         if not (0 <= idx < len(self._idprefix_entries)):
+            self._grouping = ""
+            self._id_prefix = ""
+            _controller_debug("No cached idPrefix groups available; controls disabled.")
+            self._set_group_controls_enabled(False)
+            self._send_active_group_selection("", "")
             return
         plugin_name, label = self._idprefix_entries[idx]
         cfg = self._get_group_config(plugin_name, label)
@@ -2784,6 +3146,7 @@ class OverlayConfigApp(tk.Tk):
             except Exception:
                 pass
         self._sync_absolute_for_current_group(force_ui=True)
+        self._send_active_group_selection(plugin_name, label)
 
     def _handle_justification_changed(self, justification: str) -> None:
         selection = self._get_current_group_selection()
@@ -2912,6 +3275,57 @@ class OverlayConfigApp(tk.Tk):
             except Exception:
                 pass
             self._handle_anchor_changed(anchor_target, prefer_user=True)
+
+        # Freeze snapshot rebuilds briefly so cache polls don't snap preview back while holding arrows.
+        # Keep preview in "live edit" mode a bit longer so cache polls/actual updates
+        # cannot snap the target back while the user is holding the key.
+        self._offset_live_edit_until = time.time() + 1.0
+        # Force preview refresh immediately to mirror HUD movement.
+        self._last_preview_signature = None
+        try:
+            self.after_idle(self._draw_preview)
+        except Exception:
+            self._draw_preview()
+        self._schedule_offset_resync()
+
+    def _send_active_group_selection(self, plugin_name: Optional[str], label: Optional[str]) -> None:
+        plugin = (str(plugin_name or "").strip())
+        group = (str(label or "").strip())
+        key = (plugin, group)
+        if key == self._last_active_group_sent:
+            return
+        payload = {"cli": "controller_active_group", "plugin": plugin, "label": group}
+        self._send_plugin_cli(payload)
+        self._last_active_group_sent = key
+        _controller_debug("Controller active group signal sent: %s/%s", plugin or "<none>", group or "<none>")
+
+    def _cancel_offset_resync(self) -> None:
+        handle = getattr(self, "_offset_resync_handle", None)
+        if handle is not None:
+            try:
+                self.after_cancel(handle)
+            except Exception:
+                pass
+        self._offset_resync_handle = None
+
+    def _schedule_offset_resync(self) -> None:
+        """After the last offset change, resync preview from fresh snapshot quickly."""
+
+        self._cancel_offset_resync()
+
+        def _resync() -> None:
+            self._offset_resync_handle = None
+            self._offset_live_edit_until = 0.0
+            self._last_preview_signature = None
+            try:
+                self._refresh_current_group_snapshot(force_ui=True)
+            except Exception:
+                pass
+
+        try:
+            self._offset_resync_handle = self.after(75, _resync)
+        except Exception:
+            self._offset_resync_handle = None
     def _get_current_group_selection(self) -> tuple[str, str] | None:
         if not hasattr(self, "idprefix_widget"):
             return None

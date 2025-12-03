@@ -100,7 +100,7 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 7.1 | Extract geometry normalization and logging: raw/native→Qt conversion, device ratio logs, title bar offset, aspect guard; keep Qt calls local. | Complete |
   | 7.2 | Extract WM override resolution and geometry application: setGeometry/move-to-screen, override classification/logging, and target adoption. | Complete |
   | 7.3 | Extract follow-state post-processing: follow-state persistence, transient parent handling, fullscreen hint, visibility/show/hide decisions. | Complete |
-  | 8 | Split builder methods (`_build_message_command`, `_build_rect_command`, `_build_vector_command`) into calculation/render sub-helpers; keep font metrics/painter setup intact. | In progress |
+  | 8 | Split builder methods (`_build_message_command`, `_build_rect_command`, `_build_vector_command`) into calculation/render sub-helpers; keep font metrics/painter setup intact. | Complete |
   | 8.1 | Refactor `_build_message_command`: extract calculation helpers (transforms, offsets, anchors, bounds) while keeping font metrics/painter setup in place; preserve logging/tracing. | Complete |
   | 8.2 | Refactor `_build_rect_command`: extract geometry/anchor/translation helpers, leaving pen/brush setup and painter interactions in place; preserve logging/tracing. | Complete |
   | 8.3 | Refactor `_build_vector_command`: extract point remap/anchor/bounds helpers, leaving payload assembly and painter interactions in place; preserve logging/tracing. | Complete |
@@ -235,13 +235,16 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
   | 23.3 | If failures occur, triage and document issues or fixes; otherwise record green run details for traceability. | Complete |
 
 - **L.** `OverlayWindow` remains ~4k lines with mixed responsibilities (state, rendering, payload ingestion, debug UIs, follow orchestration) and still carries implicit coupling despite earlier extractions; further decomposition and interface tightening are needed to meet clarity/small-surface goals.
+  - Special instruction: for Stage 24 sub-stages, be more aggressive than prior steps—extract every piece within each identified seam so the separation is maximal, not just minimal-risk slices.
 
   | Stage | Description | Status |
   | --- | --- | --- |
-  | 24 | Define a target split for `OverlayWindow` (e.g., thin orchestration shell + injected render/follow/payload/debug surfaces) with clear interfaces and ownership, based on current code reality. | Planned |
-  | 24.1 | Inventory current `OverlayWindow` surface area (public methods, injected deps, state fields) and map candidate module seams (orchestrator vs. render view vs. follow/payload controllers); no code changes. | Planned |
-  | 24.2 | Introduce a small orchestrator wrapper around a leaner view/controller set; move state/handlers for non-Qt logic out, keeping Qt calls at the boundary; preserve behavior/logging. | Planned |
-  | 24.3 | Add/adjust tests to cover the new seams (orchestrator wiring, render/follow/payload delegation) and rerun full suite including PYQT/resolution. | Planned |
+  | 24 | Define a target split for `OverlayWindow` (e.g., thin orchestration shell + injected render/follow/payload/debug surfaces) with clear interfaces and ownership, based on current code reality. | Complete |
+  | 24.1 | Render/payload pipeline + debug surface (overlay_client/overlay_client.py:2474-4059, ~1,600 lines): legacy payload handling, render passes, command building (`_build_*_command`), justification/anchor translation, group cache/logging, debug overlays, text measurement cache; target dedicated render surface with injected builder/renderer/debug hooks. | Complete |
+  | 24.2 | Follow/window orchestration + platform hooks (overlay_client/overlay_client.py:1881-2473, ~600 lines): drag/click-through toggles, tracker polling, normalization, geometry application, visibility/transient parent/fullscreen handling; move to controller layer with Qt calls at boundary. | Complete |
+  | 24.3 | External control/API surface (overlay_client/overlay_client.py:1112-1880, ~770 lines): `set_*`/status methods, cycle overlay helpers, repaint scheduling/metrics, config toggles; extract to control/adaptor feeding orchestrator. | Complete |
+  | 24.4 | Interaction/event overrides (overlay_client/overlay_client.py:1011-1111, ~100 lines): mouse/resize/move events and grid caching; relocate to interaction surface with injected callbacks. | Complete |
+  | 24.5 | Widget setup + baseline helpers (overlay_client/overlay_client.py:263-1010, ~750 lines): `__init__`, font/layout setup, transform wrappers, metrics/publish hooks, show/paint events; leave thin Qt shell, push pure helpers/metrics into shared modules. | Complete |
 
 - **M.** DRY gaps: duplicated helpers (`_ReleaseLogLevelFilter` in `overlay_client.py` and `data_client.py`; duplicated `_clamp_axis` in `payload_transform.py`) and scattered logging filters reduce consistency and increase maintenance risk.
 
@@ -433,11 +436,100 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 - `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
 - `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (expected empty-text payloads skipped during replay; overlay running).
 
-### Stage 24 quick summary (intent)
+### Stage 24 quick summary (status)
 - Goal: drive further decomposition of the 4k-line `OverlayWindow` into a thin orchestrator with injected render/follow/payload/debug surfaces and clearer ownership boundaries.
 - Scope: map current surface area, define seams, and move non-Qt logic/state out while keeping Qt calls at the boundary; preserve behavior/logging.
 - Tests to run when wiring starts: `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`, and `python tests/run_resolution_tests.py --config tests/display_all.json`.
-- Status: Planned (inventory pending).
+- Status: Complete (24.1 render surface, 24.2 follow surface, 24.3 control/API surface extracted).
+
+### Stage 24.1 quick summary (status)
+- Extracted render/payload/debug surface into `overlay_client/render_surface.py` as `RenderSurfaceMixin`; `OverlayWindow` now inherits it to keep Qt shell thin while moving legacy payload handling, command building, justification, caching, and debug helpers out of the monolith.
+- Moved bounds/debug/text dataclasses to the mixin module and added `_line_width_defaults` plumbing for the shared helper; `_update_auto_legacy_scale` now pulls `legacy_scale_components` via module lookup to keep monkeypatchable behavior.
+- Kept Qt painter/instance wiring at the boundary; core logic and logging now live in the mixin to maximize separation per Stage 24 aggressiveness instruction.
+- Added headless render-surface tests covering line-width defaults, module-scale fallback in `_update_auto_legacy_scale`, and injected text measurer/cache context reset.
+
+#### Stage 24.1 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed (ruff/mypy/pytest; includes new render surface tests).
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → failed earlier (overlay client not running; rerun when overlay process is active).
+
+### Stage 24.2 quick summary (status)
+- Extracted follow/window orchestration and platform hooks into `overlay_client/follow_surface.py` as `FollowSurfaceMixin`; `OverlayWindow` now inherits it, leaving Qt wiring in the shell while moving drag/click-through toggles, tracker polling, normalization, geometry application, visibility/transient parent handling, and screen helpers out of the monolith.
+- Kept aggressive separation per Risk L: all follow/platform methods moved; controller/visibility helpers remain injected; Qt calls stay at the boundary via callbacks.
+- Added headless follow-surface tests covering controller resolution/geometry logging, normalisation/device-ratio logging snapshots, and force-render visibility click-through handling.
+
+#### Stage 24.2 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed (ruff/mypy/pytest; includes new follow-surface tests).
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → not run this stage (overlay process not active); rerun after overlay is running.
+
+### Stage 24.3 quick summary (status)
+- Extracted external control/API surface into `overlay_client/control_surface.py` (`ControlSurfaceMixin`), covering `set_*`/status setters, cycle overlay helpers, repaint scheduling/metrics, config toggles, and platform-context updates. `OverlayWindow` now delegates while keeping Qt calls at the boundary; public signatures/logging preserved.
+- Shifted cycle overlay paint/sync, status message dispatch, repaint debounce/logging, grid/background toggles, and payload/logging settings out of the monolith; Qt clipboard and window updates remain at call sites via the mixin.
+- No behavior changes expected; cached state and throttling semantics retained.
+
+#### Stage 24.3 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed (part of `make check`).
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay running; expected payload-logging disabled warnings, empty-text payload skips during replay).
+
+### Stage 24.4.1 quick summary (mapping)
+- Event handlers in `overlay_client.py` today: `resizeEvent` invalidates grid cache, enforces follow size when `_follow_enabled` and `_last_set_geometry` differ (using `_enforcing_follow_size` guard), updates auto legacy scale, and publishes metrics. `mousePressEvent` starts drag when left-button + `_drag_enabled` + `_move_mode`, sets drag state on the follow controller, suspends follow, saves cursor, sets closed-hand cursor, and accepts; otherwise defers to `super()`. `mouseMoveEvent` moves the window while dragging and accepts; otherwise defers. `mouseReleaseEvent` ends drag on left-button, updates follow controller state, suspends follow, raises window, restores cursor, reapplies drag/click-through state, logs, and accepts; otherwise defers. `moveEvent` logs position/geometry/monitor details once per move and, if follow is enabled and geometry diverges from `_last_set_geometry`, records a WM override with classification `wm_intervention`.
+- Shared state/callbacks: `_invalidate_grid_cache` (control surface), `_update_auto_legacy_scale` + `_publish_metrics`, `_follow_controller` (`set_drag_state`, `record_override`), `_suspend_follow`, `_apply_drag_state`, `_describe_screen`, `format_scale_debug`, `_set_wm_override`, `_last_set_geometry`, `_last_move_log`, `_drag_enabled`, `_drag_active`, `_drag_offset`, `_move_mode`, `_cursor_saved`, `_saved_cursor`, `_follow_enabled`, `_window_tracker`, `_last_follow_state`, `_enforcing_follow_size`.
+- Platform nuances: move logging includes `windowHandle().screen()` description; WM override classification needs to remain `wm_intervention`. Drag sequencing must keep click-through flag updates via `_apply_drag_state`/interaction controller; cursor save/restore must guard against missing cursor handles.
+- No tests run yet (mapping only).
+
+### Stage 24.4 quick summary (plan)
+- Goal: move interaction/event overrides (mouse/resize/move events, grid caching) into an interaction surface so `OverlayWindow` retains only Qt shell wiring; keep logging and behavior identical.
+- Scope: wrap `mousePress/Release/MoveEvent` click-through/drag toggles, resize/move event hooks, grid cache invalidation, and cursor/drag state into a helper class with injected callbacks to window/controller methods; ensure Qt types stay at call sites.
+- Risks/constraints: preserve drag/click-through flag sequencing and platform-specific handling (Wayland/Windows hints); avoid regressions to grid redraw cadence or cycle overlay sync; keep event propagation intact.
+- Plan: map current event handlers and shared state, create `interaction_surface.py` (or extend interaction controller) with clear inputs/outputs, rewire `OverlayWindow` to delegate while leaving Qt event signatures, and add focused tests (headless where possible, PyQt for event hooks) to guard logging/state updates.
+- Validation to run once wired: `make check`, `make test`, `PYQT_TESTS=1 python -m pytest overlay_client/tests`, and `python tests/run_resolution_tests.py --config tests/display_all.json` (overlay running).
+- Mitigations:
+  - Trace current drag/click-through sequencing and platform branches before refactor; mirror ordering in the helper and keep platform guards intact.
+  - Preserve event propagation by asserting/snapshotting `super().mouse*Event`/`super().resizeEvent` calls; add tests that exercise acceptance/propagation and ensure logging stays unchanged.
+  - Keep grid/cache invalidation tied to resize/move in the helper with explicit hooks; add a test to assert cache resets fire once per move/resize.
+  - Inject callbacks for platform-specific flag setters/transient-parent clearing so platform nuances stay localized; cover sequencing with a focused headless/PyQt test where feasible.
+  - Retain shared state handoff (cursor/drag/cycle overlay sync, repaint debounce) via explicit helper inputs/outputs; add assertions in tests for state updates/logs.
+
+| Substage | Description | Status |
+| --- | --- | --- |
+| 24.4.1 | Map current event handlers (mouse/resize/move, grid cache invalidation, drag/click-through flow) and identify shared state/callback seams; note platform nuances. | Complete |
+| 24.4.2 | Define/build interaction surface helper (or extend interaction controller) with injected callbacks/state holders; keep Qt event signatures at the window boundary. | Complete |
+| 24.4.3 | Wire `OverlayWindow` event methods to delegate to the helper while preserving logging/propagation and platform-specific flag sequencing. | Complete |
+| 24.4.4 | Add/extend focused tests for interaction surface (headless where possible; PyQt for event hooks) covering drag toggle sequencing, grid cache invalidation, and logging. | Complete |
+| 24.4.5 | Run validation suite (`make check`, `make test`, `PYQT_TESTS=1 pytest`, resolution test with overlay running) and document results. | Complete |
+
+### Stage 24.4 quick summary (status)
+- Extracted interaction/event overrides into `overlay_client/interaction_surface.py` (`InteractionSurfaceMixin`), covering resize/mouse/move handlers and keeping Qt calls at the boundary via QWidget delegates; `OverlayWindow` now inherits the mixin first to ensure overrides apply.
+- Behavior preserved: grid cache invalidation and follow-size enforcement remain tied to resize events; drag start/move/end sequencing still updates follow controller state, suspends follow, manages cursors, and reapplies drag/click-through state; move-event logging still records monitor/geometry and issues WM overrides with `wm_intervention` classification when geometry diverges.
+- Added PyQt tests for interaction surface covering follow-size enforcement + cache invalidation, drag toggle offsets/state transitions, and move-event override logging with stubbed callbacks.
+
+#### Stage 24.4 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay running; expected empty-text payload skips during replay).
+
+### Stage 24.5 quick summary (status)
+- Extracted setup/baseline logic into `overlay_client/setup_surface.py` (`SetupSurfaceMixin`); `OverlayWindow` now delegates constructor plumbing, font/layout defaults, repaint/text cache setup, grouping helpers, and controller wiring to `_setup_overlay` while keeping the Qt shell minimal.
+- Show/paint event overrides now defer to mixin helpers (`_handle_show_event`, `_paint_overlay`); grid pixmap helper moved to the mixin. `__init__` still calls `QWidget` directly, with platform/controller/log side effects preserved and monkeypatchable hooks retained.
+- Added PyQt tests for setup mixin defaults, show-event delegation, and paint-event delegation with stubbed callbacks.
+
+#### Stage 24.5 test log (latest)
+- `source overlay_client/.venv/bin/activate && make check` → passed.
+- `source overlay_client/.venv/bin/activate && make test` → passed.
+- `source overlay_client/.venv/bin/activate && PYQT_TESTS=1 python -m pytest overlay_client/tests` → passed.
+- `source overlay_client/.venv/bin/activate && python tests/run_resolution_tests.py --config tests/display_all.json` → passed (overlay running; expected empty-text payload skips during replay).
+
+| Substage | Description | Status |
+| --- | --- | --- |
+| 24.5.1 | Map constructor/setup/show/paint responsibilities, distinguishing Qt creations from pure state and identifying extraction seams. | Complete |
+| 24.5.2 | Build setup/baseline helper/mixin with injected callbacks for Qt objects; cover font/layout/text cache/metrics setup and baseline helper wiring. | Complete |
+| 24.5.3 | Rewire `OverlayWindow` `__init__`/show/paint hooks to delegate to the helper while preserving logging and debug/config side effects. | Complete |
+| 24.5.4 | Add/extend tests for constructor defaults, metrics/publish hooks, show/paint wiring, and text cache init (headless preferred; PyQt for show/paint). | Complete |
+| 24.5.5 | Run validation suite (`make check`, `make test`, `PYQT_TESTS=1 pytest`, resolution test with overlay running) and document results. | Complete |
 
 ### Stage 25 quick summary (intent)
 - Goal: centralize duplicated helpers (`_ReleaseLogLevelFilter`, `_clamp_axis`) into shared utilities to enforce DRY and consistent behavior.
@@ -445,17 +537,39 @@ python3 tests/run_resolution_tests.py --config tests/display_all.json
 - Validation: `make check`, `make test`, targeted unit tests around logging filters/axis clamps; rerun PYQT/resolution if code paths touch rendering/logging.
 - Status: Planned.
 
+**Priority note:** Remaining work should run in this order: Stage 27 (boundary/tests/observability), Stage 26 (types/intent), then Stage 25 (DRY).
+
+| Substage | Description | Status |
+| --- | --- | --- |
+| 25.1 | Inventory duplicated helpers (logging filter, axis clamp) and consumers; define shared utility surface. | Planned |
+| 25.2 | Move duplicates to shared modules and rewire callers without behavior changes. | Planned |
+| 25.3 | Add targeted tests for shared helpers (logging filters/axis clamps) and rerun check/test suites. | Planned |
+
 ### Stage 26 quick summary (intent)
 - Goal: reduce `# type: ignore` in core client modules by fixing root causes so mypy meaningfully guards the entrypoint and overlays.
 - Scope: inventory ignores, address cycles/stub gaps/interface issues, remove or narrow ignores; keep behavior unchanged.
 - Validation: `make check` (ruff/mypy) and `make test`; rerun PYQT/resolution if wiring changes touch runtime behavior.
 - Status: Planned.
 
+| Substage | Description | Status |
+| --- | --- | --- |
+| 26.1 | Inventory `type: ignore` usage and root causes (cycles/stubs/interface gaps). | Planned |
+| 26.2 | Address ignores and add docstrings/type hints for public hooks (`_text_measurer`, `_state`, `_MeasuredText` export clarity) to improve intent while reducing ignores. | Planned |
+| 26.3 | Rerun `make check`/`make test` (and PYQT/resolution if wiring touched) and update docs/status. | Planned |
+
 ### Stage 27 quick summary (intent)
 - Goal: tighten helper boundaries (e.g., `FillGroupingHelper`) so they consume explicit inputs/callbacks instead of reaching into `OverlayWindow` internals, improving testability.
 - Scope: map coupling points, define explicit inputs, refactor helpers/callers, and add/extend tests to cover new seams.
 - Validation: `make check`, `make test`, targeted helper tests; run PYQT/resolution if behavior surfaces change.
 - Status: Planned.
+
+| Substage | Description | Status |
+| --- | --- | --- |
+| 27.1 | Map helper/window coupling and friend imports; define minimal public surface and target pure module moves. | Planned |
+| 27.2 | Move anchor/base/transform wrapper helpers out of `OverlayWindow` into pure modules; reduce direct imports accordingly. | Planned |
+| 27.3 | Add MRO-sensitive tests to ensure resize/mouse/paint resolve to intended mixins; adjust wiring if needed. | Planned |
+| 27.4 | Add scoped debug/assertions around setup timers/caches (repaint/message_clear/tracking) to improve observability. | Planned |
+| 27.5 | Rerun validation (`make check`, `make test`, PYQT/resolution as needed) and update docs/status. | Planned |
 
 ### Stage 22.1 quick summary (mapping)
 - Current logger setup: `_CLIENT_LOGGER` (`EDMC.ModernOverlay.Client`) with level DEBUG in debug mode else INFO; `propagate = False`; `_ReleaseLogLevelFilter` promotes DEBUG→INFO in release mode. Default handlers come from root logging; tests often attach `NullHandler` or capture `DEBUG` on bespoke loggers.

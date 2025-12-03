@@ -383,6 +383,7 @@ class _PluginRuntime:
         self._last_launch_log_value: str = ""
         self._last_launch_log_time: float = 0.0
         self._command_helper_prefix: Optional[str] = None
+        self._controller_active_group: Optional[Tuple[str, str]] = None
         register_grouping_store(self.plugin_dir / "overlay_groupings.json")
         threading.Thread(
             target=self._evaluate_version_status_once,
@@ -398,6 +399,7 @@ class _PluginRuntime:
         self._controller_process: Optional[subprocess.Popen] = None
         self._controller_status_id = "overlay-controller-status"
         self._controller_pid_path = self.plugin_dir / "overlay_controller.pid"
+        self._last_override_reload_nonce: Optional[str] = None
 
     # Lifecycle ------------------------------------------------------------
 
@@ -1532,7 +1534,7 @@ class _PluginRuntime:
 
     def _controller_countdown(self) -> None:
         LOGGER.debug("Overlay Controller countdown started.")
-        for remaining in (5, 4, 3, 2, 1):
+        for remaining in (3, 2, 1):
             text = f"Overlay Controller opening in {remaining}... back out of comms panel now."
             self._emit_controller_message(text, ttl=1.25)
             time.sleep(1)
@@ -1598,6 +1600,11 @@ class _PluginRuntime:
             "ttl": 0,
         }
         self._publish_payload(payload)
+        self._controller_active_group = None
+        try:
+            self._publish_payload({"event": "OverlayControllerActiveGroup", "plugin": "", "label": ""})
+        except Exception:
+            pass
 
     def _read_controller_pid_file(self) -> Optional[int]:
         try:
@@ -1927,6 +1934,41 @@ class _PluginRuntime:
                 return {"status": "ok"}
             if command == "overlay_metrics":
                 self._update_overlay_metrics(payload)
+                return {"status": "ok"}
+            if command == "controller_heartbeat":
+                self._emit_controller_active_notice()
+                return {"status": "ok"}
+            if command == "controller_active_group":
+                plugin_name_raw = payload.get("plugin")
+                label_raw = payload.get("label")
+                plugin_name = str(plugin_name_raw or "").strip()
+                label = str(label_raw or "").strip()
+                if plugin_name and label:
+                    self._controller_active_group = (plugin_name, label)
+                else:
+                    self._controller_active_group = None
+                message = {
+                    "event": "OverlayControllerActiveGroup",
+                    "plugin": plugin_name,
+                    "label": label,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+                self._publish_payload(message)
+                return {"status": "ok"}
+            if command == "controller_override_reload":
+                nonce_raw = payload.get("nonce")
+                nonce = str(nonce_raw).strip() if nonce_raw is not None else ""
+                if nonce and nonce == getattr(self, "_last_override_reload_nonce", None):
+                    LOGGER.debug("Controller override reload ignored (duplicate nonce=%s)", nonce)
+                    return {"status": "ok", "duplicate": True}
+                self._last_override_reload_nonce = nonce or self._last_override_reload_nonce
+                message = {
+                    "event": "OverlayOverrideReload",
+                    "nonce": nonce,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+                self._publish_payload(message)
+                LOGGER.debug("Controller override reload dispatched (nonce=%s)", nonce or "none")
                 return {"status": "ok"}
             if command == "test_message":
                 text = str(payload.get("message") or "").strip()

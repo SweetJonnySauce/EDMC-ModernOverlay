@@ -67,12 +67,15 @@ class PayloadModel:
                     if existing is not None:
                         existing.expiry = expiry
                         plugin_name = _extract_plugin(payload) or "unknown"
+                        reason = "controller_heartbeat" if item_id == "overlay-controller-status" else None
                         details = {
                             "item_id": item_id,
                             "plugin": plugin_name,
                             "snapshot": snapshot,
                             "group": group_label or "",
                         }
+                        if reason:
+                            details["reason"] = reason
                         if trace_fn:
                             trace_fn("payload_model:dedupe_skipped", payload, details)
                         else:
@@ -84,8 +87,12 @@ class PayloadModel:
                                 state["count"] = int(state.get("count", 0)) + 1
                                 last_log = float(state.get("last", now))
                                 if now - last_log >= 5.0:
+                                    prefix = "payload_model:dedupe_skipped"
+                                    if reason:
+                                        prefix += f" ({reason})"
                                     logger.debug(
-                                        "payload_model:dedupe_skipped plugin=%s group=%s id=%s count=%d window=%.1fs",
+                                        "%s plugin=%s group=%s id=%s count=%d window=%.1fs",
+                                        prefix,
                                         plugin_name,
                                         group_label or "",
                                         item_id,

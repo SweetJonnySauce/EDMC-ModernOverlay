@@ -28,7 +28,7 @@
           "bgstally-frame-indicator",
           "bgstally-frame-system_info"
         ],
-        "offsetX": 86.0,
+        "offsetX": 88.0,
         "offsetY": 0.0,
         "payloadJustification": "center"
       },
@@ -72,6 +72,8 @@
         "idPrefixes": [
           "bioscan_details_"
         ],
+        "offsetX": 0.0030000000000001137,
+        "offsetY": -1.0470000000000006,
         "payloadJustification": "left"
       },
       "Bioscan Radar": {
@@ -88,7 +90,7 @@
         "idPrefixes": [
           "bioscan_summary_"
         ],
-        "offsetX": 0.0,
+        "offsetX": 240.0,
         "offsetY": 0.0,
         "payloadJustification": "center"
       },
@@ -174,9 +176,12 @@
         "payloadJustification": "left"
       },
       "Edr Navroute": {
+        "idPrefixGroupAnchor": "top",
         "idPrefixes": [
           "edr-navroute-"
         ],
+        "offsetX": 640.0,
+        "offsetY": 5.0,
         "payloadJustification": "left"
       },
       "Edr Sitrep": {
@@ -218,7 +223,7 @@
   "LandingPad": {
     "idPrefixGroups": {
       "LandingPad": {
-        "idPrefixGroupAnchor": "nw",
+        "idPrefixGroupAnchor": "center",
         "idPrefixes": [
           "shell-",
           "line-",
@@ -227,6 +232,8 @@
           "pad-",
           "station-"
         ],
+        "offsetX": 40.0,
+        "offsetY": 37.0,
         "payloadJustification": "left"
       }
     },
