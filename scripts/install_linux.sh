@@ -487,6 +487,25 @@ classify_packages_for_apt() {
     done
 }
 
+classify_packages_for_pacman() {
+    local pkg
+    local package_list
+    package_list="$(format_list_or_none "$@")"
+    log_verbose "Running pacman package classification for: ${package_list}"
+    for pkg in "$@"; do
+        if pacman -Qq "$pkg" >/dev/null 2>&1; then
+            PACKAGES_ALREADY_OK+=("$pkg")
+            PACKAGE_STATUS_DETAILS["$pkg"]="installed"
+            log_verbose "Package '$pkg' already installed (pacman -Q)."
+        else
+            local rc=$?
+            PACKAGES_TO_INSTALL+=("$pkg")
+            PACKAGE_STATUS_DETAILS["$pkg"]="not installed (pacman -Q exit ${rc})"
+            log_verbose "Package '$pkg' not installed (pacman -Q exit ${rc}); scheduling install."
+        fi
+    done
+}
+
 classify_package_statuses() {
     reset_package_status_tracking
     local manager_kind
@@ -507,6 +526,10 @@ classify_package_statuses() {
         apt)
             PACKAGE_STATUS_CHECK_SUPPORTED=1
             classify_packages_for_apt "$@"
+            ;;
+        pacman)
+            PACKAGE_STATUS_CHECK_SUPPORTED=1
+            classify_packages_for_pacman "$@"
             ;;
         *)
             PACKAGE_STATUS_CHECK_SUPPORTED=0
