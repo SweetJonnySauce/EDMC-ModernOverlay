@@ -1615,6 +1615,7 @@ class OverlayConfigApp(tk.Tk):
         self._status_poll_interval_ms = self._current_mode_profile.status_poll_ms
         self._offset_step_px = 10.0
         self._offset_live_edit_until: float = 0.0
+        self._offset_resync_handle: str | None = None
         self._initial_geometry_applied = False
         self._port_path = root / "port.json"
         self._controller_heartbeat_ms = 15000
@@ -3256,6 +3257,7 @@ class OverlayConfigApp(tk.Tk):
             self.after_idle(self._draw_preview)
         except Exception:
             self._draw_preview()
+        self._schedule_offset_resync()
 
     def _send_active_group_selection(self, plugin_name: Optional[str], label: Optional[str]) -> None:
         plugin = (str(plugin_name or "").strip())
@@ -3267,6 +3269,34 @@ class OverlayConfigApp(tk.Tk):
         self._send_plugin_cli(payload)
         self._last_active_group_sent = key
         _controller_debug("Controller active group signal sent: %s/%s", plugin or "<none>", group or "<none>")
+
+    def _cancel_offset_resync(self) -> None:
+        handle = getattr(self, "_offset_resync_handle", None)
+        if handle is not None:
+            try:
+                self.after_cancel(handle)
+            except Exception:
+                pass
+        self._offset_resync_handle = None
+
+    def _schedule_offset_resync(self) -> None:
+        """After the last offset change, resync preview from fresh snapshot quickly."""
+
+        self._cancel_offset_resync()
+
+        def _resync() -> None:
+            self._offset_resync_handle = None
+            self._offset_live_edit_until = 0.0
+            self._last_preview_signature = None
+            try:
+                self._refresh_current_group_snapshot(force_ui=True)
+            except Exception:
+                pass
+
+        try:
+            self._offset_resync_handle = self.after(75, _resync)
+        except Exception:
+            self._offset_resync_handle = None
     def _get_current_group_selection(self) -> tuple[str, str] | None:
         if not hasattr(self, "idprefix_widget"):
             return None

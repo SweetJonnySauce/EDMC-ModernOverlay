@@ -67,7 +67,7 @@ class SetupSurfaceMixin:
                 write_debounce_ms=75,
                 offset_write_debounce_ms=75,
                 status_poll_ms=750,
-                cache_flush_seconds=1.0,
+                cache_flush_seconds=0.1,
             ),
             inactive=ModeProfile(
                 write_debounce_ms=200,
