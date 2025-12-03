@@ -307,3 +307,10 @@ class GroupingsLoader:
         # Invalid types are ignored with a warning.
         LOGGER.warning("Ignoring non-boolean disabled flag: %s", disabled)
         return False
+
+
+def merge_groupings_dicts(shipped: Mapping[str, Any], user: Mapping[str, Any], logger: Optional[logging.Logger] = None) -> Dict[str, Any]:
+    """Merge shipped + user mapping using GroupingsLoader rules (pure, no IO)."""
+
+    loader = GroupingsLoader(Path("shipped"), Path("user"), logger=logger or LOGGER)
+    return loader._merge_groupings(shipped, user)

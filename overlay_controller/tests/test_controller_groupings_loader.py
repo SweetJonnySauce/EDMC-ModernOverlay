@@ -64,3 +64,81 @@ def test_controller_writes_user_file_only(tmp_path):
 
     assert user_path.exists()
     assert shipped_path.read_text(encoding="utf-8") == "{}"
+
+
+def test_controller_write_uses_diff(tmp_path):
+    user_path = tmp_path / "overlay_groupings.user.json"
+    shipped_path = tmp_path / "overlay_groupings.json"
+    shipped_payload = {
+        "PluginA": {"idPrefixGroups": {"Main": {"idPrefixes": ["Foo-"], "offsetX": 1}}},
+    }
+    merged_payload = {
+        "PluginA": {
+            "idPrefixGroups": {
+                "Main": {"idPrefixes": ["foo-"], "offsetX": 1, "offsetY": 5},
+                "Extra": {"idPrefixes": ["Bar-"], "payloadJustification": "Center"},
+            }
+        },
+        "PluginOnly": {"idPrefixGroups": {"Only": {"idPrefixes": ["Only-"]}}},
+    }
+    shipped_path.write_text(json.dumps(shipped_payload), encoding="utf-8")
+
+    app = SimpleNamespace(
+        _groupings_user_path=user_path,
+        _groupings_path=user_path,
+        _groupings_shipped_path=shipped_path,
+        _groupings_data=merged_payload,
+    )
+
+    oc.OverlayConfigApp._write_groupings_config(app)
+
+    saved = json.loads(user_path.read_text(encoding="utf-8"))
+    assert saved == {
+        "PluginA": {
+            "idPrefixGroups": {
+                "Extra": {"idPrefixes": ["bar-"], "payloadJustification": "center"},
+                "Main": {"offsetY": 5},
+            }
+        },
+        "PluginOnly": {"idPrefixGroups": {"Only": {"idPrefixes": ["only-"]}}},
+    }
+
+
+def test_controller_write_noop_on_empty_diff(tmp_path):
+    user_path = tmp_path / "overlay_groupings.user.json"
+    shipped_path = tmp_path / "overlay_groupings.json"
+    payload = {"PluginA": {"idPrefixGroups": {"Main": {"idPrefixes": ["Foo-"]}}}}
+    shipped_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    app = SimpleNamespace(
+        _groupings_user_path=user_path,
+        _groupings_path=user_path,
+        _groupings_shipped_path=shipped_path,
+        _groupings_data=payload,
+    )
+
+    oc.OverlayConfigApp._write_groupings_config(app)
+
+    assert not user_path.exists()
+
+
+def test_controller_write_clears_user_when_matching_defaults(tmp_path):
+    user_path = tmp_path / "overlay_groupings.user.json"
+    shipped_path = tmp_path / "overlay_groupings.json"
+    shipped_payload = {"PluginA": {"idPrefixGroups": {"Main": {"idPrefixes": ["Foo-"], "offsetY": 0}}}}
+    user_payload = {"PluginA": {"idPrefixGroups": {"Main": {"offsetY": 5}}}}
+    shipped_path.write_text(json.dumps(shipped_payload), encoding="utf-8")
+    user_path.write_text(json.dumps(user_payload, indent=2), encoding="utf-8")
+
+    # Simulate merged view matching shipped defaults (user reset to baseline).
+    app = SimpleNamespace(
+        _groupings_user_path=user_path,
+        _groupings_path=user_path,
+        _groupings_shipped_path=shipped_path,
+        _groupings_data=shipped_payload,
+    )
+
+    oc.OverlayConfigApp._write_groupings_config(app)
+
+    assert user_path.exists()
+    assert json.loads(user_path.read_text(encoding="utf-8")) == {}

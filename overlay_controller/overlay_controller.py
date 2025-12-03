@@ -28,6 +28,7 @@ _CONTROLLER_LOGGER: Optional[logging.Logger] = None
 from overlay_client.controller_mode import ControllerModeProfile, ModeProfile
 from overlay_client.debug_config import DEBUG_CONFIG_ENABLED
 from overlay_client.logging_utils import build_rotating_file_handler, resolve_log_level, resolve_logs_dir
+from overlay_plugin.groupings_diff import diff_groupings, is_empty_diff
 from overlay_plugin.groupings_loader import GroupingsLoader
 try:  # When run as a package (`python -m overlay_controller.overlay_controller`)
     from overlay_controller.input_bindings import BindingConfig, BindingManager
@@ -2768,12 +2769,45 @@ class OverlayConfigApp(tk.Tk):
         return _strip_timestamps(new_cache) != _strip_timestamps(old_cache)
 
     def _write_groupings_config(self) -> None:
-        path = getattr(self, "_groupings_user_path", None) or getattr(self, "_groupings_path", None)
-        if path is None:
+        user_path = getattr(self, "_groupings_user_path", None) or getattr(self, "_groupings_path", None)
+        if user_path is None:
             return
+
+        shipped_path = getattr(self, "_groupings_shipped_path", None)
+        if shipped_path is None:
+            root = Path(__file__).resolve().parents[1]
+            shipped_path = root / "overlay_groupings.json"
+            self._groupings_shipped_path = shipped_path
+
         try:
-            text = json.dumps(self._groupings_data, indent=2, sort_keys=True)
-            path.write_text(text + "\n", encoding="utf-8")
+            shipped_raw = json.loads(shipped_path.read_text(encoding="utf-8"))
+        except Exception:
+            shipped_raw = {}
+
+        merged_view = getattr(self, "_groupings_data", None)
+        if not isinstance(merged_view, dict):
+            merged_view = {}
+
+        try:
+            diff = diff_groupings(shipped_raw, merged_view)
+        except Exception:
+            return
+
+        if is_empty_diff(diff):
+            # Clear stale user overrides when merged view matches shipped defaults.
+            if user_path.exists():
+                try:
+                    user_path.write_text("{}\n", encoding="utf-8")
+                    _controller_debug("Cleared user groupings file; no overrides to persist.")
+                except Exception:
+                    pass
+            else:
+                _controller_debug("Skip writing user groupings: no diff to persist.")
+            return
+
+        try:
+            text = json.dumps(diff, indent=2)
+            user_path.write_text(text + "\n", encoding="utf-8")
         except Exception:
             pass
 
