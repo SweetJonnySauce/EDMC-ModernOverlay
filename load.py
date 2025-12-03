@@ -1534,7 +1534,7 @@ class _PluginRuntime:
 
     def _controller_countdown(self) -> None:
         LOGGER.debug("Overlay Controller countdown started.")
-        for remaining in (5, 4, 3, 2, 1):
+        for remaining in (3, 2, 1):
             text = f"Overlay Controller opening in {remaining}... back out of comms panel now."
             self._emit_controller_message(text, ttl=1.25)
             time.sleep(1)

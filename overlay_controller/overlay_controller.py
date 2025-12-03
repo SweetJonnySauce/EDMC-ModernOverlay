@@ -221,7 +221,6 @@ class IdPrefixGroupWidget(tk.Frame):
         self._dropdown_posted = False
         self._request_focus: callable | None = None
         self._on_selection_changed: callable | None = None
-
         self.dropdown = ttk.Combobox(
             self,
             values=self._choices,
@@ -553,6 +552,7 @@ class OffsetSelectorWidget(tk.Frame):
         self._request_focus: callable | None = None
         self._on_change: callable | None = None
         self._enabled = True
+        self._flash_handles: dict[str, str | None] = {}
         self._build_grid()
 
     def _build_grid(self) -> None:
@@ -628,14 +628,18 @@ class OffsetSelectorWidget(tk.Frame):
         if not entry:
             return
         canvas, poly_id = entry
+        self._cancel_flash(direction)
+
+        def _reset() -> None:
+            self._flash_handles[direction] = None
+            self._apply_arrow_colors()
+
         try:
             canvas.itemconfigure(poly_id, fill=self._active_color, outline=self._active_color)
-            canvas.after(
-                flash_ms,
-                self._apply_arrow_colors,
-            )
+            handle = canvas.after(flash_ms, _reset)
+            self._flash_handles[direction] = handle
         except Exception:
-            pass
+            self._flash_handles[direction] = None
 
     def _handle_click(self, direction: str, event: object | None = None) -> None:
         """Handle mouse click on an arrow, ensuring focus is acquired first."""
@@ -728,7 +732,26 @@ class OffsetSelectorWidget(tk.Frame):
         self._enabled = enabled
         if not enabled:
             self._pinned.clear()
+            self._cancel_flash()
         self._apply_arrow_colors()
+
+    def _cancel_flash(self, direction: str | None = None) -> None:
+        """Cancel any outstanding flash timers for one or all arrows."""
+
+        targets = [direction] if direction else list(self._flash_handles.keys())
+        for dir_key in targets:
+            handle = self._flash_handles.get(dir_key)
+            if handle is None:
+                continue
+            canvas_entry = self._arrows.get(dir_key)
+            canvas = canvas_entry[0] if canvas_entry else None
+            if canvas is None:
+                continue
+            try:
+                canvas.after_cancel(handle)
+            except Exception:
+                pass
+            self._flash_handles[dir_key] = None
 
     def clear_pins(self, axis: str | None = None) -> bool:
         """Clear pinned highlights for the given axis ('x' or 'y') or both."""
@@ -1040,12 +1063,18 @@ class AnchorSelectorWidget(tk.Frame):
         hx1 = hx0 + highlight_size
         hy1 = hy0 + highlight_size
         self.canvas.delete("highlight")
+        # Draw highlight first so dots render above it.
         if self._has_focus:
             self.canvas.create_rectangle(
                 hx0, hy0, hx1, hy1, fill=focus_fill, outline=focus_outline, width=1.2, tags=("highlight",)
             )
         else:
             self.canvas.create_rectangle(hx0, hy0, hx1, hy1, outline=line_color, width=1, tags=("highlight",))
+        try:
+            self.canvas.tag_lower("highlight")
+            self.canvas.tag_raise("static")
+        except Exception:
+            pass
 
     def _handle_click(self, event: tk.Event[tk.Misc]) -> str | None:  # type: ignore[name-defined]
         if not self._enabled:
