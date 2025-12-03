@@ -27,7 +27,7 @@ def test_apply_mode_profile_clamps_and_reschedules():
     # Clamped minimums applied
     assert fake._write_debounce_ms == 25
     assert fake._offset_write_debounce_ms == 25
-    assert fake._status_poll_interval_ms == 250
+    assert fake._status_poll_interval_ms == 100
     # Cancel then after scheduled
-    assert sent == ["cancel", 250]
+    assert sent == ["cancel", 100]
     assert fake._status_poll_handle == "new_handle"

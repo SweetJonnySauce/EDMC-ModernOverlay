@@ -1596,7 +1596,7 @@ class OverlayConfigApp(tk.Tk):
             active=ModeProfile(
                 write_debounce_ms=75,
                 offset_write_debounce_ms=75,
-                status_poll_ms=750,
+                status_poll_ms=50,
                 cache_flush_seconds=1.0,
             ),
             inactive=ModeProfile(
@@ -1614,6 +1614,8 @@ class OverlayConfigApp(tk.Tk):
         self._offset_write_debounce_ms = self._current_mode_profile.offset_write_debounce_ms
         self._status_poll_interval_ms = self._current_mode_profile.status_poll_ms
         self._offset_step_px = 10.0
+        self._offset_live_edit_until: float = 0.0
+        self._offset_preview_handle: str | None = None
         self._initial_geometry_applied = False
         self._port_path = root / "port.json"
         self._controller_heartbeat_ms = 15000
@@ -2607,6 +2609,19 @@ class OverlayConfigApp(tk.Tk):
             self._draw_preview()
             return
         plugin_name, label = selection
+
+        # While the user is actively holding offset arrows, prefer the in-memory snapshot
+        # so the preview target does not snap back when the cache polls.
+        now = time.time()
+        if now < getattr(self, "_offset_live_edit_until", 0.0):
+            snapshot = self._group_snapshots.get(selection)
+            if snapshot is not None:
+                self._set_group_controls_enabled(True)
+                self._apply_snapshot_to_absolute_widget(selection, snapshot, force_ui=force_ui)
+                self._update_absolute_widget_color(snapshot)
+                self._draw_preview()
+                return
+
         snapshot = self._build_group_snapshot(plugin_name, label)
         if snapshot is None:
             self._group_snapshots.pop(selection, None)
@@ -2774,7 +2789,7 @@ class OverlayConfigApp(tk.Tk):
         self._current_mode_profile = profile
         self._write_debounce_ms = max(25, profile.write_debounce_ms)
         self._offset_write_debounce_ms = max(25, profile.offset_write_debounce_ms)
-        self._status_poll_interval_ms = max(250, profile.status_poll_ms)
+        self._status_poll_interval_ms = max(50, profile.status_poll_ms)
         rescheduled = False
         if self._status_poll_handle is not None:
             self._cancel_status_poll()
@@ -3231,6 +3246,17 @@ class OverlayConfigApp(tk.Tk):
             except Exception:
                 pass
             self._handle_anchor_changed(anchor_target, prefer_user=True)
+
+        # Freeze snapshot rebuilds briefly so cache polls don't snap preview back while holding arrows.
+        # Keep preview in "live edit" mode a bit longer so cache polls/actual updates
+        # cannot snap the target back while the user is holding the key.
+        self._offset_live_edit_until = time.time() + 1.0
+        # Force preview refresh immediately to mirror HUD movement.
+        self._last_preview_signature = None
+        try:
+            self.after_idle(self._draw_preview)
+        except Exception:
+            self._draw_preview()
 
     def _send_active_group_selection(self, plugin_name: Optional[str], label: Optional[str]) -> None:
         plugin = (str(plugin_name or "").strip())
