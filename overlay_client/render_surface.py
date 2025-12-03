@@ -1750,7 +1750,7 @@ class RenderSurfaceMixin:
         if bounds is None or not bounds.is_valid():
             return None, None
         token = anchor_override or anchor_token or "nw"
-        bounds = self._build_bounds_with_anchor(width, height, token, offset_dx, offset_dy)
+        # Cache bounds already incorporate offsets; avoid reapplying offsets to prevent resetting to origin.
         return bounds, token
 
     @staticmethod

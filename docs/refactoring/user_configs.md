@@ -38,8 +38,8 @@ Use this doc to jot requirements, constraints, and experiments as we iterate.
 | Phase | Description | Status |
 | --- | --- | --- |
 | 1 | Define user-config file location plus merge semantics for defaults + user overrides; document expectations and edge cases. | Complete |
-| 2 | Implement layered loading/merging in client + controller; keep API writes on the shipped file but direct controller edits to the user file. | In progress |
-| 2.5 | Write-only overrides: controller/user file should store diffs against shipped defaults (no full clones); add backfill to shrink existing user files. | Not started |
+| 2 | Implement layered loading/merging in client + controller; keep API writes on the shipped file but direct controller edits to the user file. | Complete |
+| 2.5 | Write-only overrides: controller/user file should store diffs against shipped defaults (no full clones); add backfill to shrink existing user files. | Complete |
 | 3 | Add migration/backfill so existing user edits (currently in the shipped file) are copied into the user layer on upgrade; handle absence/corruption gracefully. | Not started |
 | 4 | Tests and docs: unit/integration coverage for the loader/merger + controller writes; update user/operator docs and release notes. | Not started |
 | 5 | Update installers/scripts to preserve the user config file during upgrades (never overwrite `overlay_groupings.user.json` if present). | Not started |
@@ -414,6 +414,52 @@ Use this doc to jot requirements, constraints, and experiments as we iterate.
 - On first run after the feature lands, if the user file is absent but the shipped file differs from the packaged baseline (or contains user edits), copy those entries into the user file once. Provide a conservative heuristic (hash/mtime or a simple “if no user file, clone current shipped contents once” guard).
 - Handle malformed user/shipped files by logging and skipping migration rather than blocking startup; prefer leaving user data intact over overwriting.
 - Consider a one-shot CLI/utility (optional) to force re-migration or to export/import user overrides for support scenarios.
+
+| Stage | Description | Status |
+| --- | --- | --- |
+| 3.1 | Decide migration trigger/heuristic (e.g., no user file + shipped differs from packaged baseline) and record baseline tracking approach. | Complete |
+| 3.2 | Implement migration helper that copies user edits from shipped to user file once, with validation and logging; ensure idempotency. | Complete |
+| 3.3 | Wire migration into startup/entry points (client/controller/CLI) with guardrails for RO paths and malformed JSON; optional CLI to re-run. | Not started |
+| 3.4 | Tests for migration heuristics, idempotency, malformed/RO handling, and preservation of user-only data. | Not started |
+
+#### Stage 3.2 Plan (migration helper)
+- Build a helper that, given shipped path/user path/marker, will:
+  - Read shipped file, validate JSON; bail on error.
+  - If user file exists, no-op (idempotent).
+  - If trigger (from 3.1) says migrate, copy shipped contents into user file once, using temp-file + atomic replace; write marker after success.
+  - Preserve schema normalization via loader merge where possible to avoid copying malformed nodes; log warnings.
+- Performance/IO: single read of shipped, single write of user + marker; avoid re-reading on failure loops; no work if trigger says no.
+- Risks/Mitigations:
+  - Copying bad shipped data: validate JSON and optionally schema; log and skip on error.
+  - Partial write/IO errors: use temp file + atomic replace; only write marker after user write succeeds; keep backup optional.
+  - RO paths: detect unwritable user path early; skip with warning and leave state untouched.
+  - Marker drift: write marker with shipped hash/version only after success; avoid duplicate migrations.
+  - Large files: streamed copy not necessary (files small), but keep in-memory operations minimal.
+- Tests to add (for 3.4):
+  - Migration copies shipped to user when trigger says migrate; marker written.
+  - Idempotent: second run with user present does nothing.
+  - Malformed shipped skips migration and leaves user absent.
+  - IO failure/RO path skips migration gracefully.
+  - Temp + atomic replace leaves consistent user file on simulated error.
+- Status/Decisions: Implemented `migrate_shipped_to_user` in `overlay_plugin/groupings_migration.py` using the trigger, temp + atomic replace, JSON validation, and marker write after success; covered by `tests/test_groupings_migration_helper.py`.
+
+#### Stage 3.1 Plan (migration trigger/heuristic)
+- Choose a conservative trigger: run migration only when no `overlay_groupings.user.json` exists AND a packaged-baseline hash/mtime differs from current shipped file, or simpler: first run after version bump with no user file present.
+- Track baseline minimally: store packaged hash/version in a tiny marker file (e.g., `.groupings_baseline.json` with version + hash) or reuse release version to gate one-shot migration; avoid extra reads/writes beyond shipped file + marker.
+- Performance/IO: hash once on demand (small file), cache result; avoid repeated checks per tick; run at startup only.
+- Risks/Mitigations:
+  - False positives copying untouched shipped file: gate on version/baseline marker and absence of user file; allow opt-out flag/env.
+  - False negatives (missed user edits baked into shipped): consider detecting diff from packaged baseline hash; if baseline unavailable, fallback to “clone shipped once if no user file” to err on preserving data.
+  - IO on RO installs: detect unwritable user path early; skip with warning.
+  - Marker drift: write marker only after successful migration; include version/hash to avoid re-running; tolerate missing marker by re-evaluating trigger.
+  - Malformed shipped file: skip migration with warning; do not create user file.
+- Tests to add:
+  - Trigger fires only when user file missing and version/baseline indicates first run; creates user file copy.
+  - Marker prevents repeated migrations; version bump re-enables as expected.
+  - RO/unwritable path skips migration without raising; user file untouched.
+  - Malformed shipped file causes skip with no user file creation.
+  - Optional hash-based detection clones shipped once when baseline differs.
+- Status/Decisions: Implemented trigger helpers in `overlay_plugin/groupings_migration.py` (`should_migrate`, `compute_hash`, marker read/write) with tests in `tests/test_groupings_migration.py`; hash-based + version marker, runs only when user file missing.
 
 ### Phase 4: Tests + docs
 - Tests: unit coverage for merge helper (override precedence, user-only groups, missing fields), controller write path targeting user file, and `define_plugin_group()` remaining unchanged. Add integration-style tests around reload signals if they depend on mtime.

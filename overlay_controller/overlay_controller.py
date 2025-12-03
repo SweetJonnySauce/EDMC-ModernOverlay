@@ -2787,6 +2787,9 @@ class OverlayConfigApp(tk.Tk):
         merged_view = getattr(self, "_groupings_data", None)
         if not isinstance(merged_view, dict):
             merged_view = {}
+        else:
+            # Round offsets to reduce float noise.
+            merged_view = OverlayConfigApp._round_offsets(merged_view)
 
         try:
             diff = diff_groupings(shipped_raw, merged_view)
@@ -2810,6 +2813,33 @@ class OverlayConfigApp(tk.Tk):
             user_path.write_text(text + "\n", encoding="utf-8")
         except Exception:
             pass
+
+    @staticmethod
+    def _round_offsets(payload: dict[str, object]) -> dict[str, object]:
+        """Return a copy with offsetX/offsetY rounded to 3 decimals to avoid float noise."""
+
+        result: dict[str, object] = {}
+        for plugin_name, plugin_entry in payload.items():
+            if not isinstance(plugin_entry, dict):
+                result[plugin_name] = plugin_entry
+                continue
+            plugin_copy: dict[str, object] = dict(plugin_entry)
+            groups = plugin_entry.get("idPrefixGroups")
+            if isinstance(groups, dict):
+                groups_copy: dict[str, object] = {}
+                for label, group_entry in groups.items():
+                    if not isinstance(group_entry, dict):
+                        groups_copy[label] = group_entry
+                        continue
+                    group_copy: dict[str, object] = dict(group_entry)
+                    if "offsetX" in group_copy and isinstance(group_copy["offsetX"], (int, float)):
+                        group_copy["offsetX"] = round(float(group_copy["offsetX"]), 3)
+                    if "offsetY" in group_copy and isinstance(group_copy["offsetY"], (int, float)):
+                        group_copy["offsetY"] = round(float(group_copy["offsetY"]), 3)
+                    groups_copy[label] = group_copy
+                plugin_copy["idPrefixGroups"] = groups_copy
+            result[plugin_name] = plugin_copy
+        return result
 
     def _write_groupings_cache(self) -> None:
         # Controller is read-only for overlay_group_cache.json; no-op to avoid clobbering client data.
@@ -3609,8 +3639,9 @@ class OverlayConfigApp(tk.Tk):
         group = groups.get(label)
         if not isinstance(group, dict):
             return
-        group["offsetX"] = offset_x
-        group["offsetY"] = offset_y
+        # Round to reduce float noise while keeping sub-pixel precision.
+        group["offsetX"] = round(offset_x, 3)
+        group["offsetY"] = round(offset_y, 3)
     def _handle_anchor_changed(self, anchor: str, prefer_user: bool = False) -> None:
         selection = self._get_current_group_selection()
         if selection is None:

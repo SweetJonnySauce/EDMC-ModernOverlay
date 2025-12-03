@@ -142,3 +142,21 @@ def test_controller_write_clears_user_when_matching_defaults(tmp_path):
 
     assert user_path.exists()
     assert json.loads(user_path.read_text(encoding="utf-8")) == {}
+
+
+def test_controller_rounds_offsets(tmp_path):
+    user_path = tmp_path / "overlay_groupings.user.json"
+    shipped_path = tmp_path / "overlay_groupings.json"
+    shipped_path.write_text("{}", encoding="utf-8")
+
+    app = SimpleNamespace(
+        _groupings_user_path=user_path,
+        _groupings_path=user_path,
+        _groupings_shipped_path=shipped_path,
+        _groupings_data={"PluginA": {"idPrefixGroups": {"Main": {"offsetX": 0.0159999999999, "offsetY": 1.23456}}}},
+    )
+
+    oc.OverlayConfigApp._write_groupings_config(app)
+
+    saved = json.loads(user_path.read_text(encoding="utf-8"))
+    assert saved["PluginA"]["idPrefixGroups"]["Main"] == {"offsetX": 0.016, "offsetY": 1.235}

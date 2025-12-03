@@ -65,6 +65,47 @@ def test_target_box_draws_only_for_active_group_when_active_mode():
     assert painter.draws == []
 
 
+def test_target_box_uses_base_bounds_when_no_transform(tmp_path=None):
+    window = SimpleNamespace()
+    window._controller_active_group = ("PluginB", "G1")
+    window.controller_mode_state = lambda: "active"
+    window._last_overlay_bounds_for_target = {}
+    window._last_transform_by_group = {}
+    window._resolve_bounds_for_active_group = lambda ag, bm: bm.get(ag)
+    window._fallback_bounds_from_cache = lambda ag: rs.RenderSurfaceMixin._fallback_bounds_from_cache(window, ag)  # type: ignore[misc]
+    window._line_width = lambda key: 1
+    window._compute_legacy_mapper = lambda: _make_mapper(1.0)
+    window._overlay_bounds_to_rect = lambda b, m: rs.QRect(int(b.min_x), int(b.min_y), int(b.max_x - b.min_x), int(b.max_y - b.min_y))
+    window._overlay_point_to_screen = lambda pt, m: (int(pt[0]), int(pt[1]))
+    window._overlay_bounds_from_cache_entry = lambda entry: rs.RenderSurfaceMixin._overlay_bounds_from_cache_entry(entry)
+    window._build_bounds_with_anchor = lambda w, h, token, ax, ay: rs._OverlayBounds(min_x=ax, min_y=ay, max_x=ax + w, max_y=ay + h)
+    window._anchor_from_overlay_bounds = lambda bounds, token: (bounds.min_x, bounds.min_y)
+    cache_entry = {
+        "base": {
+            "base_min_x": 920.0,
+            "base_min_y": 330.0,
+            "base_max_x": 1070.0,
+            "base_max_y": 380.0,
+            "base_width": 150.0,
+            "base_height": 50.0,
+        },
+        "transformed": None,
+    }
+    cache = SimpleNamespace(
+        get_group=lambda plugin, suffix: cache_entry if (plugin, suffix) == ("PluginB", "G1") else None,
+        _state={"groups": {"PluginB": {"G1": cache_entry}}},
+    )
+    window._group_cache = cache
+    painter = _PainterStub()
+    rs.RenderSurfaceMixin._paint_controller_target_box(window, painter)  # type: ignore[misc]
+    # Expect rect at base_min_x/y (no reset to origin)
+    rects = [d for d in painter.draws if d[0] == "rect"]
+    assert rects
+    rect = rects[0]
+    assert rect[1] == 920
+    assert rect[2] == 330
+
+
 def test_target_box_uses_cache_fallback_and_anchor():
     window = SimpleNamespace()
     window._controller_active_group = ("PluginB", "G1")
