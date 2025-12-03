@@ -1,5 +1,9 @@
 # Release Notes
 
+## 0.7.5
+- Controller performance & usability: merged-group loader now feeds the controller UI, writes are isolated to the user config file, and reloads poll both shipped/user files with last-good fallback to keep editing responsive.
+- Linux install: added Arch/pacman support alongside existing installers.
+
 ## 0.7.4-dev
 - Controller startup no longer crashes when Tk rejects a binding; unsupported or empty sequences are skipped with a warning instead.
 - Default keyboard bindings drop the X11-only `<ISO_Left_Tab>` entry (Shift+Tab remains) to stay cross-platform.

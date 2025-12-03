@@ -7,6 +7,7 @@ import json
 import shutil
 import sys
 import tempfile
+import os
 from pathlib import Path
 
 from overlay_plugin import overlay_api
@@ -16,6 +17,9 @@ ANCHORS = ("nw", "ne", "sw", "se", "center", "top", "bottom", "left", "right")
 
 
 def _default_groupings_path() -> Path:
+    env = os.environ.get("MODERN_OVERLAY_GROUPINGS_PATH")
+    if env:
+        return Path(env).expanduser()
     return Path(__file__).resolve().parents[1] / "overlay_groupings.json"
 
 

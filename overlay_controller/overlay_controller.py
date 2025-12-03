@@ -28,6 +28,7 @@ _CONTROLLER_LOGGER: Optional[logging.Logger] = None
 from overlay_client.controller_mode import ControllerModeProfile, ModeProfile
 from overlay_client.debug_config import DEBUG_CONFIG_ENABLED
 from overlay_client.logging_utils import build_rotating_file_handler, resolve_log_level, resolve_logs_dir
+from overlay_plugin.groupings_loader import GroupingsLoader
 try:  # When run as a package (`python -m overlay_controller.overlay_controller`)
     from overlay_controller.input_bindings import BindingConfig, BindingManager
     from overlay_controller.selection_overlay import SelectionOverlay
@@ -1611,7 +1612,17 @@ class OverlayConfigApp(tk.Tk):
         self._groupings_data: dict[str, object] = {}
         self._idprefix_entries: list[tuple[str, str]] = []
         root = Path(__file__).resolve().parents[1]
-        self._groupings_path = root / "overlay_groupings.json"
+        self._groupings_shipped_path = root / "overlay_groupings.json"
+        self._groupings_user_path = Path(
+            os.environ.get("MODERN_OVERLAY_USER_GROUPINGS_PATH", root / "overlay_groupings.user.json")
+        )
+        self._groupings_loader = GroupingsLoader(self._groupings_shipped_path, self._groupings_user_path)
+        _controller_debug(
+            "Groupings loader configured: shipped=%s user=%s",
+            self._groupings_shipped_path,
+            self._groupings_user_path,
+        )
+        self._groupings_path = self._groupings_user_path
         self._groupings_cache_path = root / "overlay_group_cache.json"
         self._groupings_cache: dict[str, object] = {}
         self._force_render_override = _ForceRenderOverrideManager(root)
@@ -2449,15 +2460,23 @@ class OverlayConfigApp(tk.Tk):
                 pass
 
     def _load_idprefix_options(self) -> list[str]:
-        path = getattr(self, "_groupings_path", None)
-        if path is None:
-            root = Path(__file__).resolve().parents[1]
-            path = root / "overlay_groupings.json"
-            self._groupings_path = path
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            payload = {}
+        loader = getattr(self, "_groupings_loader", None)
+        if loader is not None:
+            try:
+                loader.reload_if_changed()
+                payload = loader.merged()
+            except Exception:
+                payload = {}
+        else:
+            path = getattr(self, "_groupings_path", None)
+            if path is None:
+                root = Path(__file__).resolve().parents[1]
+                path = root / "overlay_groupings.json"
+                self._groupings_path = path
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                payload = {}
         self._groupings_data = payload if isinstance(payload, dict) else {}
         options: list[str] = []
         self._idprefix_entries.clear()
@@ -2672,6 +2691,13 @@ class OverlayConfigApp(tk.Tk):
 
     def _poll_cache_and_status(self) -> None:
         self._status_poll_handle = None
+        reload_groupings = False
+        loader = getattr(self, "_groupings_loader", None)
+        if loader is not None:
+            try:
+                reload_groupings = bool(loader.reload_if_changed())
+            except Exception:
+                reload_groupings = False
         try:
             latest = self._load_groupings_cache()
         except Exception:
@@ -2681,6 +2707,9 @@ class OverlayConfigApp(tk.Tk):
                 _controller_debug("Group cache refreshed from disk at %s", time.strftime("%H:%M:%S"))
                 self._groupings_cache = latest
                 self._refresh_idprefix_options()
+        if reload_groupings:
+            _controller_debug("Groupings reloaded from disk at %s", time.strftime("%H:%M:%S"))
+            self._refresh_idprefix_options()
         self._refresh_current_group_snapshot(force_ui=False)
         self._status_poll_handle = self.after(self._status_poll_interval_ms, self._poll_cache_and_status)
     def _refresh_idprefix_options(self) -> None:
@@ -2739,7 +2768,7 @@ class OverlayConfigApp(tk.Tk):
         return _strip_timestamps(new_cache) != _strip_timestamps(old_cache)
 
     def _write_groupings_config(self) -> None:
-        path = getattr(self, "_groupings_path", None)
+        path = getattr(self, "_groupings_user_path", None) or getattr(self, "_groupings_path", None)
         if path is None:
             return
         try:

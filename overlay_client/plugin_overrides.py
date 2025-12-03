@@ -51,14 +51,22 @@ class _PluginConfig:
 class PluginOverrideManager:
     """Load and apply plugin-specific rendering overrides."""
 
-    def __init__(self, config_path: Path, logger, debug_config: Optional[DebugConfig] = None) -> None:
+    def __init__(
+        self,
+        config_path: Path,
+        logger,
+        debug_config: Optional[DebugConfig] = None,
+        groupings_loader: Optional[Any] = None,
+    ) -> None:
         self._path = config_path
         self._logger = logger
+        self._groupings_loader = groupings_loader
         self._mtime: Optional[float] = None
         self._plugins: Dict[str, _PluginConfig] = {}
         self._debug_config = debug_config or DebugConfig()
         self._diagnostic_spans: Dict[Tuple[str, str], Tuple[float, float, float]] = {}
         self._generation: int = 0
+        self._loader_loaded = False
         self._load_config()
 
     # ------------------------------------------------------------------
@@ -174,6 +182,22 @@ class PluginOverrideManager:
     # Internal helpers
 
     def _reload_if_needed(self) -> None:
+        if self._groupings_loader is not None:
+            try:
+                if not self._loader_loaded:
+                    self._groupings_loader.load()
+                    self._loader_loaded = True
+                    changed = True
+                else:
+                    changed = bool(self._groupings_loader.reload_if_changed())
+            except Exception as exc:  # pragma: no cover - defensive guard
+                self._logger.warning("Failed to reload overrides via loader: %s", exc)
+                return
+            if not changed and self._mtime is not None:
+                return
+            self._load_config_from_loader()
+            return
+
         try:
             stat = self._path.stat()
         except FileNotFoundError:
@@ -200,8 +224,21 @@ class PluginOverrideManager:
             self._logger.warning("Failed to parse plugin override file %s: %s", self._path, exc)
             return
 
+        self._load_config_data(raw, mtime=self._path.stat().st_mtime if self._path.exists() else None)
+
+    def _load_config_from_loader(self) -> None:
+        try:
+            raw = self._groupings_loader.merged()
+        except Exception as exc:
+            self._logger.warning("Failed to load overrides from loader: %s", exc)
+            return
+        diag = self._groupings_loader.diagnostics() if self._groupings_loader else {}
+        mtime = diag.get("last_reload_ts", None) if isinstance(diag, Mapping) else None
+        self._load_config_data(raw, mtime=mtime)
+
+    def _load_config_data(self, raw: Any, mtime: Optional[float]) -> None:
         if not isinstance(raw, Mapping):
-            self._logger.warning("Plugin override file %s must contain a JSON object at the top level.", self._path)
+            self._logger.warning("Plugin override config must contain a JSON object at the top level.")
             return
 
         plugins: Dict[str, _PluginConfig] = {}
@@ -388,10 +425,7 @@ class PluginOverrideManager:
 
         self._plugins = plugins
         self._diagnostic_spans.clear()
-        try:
-            self._mtime = self._path.stat().st_mtime
-        except FileNotFoundError:
-            self._mtime = None
+        self._mtime = mtime if mtime is not None else (self._path.stat().st_mtime if self._path.exists() else None)
         self._logger.debug(
             "Loaded %d plugin override configuration(s) from %s.",
             len(self._plugins),

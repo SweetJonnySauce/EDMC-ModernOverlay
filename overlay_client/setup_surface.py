@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from PyQt6.QtCore import Qt, QTimer, QPoint
@@ -31,6 +33,7 @@ from overlay_client.interaction_controller import InteractionController
 from overlay_client.window_controller import WindowController
 from overlay_client.window_tracking import WindowState, WindowTracker
 from overlay_client.viewport_helper import BASE_HEIGHT, BASE_WIDTH
+from overlay_plugin.groupings_loader import GroupingsLoader
 
 _CLIENT_LOGGER = logging.getLogger("EDMC.ModernOverlay.Client")
 
@@ -302,10 +305,21 @@ class SetupSurfaceMixin:
         max_font = getattr(initial, "max_font_point", 24.0)
         self._font_min_point = max(1.0, min(float(min_font), 48.0))
         self._font_max_point = max(self._font_min_point, min(float(max_font), 72.0))
+        user_groupings = os.environ.get("MODERN_OVERLAY_USER_GROUPINGS_PATH", root_dir / "overlay_groupings.user.json")
+        self._groupings_loader = GroupingsLoader(
+            root_dir / "overlay_groupings.json",
+            Path(user_groupings),
+        )
+        _CLIENT_LOGGER.debug(
+            "Groupings loader configured: shipped=%s user=%s",
+            self._groupings_loader.paths().get("shipped"),
+            self._groupings_loader.paths().get("user"),
+        )
         self._override_manager = PluginOverrideManager(
             root_dir / "overlay_groupings.json",
             _CLIENT_LOGGER,
             debug_config=self._debug_config,
+            groupings_loader=self._groupings_loader,
         )
         self._grouping_helper = FillGroupingHelper(
             self,
