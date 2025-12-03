@@ -1615,7 +1615,6 @@ class OverlayConfigApp(tk.Tk):
         self._status_poll_interval_ms = self._current_mode_profile.status_poll_ms
         self._offset_step_px = 10.0
         self._offset_live_edit_until: float = 0.0
-        self._offset_preview_handle: str | None = None
         self._initial_geometry_applied = False
         self._port_path = root / "port.json"
         self._controller_heartbeat_ms = 15000
