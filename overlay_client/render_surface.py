@@ -24,7 +24,14 @@ from overlay_client.paint_commands import (
 )
 from overlay_client.payload_builders import build_group_context
 from overlay_client.render_pipeline import PayloadSnapshot, RenderContext, RenderSettings
-from overlay_client.viewport_transform import LegacyMapper, ViewportState, legacy_scale_components
+from overlay_client.viewport_transform import (
+    LegacyMapper,
+    ViewportState,
+    build_viewport,
+    compute_proportional_translation,
+    legacy_scale_components,
+)
+from overlay_client.viewport_helper import BASE_HEIGHT, BASE_WIDTH, ScaleMode
 from overlay_client.window_utils import legacy_preset_point_size as util_legacy_preset_point_size, line_width as util_line_width
 
 _CLIENT_LOGGER = logging.getLogger("EDMC.ModernOverlay.Client")
@@ -1647,13 +1654,14 @@ class RenderSurfaceMixin:
             return
         bounds_map = getattr(self, "_last_overlay_bounds_for_target", {}) or {}
         transform_map = getattr(self, "_last_transform_by_group", {}) or {}
+        mapper = self._compute_legacy_mapper()
+        anchor_override = getattr(self, "_controller_active_anchor", None)
         bounds = self._resolve_bounds_for_active_group(active_group, bounds_map)
         anchor_token = None
         if bounds is None or not bounds.is_valid():
-            bounds, anchor_token = self._fallback_bounds_from_cache(active_group)
+            bounds, anchor_token = self._fallback_bounds_from_cache(active_group, mapper, anchor_override=anchor_override)
             if bounds is None or not bounds.is_valid():
                 return
-        mapper = self._compute_legacy_mapper()
         rect = self._overlay_bounds_to_rect(bounds, mapper)
         if rect.width() <= 0 or rect.height() <= 0:
             return
@@ -1666,6 +1674,8 @@ class RenderSurfaceMixin:
         transform = transform_map.get(active_group)
         if anchor_token is None and transform is not None:
             anchor_token = getattr(transform, "anchor_token", None)
+        if anchor_token is None and anchor_override:
+            anchor_token = anchor_override
         anchor_point = self._anchor_from_overlay_bounds(bounds, anchor_token) if anchor_token else None
         if anchor_point is None:
             return
@@ -1701,7 +1711,10 @@ class RenderSurfaceMixin:
         return bounds_map.get(matched)
 
     def _fallback_bounds_from_cache(
-        self, active_group: Tuple[str, Optional[str]]
+        self,
+        active_group: Tuple[str, Optional[str]],
+        mapper: Optional[LegacyMapper] = None,
+        anchor_override: Optional[str] = None,
     ) -> Tuple[Optional[_OverlayBounds], Optional[str]]:
         cache = getattr(self, "_group_cache", None)
         if cache is None or not hasattr(cache, "get_group"):
@@ -1732,26 +1745,92 @@ class RenderSurfaceMixin:
                 entry = None
         if entry is None:
             return None, None
-        offset_dx = 0.0
-        offset_dy = 0.0
         anchor_override = None
         override_manager = getattr(self, "_override_manager", None)
         if override_manager is not None:
             try:
-                offset_dx, offset_dy = override_manager.group_offsets(plugin, suffix)
+                override_manager.group_offsets(plugin, suffix)
             except Exception:
-                offset_dx = offset_dy = 0.0
+                pass
             try:
                 _, anchor_token = override_manager.group_preserve_fill_aspect(plugin, suffix)
                 anchor_override = anchor_token
             except Exception:
                 anchor_override = None
-        bounds, anchor_token, width, height = self._overlay_bounds_from_cache_entry(entry or {})
+        bounds, cache_anchor_token, width, height = self._overlay_bounds_from_cache_entry(entry or {})
         if bounds is None or not bounds.is_valid():
             return None, None
-        token = anchor_override or anchor_token or "nw"
+        original_anchor_token = cache_anchor_token or "nw"
+        token = anchor_override or cache_anchor_token or "nw"
+        # Preserve the original anchor position as the absolute reference, then rebuild bounds
+        # around that reference if the anchor token has changed.
+        anchor_abs = self._anchor_from_overlay_bounds(bounds, original_anchor_token) or (bounds.min_x, bounds.min_y)
+        if token != original_anchor_token and width > 0.0 and height > 0.0:
+            try:
+                bounds = self._build_bounds_with_anchor(width, height, token, anchor_abs[0], anchor_abs[1])
+            except Exception:
+                pass
+        if mapper is not None:
+            try:
+                bounds = self._apply_fill_translation_from_cache(bounds, token, mapper)
+            except Exception:
+                pass
         # Cache bounds already incorporate offsets; avoid reapplying offsets to prevent resetting to origin.
         return bounds, token
+
+    def _apply_fill_translation_from_cache(
+        self,
+        bounds: _OverlayBounds,
+        anchor_token: Optional[str],
+        mapper: LegacyMapper,
+    ) -> _OverlayBounds:
+        if bounds is None or not bounds.is_valid():
+            return bounds
+        transform = mapper.transform
+        if transform.mode is not ScaleMode.FILL:
+            return bounds
+        if not (transform.overflow_x or transform.overflow_y):
+            return bounds
+
+        def _clamp_unit(value: float) -> float:
+            if not math.isfinite(value):
+                return 0.0
+            if value < 0.0:
+                return 0.0
+            if value > 1.0:
+                return 1.0
+            return value
+
+        base_width = BASE_WIDTH if BASE_WIDTH > 0.0 else 1.0
+        base_height = BASE_HEIGHT if BASE_HEIGHT > 0.0 else 1.0
+        anchor_point = self._anchor_from_overlay_bounds(bounds, anchor_token or "nw")
+        if anchor_point is None:
+            anchor_point = (bounds.min_x, bounds.min_y)
+        group_transform = GroupTransform(
+            dx=0.0,
+            dy=0.0,
+            band_min_x=_clamp_unit(bounds.min_x / base_width),
+            band_max_x=_clamp_unit(bounds.max_x / base_width),
+            band_min_y=_clamp_unit(bounds.min_y / base_height),
+            band_max_y=_clamp_unit(bounds.max_y / base_height),
+            band_anchor_x=_clamp_unit(anchor_point[0] / base_width),
+            band_anchor_y=_clamp_unit(anchor_point[1] / base_height),
+            bounds_min_x=bounds.min_x,
+            bounds_min_y=bounds.min_y,
+            bounds_max_x=bounds.max_x,
+            bounds_max_y=bounds.max_y,
+            anchor_token=(anchor_token or "nw").strip().lower(),
+            payload_justification="left",
+        )
+        try:
+            viewport_state = self._viewport_state()
+        except Exception:
+            viewport_state = ViewportState(width=float(self.width()), height=float(self.height()), device_ratio=1.0)
+        fill = build_viewport(mapper, viewport_state, group_transform, BASE_WIDTH, BASE_HEIGHT)
+        dx, dy = compute_proportional_translation(fill, group_transform, anchor_point)
+        if dx or dy:
+            bounds.translate(dx, dy)
+        return bounds
 
     @staticmethod
     def _anchor_label_position(
