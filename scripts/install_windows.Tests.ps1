@@ -4,8 +4,16 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $env:MODERN_OVERLAY_INSTALLER_IMPORT = '1'
 
-$here = Split-Path -Parent $MyInvocation.MyCommand.Path
-if ([string]::IsNullOrWhiteSpace($here)) {
+$here = $null
+if (Test-Path variable:PSCommandPath -ErrorAction SilentlyContinue) {
+    if (-not [string]::IsNullOrWhiteSpace($PSCommandPath)) {
+        $here = Split-Path -Parent $PSCommandPath
+    }
+}
+if (-not $here) {
+    $here = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+if (-not $here) {
     $here = (Get-Location).Path
 }
 $installerPath = Join-Path -Path $here -ChildPath 'install_windows.ps1'
