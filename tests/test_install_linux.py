@@ -22,11 +22,9 @@ def _run_bash(script: str, env: dict[str, str]) -> str:
 
 
 def _write_trimmed_installer(tmpdir: str) -> Path:
-    """Write a copy of install_linux.sh without the final main invocation."""
-    lines = INSTALLER_SOURCE.splitlines()
-    trimmed_lines = [line for line in lines if not line.strip().startswith("main ")]
+    """Write a copy of install_linux.sh for sourcing in tests (main guarded by env)."""
     path = Path(tmpdir) / "install_linux_trimmed.sh"
-    path.write_text("\n".join(trimmed_lines) + "\n", encoding="utf-8")
+    path.write_text(INSTALLER_SOURCE + ("\n" if not INSTALLER_SOURCE.endswith("\n") else ""), encoding="utf-8")
     path.chmod(0o755)
     return path
 
@@ -48,6 +46,7 @@ def test_pacman_status_check_marks_installed_and_missing() -> None:
         env["PATH"] = f"{tmpdir}:{env.get('PATH','')}"
         installer_path = _write_trimmed_installer(tmpdir)
         script = f"""
+export MODERN_OVERLAY_INSTALLER_IMPORT=1
 source "{installer_path}"
 PKG_INSTALL_CMD=(pacman -S --noconfirm)
 classify_package_statuses python missingpkg
@@ -71,6 +70,7 @@ def test_unknown_manager_marks_status_unsupported() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         installer_path = _write_trimmed_installer(tmpdir)
         script = f"""
+export MODERN_OVERLAY_INSTALLER_IMPORT=1
 source "{installer_path}"
 PKG_INSTALL_CMD=(unknown-cmd)
 classify_package_statuses python

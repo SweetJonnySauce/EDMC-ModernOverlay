@@ -6,16 +6,16 @@ IFS=$'\n\t'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 test_preserves_user_groupings_on_update() {
-    local tmp
-    tmp="$(mktemp -d)"
-    trap 'rm -rf "$tmp"' EXIT
+    local tmp_dir
+    tmp_dir="$(mktemp -d)"
+    trap 'rm -rf "$tmp_dir"' EXIT
 
-    local payload_root="$tmp/payload"
+    local payload_root="$tmp_dir/payload"
     local src="$payload_root/EDMCModernOverlay"
     mkdir -p "$src"
     printf '{}' >"$src/overlay_groupings.json"
 
-    local dest="$tmp/EDMCModernOverlay"
+    local dest="$tmp_dir/EDMCModernOverlay"
     mkdir -p "$dest"
     local user_file="$dest/overlay_groupings.user.json"
     printf '{"user":"keep"}' >"$user_file"
