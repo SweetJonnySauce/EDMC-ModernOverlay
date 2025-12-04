@@ -849,16 +849,19 @@ function Main {
     Final-Notes
 }
 
-$script:InstallerHadError = $false
-try {
-    Initialize-EmbeddedPayload
-    Main
-} catch {
-    $script:InstallerHadError = $true
-    Write-ErrorLine $_.Exception.Message
-} finally {
-    Cleanup-EmbeddedPayload
-    if ($InstallerHadError) {
-        exit 1
+# Allow Pester/imported contexts to skip executing Main.
+if (-not $env:MODERN_OVERLAY_INSTALLER_IMPORT) {
+    $script:InstallerHadError = $false
+    try {
+        Initialize-EmbeddedPayload
+        Main
+    } catch {
+        $script:InstallerHadError = $true
+        Write-ErrorLine $_.Exception.Message
+    } finally {
+        Cleanup-EmbeddedPayload
+        if ($InstallerHadError) {
+            exit 1
+        }
     }
 }

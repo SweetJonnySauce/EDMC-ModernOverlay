@@ -2,6 +2,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$env:MODERN_OVERLAY_INSTALLER_IMPORT = '1'
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $here 'install_windows.ps1')
