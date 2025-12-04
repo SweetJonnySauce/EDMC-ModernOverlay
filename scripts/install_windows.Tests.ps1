@@ -15,9 +15,13 @@ $installerPath = Join-Path $here 'install_windows.ps1'
 if (-not (Test-Path -LiteralPath $installerPath)) {
     throw "Installer script not found at '$installerPath'"
 }
-. $installerPath
 
 Describe 'Update-ExistingInstall' {
+    BeforeAll {
+        $env:MODERN_OVERLAY_INSTALLER_IMPORT = '1'
+        . $installerPath
+    }
+
     It 'preserves overlay_groupings.user.json when updating an existing install' {
         # Arrange: use a real temp root to avoid TestDrive quirks.
         $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("pester-" + [guid]::NewGuid().ToString('N'))
