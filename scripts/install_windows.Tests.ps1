@@ -12,6 +12,10 @@ Describe 'Update-ExistingInstall' {
         # Arrange: use a real temp root to avoid TestDrive quirks.
         $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("pester-" + [guid]::NewGuid().ToString('N'))
         try {
+            # Ensure functions are available in this scope.
+            $env:MODERN_OVERLAY_INSTALLER_IMPORT = '1'
+            . (Join-Path $here 'install_windows.ps1')
+
             $payloadRoot = Join-Path $tempRoot 'payload'
             $sourceDir = Join-Path $payloadRoot 'EDMCModernOverlay'
             New-Item -ItemType Directory -Path $sourceDir -Force | Out-Null
