@@ -42,6 +42,15 @@ Offsets run right after the overlay client collects a group’s payloads, so the
 
 Payload justification is resolved immediately after anchor translations. The overlay measures every payload in an idPrefix group, finds the widest entry, and shifts the remaining payloads to align against that width. This keeps multi-line payloads visually balanced without affecting anchor placement or the later nudging pass.
 
+## Layered configuration (user overrides)
+
+- Defaults ship in `overlay_groupings.json`. User overrides live beside it in `overlay_groupings.user.json` and are never overwritten on upgrade.
+- Merge rules: shipped defaults are the base; user entries overlay per plugin/group; user-only plugins/groups are allowed. `disabled: true` in the user file hides the shipped entry at that scope.
+- Writes: the controller writes **only** to the user file (diffed against shipped defaults). The public API (`define_plugin_group`) still targets the shipped file so plugin authors can register defaults.
+- Paths: `MODERN_OVERLAY_USER_GROUPINGS_PATH` can point the user file elsewhere (tests/tools). If omitted, the plugin root path above is used. CLI tools still default to the shipped file for writes unless you override via `--groupings-path`.
+- Reload/error handling: the loader watches both shipped/user files; missing user file means “no overrides.” Malformed user JSON is warned and ignored while keeping the last-good merged view.
+- Reset: remove/rename `overlay_groupings.user.json` to fall back to shipped defaults. User-only entries disappear; shipped-only entries return. This release does **not** auto-migrate existing edits from the shipped file.
+
 ### Reference schema
 
 The repository ships with `schemas/overlay_groupings.schema.json` (Draft 2020‑12). `overlay_groupings.json` already points to it via `$schema`, so editors such as VS Code will fetch it automatically. For reference, the schema contents are below:

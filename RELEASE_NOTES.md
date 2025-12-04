@@ -2,6 +2,7 @@
 
 ## 0.7.5
 - Controller performance & usability: merged-group loader now feeds the controller UI, writes are isolated to the user config file, and reloads poll both shipped/user files with last-good fallback to keep editing responsive.
+- Layered configs: shipped defaults remain in `overlay_groupings.json`; per-user overrides live in `overlay_groupings.user.json` (or an override path) and are preserved across upgrades. No automatic migration runs in this release.
 - Linux install: added Arch/pacman support alongside existing installers.
 
 ## 0.7.4-dev

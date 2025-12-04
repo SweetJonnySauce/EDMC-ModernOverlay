@@ -71,3 +71,28 @@ jobs:
 
       - name: Run checks
         run: make check
+
+  windows-installer-tests:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -Force -Scope CurrentUser -SkipPublisherCheck
+
+      - name: Run Windows installer tests
+        shell: pwsh
+        run: Invoke-Pester -Script scripts/install_windows.Tests.ps1 -EnableExit
+
+  linux-installer-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Linux installer tests
+        run: tests/test_install_linux.sh

@@ -419,8 +419,8 @@ Use this doc to jot requirements, constraints, and experiments as we iterate.
 | --- | --- | --- |
 | 3.1 | Decide migration trigger/heuristic (e.g., no user file + shipped differs from packaged baseline) and record baseline tracking approach. | Complete |
 | 3.2 | Implement migration helper that copies user edits from shipped to user file once, with validation and logging; ensure idempotency. | Complete |
-| 3.3 | Wire migration into startup/entry points (client/controller/CLI) with guardrails for RO paths and malformed JSON; optional CLI to re-run. | Not started |
-| 3.4 | Tests for migration heuristics, idempotency, malformed/RO handling, and preservation of user-only data. | Not started |
+| 3.3 | Wire migration into startup/entry points (client/controller/CLI) with guardrails for RO paths and malformed JSON; optional CLI to re-run. | Skipped |
+| 3.4 | Tests for migration heuristics, idempotency, malformed/RO handling, and preservation of user-only data. | Skipped |
 
 #### Stage 3.2 Plan (migration helper)
 - Build a helper that, given shipped path/user path/marker, will:
@@ -461,7 +461,84 @@ Use this doc to jot requirements, constraints, and experiments as we iterate.
   - Optional hash-based detection clones shipped once when baseline differs.
 - Status/Decisions: Implemented trigger helpers in `overlay_plugin/groupings_migration.py` (`should_migrate`, `compute_hash`, marker read/write) with tests in `tests/test_groupings_migration.py`; hash-based + version marker, runs only when user file missing.
 
+#### Stage 3.3 Status (skipped)
+- Decision: do not wire automatic migration into startup/entry points for this release. Helpers from 3.1/3.2 remain available for manual use or future wiring if needed.
+
+#### Stage 3.4 Status (skipped)
+- Decision: skip migration-specific tests since migration wiring is deferred. Existing helper/heuristic tests remain from 3.1/3.2 if we revive migration later.
+
 ### Phase 4: Tests + docs
-- Tests: unit coverage for merge helper (override precedence, user-only groups, missing fields), controller write path targeting user file, and `define_plugin_group()` remaining unchanged. Add integration-style tests around reload signals if they depend on mtime.
-- Docs: update `docs/overlay-groupings.md` (or a short addendum) to explain the layered config, file locations, and how to reset/override defaults. Mention migration behavior in release notes.
-- Manual checks: start plugin, tweak placements via controller, verify user file captures changes and upgrades to shipped defaults preserve user overrides.
+
+| Stage | Description | Status |
+| --- | --- | --- |
+| 4.1 | Automated tests for layered loading/writing/shrink (no migration) plus reload behavior. | Complete |
+| 4.2 | Documentation updates for layered configs (user vs. shipped, overrides, reset). | Complete |
+| 4.3 | Manual verification + release notes callouts for user-file persistence and upgrade behavior. | Complete |
+
+#### Stage 4.1 Plan (tests)
+- Expand/validate unit coverage for loader merge precedence (user wins, user-only entries, disabled), override manager/controller read paths, diff/shrink no-op on defaults, and controller write-only-to-user guarantees.
+- Add integration-style checks for reload signals if they depend on mtime (shipped/user changes) and last-good fallback on malformed user JSON.
+- Ensure API guardrails stay intact: `define_plugin_group()` still targets shipped file; register/store guards block user file writes.
+- Skipped: migration wiring (3.3) is out, so no migration-flow tests needed.
+- Risks/Mitigations: flaky mtime-based tests—use temp dirs and controlled sleeps only when required; avoid order-sensitive assertions by comparing dicts.
+
+#### Stage 4.2 Plan (docs)
+- Update `docs/overlay-groupings.md` (or addendum) to describe layered config: shipped defaults vs. `overlay_groupings.user.json`, override precedence, how to reset/clear user overrides, and how env/CLI overrides affect paths.
+- Add a brief note in `docs/developer.md` for plugin authors about where writes should go (shipped file via API) and how the user layer is merged.
+- Note migration status (skipped) in release notes or docs so operators know no auto-move occurs; point to manual options if needed.
+
+#### Stage 4.3 Plan (manual + release notes)
+- Manual sanity: start plugin, tweak placements via controller, confirm `overlay_groupings.user.json` captures overrides and that clearing it restores shipped defaults.
+- Verify upgrades preserve user file and new shipped defaults appear without losing overrides; spot-check disabled entries and user-only groups.
+- Release notes: call out layered config behavior, location of the user file, and that migration is not auto-run in this release.
+
+#### Stage 4.1 Decisions (tests)
+- Existing suites already cover layered load/merge (user precedence, user-only, disabled, last-good fallback), controller write-to-user with diff/shrink, reload polling, and API guardrails (`tests/test_groupings_loader.py`, `tests/test_groupings_diff.py`, `overlay_controller/tests/test_controller_groupings_loader.py`, `tests/test_overlay_api.py`, `tests/test_plugin_override_loader.py`). No migration-flow tests needed while 3.3 is skipped.
+
+#### Stage 4.2 Decisions (docs)
+- Documented layered config in `docs/overlay-groupings.md`: shipped defaults stay in `overlay_groupings.json`, user overrides live in `overlay_groupings.user.json`, merge/disable precedence, env/CLI path overrides, reload/error handling, and reset guidance. Migration is explicitly noted as not auto-run.
+- Added a developer note in `docs/developer.md` clarifying write targets: plugin APIs still write the shipped file; controller writes deltas to the user file; user file should be preserved on upgrade.
+- Release notes updated to call out layered configs and the lack of automatic migration in this release.
+
+#### Stage 4.3 Decisions (manual + release notes)
+- Manual checklist recorded; release notes updated. (Manual verification still recommended at release cut: tweak via controller, confirm user file captures overrides, clear user file to restore shipped defaults, and ensure upgrades preserve the user file.)
+
+### Phase 5: Installer safeguards
+
+| Stage | Description | Status |
+| --- | --- | --- |
+| 5.1 | Windows installers preserve `overlay_groupings.user.json` during upgrade/uninstall flows. | Complete |
+| 5.2 | Linux packaging (tarball/pacman/deb) preserves `overlay_groupings.user.json` during upgrade/uninstall flows. | Complete |
+
+#### Stage 5.1 Plan (Windows)
+- Guard the Windows installer/uninstaller so it never deletes or overwrites `overlay_groupings.user.json` (or a user-specified override path if honored). Ensure upgrade paths leave the file intact.
+- Tasks:
+  - Review installer scripts (e.g., Inno/NSIS/zip copy) and exclude `overlay_groupings.user.json` from payload clobber/cleanup steps; keep shipped `overlay_groupings.json` updates intact.
+  - Add a pre-install backup or “preserve file if exists” rule for upgrade/uninstall flows; confirm the uninstaller does not remove the user file.
+  - Document the preserved file path in installer/readme output so operators know where overrides live.
+  - Optional: add a CI/package check that fails if the user file is missing after a simulated install/upgrade.
+- Risks/Mitigations:
+  - Silent deletion on uninstall: explicitly mark the user file as preserved in uninstaller scripts; add a test/runbook step to verify.
+  - Accidental overwrite on upgrade: exclude the user filename from the shipped payload; consider a checksum guard to prevent replacement.
+  - Override path edge cases: if overrides can point elsewhere, limit preservation promises to the default co-located path and document the caveat.
+
+#### Stage 5.1 Decisions (Windows)
+- `scripts/install_windows.ps1` now backs up `overlay_groupings.user.json` before replacing an existing install and restores it afterward, alongside the existing venv/font preservation. Fresh installs remain unchanged.
+- Pester test `scripts/install_windows.Tests.ps1` asserts `overlay_groupings.user.json` survives an update.
+- CI runs the Windows installer test via `windows-installer-tests` in `.github/workflows/ci.yml`.
+
+#### Stage 5.2 Plan (Linux)
+- Ensure Linux packaging (tarball/pacman/deb or EDMC plugin copy) leaves `overlay_groupings.user.json` untouched on upgrade/uninstall.
+- Tasks:
+  - Update packaging scripts/specs to exclude the user file from the payload and from post-install cleanup; keep shipped `overlay_groupings.json` updated.
+  - Add a packaging sanity check (e.g., in CI or a local script) that runs install → upgrade → uninstall and confirms the user file persists across upgrade and is not removed on uninstall (or is backed up).
+  - Document the user file location and preservation in distro-specific notes/readme; call out that migration is not auto-run.
+- Risks/Mitigations:
+  - Package manager clobber: mark the user file as a config/preserve file where supported (e.g., `backup`/`NoUpgrade` semantics); otherwise add install hooks to skip overwriting.
+  - Uninstall wiping user data: document policy; if removal is unavoidable on uninstall, add an opt-in backup/export step.
+  - Divergent install locations: confirm default path resolution for user file remains correct on Linux installs; document override env for edge cases.
+
+#### Stage 5.2 Decisions (Linux)
+- `scripts/install_linux.sh` rsync updates now exclude `overlay_groupings.user.json`, preserving user overrides during upgrades.
+- Added `tests/test_install_linux.sh` to assert the user file survives an rsync-based update. (Hook into CI TBD.)
+- CI runs the Linux installer test via `linux-installer-tests` in `.github/workflows/ci.yml`.

@@ -2,11 +2,7 @@
   "BGS-Tally": {
     "idPrefixGroups": {
       "BGS-Tally Colonisation": {
-        "offsetX": 0.0,
-        "offsetY": 0.0
-      },
-      "BGS-Tally Tickwarn": {
-        "offsetY": 0.0
+        "offsetX": 70.0
       }
     }
   },
@@ -15,35 +11,14 @@
       "Bioscan Details": {
         "offsetX": 0.003,
         "offsetY": -1.047
-      },
-      "Bioscan Radar": {
-        "offsetX": -200.0,
-        "offsetY": 0.0
       }
     }
   },
   "EDR": {
     "idPrefixGroups": {
       "EDR Docking": {
-        "offsetX": -460.01,
-        "offsetY": 239.951
-      }
-    }
-  },
-  "LandingPad": {
-    "idPrefixGroups": {
-      "LandingPad": {
-        "idPrefixGroupAnchor": "nw",
-        "offsetX": -3.0,
-        "offsetY": -3.0
-      }
-    }
-  },
-  "overlay-controller-status": {
-    "idPrefixGroups": {
-      "Overlay Controller Status": {
-        "offsetX": 0.06,
-        "offsetY": 0.035
+        "offsetX": 0.0,
+        "offsetY": 0.001
       }
     }
   }
