@@ -1584,6 +1584,7 @@ class OverlayConfigApp(tk.Tk):
         self._move_guard_timeout_ms = 500
         self._pending_focus_out = False
         self._drag_offset: tuple[int, int] | None = None
+        self._previous_foreground_hwnd: int | None = None
 
         self._placement_open = False
         self._open_width = 0
@@ -2262,6 +2263,7 @@ class OverlayConfigApp(tk.Tk):
         self._cancel_status_poll()
         self._stop_controller_heartbeat()
         self._deactivate_force_render_override()
+        self._restore_foreground_window()
         self.destroy()
 
     def _handle_focus_in(self, _event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]
@@ -3990,6 +3992,7 @@ class OverlayConfigApp(tk.Tk):
     def _center_and_show(self) -> None:
         """Center the window before making it visible to avoid jumpiness."""
 
+        self._capture_foreground_window()
         self._center_on_screen()
         try:
             self.deiconify()
@@ -4138,6 +4141,66 @@ class OverlayConfigApp(tk.Tk):
             else:
                 self.focus_set()
                 self.after_idle(lambda: self.focus_set())
+        except Exception:
+            pass
+
+    def _capture_foreground_window(self) -> None:
+        """Remember the current foreground window before we take focus (Windows only)."""
+
+        self._previous_foreground_hwnd = None
+        if platform.system() != "Windows":
+            return
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+            hwnd = int(user32.GetForegroundWindow())
+            self._previous_foreground_hwnd = hwnd or None
+        except Exception:
+            self._previous_foreground_hwnd = None
+
+    def _restore_foreground_window(self) -> None:
+        """Best-effort restore focus to the window that was foreground before we opened."""
+
+        if platform.system() != "Windows":
+            self._previous_foreground_hwnd = None
+            return
+
+        target_hwnd = self._previous_foreground_hwnd
+        self._previous_foreground_hwnd = None
+        if not target_hwnd:
+            return
+
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            current_hwnd = None
+            try:
+                current_hwnd = int(self.winfo_id())
+            except Exception:
+                current_hwnd = None
+            if current_hwnd and current_hwnd == int(target_hwnd):
+                return
+
+            fg_hwnd = user32.GetForegroundWindow()
+            fg_tid = user32.GetWindowThreadProcessId(fg_hwnd, 0)
+            cur_tid = kernel32.GetCurrentThreadId()
+
+            attached = False
+            try:
+                if fg_tid and fg_tid != cur_tid:
+                    attached = bool(user32.AttachThreadInput(fg_tid, cur_tid, True))
+                user32.SetForegroundWindow(target_hwnd)
+                user32.SetActiveWindow(target_hwnd)
+                user32.SetFocus(target_hwnd)
+            finally:
+                if attached:
+                    try:
+                        user32.AttachThreadInput(fg_tid, cur_tid, False)
+                    except Exception:
+                        pass
         except Exception:
             pass
 
