@@ -1407,4 +1407,6 @@ main() {
     fi
 }
 
-main "$@"
+if [[ -z "${MODERN_OVERLAY_INSTALLER_IMPORT:-}" ]]; then
+    main "$@"
+fi

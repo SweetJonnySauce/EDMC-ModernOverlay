@@ -24,7 +24,7 @@ Describe 'Update-ExistingInstall' {
             $originalUserContent = '{"user":"keep"}'
             Set-Content -LiteralPath $userFile -Value $originalUserContent -Encoding UTF8
 
-            { Update-ExistingInstall -SourceDir $sourceDir -DestDir $destDir } | Should -NotThrow
+            Update-ExistingInstall -SourceDir $sourceDir -DestDir $destDir
 
             Test-Path -LiteralPath $userFile | Should -BeTrue
             Get-Content -LiteralPath $userFile -Raw -Encoding UTF8 | Should -Be $originalUserContent

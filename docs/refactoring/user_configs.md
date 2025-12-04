@@ -542,3 +542,4 @@ Use this doc to jot requirements, constraints, and experiments as we iterate.
 - `scripts/install_linux.sh` rsync updates now exclude `overlay_groupings.user.json`, preserving user overrides during upgrades.
 - Added `tests/test_install_linux.sh` to assert the user file survives an rsync-based update. (Hook into CI TBD.)
 - CI runs the Linux installer test via `linux-installer-tests` in `.github/workflows/ci.yml`.
+- Installer script now honors `MODERN_OVERLAY_INSTALLER_IMPORT` to allow sourcing in tests without executing the full install.

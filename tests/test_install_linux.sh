@@ -20,8 +20,10 @@ test_preserves_user_groupings_on_update() {
     local user_file="$dest/overlay_groupings.user.json"
     printf '{"user":"keep"}' >"$user_file"
 
+    export MODERN_OVERLAY_INSTALLER_IMPORT=1
     # shellcheck source=/dev/null
     source "$SCRIPT_DIR/scripts/install_linux.sh"
+    unset MODERN_OVERLAY_INSTALLER_IMPORT
     rsync_update_plugin "$src" "$dest"
 
     if [[ ! -f "$user_file" ]]; then
