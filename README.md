@@ -1,5 +1,4 @@
 # EDMC Modern Overlay (beta)
-[![CodeQL](https://github.com/SweetJonnySauce/EDMCModernOverlay/actions/workflows/codeql-analysis.yml/badge.svg)]
 [![Github All Releases](https://img.shields.io/github/downloads/SweetJonnySauce/EDMCModernOverlay/total.svg)](https://github.com/SweetJonnySauce/EDMCModernOverlay/releases/latest)
 [![GitHub Latest Version](https://img.shields.io/github/v/release/SweetJonnySauce/EDMCModernOverlay)](https://github.com/SweetJonnySauce/EDMCModernOverlay/releases/latest)
 
