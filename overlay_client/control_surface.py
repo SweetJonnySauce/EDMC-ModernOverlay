@@ -707,14 +707,17 @@ class ControlSurfaceMixin:
         except Exception as exc:
             _CLIENT_LOGGER.debug("Override reload failed: %s", exc, exc_info=exc)
 
-    def set_active_controller_group(self, plugin: Optional[str], label: Optional[str]) -> None:
+    def set_active_controller_group(self, plugin: Optional[str], label: Optional[str], anchor: Optional[str] = None) -> None:
         plugin_name = str(plugin or "").strip()
         label_name = str(label or "").strip()
+        anchor_token = str(anchor or "").strip().lower() if anchor is not None else None
         new_value: Optional[tuple[str, str]] = (plugin_name, label_name) if plugin_name and label_name else None
-        current = getattr(self, "_controller_active_group", None)
-        if new_value == current:
+        current_group = getattr(self, "_controller_active_group", None)
+        current_anchor = getattr(self, "_controller_active_anchor", None)
+        if new_value == current_group and anchor_token == current_anchor:
             return
         self._controller_active_group = new_value
+        self._controller_active_anchor = anchor_token
         self._request_repaint("controller_target", immediate=True)
 
     def update_platform_context(self, context_payload: Optional[Dict[str, Any]]) -> None:

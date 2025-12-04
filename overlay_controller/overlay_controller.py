@@ -16,6 +16,7 @@ import sys
 import time
 import traceback
 import logging
+import math
 from math import ceil
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +31,10 @@ from overlay_client.debug_config import DEBUG_CONFIG_ENABLED
 from overlay_client.logging_utils import build_rotating_file_handler, resolve_log_level, resolve_logs_dir
 from overlay_plugin.groupings_diff import diff_groupings, is_empty_diff
 from overlay_plugin.groupings_loader import GroupingsLoader
+from overlay_client.group_transform import GroupTransform
+from overlay_client.viewport_helper import BASE_HEIGHT as VC_BASE_HEIGHT, BASE_WIDTH as VC_BASE_WIDTH, ScaleMode
+from overlay_client.viewport_transform import ViewportState, build_viewport, compute_proportional_translation
+from overlay_client.window_utils import compute_legacy_mapper
 try:  # When run as a package (`python -m overlay_controller.overlay_controller`)
     from overlay_controller.input_bindings import BindingConfig, BindingManager
     from overlay_controller.selection_overlay import SelectionOverlay
@@ -1663,7 +1668,7 @@ class OverlayConfigApp(tk.Tk):
         self._controller_heartbeat_handle: str | None = None
         self._last_override_reload_nonce: Optional[str] = None
         self._last_override_reload_ts: float = 0.0
-        self._last_active_group_sent: Optional[tuple[str, str]] = None
+        self._last_active_group_sent: Optional[tuple[str, str, str]] = None
 
         self._groupings_cache = self._load_groupings_cache()
         self._build_layout()
@@ -2613,6 +2618,121 @@ class OverlayConfigApp(tk.Tk):
             cache_timestamp=cache_ts,
         )
 
+    def _scale_mode_setting(self) -> str:
+        try:
+            raw = json.loads(self._settings_path.read_text(encoding="utf-8"))
+            value = raw.get("scale_mode")
+            if isinstance(value, str):
+                token = value.strip().lower()
+                if token in {"fit", "fill"}:
+                    return token
+        except Exception:
+            pass
+        return "fill"
+
+    @staticmethod
+    def _clamp_unit(value: float) -> float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if not math.isfinite(number):
+            return 0.0
+        if number < 0.0:
+            return 0.0
+        if number > 1.0:
+            return 1.0
+        return number
+
+    @staticmethod
+    def _anchor_point_from_bounds(bounds: tuple[float, float, float, float], anchor: str) -> tuple[float, float]:
+        min_x, min_y, max_x, max_y = bounds
+        mid_x = (min_x + max_x) / 2.0
+        mid_y = (min_y + max_y) / 2.0
+        token = (anchor or "nw").strip().lower()
+        if token in {"c", "center"}:
+            return mid_x, mid_y
+        if token in {"n", "top"}:
+            return mid_x, min_y
+        if token in {"ne"}:
+            return max_x, min_y
+        if token in {"right", "e"}:
+            return max_x, mid_y
+        if token in {"se"}:
+            return max_x, max_y
+        if token in {"bottom", "s"}:
+            return mid_x, max_y
+        if token in {"sw"}:
+            return min_x, max_y
+        if token in {"left", "w"}:
+            return min_x, mid_y
+        return min_x, min_y
+
+    @staticmethod
+    def _translate_snapshot_for_fill(
+        snapshot: _GroupSnapshot,
+        viewport_width: float,
+        viewport_height: float,
+        *,
+        scale_mode_value: Optional[str] = None,
+        anchor_token_override: Optional[str] = None,
+    ) -> _GroupSnapshot:
+        if snapshot is None or snapshot.has_transform:
+            return snapshot
+        scale_mode = (scale_mode_value or "fill").strip().lower()
+        mapper = compute_legacy_mapper(scale_mode, float(max(viewport_width, 1.0)), float(max(viewport_height, 1.0)))
+        transform = mapper.transform
+        if transform.mode is not ScaleMode.FILL or not (transform.overflow_x or transform.overflow_y):
+            return snapshot
+        base_bounds = snapshot.base_bounds
+        anchor_token = anchor_token_override or snapshot.transform_anchor_token or snapshot.anchor_token or "nw"
+        anchor_point = OverlayConfigApp._anchor_point_from_bounds(base_bounds, anchor_token)
+        base_width = VC_BASE_WIDTH if VC_BASE_WIDTH > 0.0 else 1.0
+        base_height = VC_BASE_HEIGHT if VC_BASE_HEIGHT > 0.0 else 1.0
+        clamp = OverlayConfigApp._clamp_unit
+        group_transform = GroupTransform(
+            dx=0.0,
+            dy=0.0,
+            band_min_x=clamp(base_bounds[0] / base_width),
+            band_max_x=clamp(base_bounds[2] / base_width),
+            band_min_y=clamp(base_bounds[1] / base_height),
+            band_max_y=clamp(base_bounds[3] / base_height),
+            band_anchor_x=clamp(anchor_point[0] / base_width),
+            band_anchor_y=clamp(anchor_point[1] / base_height),
+            bounds_min_x=base_bounds[0],
+            bounds_min_y=base_bounds[1],
+            bounds_max_x=base_bounds[2],
+            bounds_max_y=base_bounds[3],
+            anchor_token=anchor_token,
+            payload_justification="left",
+        )
+        viewport_state = ViewportState(width=float(max(viewport_width, 1.0)), height=float(max(viewport_height, 1.0)))
+        fill = build_viewport(mapper, viewport_state, group_transform, VC_BASE_WIDTH, VC_BASE_HEIGHT)
+        dx, dy = compute_proportional_translation(fill, group_transform, anchor_point)
+        if not (dx or dy):
+            return snapshot
+        trans_bounds = (
+            base_bounds[0] + dx,
+            base_bounds[1] + dy,
+            base_bounds[2] + dx,
+            base_bounds[3] + dy,
+        )
+        trans_anchor = (anchor_point[0] + dx, anchor_point[1] + dy)
+        return _GroupSnapshot(
+            plugin=snapshot.plugin,
+            label=snapshot.label,
+            anchor_token=snapshot.anchor_token,
+            transform_anchor_token=anchor_token,
+            offset_x=snapshot.offset_x,
+            offset_y=snapshot.offset_y,
+            base_bounds=snapshot.base_bounds,
+            base_anchor=snapshot.base_anchor,
+            transform_bounds=trans_bounds,
+            transform_anchor=trans_anchor,
+            has_transform=True,
+            cache_timestamp=snapshot.cache_timestamp,
+        )
+
     def _update_absolute_widget_color(self, snapshot: _GroupSnapshot | None) -> None:
         widget = getattr(self, "absolute_widget", None)
         if widget is None:
@@ -3025,6 +3145,13 @@ class OverlayConfigApp(tk.Tk):
             target_frame = None
         else:
             live_anchor_token = self._get_live_anchor_token(snapshot)
+            snapshot = self._translate_snapshot_for_fill(
+                snapshot,
+                inner_w,
+                inner_h,
+                scale_mode_value=self._scale_mode_setting(),
+                anchor_token_override=live_anchor_token,
+            )
             live_anchor_abs = self._get_live_absolute_anchor(snapshot)
             target_frame = self._resolve_target_frame(snapshot)
 
@@ -3384,13 +3511,21 @@ class OverlayConfigApp(tk.Tk):
     def _send_active_group_selection(self, plugin_name: Optional[str], label: Optional[str]) -> None:
         plugin = (str(plugin_name or "").strip())
         group = (str(label or "").strip())
-        key = (plugin, group)
+        snapshot = self._get_group_snapshot((plugin, group)) if plugin and group else None
+        anchor_token = self._get_live_anchor_token(snapshot) if snapshot is not None else None
+        anchor_value = (anchor_token or "").strip().lower()
+        key = (plugin, group, anchor_value)
         if key == self._last_active_group_sent:
             return
-        payload = {"cli": "controller_active_group", "plugin": plugin, "label": group}
+        payload = {"cli": "controller_active_group", "plugin": plugin, "label": group, "anchor": anchor_value}
         self._send_plugin_cli(payload)
         self._last_active_group_sent = key
-        _controller_debug("Controller active group signal sent: %s/%s", plugin or "<none>", group or "<none>")
+        _controller_debug(
+            "Controller active group signal sent: %s/%s anchor=%s",
+            plugin or "<none>",
+            group or "<none>",
+            anchor_value or "<none>",
+        )
 
     def _cancel_offset_resync(self) -> None:
         handle = getattr(self, "_offset_resync_handle", None)
@@ -3673,6 +3808,8 @@ class OverlayConfigApp(tk.Tk):
         self._draw_preview()
         if captured:
             self._schedule_anchor_restore(selection)
+        # Notify client of anchor change for active group selection.
+        self._send_active_group_selection(plugin_name, label)
 
     def _on_configure_activity(self) -> None:
         """Track recent move/resize to avoid closing during window drag."""

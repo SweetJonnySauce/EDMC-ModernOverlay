@@ -1943,6 +1943,8 @@ class _PluginRuntime:
                 label_raw = payload.get("label")
                 plugin_name = str(plugin_name_raw or "").strip()
                 label = str(label_raw or "").strip()
+                anchor_raw = payload.get("anchor")
+                anchor_token = str(anchor_raw or "").strip().lower() if anchor_raw is not None else ""
                 if plugin_name and label:
                     self._controller_active_group = (plugin_name, label)
                 else:
@@ -1951,6 +1953,7 @@ class _PluginRuntime:
                     "event": "OverlayControllerActiveGroup",
                     "plugin": plugin_name,
                     "label": label,
+                    "anchor": anchor_token,
                     "timestamp": datetime.now(UTC).isoformat(),
                 }
                 self._publish_payload(message)
