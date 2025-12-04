@@ -524,8 +524,7 @@ Use this doc to jot requirements, constraints, and experiments as we iterate.
 
 #### Stage 5.1 Decisions (Windows)
 - `scripts/install_windows.ps1` now backs up `overlay_groupings.user.json` before replacing an existing install and restores it afterward, alongside the existing venv/font preservation. Fresh installs remain unchanged.
-- Pester test `scripts/install_windows.Tests.ps1` asserts `overlay_groupings.user.json` survives an update.
-- CI runs the Windows installer test via `windows-installer-tests` in `.github/workflows/ci.yml`.
+- (Pester test/CI job removed for now; Windows preservation verified manually.)
 
 #### Stage 5.2 Plan (Linux)
 - Ensure Linux packaging (tarball/pacman/deb or EDMC plugin copy) leaves `overlay_groupings.user.json` untouched on upgrade/uninstall.
