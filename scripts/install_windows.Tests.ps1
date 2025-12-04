@@ -4,14 +4,11 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $env:MODERN_OVERLAY_INSTALLER_IMPORT = '1'
 
-$here = $PSScriptRoot
-if (-not $here) {
-    $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-}
-if (-not $here) {
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+if ([string]::IsNullOrWhiteSpace($here)) {
     $here = (Get-Location).Path
 }
-$installerPath = Join-Path $here 'install_windows.ps1'
+$installerPath = Join-Path -Path $here -ChildPath 'install_windows.ps1'
 if (-not (Test-Path -LiteralPath $installerPath)) {
     throw "Installer script not found at '$installerPath'"
 }
