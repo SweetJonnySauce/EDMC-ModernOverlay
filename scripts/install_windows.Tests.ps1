@@ -19,7 +19,7 @@ if (-not (Test-Path -LiteralPath $installerPath)) {
 Describe 'Update-ExistingInstall' {
     BeforeAll {
         $env:MODERN_OVERLAY_INSTALLER_IMPORT = '1'
-        . $installerPath
+        . $installerPath | Out-Null
     }
 
     It 'preserves overlay_groupings.user.json when updating an existing install' {
