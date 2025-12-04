@@ -21,6 +21,10 @@ class _PainterStub:
         self.draws.append(("ellipse", point.x(), point.y(), rx, ry))
 
 
+class _WindowStub(rs.RenderSurfaceMixin):
+    pass
+
+
 def _make_mapper(scale: float = 1.0):
     vt = ViewportTransform(
         mode=ScaleMode.FIT, scale=scale, offset=(0.0, 0.0), scaled_size=(1280.0, 960.0), overflow_x=False, overflow_y=False
@@ -144,14 +148,13 @@ def test_target_box_uses_cache_fallback_and_anchor():
 
 
 def test_target_box_fallback_uses_anchor_override():
-    window = SimpleNamespace()
+    window = _WindowStub()
     window._controller_active_group = ("PluginB", "G1")
     window._controller_active_anchor = "ne"
     window.controller_mode_state = lambda: "active"
     window._last_overlay_bounds_for_target = {}
     window._last_transform_by_group = {}
     window._resolve_bounds_for_active_group = lambda ag, bm: bm.get(ag)
-    window._fallback_bounds_from_cache = lambda ag, mapper=None, anchor_override=None: rs.RenderSurfaceMixin._fallback_bounds_from_cache(window, ag, mapper, anchor_override=anchor_override)  # type: ignore[misc]
     window._line_width = lambda key: 1
     window._compute_legacy_mapper = lambda: _make_mapper(1.0)
     window._overlay_bounds_to_rect = lambda b, m: rs.QRect(int(b.min_x), int(b.min_y), int(b.max_x - b.min_x), int(b.max_y - b.min_y))
@@ -189,7 +192,7 @@ def test_target_box_fallback_uses_anchor_override():
 
 
 def test_target_box_cache_fallback_applies_fill_translation():
-    window = SimpleNamespace()
+    window = _WindowStub()
     window._controller_active_group = ("PluginB", "G1")
     window.controller_mode_state = lambda: "active"
     window._last_overlay_bounds_for_target = {}
@@ -203,6 +206,7 @@ def test_target_box_cache_fallback_applies_fill_translation():
     window._build_bounds_with_anchor = lambda w, h, token, ax, ay: rs._OverlayBounds(min_x=ax, min_y=ay, max_x=ax + w, max_y=ay + h)
     window._anchor_from_overlay_bounds = lambda bounds, token: (bounds.min_x, bounds.min_y)
     window._viewport_state = lambda: rs.ViewportState(width=1280.0, height=480.0, device_ratio=1.0)
+    # Use mixin method directly.
     cache_entry = {
         "base": {
             "base_min_x": 100.0,

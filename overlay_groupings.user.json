@@ -25,9 +25,8 @@
   "EDR": {
     "idPrefixGroups": {
       "EDR Docking": {
-        "idPrefixGroupAnchor": "ne",
-        "offsetX": 39.99,
-        "offsetY": 29.951
+        "offsetX": -460.01,
+        "offsetY": 239.951
       }
     }
   },

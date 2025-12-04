@@ -1745,27 +1745,30 @@ class RenderSurfaceMixin:
                 entry = None
         if entry is None:
             return None, None
-        anchor_override = None
+        token_override = anchor_override
+        offset_dx = offset_dy = 0.0
         override_manager = getattr(self, "_override_manager", None)
         if override_manager is not None:
             try:
-                override_manager.group_offsets(plugin, suffix)
+                offset_dx, offset_dy = override_manager.group_offsets(plugin, suffix)
             except Exception:
-                pass
+                offset_dx = offset_dy = 0.0
             try:
                 _, anchor_token = override_manager.group_preserve_fill_aspect(plugin, suffix)
-                anchor_override = anchor_token
+                if token_override is None:
+                    token_override = anchor_token
             except Exception:
-                anchor_override = None
+                pass
         bounds, cache_anchor_token, width, height = self._overlay_bounds_from_cache_entry(entry or {})
         if bounds is None or not bounds.is_valid():
             return None, None
-        original_anchor_token = cache_anchor_token or "nw"
-        token = anchor_override or cache_anchor_token or "nw"
+        token = token_override or cache_anchor_token or "nw"
+        if offset_dx or offset_dy:
+            bounds.translate(offset_dx, offset_dy)
         # Preserve the original anchor position as the absolute reference, then rebuild bounds
         # around that reference if the anchor token has changed.
-        anchor_abs = self._anchor_from_overlay_bounds(bounds, original_anchor_token) or (bounds.min_x, bounds.min_y)
-        if token != original_anchor_token and width > 0.0 and height > 0.0:
+        anchor_abs = self._anchor_from_overlay_bounds(bounds, cache_anchor_token or "nw") or (bounds.min_x, bounds.min_y)
+        if token != (cache_anchor_token or "nw") and width > 0.0 and height > 0.0:
             try:
                 bounds = self._build_bounds_with_anchor(width, height, token, anchor_abs[0], anchor_abs[1])
             except Exception:
