@@ -9,18 +9,19 @@ if (-not $here) {
     $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 }
 if (-not $here) {
-    $here = Get-Location
+    $here = (Get-Location).Path
 }
-. (Join-Path $here 'install_windows.ps1')
+$installerPath = Join-Path $here 'install_windows.ps1'
+if (-not (Test-Path -LiteralPath $installerPath)) {
+    throw "Installer script not found at '$installerPath'"
+}
+. $installerPath
 
 Describe 'Update-ExistingInstall' {
     It 'preserves overlay_groupings.user.json when updating an existing install' {
         # Arrange: use a real temp root to avoid TestDrive quirks.
         $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("pester-" + [guid]::NewGuid().ToString('N'))
         try {
-            $env:MODERN_OVERLAY_INSTALLER_IMPORT = '1'
-            . (Join-Path $here 'install_windows.ps1')
-
             $payloadRoot = Join-Path $tempRoot 'payload'
             $sourceDir = Join-Path $payloadRoot 'EDMCModernOverlay'
             New-Item -ItemType Directory -Path $sourceDir -Force | Out-Null
