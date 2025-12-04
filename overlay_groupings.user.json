@@ -2,7 +2,8 @@
   "BGS-Tally": {
     "idPrefixGroups": {
       "BGS-Tally Colonisation": {
-        "offsetX": 0.0
+        "offsetX": 50.0,
+        "offsetY": 240.0
       }
     }
   },
