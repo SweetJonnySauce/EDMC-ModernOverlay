@@ -101,6 +101,7 @@ def test_controller_write_uses_diff(tmp_path):
             }
         },
         "PluginOnly": {"idPrefixGroups": {"Only": {"idPrefixes": ["only-"]}}},
+        "_edit_nonce": "",
     }
 
 

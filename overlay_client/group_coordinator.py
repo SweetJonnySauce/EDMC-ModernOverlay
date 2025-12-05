@@ -125,6 +125,10 @@ class GroupCoordinator:
             "base_max_x": self._cache_safe_float(payload.get("max_x")),
             "base_max_y": self._cache_safe_float(payload.get("max_y")),
             "has_transformed": bool(payload.get("has_transformed", False)),
+            "offset_x": self._cache_safe_float(payload.get("offset_x")),
+            "offset_y": self._cache_safe_float(payload.get("offset_y")),
+            "edit_nonce": str(payload.get("edit_nonce") or "").strip(),
+            "controller_ts": self._cache_safe_float(payload.get("controller_ts")),
         }
 
     def _transformed_cache_payload(self, payload: Mapping[str, Any]) -> Dict[str, Any]:

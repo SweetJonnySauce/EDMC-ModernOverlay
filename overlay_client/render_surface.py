@@ -253,6 +253,39 @@ class RenderSurfaceMixin:
             details["points"] = item.data.get("points")
         self._log_legacy_trace(item.plugin, item.item_id, stage, details)
 
+    def _current_override_nonce(self) -> str:
+        controller_nonce = getattr(self, "_controller_active_nonce", "") or ""
+        if controller_nonce:
+            return controller_nonce
+        override_manager = getattr(self, "_override_manager", None)
+        if override_manager is not None:
+            getter = getattr(override_manager, "current_override_nonce", None)
+            if callable(getter):
+                try:
+                    token = getter()
+                    if token:
+                        return str(token)
+                except Exception:
+                    return ""
+        return ""
+
+    def _current_override_generation_ts(self) -> float:
+        override_manager = getattr(self, "_override_manager", None)
+        generation_ts = 0.0
+        if override_manager is not None:
+            getter = getattr(override_manager, "override_generation_timestamp", None)
+            if callable(getter):
+                try:
+                    generation_ts = float(getter())
+                except Exception:
+                    generation_ts = 0.0
+        controller_ts = getattr(self, "_controller_override_ts", 0.0)
+        nonce_ts = getattr(self, "_controller_active_nonce_ts", 0.0)
+        for candidate in (controller_ts, nonce_ts):
+            if candidate and candidate > generation_ts:
+                generation_ts = candidate
+        return generation_ts
+
     def _handle_legacy(self, payload: Dict[str, Any]) -> None:
         plugin_name = self._extract_plugin_name(payload)
         message_id = str(payload.get("id") or "")
@@ -1575,6 +1608,8 @@ class RenderSurfaceMixin:
     @staticmethod
     def _overlay_bounds_from_cache_entry(
         entry: Mapping[str, Any],
+        *,
+        prefer_transformed: bool = True,
     ) -> Tuple[Optional[_OverlayBounds], Optional[str], float, float]:
         if not isinstance(entry, Mapping):
             return None, None, 0.0, 0.0
@@ -1588,7 +1623,7 @@ class RenderSurfaceMixin:
                 return default
 
         width = height = 0.0
-        if isinstance(transformed, Mapping):
+        if prefer_transformed and isinstance(transformed, Mapping):
             min_x = _f(transformed.get("trans_min_x"))
             min_y = _f(transformed.get("trans_min_y"))
             max_x = _f(transformed.get("trans_max_x"))
@@ -1747,47 +1782,94 @@ class RenderSurfaceMixin:
             return None, None
         token_override = anchor_override
         override_manager = getattr(self, "_override_manager", None)
-        offset_dx = offset_dy = 0.0
+        base_meta = entry.get("base") if isinstance(entry, Mapping) else {}
+
+        def _safe_float(value: Any) -> float:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return 0.0
+
+        default_offset_x = _safe_float(base_meta.get("offset_x"))
+        default_offset_y = _safe_float(base_meta.get("offset_y"))
+        offset_dx = default_offset_x
+        offset_dy = default_offset_y
         anchor_token_override: Optional[str] = None
-        active_nonce = getattr(self, "_controller_active_nonce", "")
-        entry_nonce = str(entry.get("edit_nonce") or "").strip() if isinstance(entry, Mapping) else ""
         if override_manager is not None:
             try:
                 offset_dx, offset_dy = override_manager.group_offsets(plugin, suffix)
             except Exception:
-                offset_dx = offset_dy = 0.0
+                offset_dx, offset_dy = default_offset_x, default_offset_y
             try:
                 _, anchor_token = override_manager.group_preserve_fill_aspect(plugin, suffix)
                 anchor_token_override = anchor_token
             except Exception:
                 anchor_token_override = None
-        base = entry.get("base") if isinstance(entry, Mapping) else None
-        transformed = entry.get("transformed") if isinstance(entry, Mapping) else None
-        cache_anchor_token = None
-        if isinstance(transformed, Mapping):
-            anchor_val = transformed.get("anchor")
-            if isinstance(anchor_val, str):
-                cache_anchor_token = anchor_val
-        bounds, base_anchor_token, width, height = self._overlay_bounds_from_cache_entry(entry or {})
-        if bounds is None or not bounds.is_valid():
+
+        base_bounds, base_anchor_token, base_width, base_height = self._overlay_bounds_from_cache_entry(
+            entry or {}, prefer_transformed=False
+        )
+        if base_bounds is None or not base_bounds.is_valid():
             return None, None
-        if active_nonce and entry_nonce and entry_nonce != active_nonce:
-            # nonce mismatch: treat as missing transform; continue to recompute from overrides
-            pass
-        # Build bounds from base + current overrides; do not trust cached transformed geometry.
-        if offset_dx or offset_dy:
+
+        transformed = entry.get("transformed") if isinstance(entry, Mapping) else None
+        cache_anchor_token = base_anchor_token
+        bounds = base_bounds
+        width = base_width
+        height = base_height
+
+        def _offsets_match(payload: Mapping[str, Any], target_dx: float, target_dy: float) -> bool:
+            tol = 0.5
+            cache_dx = _safe_float(payload.get("offset_dx"))
+            cache_dy = _safe_float(payload.get("offset_dy"))
+            return abs(cache_dx - target_dx) <= tol and abs(cache_dy - target_dy) <= tol
+
+        def _entry_nonce_value(obj: Mapping[str, Any]) -> str:
+            raw_nonce = obj.get("edit_nonce")
+            if isinstance(raw_nonce, str):
+                return raw_nonce.strip()
+            base_block = obj.get("base")
+            if isinstance(base_block, Mapping):
+                embedded = base_block.get("edit_nonce")
+                if isinstance(embedded, str):
+                    return embedded.strip()
+            return ""
+
+        use_cached_transform = False
+        target_nonce = self._current_override_nonce()
+        entry_nonce = _entry_nonce_value(entry if isinstance(entry, Mapping) else {})
+        entry_last_updated = _safe_float(entry.get("last_updated"))
+        generation_ts = self._current_override_generation_ts()
+        if isinstance(transformed, Mapping):
+            nonce_ok = not target_nonce or not entry_nonce or entry_nonce == target_nonce
+            timestamp_ok = not generation_ts or entry_last_updated >= generation_ts - 1e-6
+            if nonce_ok and timestamp_ok and _offsets_match(transformed, offset_dx, offset_dy):
+                cached_bounds, cached_anchor, cached_width, cached_height = self._overlay_bounds_from_cache_entry(
+                    entry or {}, prefer_transformed=True
+                )
+                if cached_bounds is not None and cached_bounds.is_valid():
+                    bounds = cached_bounds
+                    cache_anchor_token = cached_anchor or cache_anchor_token
+                    width = cached_width
+                    height = cached_height
+                    use_cached_transform = True
+
+        if not use_cached_transform and (offset_dx or offset_dy):
             bounds.translate(offset_dx, offset_dy)
-        token = token_override or anchor_token_override or cache_anchor_token or base_anchor_token or "nw"
-        if token != (cache_anchor_token or base_anchor_token or "nw") and width > 0.0 and height > 0.0:
+
+        token = token_override or anchor_token_override or cache_anchor_token or "nw"
+        source_anchor = cache_anchor_token or "nw"
+        if token != source_anchor and width > 0.0 and height > 0.0:
             try:
-                anchor_abs = self._anchor_from_overlay_bounds(bounds, cache_anchor_token or base_anchor_token or "nw") or (
+                anchor_abs = self._anchor_from_overlay_bounds(bounds, source_anchor) or (
                     bounds.min_x,
                     bounds.min_y,
                 )
                 bounds = self._build_bounds_with_anchor(width, height, token, anchor_abs[0], anchor_abs[1])
             except Exception:
                 pass
-        if mapper is not None:
+
+        if mapper is not None and not use_cached_transform:
             try:
                 bounds = self._apply_fill_translation_from_cache(bounds, token, mapper)
             except Exception:

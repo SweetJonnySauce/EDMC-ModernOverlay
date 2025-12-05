@@ -2604,7 +2604,7 @@ class OverlayConfigApp(tk.Tk):
                 return False
             return abs(tx - offset_x) <= tol and abs(ty - offset_y) <= tol
 
-        edit_ts = getattr(self, "_last_edit_ts", 0.0) or 0.0
+        # edit_ts retained for potential future gating/debug.
         use_transformed = False  # POC: ignore cached transforms to avoid snap-backs
         if use_transformed and transformed_payload:
             trans_min_x = float(transformed_payload.get("trans_min_x", base_min_x))

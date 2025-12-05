@@ -704,6 +704,7 @@ class ControlSurfaceMixin:
             self._mark_legacy_cache_dirty()
             self._request_repaint("override_reload", immediate=True)
             _CLIENT_LOGGER.debug("Override reload handled (nonce=%s)", nonce or "none")
+            self._controller_override_ts = time.time()
         except Exception as exc:
             _CLIENT_LOGGER.debug("Override reload failed: %s", exc, exc_info=exc)
 
@@ -723,10 +724,12 @@ class ControlSurfaceMixin:
         try:
             if nonce_val:
                 mgr._controller_active_nonce = nonce_val  # type: ignore[attr-defined]
+                mgr._controller_active_nonce_ts = time.time()  # type: ignore[attr-defined]
             mgr.apply_override_payload(overrides_map, nonce_val)
             self._mark_legacy_cache_dirty()
             self._request_repaint("override_payload", immediate=True)
             _CLIENT_LOGGER.debug("Override payload applied (nonce=%s)", nonce_val or "none")
+            self._controller_override_ts = time.time()
         except Exception as exc:
             _CLIENT_LOGGER.debug("Override payload failed: %s", exc, exc_info=exc)
 
@@ -744,10 +747,15 @@ class ControlSurfaceMixin:
         self._controller_active_group = new_value
         self._controller_active_anchor = anchor_token
         self._controller_active_nonce = nonce_value
+        now = time.time()
+        self._controller_active_nonce_ts = now
+        if nonce_value:
+            self._controller_override_ts = max(self._controller_override_ts, now)
         mgr = getattr(self, "_override_manager", None)
         if mgr is not None:
             try:
                 mgr._controller_active_nonce = nonce_value  # type: ignore[attr-defined]
+                mgr._controller_active_nonce_ts = now  # type: ignore[attr-defined]
             except Exception:
                 pass
         self._request_repaint("controller_target", immediate=True)

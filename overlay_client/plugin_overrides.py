@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -69,6 +70,9 @@ class PluginOverrideManager:
         self._loader_loaded = False
         self._controller_override_frozen: bool = False
         self._controller_active_nonce: str = ""
+        self._controller_active_nonce_ts: float = 0.0
+        self._loaded_override_nonce: str = ""
+        self._last_reload_ts: float = 0.0
         self._load_config()
 
     def apply_override_payload(self, payload: Optional[Mapping[str, Any]], nonce: str) -> None:
@@ -76,11 +80,11 @@ class PluginOverrideManager:
 
         if payload is None or not isinstance(payload, Mapping):
             return
-        active_nonce = getattr(self, "_controller_active_nonce", "")
         incoming_nonce = str(nonce or "").strip()
         try:
             if incoming_nonce:
                 self._controller_active_nonce = incoming_nonce
+                self._controller_active_nonce_ts = time.time()
         except Exception:
             pass
         self._load_config_data(payload, mtime=time.time())
@@ -452,6 +456,14 @@ class PluginOverrideManager:
         self._plugins = plugins
         self._diagnostic_spans.clear()
         self._mtime = mtime if mtime is not None else (self._path.stat().st_mtime if self._path.exists() else None)
+        if controller_nonce:
+            self._loaded_override_nonce = controller_nonce
+        elif active_nonce and not self._loaded_override_nonce:
+            self._loaded_override_nonce = active_nonce
+        reload_ts = time.time()
+        if isinstance(mtime, (int, float)) and mtime > 0.0:
+            reload_ts = float(mtime)
+        self._last_reload_ts = reload_ts
         self._logger.debug(
             "Loaded %d plugin override configuration(s) from %s.",
             len(self._plugins),
@@ -462,6 +474,16 @@ class PluginOverrideManager:
     @property
     def generation(self) -> int:
         return self._generation
+
+    def current_override_nonce(self) -> str:
+        if self._controller_active_nonce:
+            return self._controller_active_nonce
+        if self._loaded_override_nonce:
+            return self._loaded_override_nonce
+        return ""
+
+    def override_generation_timestamp(self) -> float:
+        return float(self._last_reload_ts or 0.0)
 
     def force_reload(self) -> None:
         """Forcefully reload the override configuration from disk."""

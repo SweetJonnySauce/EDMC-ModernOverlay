@@ -98,6 +98,12 @@ class GroupPlacementCache:
         suffix_key = (suffix or "").strip()
         normalized_payload = dict(normalized)
         transformed_payload = dict(transformed) if transformed is not None else None
+        edit_nonce = str(normalized_payload.get("edit_nonce") or "").strip()
+        controller_ts = normalized_payload.get("controller_ts")
+        try:
+            controller_ts_val = float(controller_ts)
+        except (TypeError, ValueError):
+            controller_ts_val = 0.0
         with self._lock:
             plugin_entry = self._state["groups"].setdefault(plugin_key, {})
             existing = plugin_entry.get(suffix_key)
@@ -105,11 +111,16 @@ class GroupPlacementCache:
             existing_transformed = existing.get("transformed") if isinstance(existing, dict) else None
             if existing_normalized == normalized_payload and existing_transformed == transformed_payload:
                 return
-            plugin_entry[suffix_key] = {
+            entry_payload: Dict[str, Any] = {
                 "base": normalized_payload,
                 "transformed": transformed_payload,
                 "last_updated": time.time(),
             }
+            if edit_nonce:
+                entry_payload["edit_nonce"] = edit_nonce
+            if controller_ts_val > 0.0:
+                entry_payload["controller_ts"] = controller_ts_val
+            plugin_entry[suffix_key] = entry_payload
             self._dirty = True
         self._schedule_flush()
 

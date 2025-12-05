@@ -78,6 +78,8 @@ def test_target_box_draws_only_for_active_group_when_active_mode():
 
 def test_target_box_uses_base_bounds_when_no_transform(tmp_path=None):
     window = SimpleNamespace()
+    window._current_override_nonce = lambda: ""
+    window._current_override_generation_ts = lambda: 0.0
     window._controller_active_group = ("PluginB", "G1")
     window.controller_mode_state = lambda: "active"
     window._last_overlay_bounds_for_target = {}
@@ -88,7 +90,9 @@ def test_target_box_uses_base_bounds_when_no_transform(tmp_path=None):
     window._compute_legacy_mapper = lambda: _make_mapper(1.0)
     window._overlay_bounds_to_rect = lambda b, m: rs.QRect(int(b.min_x), int(b.min_y), int(b.max_x - b.min_x), int(b.max_y - b.min_y))
     window._overlay_point_to_screen = lambda pt, m: (int(pt[0]), int(pt[1]))
-    window._overlay_bounds_from_cache_entry = lambda entry: rs.RenderSurfaceMixin._overlay_bounds_from_cache_entry(entry)
+    window._overlay_bounds_from_cache_entry = lambda entry, prefer_transformed=True: rs.RenderSurfaceMixin._overlay_bounds_from_cache_entry(  # type: ignore[misc]
+        entry, prefer_transformed=prefer_transformed
+    )
     window._build_bounds_with_anchor = lambda w, h, token, ax, ay: rs._OverlayBounds(min_x=ax, min_y=ay, max_x=ax + w, max_y=ay + h)
     window._anchor_from_overlay_bounds = lambda bounds, token: (bounds.min_x, bounds.min_y)
     cache_entry = {
@@ -119,6 +123,8 @@ def test_target_box_uses_base_bounds_when_no_transform(tmp_path=None):
 
 def test_target_box_uses_cache_fallback_and_anchor():
     window = SimpleNamespace()
+    window._current_override_nonce = lambda: ""
+    window._current_override_generation_ts = lambda: 0.0
     window._controller_active_group = ("PluginB", "G1")
     window._controller_active_anchor = None
     window.controller_mode_state = lambda: "active"
@@ -130,7 +136,9 @@ def test_target_box_uses_cache_fallback_and_anchor():
     window._compute_legacy_mapper = lambda: _make_mapper(1.0)
     window._overlay_bounds_to_rect = lambda b, m: rs.QRect(int(b.min_x), int(b.min_y), int(b.max_x - b.min_x), int(b.max_y - b.min_y))
     window._overlay_point_to_screen = lambda pt, m: (int(pt[0]), int(pt[1]))
-    window._overlay_bounds_from_cache_entry = lambda entry: rs.RenderSurfaceMixin._overlay_bounds_from_cache_entry(entry)
+    window._overlay_bounds_from_cache_entry = lambda entry, prefer_transformed=True: rs.RenderSurfaceMixin._overlay_bounds_from_cache_entry(  # type: ignore[misc]
+        entry, prefer_transformed=prefer_transformed
+    )
     window._build_bounds_with_anchor = lambda w, h, token, ax, ay: rs._OverlayBounds(min_x=ax, min_y=ay, max_x=ax + w, max_y=ay + h)
     window._anchor_from_overlay_bounds = lambda bounds, token: (bounds.min_x, bounds.min_y)
     cache_entry = {
@@ -159,7 +167,9 @@ def test_target_box_fallback_uses_anchor_override():
     window._compute_legacy_mapper = lambda: _make_mapper(1.0)
     window._overlay_bounds_to_rect = lambda b, m: rs.QRect(int(b.min_x), int(b.min_y), int(b.max_x - b.min_x), int(b.max_y - b.min_y))
     window._overlay_point_to_screen = lambda pt, m: (int(pt[0]), int(pt[1]))
-    window._overlay_bounds_from_cache_entry = lambda entry: rs.RenderSurfaceMixin._overlay_bounds_from_cache_entry(entry)
+    window._overlay_bounds_from_cache_entry = lambda entry, prefer_transformed=True: rs.RenderSurfaceMixin._overlay_bounds_from_cache_entry(  # type: ignore[misc]
+        entry, prefer_transformed=prefer_transformed
+    )
     window._build_bounds_with_anchor = lambda w, h, token, ax, ay: rs._OverlayBounds(min_x=ax, min_y=ay, max_x=ax + w, max_y=ay + h)
 
     def _anchor_from_overlay_bounds(bounds, token):
@@ -202,7 +212,9 @@ def test_target_box_cache_fallback_applies_fill_translation():
     window._compute_legacy_mapper = lambda: _make_fill_mapper(overflow_y=True)
     window._overlay_bounds_to_rect = lambda b, m: rs.QRect(int(b.min_x), int(b.min_y), int(b.max_x - b.min_x), int(b.max_y - b.min_y))
     window._overlay_point_to_screen = lambda pt, m: (int(pt[0]), int(pt[1]))
-    window._overlay_bounds_from_cache_entry = lambda entry: rs.RenderSurfaceMixin._overlay_bounds_from_cache_entry(entry)
+    window._overlay_bounds_from_cache_entry = lambda entry, prefer_transformed=True: rs.RenderSurfaceMixin._overlay_bounds_from_cache_entry(  # type: ignore[misc]
+        entry, prefer_transformed=prefer_transformed
+    )
     window._build_bounds_with_anchor = lambda w, h, token, ax, ay: rs._OverlayBounds(min_x=ax, min_y=ay, max_x=ax + w, max_y=ay + h)
     window._anchor_from_overlay_bounds = lambda bounds, token: (bounds.min_x, bounds.min_y)
     window._viewport_state = lambda: rs.ViewportState(width=1280.0, height=480.0, device_ratio=1.0)
@@ -231,3 +243,177 @@ def test_target_box_cache_fallback_applies_fill_translation():
     rect = rects[0]
     # Expect Y translated upwards from base_min_y=100 due to Fill overflow (scaled to y=50).
     assert rect[2] == 50
+
+
+def test_cache_transform_used_when_nonce_and_timestamp_match():
+    window = _WindowStub()
+    cache_entry = {
+        "base": {
+            "base_min_x": 0.0,
+            "base_min_y": 0.0,
+            "base_max_x": 100.0,
+            "base_max_y": 50.0,
+            "base_width": 100.0,
+            "base_height": 50.0,
+            "offset_x": 10.0,
+            "offset_y": 5.0,
+        },
+        "transformed": {
+            "trans_min_x": 10.0,
+            "trans_min_y": 5.0,
+            "trans_max_x": 110.0,
+            "trans_max_y": 55.0,
+            "trans_width": 100.0,
+            "trans_height": 50.0,
+            "anchor": "nw",
+            "offset_dx": 10.0,
+            "offset_dy": 5.0,
+        },
+        "last_updated": 200.0,
+        "edit_nonce": "n1",
+    }
+    window._group_cache = SimpleNamespace(
+        get_group=lambda plugin, suffix: cache_entry if (plugin, suffix) == ("PluginB", "G1") else None,
+        _state={"groups": {"PluginB": {"G1": cache_entry}}},
+    )
+    window._controller_active_group = ("PluginB", "G1")
+    window._controller_active_anchor = None
+    window._controller_active_nonce = "n1"
+    window._controller_active_nonce_ts = 150.0
+    window._controller_override_ts = 150.0
+
+    class _OverrideStub:
+        def group_offsets(self, plugin, suffix):
+            return (10.0, 5.0)
+
+        def group_preserve_fill_aspect(self, plugin, suffix):
+            return True, "nw"
+
+        def current_override_nonce(self):
+            return "n1"
+
+        def override_generation_timestamp(self):
+            return 150.0
+
+    window._override_manager = _OverrideStub()
+    bounds, token = window._fallback_bounds_from_cache(("PluginB", "G1"), mapper=None)
+    assert bounds is not None
+    assert bounds.min_x == 10.0
+    assert bounds.min_y == 5.0
+    assert token == "nw"
+
+
+def test_cache_transform_rejected_on_nonce_mismatch():
+    window = _WindowStub()
+    cache_entry = {
+        "base": {
+            "base_min_x": 0.0,
+            "base_min_y": 0.0,
+            "base_max_x": 100.0,
+            "base_max_y": 50.0,
+            "base_width": 100.0,
+            "base_height": 50.0,
+            "offset_x": 10.0,
+            "offset_y": 5.0,
+        },
+        "transformed": {
+            "trans_min_x": 10.0,
+            "trans_min_y": 5.0,
+            "trans_max_x": 110.0,
+            "trans_max_y": 55.0,
+            "trans_width": 100.0,
+            "trans_height": 50.0,
+            "anchor": "nw",
+            "offset_dx": 10.0,
+            "offset_dy": 5.0,
+        },
+        "last_updated": 50.0,
+        "edit_nonce": "n1",
+    }
+    window._group_cache = SimpleNamespace(
+        get_group=lambda plugin, suffix: cache_entry if (plugin, suffix) == ("PluginB", "G1") else None,
+        _state={"groups": {"PluginB": {"G1": cache_entry}}},
+    )
+    window._controller_active_group = ("PluginB", "G1")
+    window._controller_active_anchor = None
+    window._controller_active_nonce = "n2"
+    window._controller_active_nonce_ts = 0.0
+    window._controller_override_ts = 0.0
+
+    class _OverrideStub:
+        def group_offsets(self, plugin, suffix):
+            return (10.0, 5.0)
+
+        def group_preserve_fill_aspect(self, plugin, suffix):
+            return True, "nw"
+
+        def current_override_nonce(self):
+            return "n2"
+
+        def override_generation_timestamp(self):
+            return 0.0
+
+    window._override_manager = _OverrideStub()
+    bounds, token = window._fallback_bounds_from_cache(("PluginB", "G1"), mapper=None)
+    assert bounds is not None
+    assert bounds.min_x == 10.0
+    assert bounds.min_y == 5.0
+    assert token == "nw"
+
+
+def test_cache_transform_rejected_when_timestamp_stale():
+    window = _WindowStub()
+    cache_entry = {
+        "base": {
+            "base_min_x": 0.0,
+            "base_min_y": 0.0,
+            "base_max_x": 100.0,
+            "base_max_y": 50.0,
+            "base_width": 100.0,
+            "base_height": 50.0,
+            "offset_x": 10.0,
+            "offset_y": 5.0,
+        },
+        "transformed": {
+            "trans_min_x": 10.0,
+            "trans_min_y": 5.0,
+            "trans_max_x": 110.0,
+            "trans_max_y": 55.0,
+            "trans_width": 100.0,
+            "trans_height": 50.0,
+            "anchor": "nw",
+            "offset_dx": 10.0,
+            "offset_dy": 5.0,
+        },
+        "last_updated": 50.0,
+        "edit_nonce": "n1",
+    }
+    window._group_cache = SimpleNamespace(
+        get_group=lambda plugin, suffix: cache_entry if (plugin, suffix) == ("PluginB", "G1") else None,
+        _state={"groups": {"PluginB": {"G1": cache_entry}}},
+    )
+    window._controller_active_group = ("PluginB", "G1")
+    window._controller_active_anchor = None
+    window._controller_active_nonce = "n1"
+    window._controller_active_nonce_ts = 0.0
+    window._controller_override_ts = 200.0
+
+    class _OverrideStub:
+        def group_offsets(self, plugin, suffix):
+            return (10.0, 5.0)
+
+        def group_preserve_fill_aspect(self, plugin, suffix):
+            return True, "nw"
+
+        def current_override_nonce(self):
+            return "n1"
+
+        def override_generation_timestamp(self):
+            return 200.0
+
+    window._override_manager = _OverrideStub()
+    bounds, token = window._fallback_bounds_from_cache(("PluginB", "G1"), mapper=None)
+    assert bounds is not None
+    assert bounds.min_x == 10.0
+    assert bounds.min_y == 5.0
+    assert token == "nw"

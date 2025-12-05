@@ -79,12 +79,40 @@ Phased Plan
 | Phase # | Description | Status |
 | --- | --- | --- |
 | 0 (POC) | Prove “controller target drives HUD”: on edit, clear `transformed`/set `has_transformed=false`/bump `last_updated`; controller ignores cached `transformed` entirely (uses base+overrides); extend live-edit window to keep snapshot in-memory; atomic writes for user overrides with post-edit reload pause; client fallback recomputes target from base+overrides and ignores cached `transformed`; overrides are pushed directly to client with `_edit_nonce` and applied immediately when matching. Validate via manual tweaks. Disposable shim acceptable. | Complete |
-| 1 | Harden controller invalidation + preview synthesis + nonce: keep cache invalidation, add generation/nonce to cache entries, include nonce in override pushes; ensure atomic writes; add controller unit tests. | Pending |
-| 2 | Client stale-gating + single-application: ignore stale/mismatched cache transforms; recompute from base+overrides; fallback/draw apply offsets once and fill translation once; accept pushed overrides with nonce. Add client/unit tests for gating + no double-offset. | Pending |
+| 1 | Harden controller invalidation + preview synthesis + nonce: keep cache invalidation, add generation/nonce to cache entries and snapshot gating; include nonce in override pushes; ensure atomic writes; add controller unit tests. | Complete (unit tests to add) |
+| 2 | Client stale-gating + single-application: ignore stale/mismatched cache transforms; recompute from base+overrides; fallback/draw apply offsets once and fill translation once; accept pushed overrides with nonce. Add client/unit tests for gating + no double-offset. | Complete |
 | 3 | Write-back discipline: after render with new offsets/anchor, write fresh `transformed` with updated `last_updated`/nonce; verify debounce/flush timing and convergence tests. | Pending |
 | 4 | Integration/regression: end-to-end edits without jumps; fallback matches controller target when HUD absent; clean up POC shims/flags, keep minimal logging. | Pending |
 | 5 | UI cleanup: simplify preview to draw target=actual only; remove/redesign absolute text red warning logic now that target and actual stay aligned in preview. | Pending |
 
+Phase 1 Plan (Controller hardening + nonce)
+-------------------------------------------
+- Goals: make controller-side invalidation/synthesis robust with generation/nonce; keep preview in sync without POC shims.
+- Steps:
+  1) Cache/gen nonce: add edit generation/nonce to cache entries (`overlay_group_cache.json`) when invalidating/rewriting; include nonce in controller state and active-group signal.
+  2) Snapshot gating: use nonce+timestamp to accept `transformed` only when matching current edit; otherwise synthesize from base+offsets.
+  3) Override pushes: include nonce in pushed overrides; ensure atomic writes; remove duplicated POC guards once nonce is enforced.
+  4) Tests: controller unit tests for cache invalidation with nonce, snapshot gating, and preview synthesis; manual check that preview/HUD stay aligned during edits.
+  5) Cleanup: remove temporary POC-only skips/guards, keep minimal logging.
+
+Phase 2 Plan (Client stale-gating + single-application)
+-------------------------------------------------------
+- Goals: guarantee the client always converges to the controller target by trusting controller overrides over cache, ignoring stale transforms, and ensuring offsets/fill translation are applied once per render.
+- Steps:
+  1) Snapshot inputs: plumb `_edit_nonce` and `last_updated` through the client override loader and active group coordinator so cache lookups know the latest valid generation for each group.
+  2) Cache gating: update `GroupPlacementCache` (and any helpers in `render_surface.py`/`group_cache.py`) to accept cached `transformed` data only when the nonce/timestamp matches the active override snapshot; otherwise treat it as invalid and synthesize transformed bounds from base + overrides.
+  3) Single-application math: audit `_fallback_bounds_from_cache`, `_apply_fill_translation`, and payload builders to ensure offsets and fill spillover translation are applied exactly once regardless of cache path; add guardrails so synthesized transforms aren’t offset again when cached later.
+  4) Override adoption: wire the direct override payload (sent from the controller with nonce) into the client so edits apply immediately even if the periodic reload is paused; ensure nonce mismatches are ignored with clear logging.
+  5) Tests: extend/author unit tests covering (a) stale cache ignored when nonce mismatch or timestamp older, (b) valid cache adopted without double offset, (c) fill translation applied once, (d) override payload application updates active nonce and triggers repaint. Include regression tests in `overlay_client/tests/test_override_reload.py` or new files as needed.
+  6) Manual verification: using the controller, perform rapid offset adjustments and confirm HUD payloads track the target without snap-backs, even when cache writes are delayed; inspect `overlay_group_cache.json` to ensure newly written transforms match controller positions.
+  7) Cleanup/document: remove POC-specific comments/flags in the client path, ensure logs clearly describe when cache is ignored due to nonce/timestamp, and document the new gating behavior in this file for future reference.
+
+### Phase 2 summary / test results
+- `GroupPlacementCache` entries now carry `edit_nonce`/timestamp metadata, and `GroupCoordinator`/render pipeline propagate controller nonce + override timestamps so cache writes reflect the active generation.
+- Render fallback synthesizes bounds from base + overrides unless cached transforms match offsets, nonce, and edit timestamp; fill translation now runs only for synthesized bounds to prevent double-shifts.
+- Plugin override manager/control surface track active nonce timestamps, override payloads apply immediately, and new tests cover cache gating, metadata persistence, and nonce/timestamp guard rails.
+- Tests: `make check` (ruff + mypy + full pytest suite, including new controller target box + group cache cases).
+  
 Quick breadcrumbs for future sessions
 -------------------------------------
 - Key touchpoints:

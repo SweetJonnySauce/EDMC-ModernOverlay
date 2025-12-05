@@ -62,6 +62,9 @@ class SetupSurfaceMixin:
         self._last_override_reload_nonce: Optional[str] = None
         self._controller_active_group: Optional[tuple[str, str]] = None
         self._controller_active_anchor: Optional[str] = None
+        self._controller_active_nonce: str = ""
+        self._controller_active_nonce_ts: float = 0.0
+        self._controller_override_ts: float = 0.0
         self._mode_profile_overrides: Dict[str, object] = {}
         if DEBUG_CONFIG_ENABLED:
             # Preserve faster dev-mode cache flush cadence as an explicit override.
