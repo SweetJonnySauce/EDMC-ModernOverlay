@@ -1945,6 +1945,7 @@ class _PluginRuntime:
                 label = str(label_raw or "").strip()
                 anchor_raw = payload.get("anchor")
                 anchor_token = str(anchor_raw or "").strip().lower() if anchor_raw is not None else ""
+                edit_nonce = str(payload.get("edit_nonce") or "").strip()
                 if plugin_name and label:
                     self._controller_active_group = (plugin_name, label)
                 else:
@@ -1954,6 +1955,7 @@ class _PluginRuntime:
                     "plugin": plugin_name,
                     "label": label,
                     "anchor": anchor_token,
+                    "edit_nonce": edit_nonce,
                     "timestamp": datetime.now(UTC).isoformat(),
                 }
                 self._publish_payload(message)

@@ -67,6 +67,8 @@ class PluginOverrideManager:
         self._diagnostic_spans: Dict[Tuple[str, str], Tuple[float, float, float]] = {}
         self._generation: int = 0
         self._loader_loaded = False
+        self._controller_override_frozen: bool = False
+        self._controller_active_nonce: str = ""
         self._load_config()
 
     # ------------------------------------------------------------------
@@ -183,6 +185,8 @@ class PluginOverrideManager:
 
     def _reload_if_needed(self) -> None:
         if self._groupings_loader is not None:
+            if getattr(self, "_controller_override_frozen", False) and getattr(self, "_controller_active_nonce", ""):
+                return
             try:
                 if not self._loader_loaded:
                     self._groupings_loader.load()
@@ -240,6 +244,16 @@ class PluginOverrideManager:
         if not isinstance(raw, Mapping):
             self._logger.warning("Plugin override config must contain a JSON object at the top level.")
             return
+        controller_nonce = None
+        try:
+            controller_nonce = str(raw.get("_edit_nonce", "")).strip()
+        except Exception:
+            controller_nonce = None
+        active_nonce = getattr(self, "_controller_active_nonce", "")
+        if active_nonce:
+            if not controller_nonce or controller_nonce != active_nonce:
+                self._logger.debug("Override reload skipped: nonce mismatch (controller=%s file=%s)", active_nonce, controller_nonce or "<missing>")
+                return
 
         plugins: Dict[str, _PluginConfig] = {}
         for plugin_name, plugin_payload in raw.items():

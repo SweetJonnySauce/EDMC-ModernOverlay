@@ -32,7 +32,7 @@ def _build_payload_handler(helper: DeveloperHelperController, window: OverlayWin
             helper.apply_config(window, payload)
             return
         if event == "OverlayControllerActiveGroup":
-            window.set_active_controller_group(payload.get("plugin"), payload.get("label"), payload.get("anchor"))
+            window.set_active_controller_group(payload.get("plugin"), payload.get("label"), payload.get("anchor"), payload.get("edit_nonce"))
             return
         if event == "OverlayOverrideReload":
             window.handle_override_reload(payload)

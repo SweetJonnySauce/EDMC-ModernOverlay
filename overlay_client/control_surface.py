@@ -707,17 +707,27 @@ class ControlSurfaceMixin:
         except Exception as exc:
             _CLIENT_LOGGER.debug("Override reload failed: %s", exc, exc_info=exc)
 
-    def set_active_controller_group(self, plugin: Optional[str], label: Optional[str], anchor: Optional[str] = None) -> None:
+    def set_active_controller_group(self, plugin: Optional[str], label: Optional[str], anchor: Optional[str] = None, edit_nonce: Optional[str] = None) -> None:
         plugin_name = str(plugin or "").strip()
         label_name = str(label or "").strip()
         anchor_token = str(anchor or "").strip().lower() if anchor is not None else None
+        nonce_value = str(edit_nonce or "").strip()
         new_value: Optional[tuple[str, str]] = (plugin_name, label_name) if plugin_name and label_name else None
         current_group = getattr(self, "_controller_active_group", None)
         current_anchor = getattr(self, "_controller_active_anchor", None)
-        if new_value == current_group and anchor_token == current_anchor:
+        current_nonce = getattr(self, "_controller_active_nonce", "")
+        if new_value == current_group and anchor_token == current_anchor and nonce_value == current_nonce:
             return
         self._controller_active_group = new_value
         self._controller_active_anchor = anchor_token
+        self._controller_active_nonce = nonce_value
+        mgr = getattr(self, "_override_manager", None)
+        if mgr is not None:
+            try:
+                mgr._controller_active_nonce = nonce_value  # type: ignore[attr-defined]
+                mgr._controller_override_frozen = bool(nonce_value)  # type: ignore[attr-defined]
+            except Exception:
+                pass
         self._request_repaint("controller_target", immediate=True)
 
     def update_platform_context(self, context_payload: Optional[Dict[str, Any]]) -> None:

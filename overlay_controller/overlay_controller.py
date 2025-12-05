@@ -1663,6 +1663,9 @@ class OverlayConfigApp(tk.Tk):
         self._offset_step_px = 10.0
         self._offset_live_edit_until: float = 0.0
         self._offset_resync_handle: str | None = None
+        self._last_edit_ts: float = 0.0
+        self._edit_nonce: str = ""
+        self._user_overrides_nonce: str = ""
         self._initial_geometry_applied = False
         self._port_path = root / "port.json"
         self._controller_heartbeat_ms = 15000
@@ -2592,7 +2595,18 @@ class OverlayConfigApp(tk.Tk):
         base_max_y = float(base_payload.get("base_max_y", base_min_y))
         base_bounds = (base_min_x, base_min_y, base_max_x, base_max_y)
         base_anchor = self._compute_anchor_point(base_min_x, base_max_x, base_min_y, base_max_y, anchor_token)
-        if transformed_payload:
+        def _transformed_matches_offsets(payload: dict[str, object]) -> bool:
+            tol = 0.5
+            try:
+                tx = float(payload.get("offset_dx", 0.0))
+                ty = float(payload.get("offset_dy", 0.0))
+            except Exception:
+                return False
+            return abs(tx - offset_x) <= tol and abs(ty - offset_y) <= tol
+
+        edit_ts = getattr(self, "_last_edit_ts", 0.0) or 0.0
+        use_transformed = False  # POC: ignore cached transforms to avoid snap-backs
+        if use_transformed and transformed_payload:
             trans_min_x = float(transformed_payload.get("trans_min_x", base_min_x))
             trans_min_y = float(transformed_payload.get("trans_min_y", base_min_y))
             trans_max_x = float(transformed_payload.get("trans_max_x", base_max_x))
@@ -2818,7 +2832,9 @@ class OverlayConfigApp(tk.Tk):
         loader = getattr(self, "_groupings_loader", None)
         if loader is not None:
             try:
-                reload_groupings = bool(loader.reload_if_changed())
+                # Delay reloads immediately after an edit to avoid reading half-written user file.
+                if time.time() - getattr(self, "_last_edit_ts", 0.0) > 2.0:
+                    reload_groupings = bool(loader.reload_if_changed())
             except Exception:
                 reload_groupings = False
         try:
@@ -2931,8 +2947,12 @@ class OverlayConfigApp(tk.Tk):
             return
 
         try:
-            text = json.dumps(diff, indent=2)
-            user_path.write_text(text + "\n", encoding="utf-8")
+            payload = dict(diff) if isinstance(diff, dict) else {}
+            payload["_edit_nonce"] = getattr(self, "_user_overrides_nonce", "")
+            text = json.dumps(payload, indent=2) + "\n"
+            tmp_path = user_path.with_suffix(user_path.suffix + ".tmp")
+            tmp_path.write_text(text, encoding="utf-8")
+            tmp_path.replace(user_path)
         except Exception:
             pass
 
@@ -2969,6 +2989,8 @@ class OverlayConfigApp(tk.Tk):
 
     def _flush_groupings_config(self) -> None:
         self._debounce_handles["config_write"] = None
+        self._last_edit_ts = time.time()
+        self._user_overrides_nonce = self._edit_nonce
         self._write_groupings_config()
         self._emit_override_reload_signal()
 
@@ -3012,6 +3034,7 @@ class OverlayConfigApp(tk.Tk):
         payload = {
             "cli": "controller_override_reload",
             "nonce": nonce,
+            "edit_nonce": getattr(self, "_user_overrides_nonce", ""),
             "timestamp": time.time(),
         }
         self._send_plugin_cli(payload)
@@ -3322,13 +3345,21 @@ class OverlayConfigApp(tk.Tk):
         self, selection: tuple[str, str], offset_x: float, offset_y: float, debounce_ms: int | None = None
     ) -> None:
         plugin_name, label = selection
+        self._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
         self._set_config_offsets(plugin_name, label, offset_x, offset_y)
+        self._last_edit_ts = time.time()
+        self._invalidate_group_cache_entry(plugin_name, label)
         delay = self._offset_write_debounce_ms if debounce_ms is None else debounce_ms
         self._schedule_groupings_config_write(delay)
         snapshot = self._group_snapshots.get(selection)
         if snapshot is not None:
             snapshot.offset_x = offset_x
             snapshot.offset_y = offset_y
+            # Clear any cached transform so preview/HUD stay aligned until client rewrites.
+            snapshot.has_transform = False
+            snapshot.transform_bounds = snapshot.base_bounds
+            snapshot.transform_anchor_token = snapshot.anchor_token
+            snapshot.transform_anchor = snapshot.base_anchor
             self._group_snapshots[selection] = snapshot
         _controller_debug(
             "Target updated for %s/%s: offset_x=%.1f offset_y=%.1f debounce_ms=%s",
@@ -3394,6 +3425,10 @@ class OverlayConfigApp(tk.Tk):
             justification,
         )
         self._schedule_groupings_config_write()
+        self._invalidate_group_cache_entry(plugin_name, label)
+        self._last_edit_ts = time.time()
+        self._offset_live_edit_until = max(getattr(self, "_offset_live_edit_until", 0.0) or 0.0, self._last_edit_ts + 2.0)
+        self._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
     def _handle_absolute_changed(self, axis: str) -> None:
         selection = self._get_current_group_selection()
         if selection is None or not hasattr(self, "absolute_widget"):
@@ -3501,7 +3536,7 @@ class OverlayConfigApp(tk.Tk):
         # Freeze snapshot rebuilds briefly so cache polls don't snap preview back while holding arrows.
         # Keep preview in "live edit" mode a bit longer so cache polls/actual updates
         # cannot snap the target back while the user is holding the key.
-        self._offset_live_edit_until = time.time() + 1.0
+        self._offset_live_edit_until = time.time() + 2.0
         # Force preview refresh immediately to mirror HUD movement.
         self._last_preview_signature = None
         try:
@@ -3519,7 +3554,13 @@ class OverlayConfigApp(tk.Tk):
         key = (plugin, group, anchor_value)
         if key == self._last_active_group_sent:
             return
-        payload = {"cli": "controller_active_group", "plugin": plugin, "label": group, "anchor": anchor_value}
+        payload = {
+            "cli": "controller_active_group",
+            "plugin": plugin,
+            "label": group,
+            "anchor": anchor_value,
+            "edit_nonce": getattr(self, "_edit_nonce", ""),
+        }
         self._send_plugin_cli(payload)
         self._last_active_group_sent = key
         _controller_debug(
@@ -3545,7 +3586,6 @@ class OverlayConfigApp(tk.Tk):
 
         def _resync() -> None:
             self._offset_resync_handle = None
-            self._offset_live_edit_until = 0.0
             self._last_preview_signature = None
             try:
                 self._refresh_current_group_snapshot(force_ui=True)
@@ -3738,6 +3778,46 @@ class OverlayConfigApp(tk.Tk):
         return bounds, (anchor_x, anchor_y)
 
 
+    def _invalidate_group_cache_entry(self, plugin_name: str, label: str) -> None:
+        """POC: clear transformed cache for a group and bump timestamp so HUD follows controller."""
+
+        if not plugin_name or not label:
+            return
+        path = getattr(self, "_groupings_cache_path", None)
+        if path is None:
+            root = Path(__file__).resolve().parents[1]
+            path = root / "overlay_group_cache.json"
+            self._groupings_cache_path = path
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        if not isinstance(raw, dict):
+            return
+        groups = raw.get("groups")
+        if not isinstance(groups, dict):
+            return
+        plugin_entry = groups.get(plugin_name)
+        if not isinstance(plugin_entry, dict):
+            return
+        entry = plugin_entry.get(label)
+        if not isinstance(entry, dict):
+            return
+        entry["transformed"] = None
+        base_entry = entry.get("base")
+        if isinstance(base_entry, dict):
+            base_entry["has_transformed"] = False
+            base_entry["edit_nonce"] = getattr(self, "_edit_nonce", "")
+        entry["last_updated"] = time.time()
+        entry["edit_nonce"] = getattr(self, "_edit_nonce", "")
+        try:
+            tmp_path = path.with_suffix(path.suffix + ".tmp")
+            tmp_path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
+            tmp_path.replace(path)
+            self._groupings_cache = raw
+        except Exception:
+            pass
+
     def _get_cache_entry(
         self, plugin_name: str, label: str
     ) -> tuple[dict[str, float], dict[str, float], str, float]:
@@ -3806,12 +3886,23 @@ class OverlayConfigApp(tk.Tk):
             prefer_user,
         )
 
+        self._last_edit_ts = time.time()
+        self._offset_live_edit_until = max(getattr(self, "_offset_live_edit_until", 0.0) or 0.0, self._last_edit_ts + 2.0)
+        self._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
         self._sync_absolute_for_current_group(force_ui=True, prefer_user=prefer_user)
         self._draw_preview()
         if captured:
             self._schedule_anchor_restore(selection)
         # Notify client of anchor change for active group selection.
         self._send_active_group_selection(plugin_name, label)
+        self._invalidate_group_cache_entry(plugin_name, label)
+        snapshot = self._group_snapshots.get(selection)
+        if snapshot is not None:
+            snapshot.has_transform = False
+            snapshot.transform_bounds = snapshot.base_bounds
+            snapshot.transform_anchor_token = snapshot.anchor_token
+            snapshot.transform_anchor = snapshot.base_anchor
+            self._group_snapshots[selection] = snapshot
 
     def _on_configure_activity(self) -> None:
         """Track recent move/resize to avoid closing during window drag."""
