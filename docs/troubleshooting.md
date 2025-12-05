@@ -18,4 +18,5 @@ Use these steps to gather diagnostics when the overlay misbehaves. Dev mode gate
   - Linux: `~/.local/share/EDMarketConnector/EDMarketConnector.log`
   - Flatpak: `~/.var/app/io.edcd.EDMarketConnector/data/EDMarketConnector/EDMarketConnector.log`
 - Overlay logs (client): `logs/EDMCModernOverlay/overlay_client.log` under the Modern Overlay plugin directory (or `logs/EDMCModernOverlay/overlay-payloads.log` when payload mirroring is on).
+- Overlay Controller log: `logs/EDMCModernOverlay/overlay_controller.log` (same directory as the client log). The controller writes a startup banner every time `!ovr` launches it and captures any uncaught exceptions or stack traces before it exits. Enable dev mode/DEBUG logging so the controller log includes DEBUG statements such as window geometry decisions when the controller fails to launch.
 - Debug flags live in `debug.json` in the plugin directory; missing keys are auto-filled in dev mode.
