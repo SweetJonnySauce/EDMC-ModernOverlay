@@ -103,9 +103,10 @@ class ControlSurfaceMixin:
         except (TypeError, ValueError):
             numeric = self._payload_log_delay
         numeric = max(0.0, numeric)
-        if math.isclose(numeric, self._payload_log_delay, rel_tol=1e-9, abs_tol=1e-9):
+        if math.isclose(numeric, self._payload_log_delay_base, rel_tol=1e-9, abs_tol=1e-9):
             return
-        self._payload_log_delay = numeric
+        self._payload_log_delay_base = numeric
+        self._update_payload_log_delay_for_mode(self.controller_mode_state())
         now = time.monotonic()
         for key in self._group_log_pending_base.keys():
             self._group_log_next_allowed[key] = now + self._payload_log_delay
@@ -704,17 +705,60 @@ class ControlSurfaceMixin:
             self._mark_legacy_cache_dirty()
             self._request_repaint("override_reload", immediate=True)
             _CLIENT_LOGGER.debug("Override reload handled (nonce=%s)", nonce or "none")
+            self._controller_override_ts = time.time()
         except Exception as exc:
             _CLIENT_LOGGER.debug("Override reload failed: %s", exc, exc_info=exc)
 
-    def set_active_controller_group(self, plugin: Optional[str], label: Optional[str]) -> None:
+    def apply_override_payload(self, payload: Optional[Mapping[str, Any]]) -> None:
+        if payload is None or not isinstance(payload, Mapping):
+            return
+        overrides = payload.get("overrides")
+        nonce = payload.get("nonce")
+        try:
+            overrides_map = overrides if isinstance(overrides, Mapping) else None
+            nonce_val = str(nonce or "").strip()
+        except Exception:
+            return
+        mgr = getattr(self, "_override_manager", None)
+        if mgr is None:
+            return
+        try:
+            if nonce_val:
+                mgr._controller_active_nonce = nonce_val  # type: ignore[attr-defined]
+                mgr._controller_active_nonce_ts = time.time()  # type: ignore[attr-defined]
+            mgr.apply_override_payload(overrides_map, nonce_val)
+            self._mark_legacy_cache_dirty()
+            self._request_repaint("override_payload", immediate=True)
+            _CLIENT_LOGGER.debug("Override payload applied (nonce=%s)", nonce_val or "none")
+            self._controller_override_ts = time.time()
+        except Exception as exc:
+            _CLIENT_LOGGER.debug("Override payload failed: %s", exc, exc_info=exc)
+
+    def set_active_controller_group(self, plugin: Optional[str], label: Optional[str], anchor: Optional[str] = None, edit_nonce: Optional[str] = None) -> None:
         plugin_name = str(plugin or "").strip()
         label_name = str(label or "").strip()
+        anchor_token = str(anchor or "").strip().lower() if anchor is not None else None
+        nonce_value = str(edit_nonce or "").strip()
         new_value: Optional[tuple[str, str]] = (plugin_name, label_name) if plugin_name and label_name else None
-        current = getattr(self, "_controller_active_group", None)
-        if new_value == current:
+        current_group = getattr(self, "_controller_active_group", None)
+        current_anchor = getattr(self, "_controller_active_anchor", None)
+        current_nonce = getattr(self, "_controller_active_nonce", "")
+        if new_value == current_group and anchor_token == current_anchor and nonce_value == current_nonce:
             return
         self._controller_active_group = new_value
+        self._controller_active_anchor = anchor_token
+        self._controller_active_nonce = nonce_value
+        now = time.time()
+        self._controller_active_nonce_ts = now
+        if nonce_value:
+            self._controller_override_ts = max(self._controller_override_ts, now)
+        mgr = getattr(self, "_override_manager", None)
+        if mgr is not None:
+            try:
+                mgr._controller_active_nonce = nonce_value  # type: ignore[attr-defined]
+                mgr._controller_active_nonce_ts = now  # type: ignore[attr-defined]
+            except Exception:
+                pass
         self._request_repaint("controller_target", immediate=True)
 
     def update_platform_context(self, context_payload: Optional[Dict[str, Any]]) -> None:

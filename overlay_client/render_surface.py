@@ -24,7 +24,14 @@ from overlay_client.paint_commands import (
 )
 from overlay_client.payload_builders import build_group_context
 from overlay_client.render_pipeline import PayloadSnapshot, RenderContext, RenderSettings
-from overlay_client.viewport_transform import LegacyMapper, ViewportState, legacy_scale_components
+from overlay_client.viewport_transform import (
+    LegacyMapper,
+    ViewportState,
+    build_viewport,
+    compute_proportional_translation,
+    legacy_scale_components,
+)
+from overlay_client.viewport_helper import BASE_HEIGHT, BASE_WIDTH, ScaleMode
 from overlay_client.window_utils import legacy_preset_point_size as util_legacy_preset_point_size, line_width as util_line_width
 
 _CLIENT_LOGGER = logging.getLogger("EDMC.ModernOverlay.Client")
@@ -246,6 +253,39 @@ class RenderSurfaceMixin:
             details["points"] = item.data.get("points")
         self._log_legacy_trace(item.plugin, item.item_id, stage, details)
 
+    def _current_override_nonce(self) -> str:
+        controller_nonce = getattr(self, "_controller_active_nonce", "") or ""
+        if controller_nonce:
+            return controller_nonce
+        override_manager = getattr(self, "_override_manager", None)
+        if override_manager is not None:
+            getter = getattr(override_manager, "current_override_nonce", None)
+            if callable(getter):
+                try:
+                    token = getter()
+                    if token:
+                        return str(token)
+                except Exception:
+                    return ""
+        return ""
+
+    def _current_override_generation_ts(self) -> float:
+        override_manager = getattr(self, "_override_manager", None)
+        generation_ts = 0.0
+        if override_manager is not None:
+            getter = getattr(override_manager, "override_generation_timestamp", None)
+            if callable(getter):
+                try:
+                    generation_ts = float(getter())
+                except Exception:
+                    generation_ts = 0.0
+        controller_ts = getattr(self, "_controller_override_ts", 0.0)
+        nonce_ts = getattr(self, "_controller_active_nonce_ts", 0.0)
+        for candidate in (controller_ts, nonce_ts):
+            if candidate and candidate > generation_ts:
+                generation_ts = candidate
+        return generation_ts
+
     def _handle_legacy(self, payload: Dict[str, Any]) -> None:
         plugin_name = self._extract_plugin_name(payload)
         message_id = str(payload.get("id") or "")
@@ -378,8 +418,19 @@ class RenderSurfaceMixin:
         cache_transform_payloads = payload_results.get("cache_transform_payloads") or {}
         active_group_keys: Set[Tuple[str, Optional[str]]] = payload_results.get("active_group_keys") or set()
         now_monotonic = self._monotonic_now() if hasattr(self, "_monotonic_now") else time.monotonic()
+        mode_state = self.controller_mode_state() if hasattr(self, "controller_mode_state") else "inactive"
 
         for key, payload in latest_base_payload.items():
+            edit_nonce = str(payload.get("edit_nonce") or "")
+            last_nonce = self._group_cache_generations.get(key)
+            if edit_nonce and edit_nonce != last_nonce:
+                self._logged_group_bounds.pop(key, None)
+                self._logged_group_transforms.pop(key, None)
+                self._group_log_pending_base.pop(key, None)
+                self._group_log_pending_transform.pop(key, None)
+                self._group_cache_generations[key] = edit_nonce
+            elif not edit_nonce:
+                self._group_cache_generations.pop(key, None)
             bounds_tuple = payload.get("bounds_tuple")
             pending_payload = self._group_log_pending_base.get(key)
             pending_tuple = pending_payload.get("bounds_tuple") if pending_payload else None
@@ -437,8 +488,19 @@ class RenderSurfaceMixin:
                 )
                 self._group_log_next_allowed[key] = delay_target
 
-        self._update_group_cache_from_payloads(cache_base_payloads, cache_transform_payloads)
+        updated_cache_keys = self._update_group_cache_from_payloads(cache_base_payloads, cache_transform_payloads)
         self._flush_group_log_entries(active_group_keys)
+        if updated_cache_keys:
+            now = time.monotonic()
+            for key in updated_cache_keys:
+                snapshot = cache_base_payloads.get(key, {})
+                self._cache_write_metadata[key] = {
+                    "edit_nonce": str(snapshot.get("edit_nonce") or ""),
+                    "controller_ts": snapshot.get("controller_ts", 0.0),
+                    "timestamp": now,
+                }
+            if mode_state == "active":
+                self._force_group_cache_flush()
 
     def _maybe_collect_debug_helpers(
         self,
@@ -1413,11 +1475,30 @@ class RenderSurfaceMixin:
         self,
         base_payloads: Mapping[Tuple[str, Optional[str]], Mapping[str, Any]],
         transform_payloads: Mapping[Tuple[str, Optional[str]], Mapping[str, Any]],
-    ) -> None:
-        self._group_coordinator.update_cache_from_payloads(
-            base_payloads=base_payloads,
-            transform_payloads=transform_payloads,
+    ) -> Set[Tuple[str, Optional[str]]]:
+        return set(
+            self._group_coordinator.update_cache_from_payloads(
+                base_payloads=base_payloads,
+                transform_payloads=transform_payloads,
+            )
+            or []
         )
+
+    def _force_group_cache_flush(self) -> None:
+        cache = getattr(self, "_group_cache", None)
+        if cache is None:
+            return
+        min_interval = max(0.05, getattr(self, "_controller_active_flush_interval", 0.1))
+        now = time.monotonic()
+        last = getattr(self, "_last_cache_flush_ts", 0.0)
+        if last and now - last < min_interval:
+            return
+        try:
+            cache.flush_pending()
+            self._last_cache_flush_ts = now
+            _CLIENT_LOGGER.debug("Forced cache flush after controller edit (interval %.2fs)", min_interval)
+        except Exception as exc:
+            _CLIENT_LOGGER.debug("Forced cache flush failed: %s", exc, exc_info=exc)
 
     def _draw_payload_vertex_markers(self, painter: QPainter, points: Sequence[Tuple[int, int]]) -> None:
         if not points:
@@ -1568,6 +1649,8 @@ class RenderSurfaceMixin:
     @staticmethod
     def _overlay_bounds_from_cache_entry(
         entry: Mapping[str, Any],
+        *,
+        prefer_transformed: bool = True,
     ) -> Tuple[Optional[_OverlayBounds], Optional[str], float, float]:
         if not isinstance(entry, Mapping):
             return None, None, 0.0, 0.0
@@ -1581,7 +1664,7 @@ class RenderSurfaceMixin:
                 return default
 
         width = height = 0.0
-        if isinstance(transformed, Mapping):
+        if prefer_transformed and isinstance(transformed, Mapping):
             min_x = _f(transformed.get("trans_min_x"))
             min_y = _f(transformed.get("trans_min_y"))
             max_x = _f(transformed.get("trans_max_x"))
@@ -1647,13 +1730,14 @@ class RenderSurfaceMixin:
             return
         bounds_map = getattr(self, "_last_overlay_bounds_for_target", {}) or {}
         transform_map = getattr(self, "_last_transform_by_group", {}) or {}
+        mapper = self._compute_legacy_mapper()
+        anchor_override = getattr(self, "_controller_active_anchor", None)
         bounds = self._resolve_bounds_for_active_group(active_group, bounds_map)
         anchor_token = None
         if bounds is None or not bounds.is_valid():
-            bounds, anchor_token = self._fallback_bounds_from_cache(active_group)
+            bounds, anchor_token = self._fallback_bounds_from_cache(active_group, mapper, anchor_override=anchor_override)
             if bounds is None or not bounds.is_valid():
                 return
-        mapper = self._compute_legacy_mapper()
         rect = self._overlay_bounds_to_rect(bounds, mapper)
         if rect.width() <= 0 or rect.height() <= 0:
             return
@@ -1666,6 +1750,8 @@ class RenderSurfaceMixin:
         transform = transform_map.get(active_group)
         if anchor_token is None and transform is not None:
             anchor_token = getattr(transform, "anchor_token", None)
+        if anchor_token is None and anchor_override:
+            anchor_token = anchor_override
         anchor_point = self._anchor_from_overlay_bounds(bounds, anchor_token) if anchor_token else None
         if anchor_point is None:
             return
@@ -1701,7 +1787,10 @@ class RenderSurfaceMixin:
         return bounds_map.get(matched)
 
     def _fallback_bounds_from_cache(
-        self, active_group: Tuple[str, Optional[str]]
+        self,
+        active_group: Tuple[str, Optional[str]],
+        mapper: Optional[LegacyMapper] = None,
+        anchor_override: Optional[str] = None,
     ) -> Tuple[Optional[_OverlayBounds], Optional[str]]:
         cache = getattr(self, "_group_cache", None)
         if cache is None or not hasattr(cache, "get_group"):
@@ -1732,26 +1821,155 @@ class RenderSurfaceMixin:
                 entry = None
         if entry is None:
             return None, None
-        offset_dx = 0.0
-        offset_dy = 0.0
-        anchor_override = None
+        token_override = anchor_override
         override_manager = getattr(self, "_override_manager", None)
+        base_meta = entry.get("base") if isinstance(entry, Mapping) else {}
+
+        def _safe_float(value: Any) -> float:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return 0.0
+
+        default_offset_x = _safe_float(base_meta.get("offset_x"))
+        default_offset_y = _safe_float(base_meta.get("offset_y"))
+        offset_dx = default_offset_x
+        offset_dy = default_offset_y
+        anchor_token_override: Optional[str] = None
         if override_manager is not None:
             try:
                 offset_dx, offset_dy = override_manager.group_offsets(plugin, suffix)
             except Exception:
-                offset_dx = offset_dy = 0.0
+                offset_dx, offset_dy = default_offset_x, default_offset_y
             try:
                 _, anchor_token = override_manager.group_preserve_fill_aspect(plugin, suffix)
-                anchor_override = anchor_token
+                anchor_token_override = anchor_token
             except Exception:
-                anchor_override = None
-        bounds, anchor_token, width, height = self._overlay_bounds_from_cache_entry(entry or {})
-        if bounds is None or not bounds.is_valid():
+                anchor_token_override = None
+
+        base_bounds, base_anchor_token, base_width, base_height = self._overlay_bounds_from_cache_entry(
+            entry or {}, prefer_transformed=False
+        )
+        if base_bounds is None or not base_bounds.is_valid():
             return None, None
-        token = anchor_override or anchor_token or "nw"
-        bounds = self._build_bounds_with_anchor(width, height, token, offset_dx, offset_dy)
+
+        transformed = entry.get("transformed") if isinstance(entry, Mapping) else None
+        cache_anchor_token = base_anchor_token
+        bounds = base_bounds
+        width = base_width
+        height = base_height
+
+        def _offsets_match(payload: Mapping[str, Any], target_dx: float, target_dy: float) -> bool:
+            tol = 0.5
+            cache_dx = _safe_float(payload.get("offset_dx"))
+            cache_dy = _safe_float(payload.get("offset_dy"))
+            return abs(cache_dx - target_dx) <= tol and abs(cache_dy - target_dy) <= tol
+
+        def _entry_nonce_value(obj: Mapping[str, Any]) -> str:
+            raw_nonce = obj.get("edit_nonce")
+            if isinstance(raw_nonce, str):
+                return raw_nonce.strip()
+            base_block = obj.get("base")
+            if isinstance(base_block, Mapping):
+                embedded = base_block.get("edit_nonce")
+                if isinstance(embedded, str):
+                    return embedded.strip()
+            return ""
+
+        use_cached_transform = False
+        target_nonce = self._current_override_nonce()
+        entry_nonce = _entry_nonce_value(entry if isinstance(entry, Mapping) else {})
+        entry_last_updated = _safe_float(entry.get("last_updated"))
+        generation_ts = self._current_override_generation_ts()
+        if isinstance(transformed, Mapping):
+            nonce_ok = not target_nonce or not entry_nonce or entry_nonce == target_nonce
+            timestamp_ok = not generation_ts or entry_last_updated >= generation_ts - 1e-6
+            if nonce_ok and timestamp_ok and _offsets_match(transformed, offset_dx, offset_dy):
+                cached_bounds, cached_anchor, cached_width, cached_height = self._overlay_bounds_from_cache_entry(
+                    entry or {}, prefer_transformed=True
+                )
+                if cached_bounds is not None and cached_bounds.is_valid():
+                    bounds = cached_bounds
+                    cache_anchor_token = cached_anchor or cache_anchor_token
+                    width = cached_width
+                    height = cached_height
+                    use_cached_transform = True
+
+        if not use_cached_transform and (offset_dx or offset_dy):
+            bounds.translate(offset_dx, offset_dy)
+
+        token = token_override or anchor_token_override or cache_anchor_token or "nw"
+        source_anchor = cache_anchor_token or "nw"
+        if token != source_anchor and width > 0.0 and height > 0.0:
+            try:
+                anchor_abs = self._anchor_from_overlay_bounds(bounds, source_anchor) or (
+                    bounds.min_x,
+                    bounds.min_y,
+                )
+                bounds = self._build_bounds_with_anchor(width, height, token, anchor_abs[0], anchor_abs[1])
+            except Exception:
+                pass
+
+        if mapper is not None and not use_cached_transform:
+            try:
+                bounds = self._apply_fill_translation_from_cache(bounds, token, mapper)
+            except Exception:
+                pass
         return bounds, token
+
+    def _apply_fill_translation_from_cache(
+        self,
+        bounds: _OverlayBounds,
+        anchor_token: Optional[str],
+        mapper: LegacyMapper,
+    ) -> _OverlayBounds:
+        if bounds is None or not bounds.is_valid():
+            return bounds
+        transform = mapper.transform
+        if transform.mode is not ScaleMode.FILL:
+            return bounds
+        if not (transform.overflow_x or transform.overflow_y):
+            return bounds
+
+        def _clamp_unit(value: float) -> float:
+            if not math.isfinite(value):
+                return 0.0
+            if value < 0.0:
+                return 0.0
+            if value > 1.0:
+                return 1.0
+            return value
+
+        base_width = BASE_WIDTH if BASE_WIDTH > 0.0 else 1.0
+        base_height = BASE_HEIGHT if BASE_HEIGHT > 0.0 else 1.0
+        anchor_point = self._anchor_from_overlay_bounds(bounds, anchor_token or "nw")
+        if anchor_point is None:
+            anchor_point = (bounds.min_x, bounds.min_y)
+        group_transform = GroupTransform(
+            dx=0.0,
+            dy=0.0,
+            band_min_x=_clamp_unit(bounds.min_x / base_width),
+            band_max_x=_clamp_unit(bounds.max_x / base_width),
+            band_min_y=_clamp_unit(bounds.min_y / base_height),
+            band_max_y=_clamp_unit(bounds.max_y / base_height),
+            band_anchor_x=_clamp_unit(anchor_point[0] / base_width),
+            band_anchor_y=_clamp_unit(anchor_point[1] / base_height),
+            bounds_min_x=bounds.min_x,
+            bounds_min_y=bounds.min_y,
+            bounds_max_x=bounds.max_x,
+            bounds_max_y=bounds.max_y,
+            anchor_token=(anchor_token or "nw").strip().lower(),
+            payload_justification="left",
+        )
+        try:
+            viewport_state = self._viewport_state()
+        except Exception:
+            viewport_state = ViewportState(width=float(self.width()), height=float(self.height()), device_ratio=1.0)
+        fill = build_viewport(mapper, viewport_state, group_transform, BASE_WIDTH, BASE_HEIGHT)
+        dx, dy = compute_proportional_translation(fill, group_transform, anchor_point)
+        if dx or dy:
+            bounds.translate(dx, dy)
+        return bounds
 
     @staticmethod
     def _anchor_label_position(

@@ -1326,6 +1326,7 @@ rsync_update_plugin() {
     local excludes=(
         "--exclude" "overlay_client/.venv/"
         "--exclude" "overlay_client/fonts/[Ee][Uu][Rr][Oo][Cc][Aa][Pp][Ss].ttf"
+        "--exclude" "overlay_groupings.user.json"
     )
 
     echo "🔄 Updating existing Modern Overlay installation..."
@@ -1406,4 +1407,6 @@ main() {
     fi
 }
 
-main "$@"
+if [[ -z "${MODERN_OVERLAY_INSTALLER_IMPORT:-}" ]]; then
+    main "$@"
+fi

@@ -47,6 +47,14 @@ except PluginGroupingError as exc:
 
 Every call rewrites `overlay_groupings.json`, so keep the file under version control, document intentional changes (for example in release notes), and cover new plugin groups with regression tests. Pull requests should include the updated JSON plus any developer notes explaining the new prefixes.
 
+## Shipped vs. user groupings
+
+- Shipped defaults live in `overlay_groupings.json`. User overrides (controller writes, per-install tweaks) live beside it in `overlay_groupings.user.json` and must be preserved on upgrade.
+- Merge rules: shipped is the base; user entries overlay per plugin/group; user-only entries are allowed; `disabled: true` in the user file hides the shipped entry at that scope.
+- Write targets: the controller writes only the user file (diffed against shipped defaults). `define_plugin_group()` and other plugin APIs continue to write the shipped file so third-party plugins can register defaults safely.
+- Paths: `MODERN_OVERLAY_USER_GROUPINGS_PATH` can point the user file elsewhere for tests/tools; otherwise the plugin root path is used.
+- Reset: delete/rename the user file to fall back to shipped defaults; user-only entries disappear.
+
 ## Versioning
 
 - The release number lives in `version.py` (`__version__`). Bump it before tagging so EDMC, the overlay client, and API consumers remain in sync.

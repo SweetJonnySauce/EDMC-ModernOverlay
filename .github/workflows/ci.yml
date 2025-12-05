@@ -71,3 +71,12 @@ jobs:
 
       - name: Run checks
         run: make check
+
+  linux-installer-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Linux installer tests
+        run: bash tests/test_install_linux.sh

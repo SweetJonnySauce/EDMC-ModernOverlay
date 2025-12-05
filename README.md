@@ -1,5 +1,6 @@
 # EDMC Modern Overlay (beta)
-[![Github All Releases](https://img.shields.io/github/downloads/SweetJonnySauce/EDMC-ModernOverlay/total.svg)](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest)
+[![Github All Releases](https://img.shields.io/github/downloads/SweetJonnySauce/EDMCModernOverlay/total.svg)](https://github.com/SweetJonnySauce/EDMCModernOverlay/releases/latest)
+[![GitHub Latest Version](https://img.shields.io/github/v/release/SweetJonnySauce/EDMCModernOverlay)](https://github.com/SweetJonnySauce/EDMCModernOverlay/releases/latest)
 
 EDMC Modern Overlay (packaged as `EDMCModernOverlay`) is a drop-in replacement for [EDMCOverlay](https://github.com/inorton/EDMCOverlay) and [edmcoverlay2](https://github.com/pan-mroku/edmcoverlay2). It is a cross-platform (Windows and Linux), two-part implementation (plugin and overlay client) for Elite Dangerous Market Connector ([EDMC](https://github.com/EDCD/EDMarketConnector)). It streams data from EDMC plugins over a lightweight TCP socket and displays a transparent, click-through PyQt6 heads-up display on the Elite Dangerous game. It runs in both fullscreen borderless and windowed mode on any display size. The [plugin releases](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest) ship with both Windows and Linux installers.
 
@@ -37,7 +38,6 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
 - Python 3.11
 - Elite Dangerous Market Connector installed
 - On Windows, Powershell 3 or greater is required for the installation (both exe or ps1 installations)
-- On Windows, Microsoft Visual C++ 14.0 or greater is required. Get it with "Microsoft C++ Build Tools": https://visualstudio.microsoft.com/visual-cpp-build-tools/
 
 ## Installation
 - Grab the latest OS-specific release asset from [GitHub Releases](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest):
@@ -75,17 +75,6 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
   flatpak override --user io.edcd.EDMarketConnector --talk-name=org.freedesktop.Flatpak
   ```
   The auto-detection prioritises `EDMC_OVERLAY_HOST_PYTHON`; otherwise it falls back to `overlay_client/.venv/bin/python`.
-
-# More Features
-
-- Background `asyncio` JSON-over-TCP broadcaster that stays off EDMC’s Tk thread and degrades gracefully if the listener cannot bind.
-- Watchdog-managed overlay client that restarts the PyQt process after crashes and mirrors EDMC’s logging controls (stdout/stderr capture).
-- JSON discovery file (`port.json`) that the overlay reads to locate the active port, removed automatically when the broadcaster is offline.
-- Transparent PyQt6 HUD with legacy text, shape, and emoji rendering.
-- Custom font support with case-insensitive discovery and a `preferred_fonts.txt` priority list.
-- Custom emoji font support with fallback options.
-- Public helper API (`overlay_plugin.overlay_api.send_overlay_message`) that validates and forwards payloads from other plugins.
-- Drop-in `edmcoverlay` compatibility module for legacy callers.
 
 # Using EDMC Modern Overlay
 
@@ -135,12 +124,6 @@ overlay.send_shape("demo-frame", "rect", "#ffffff", "#40000000", 80, 120, 420, 1
 ```
 
 Under the hood the compatibility layer forwards payloads through `send_overlay_message`, so no socket management or process monitoring is required. The overlay client understands the legacy message/rectangle schema, making migration from the original EDMCOverlay plugin largely turnkey.
-
-# Development
-
-- Install dev dependencies: `python -m pip install -r requirements/dev.txt`
-- Run checks locally: `make check` (runs lint, mypy, pytest)
-- Individual commands: `make lint`, `make typecheck`, `make test`
 
 # Support
 

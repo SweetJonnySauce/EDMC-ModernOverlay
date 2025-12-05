@@ -170,6 +170,69 @@ def test_focus_on_show_linux(monkeypatch):
     assert calls == ["set", "set"]
 
 
+def test_capture_and_restore_foreground_window(monkeypatch):
+    _set_platform(monkeypatch, "Windows")
+    user32_ops: list[tuple[str, object] | str] = []
+
+    class DummyUser32:
+        def GetForegroundWindow(self):
+            user32_ops.append("get_fg")
+            return 42
+
+        def GetWindowThreadProcessId(self, hwnd, _):
+            user32_ops.append(("get_tid", hwnd))
+            return 10
+
+        def AttachThreadInput(self, _from, _to, attach):
+            user32_ops.append(("attach", bool(attach)))
+            return True
+
+        def SetForegroundWindow(self, hwnd):
+            user32_ops.append(("set_fg", hwnd))
+
+        def SetActiveWindow(self, hwnd):
+            user32_ops.append(("set_active", hwnd))
+
+        def SetFocus(self, hwnd):
+            user32_ops.append(("set_focus", hwnd))
+
+    class DummyKernel32:
+        def GetCurrentThreadId(self):
+            return 20
+
+    dummy_ctypes = SimpleNamespace(
+        windll=SimpleNamespace(user32=DummyUser32(), kernel32=DummyKernel32())
+    )
+    monkeypatch.setitem(sys.modules, "ctypes", dummy_ctypes)
+
+    class DummyWindow:
+        def __init__(self):
+            self._previous_foreground_hwnd = None
+
+        def winfo_id(self):
+            return 99
+
+    window = DummyWindow()
+
+    oc.OverlayConfigApp._capture_foreground_window(window)
+    assert window._previous_foreground_hwnd == 42
+
+    oc.OverlayConfigApp._restore_foreground_window(window)
+    assert window._previous_foreground_hwnd is None
+    assert ("set_fg", 42) in user32_ops
+    assert ("attach", True) in user32_ops
+    assert ("attach", False) in user32_ops
+
+
+def test_restore_foreground_noop_on_linux(monkeypatch):
+    _set_platform(monkeypatch, "Linux")
+    window = SimpleNamespace(_previous_foreground_hwnd=55)
+
+    oc.OverlayConfigApp._restore_foreground_window(window)
+
+    assert window._previous_foreground_hwnd is None
+
+
 def test_force_render_override_restores_previous(tmp_path):
     settings_path = tmp_path / "overlay_settings.json"
     settings_path.write_text('{"force_render": false, "allow_force_render_release": false}', encoding="utf-8")

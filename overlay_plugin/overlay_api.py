@@ -46,8 +46,14 @@ def unregister_publisher() -> None:
 def register_grouping_store(path: Union[str, Path]) -> None:
     """Expose the overlay grouping JSON so other plugins can edit it."""
 
+    resolved = Path(path)
+    if resolved.name == "overlay_groupings.user.json":
+        raise PluginGroupingError("register_grouping_store must target the shipped overlay_groupings.json, not the user file")
+    if resolved.name != "overlay_groupings.json":
+        _log_warning("register_grouping_store expected overlay_groupings.json, got %s", resolved.name)
+
     global _grouping_store
-    _grouping_store = _PluginGroupingStore(Path(path))
+    _grouping_store = _PluginGroupingStore(resolved)
 
 
 def unregister_grouping_store() -> None:

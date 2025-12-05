@@ -22,6 +22,12 @@ def _load(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def test_register_grouping_store_rejects_user_file(tmp_path):
+    user_path = tmp_path / "overlay_groupings.user.json"
+    with pytest.raises(PluginGroupingError):
+        overlay_api.register_grouping_store(user_path)
+
+
 def test_define_plugin_group_creates_sections(grouping_store):
     updated = overlay_api.define_plugin_group(
         plugin_group="Example",

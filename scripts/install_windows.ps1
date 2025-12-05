@@ -649,8 +649,10 @@ function Update-ExistingInstall {
 
     $venvPath = Join-Path $DestDir 'overlay_client\.venv'
     $fontPath = Join-Path $DestDir 'overlay_client\fonts\Eurocaps.ttf'
+    $userGroupingsPath = Join-Path $DestDir 'overlay_groupings.user.json'
     $venvBackup = $null
     $fontBackup = $null
+    $userGroupingsBackup = $null
 
     try {
         if (Test-Path -LiteralPath $venvPath) {
@@ -660,6 +662,10 @@ function Update-ExistingInstall {
         if (Test-Path -LiteralPath $fontPath) {
             $fontBackup = Join-Path $tempRoot $FontName
             Copy-Item -LiteralPath $fontPath -Destination $fontBackup -Force
+        }
+        if (Test-Path -LiteralPath $userGroupingsPath) {
+            $userGroupingsBackup = Join-Path $tempRoot 'overlay_groupings.user.json'
+            Copy-Item -LiteralPath $userGroupingsPath -Destination $userGroupingsBackup -Force
         }
 
         if (Test-Path -LiteralPath $DestDir) {
@@ -675,6 +681,10 @@ function Update-ExistingInstall {
         if ($fontBackup) {
             $restoredFont = Join-Path $DestDir 'overlay_client\fonts\Eurocaps.ttf'
             Copy-Item -LiteralPath $fontBackup -Destination $restoredFont -Force
+        }
+        if ($userGroupingsBackup) {
+            $restoredUser = Join-Path $DestDir 'overlay_groupings.user.json'
+            Copy-Item -LiteralPath $userGroupingsBackup -Destination $restoredUser -Force
         }
     } finally {
         Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -839,16 +849,19 @@ function Main {
     Final-Notes
 }
 
-$script:InstallerHadError = $false
-try {
-    Initialize-EmbeddedPayload
-    Main
-} catch {
-    $script:InstallerHadError = $true
-    Write-ErrorLine $_.Exception.Message
-} finally {
-    Cleanup-EmbeddedPayload
-    if ($InstallerHadError) {
-        exit 1
+# Allow Pester/imported contexts to skip executing Main.
+if (-not $env:MODERN_OVERLAY_INSTALLER_IMPORT) {
+    $script:InstallerHadError = $false
+    try {
+        Initialize-EmbeddedPayload
+        Main
+    } catch {
+        $script:InstallerHadError = $true
+        Write-ErrorLine $_.Exception.Message
+    } finally {
+        Cleanup-EmbeddedPayload
+        if ($InstallerHadError) {
+            exit 1
+        }
     }
 }

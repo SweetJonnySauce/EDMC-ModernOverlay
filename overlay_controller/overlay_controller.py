@@ -16,6 +16,7 @@ import sys
 import time
 import traceback
 import logging
+import math
 from math import ceil
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,12 @@ _CONTROLLER_LOGGER: Optional[logging.Logger] = None
 from overlay_client.controller_mode import ControllerModeProfile, ModeProfile
 from overlay_client.debug_config import DEBUG_CONFIG_ENABLED
 from overlay_client.logging_utils import build_rotating_file_handler, resolve_log_level, resolve_logs_dir
+from overlay_plugin.groupings_diff import diff_groupings, is_empty_diff
+from overlay_plugin.groupings_loader import GroupingsLoader
+from overlay_client.group_transform import GroupTransform
+from overlay_client.viewport_helper import BASE_HEIGHT as VC_BASE_HEIGHT, BASE_WIDTH as VC_BASE_WIDTH, ScaleMode
+from overlay_client.viewport_transform import ViewportState, build_viewport, compute_proportional_translation
+from overlay_client.window_utils import compute_legacy_mapper
 try:  # When run as a package (`python -m overlay_controller.overlay_controller`)
     from overlay_controller.input_bindings import BindingConfig, BindingManager
     from overlay_controller.selection_overlay import SelectionOverlay
@@ -1577,6 +1584,7 @@ class OverlayConfigApp(tk.Tk):
         self._move_guard_timeout_ms = 500
         self._pending_focus_out = False
         self._drag_offset: tuple[int, int] | None = None
+        self._previous_foreground_hwnd: int | None = None
 
         self._placement_open = False
         self._open_width = 0
@@ -1606,12 +1614,21 @@ class OverlayConfigApp(tk.Tk):
         self.overlay_border_width = 3
         self._focus_widgets: dict[tuple[str, int], object] = {}
         self._group_controls_enabled = True
-        self._absolute_warn = False
         self._current_direction = "right"
         self._groupings_data: dict[str, object] = {}
         self._idprefix_entries: list[tuple[str, str]] = []
         root = Path(__file__).resolve().parents[1]
-        self._groupings_path = root / "overlay_groupings.json"
+        self._groupings_shipped_path = root / "overlay_groupings.json"
+        self._groupings_user_path = Path(
+            os.environ.get("MODERN_OVERLAY_USER_GROUPINGS_PATH", root / "overlay_groupings.user.json")
+        )
+        self._groupings_loader = GroupingsLoader(self._groupings_shipped_path, self._groupings_user_path)
+        _controller_debug(
+            "Groupings loader configured: shipped=%s user=%s",
+            self._groupings_shipped_path,
+            self._groupings_user_path,
+        )
+        self._groupings_path = self._groupings_user_path
         self._groupings_cache_path = root / "overlay_group_cache.json"
         self._groupings_cache: dict[str, object] = {}
         self._force_render_override = _ForceRenderOverrideManager(root)
@@ -1645,13 +1662,16 @@ class OverlayConfigApp(tk.Tk):
         self._offset_step_px = 10.0
         self._offset_live_edit_until: float = 0.0
         self._offset_resync_handle: str | None = None
+        self._last_edit_ts: float = 0.0
+        self._edit_nonce: str = ""
+        self._user_overrides_nonce: str = ""
         self._initial_geometry_applied = False
         self._port_path = root / "port.json"
         self._controller_heartbeat_ms = 15000
         self._controller_heartbeat_handle: str | None = None
         self._last_override_reload_nonce: Optional[str] = None
         self._last_override_reload_ts: float = 0.0
-        self._last_active_group_sent: Optional[tuple[str, str]] = None
+        self._last_active_group_sent: Optional[tuple[str, str, str]] = None
 
         self._groupings_cache = self._load_groupings_cache()
         self._build_layout()
@@ -2194,10 +2214,7 @@ class OverlayConfigApp(tk.Tk):
             primary = "Use Alt-click / Alt-arrow to move the overlay group to the screen edge."
         elif idx == 2:
             primary = "Set exact coordinates for this group."
-            if (not select_mode) and getattr(self, "_absolute_warn", False):
-                secondary = "Payload group is catching up—red values may change once cache updates."
-            else:
-                secondary = "Enter px or % values; Tab switches fields."
+            secondary = "Enter px or % values; Tab switches fields."
         elif idx == 3:
             primary = "Choose the anchor point used for transforms."
             secondary = "Use arrows or click dots to move the highlight."
@@ -2245,6 +2262,7 @@ class OverlayConfigApp(tk.Tk):
         self._cancel_status_poll()
         self._stop_controller_heartbeat()
         self._deactivate_force_render_override()
+        self._restore_foreground_window()
         self.destroy()
 
     def _handle_focus_in(self, _event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]
@@ -2449,15 +2467,23 @@ class OverlayConfigApp(tk.Tk):
                 pass
 
     def _load_idprefix_options(self) -> list[str]:
-        path = getattr(self, "_groupings_path", None)
-        if path is None:
-            root = Path(__file__).resolve().parents[1]
-            path = root / "overlay_groupings.json"
-            self._groupings_path = path
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            payload = {}
+        loader = getattr(self, "_groupings_loader", None)
+        if loader is not None:
+            try:
+                loader.reload_if_changed()
+                payload = loader.merged()
+            except Exception:
+                payload = {}
+        else:
+            path = getattr(self, "_groupings_path", None)
+            if path is None:
+                root = Path(__file__).resolve().parents[1]
+                path = root / "overlay_groupings.json"
+                self._groupings_path = path
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                payload = {}
         self._groupings_data = payload if isinstance(payload, dict) else {}
         options: list[str] = []
         self._idprefix_entries.clear()
@@ -2565,15 +2591,30 @@ class OverlayConfigApp(tk.Tk):
         base_max_y = float(base_payload.get("base_max_y", base_min_y))
         base_bounds = (base_min_x, base_min_y, base_max_x, base_max_y)
         base_anchor = self._compute_anchor_point(base_min_x, base_max_x, base_min_y, base_max_y, anchor_token)
-        if transformed_payload:
+        def _transformed_matches_offsets(payload: dict[str, object]) -> bool:
+            tol = 0.5
+            try:
+                tx = float(payload.get("offset_dx", 0.0))
+                ty = float(payload.get("offset_dy", 0.0))
+            except Exception:
+                return False
+            return abs(tx - offset_x) <= tol and abs(ty - offset_y) <= tol
+
+        # edit_ts retained for potential future gating/debug.
+        use_transformed = False  # POC: ignore cached transforms to avoid snap-backs
+        if use_transformed and transformed_payload:
             trans_min_x = float(transformed_payload.get("trans_min_x", base_min_x))
             trans_min_y = float(transformed_payload.get("trans_min_y", base_min_y))
             trans_max_x = float(transformed_payload.get("trans_max_x", base_max_x))
             trans_max_y = float(transformed_payload.get("trans_max_y", base_max_y))
             has_transform = True
         else:
-            trans_min_x, trans_min_y, trans_max_x, trans_max_y = base_bounds
-            has_transform = False
+            # Synthesize transform from base + offsets so preview "Actual" tracks target.
+            trans_min_x = base_min_x + offset_x
+            trans_min_y = base_min_y + offset_y
+            trans_max_x = base_max_x + offset_x
+            trans_max_y = base_max_y + offset_y
+            has_transform = True
         transform_bounds = (trans_min_x, trans_min_y, trans_max_x, trans_max_y)
         transform_anchor = self._compute_anchor_point(
             trans_min_x, trans_max_x, trans_min_y, trans_max_y, transform_anchor_token
@@ -2593,23 +2634,128 @@ class OverlayConfigApp(tk.Tk):
             cache_timestamp=cache_ts,
         )
 
+    def _scale_mode_setting(self) -> str:
+        try:
+            raw = json.loads(self._settings_path.read_text(encoding="utf-8"))
+            value = raw.get("scale_mode")
+            if isinstance(value, str):
+                token = value.strip().lower()
+                if token in {"fit", "fill"}:
+                    return token
+        except Exception:
+            pass
+        return "fill"
+
+    @staticmethod
+    def _clamp_unit(value: float) -> float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if not math.isfinite(number):
+            return 0.0
+        if number < 0.0:
+            return 0.0
+        if number > 1.0:
+            return 1.0
+        return number
+
+    @staticmethod
+    def _anchor_point_from_bounds(bounds: tuple[float, float, float, float], anchor: str) -> tuple[float, float]:
+        min_x, min_y, max_x, max_y = bounds
+        mid_x = (min_x + max_x) / 2.0
+        mid_y = (min_y + max_y) / 2.0
+        token = (anchor or "nw").strip().lower()
+        if token in {"c", "center"}:
+            return mid_x, mid_y
+        if token in {"n", "top"}:
+            return mid_x, min_y
+        if token in {"ne"}:
+            return max_x, min_y
+        if token in {"right", "e"}:
+            return max_x, mid_y
+        if token in {"se"}:
+            return max_x, max_y
+        if token in {"bottom", "s"}:
+            return mid_x, max_y
+        if token in {"sw"}:
+            return min_x, max_y
+        if token in {"left", "w"}:
+            return min_x, mid_y
+        return min_x, min_y
+
+    @staticmethod
+    def _translate_snapshot_for_fill(
+        snapshot: _GroupSnapshot,
+        viewport_width: float,
+        viewport_height: float,
+        *,
+        scale_mode_value: Optional[str] = None,
+        anchor_token_override: Optional[str] = None,
+    ) -> _GroupSnapshot:
+        if snapshot is None or snapshot.has_transform:
+            return snapshot
+        scale_mode = (scale_mode_value or "fill").strip().lower()
+        mapper = compute_legacy_mapper(scale_mode, float(max(viewport_width, 1.0)), float(max(viewport_height, 1.0)))
+        transform = mapper.transform
+        if transform.mode is not ScaleMode.FILL or not (transform.overflow_x or transform.overflow_y):
+            return snapshot
+        base_bounds = snapshot.base_bounds
+        anchor_token = anchor_token_override or snapshot.transform_anchor_token or snapshot.anchor_token or "nw"
+        anchor_point = OverlayConfigApp._anchor_point_from_bounds(base_bounds, anchor_token)
+        base_width = VC_BASE_WIDTH if VC_BASE_WIDTH > 0.0 else 1.0
+        base_height = VC_BASE_HEIGHT if VC_BASE_HEIGHT > 0.0 else 1.0
+        clamp = OverlayConfigApp._clamp_unit
+        group_transform = GroupTransform(
+            dx=0.0,
+            dy=0.0,
+            band_min_x=clamp(base_bounds[0] / base_width),
+            band_max_x=clamp(base_bounds[2] / base_width),
+            band_min_y=clamp(base_bounds[1] / base_height),
+            band_max_y=clamp(base_bounds[3] / base_height),
+            band_anchor_x=clamp(anchor_point[0] / base_width),
+            band_anchor_y=clamp(anchor_point[1] / base_height),
+            bounds_min_x=base_bounds[0],
+            bounds_min_y=base_bounds[1],
+            bounds_max_x=base_bounds[2],
+            bounds_max_y=base_bounds[3],
+            anchor_token=anchor_token,
+            payload_justification="left",
+        )
+        viewport_state = ViewportState(width=float(max(viewport_width, 1.0)), height=float(max(viewport_height, 1.0)))
+        fill = build_viewport(mapper, viewport_state, group_transform, VC_BASE_WIDTH, VC_BASE_HEIGHT)
+        dx, dy = compute_proportional_translation(fill, group_transform, anchor_point)
+        if not (dx or dy):
+            return snapshot
+        trans_bounds = (
+            base_bounds[0] + dx,
+            base_bounds[1] + dy,
+            base_bounds[2] + dx,
+            base_bounds[3] + dy,
+        )
+        trans_anchor = (anchor_point[0] + dx, anchor_point[1] + dy)
+        return _GroupSnapshot(
+            plugin=snapshot.plugin,
+            label=snapshot.label,
+            anchor_token=snapshot.anchor_token,
+            transform_anchor_token=anchor_token,
+            offset_x=snapshot.offset_x,
+            offset_y=snapshot.offset_y,
+            base_bounds=snapshot.base_bounds,
+            base_anchor=snapshot.base_anchor,
+            transform_bounds=trans_bounds,
+            transform_anchor=trans_anchor,
+            has_transform=True,
+            cache_timestamp=snapshot.cache_timestamp,
+        )
+
     def _update_absolute_widget_color(self, snapshot: _GroupSnapshot | None) -> None:
         widget = getattr(self, "absolute_widget", None)
         if widget is None:
-            self._absolute_warn = False
             return
-        color = None
-        if snapshot is not None:
-            abs_x, abs_y = self._compute_absolute_from_snapshot(snapshot)
-            trans_x, trans_y = self._expected_transformed_anchor(snapshot)
-            if (
-                abs(abs_x - trans_x) > self._absolute_tolerance_px
-                or abs(abs_y - trans_y) > self._absolute_tolerance_px
-            ):
-                color = "#cc3333"
-        self._absolute_warn = bool(color)
+        # Absolute preview now mirrors controller target; keep default text color.
         try:
-            widget.set_text_color(color)
+            widget.set_text_color(None)
         except Exception:
             pass
         self._update_contextual_tip()
@@ -2672,6 +2818,15 @@ class OverlayConfigApp(tk.Tk):
 
     def _poll_cache_and_status(self) -> None:
         self._status_poll_handle = None
+        reload_groupings = False
+        loader = getattr(self, "_groupings_loader", None)
+        if loader is not None:
+            try:
+                # Delay reloads immediately after an edit to avoid reading half-written user file.
+                if time.time() - getattr(self, "_last_edit_ts", 0.0) > 5.0:
+                    reload_groupings = bool(loader.reload_if_changed())
+            except Exception:
+                reload_groupings = False
         try:
             latest = self._load_groupings_cache()
         except Exception:
@@ -2681,6 +2836,9 @@ class OverlayConfigApp(tk.Tk):
                 _controller_debug("Group cache refreshed from disk at %s", time.strftime("%H:%M:%S"))
                 self._groupings_cache = latest
                 self._refresh_idprefix_options()
+        if reload_groupings:
+            _controller_debug("Groupings reloaded from disk at %s", time.strftime("%H:%M:%S"))
+            self._refresh_idprefix_options()
         self._refresh_current_group_snapshot(force_ui=False)
         self._status_poll_handle = self.after(self._status_poll_interval_ms, self._poll_cache_and_status)
     def _refresh_idprefix_options(self) -> None:
@@ -2739,14 +2897,87 @@ class OverlayConfigApp(tk.Tk):
         return _strip_timestamps(new_cache) != _strip_timestamps(old_cache)
 
     def _write_groupings_config(self) -> None:
-        path = getattr(self, "_groupings_path", None)
-        if path is None:
+        user_path = getattr(self, "_groupings_user_path", None) or getattr(self, "_groupings_path", None)
+        if user_path is None:
             return
+
+        shipped_path = getattr(self, "_groupings_shipped_path", None)
+        if shipped_path is None:
+            root = Path(__file__).resolve().parents[1]
+            shipped_path = root / "overlay_groupings.json"
+            self._groupings_shipped_path = shipped_path
+
         try:
-            text = json.dumps(self._groupings_data, indent=2, sort_keys=True)
-            path.write_text(text + "\n", encoding="utf-8")
+            shipped_raw = json.loads(shipped_path.read_text(encoding="utf-8"))
+        except Exception:
+            shipped_raw = {}
+
+        merged_view = getattr(self, "_groupings_data", None)
+        if not isinstance(merged_view, dict):
+            merged_view = {}
+        else:
+            # Round offsets to reduce float noise.
+            merged_view = OverlayConfigApp._round_offsets(merged_view)
+
+        try:
+            diff = diff_groupings(shipped_raw, merged_view)
+        except Exception:
+            return
+
+        if is_empty_diff(diff):
+            # Clear stale user overrides when merged view matches shipped defaults.
+            if user_path.exists():
+                try:
+                    user_path.write_text("{}\n", encoding="utf-8")
+                    _controller_debug("Cleared user groupings file; no overrides to persist.")
+                except Exception:
+                    pass
+            else:
+                _controller_debug("Skip writing user groupings: no diff to persist.")
+            return
+
+        try:
+            payload = dict(diff) if isinstance(diff, dict) else {}
+            payload["_edit_nonce"] = getattr(self, "_user_overrides_nonce", "")
+            text = json.dumps(payload, indent=2) + "\n"
+            tmp_path = user_path.with_suffix(user_path.suffix + ".tmp")
+            tmp_path.write_text(text, encoding="utf-8")
+            tmp_path.replace(user_path)
+            # Push merged overrides directly to plugin/client for immediate adoption.
+            merged_payload = dict(merged_view)
+            merged_payload["_edit_nonce"] = getattr(self, "_user_overrides_nonce", "")
+            self._send_plugin_cli(
+                {"cli": "controller_overrides_payload", "overrides": merged_payload, "nonce": merged_payload["_edit_nonce"]}
+            )
         except Exception:
             pass
+
+    @staticmethod
+    def _round_offsets(payload: dict[str, object]) -> dict[str, object]:
+        """Return a copy with offsetX/offsetY rounded to 3 decimals to avoid float noise."""
+
+        result: dict[str, object] = {}
+        for plugin_name, plugin_entry in payload.items():
+            if not isinstance(plugin_entry, dict):
+                result[plugin_name] = plugin_entry
+                continue
+            plugin_copy: dict[str, object] = dict(plugin_entry)
+            groups = plugin_entry.get("idPrefixGroups")
+            if isinstance(groups, dict):
+                groups_copy: dict[str, object] = {}
+                for label, group_entry in groups.items():
+                    if not isinstance(group_entry, dict):
+                        groups_copy[label] = group_entry
+                        continue
+                    group_copy: dict[str, object] = dict(group_entry)
+                    if "offsetX" in group_copy and isinstance(group_copy["offsetX"], (int, float)):
+                        group_copy["offsetX"] = round(float(group_copy["offsetX"]), 3)
+                    if "offsetY" in group_copy and isinstance(group_copy["offsetY"], (int, float)):
+                        group_copy["offsetY"] = round(float(group_copy["offsetY"]), 3)
+                    groups_copy[label] = group_copy
+                plugin_copy["idPrefixGroups"] = groups_copy
+            result[plugin_name] = plugin_copy
+        return result
 
     def _write_groupings_cache(self) -> None:
         # Controller is read-only for overlay_group_cache.json; no-op to avoid clobbering client data.
@@ -2754,6 +2985,8 @@ class OverlayConfigApp(tk.Tk):
 
     def _flush_groupings_config(self) -> None:
         self._debounce_handles["config_write"] = None
+        self._last_edit_ts = time.time()
+        self._user_overrides_nonce = self._edit_nonce
         self._write_groupings_config()
         self._emit_override_reload_signal()
 
@@ -2797,6 +3030,7 @@ class OverlayConfigApp(tk.Tk):
         payload = {
             "cli": "controller_override_reload",
             "nonce": nonce,
+            "edit_nonce": getattr(self, "_user_overrides_nonce", ""),
             "timestamp": time.time(),
         }
         self._send_plugin_cli(payload)
@@ -2926,14 +3160,35 @@ class OverlayConfigApp(tk.Tk):
 
         selection = self._get_current_group_selection()
         snapshot = self._get_group_snapshot(selection) if selection is not None else None
-        if snapshot is None:
-            live_anchor_token = None
-            live_anchor_abs = None
-            target_frame = None
-        else:
+        preview_bounds: tuple[float, float, float, float] | None = None
+        preview_anchor_token: str | None = None
+        preview_anchor_abs: tuple[float, float] | None = None
+        if snapshot is not None:
             live_anchor_token = self._get_live_anchor_token(snapshot)
-            live_anchor_abs = self._get_live_absolute_anchor(snapshot)
+            snapshot = self._translate_snapshot_for_fill(
+                snapshot,
+                inner_w,
+                inner_h,
+                scale_mode_value=self._scale_mode_setting(),
+                anchor_token_override=live_anchor_token,
+            )
             target_frame = self._resolve_target_frame(snapshot)
+            if target_frame is not None:
+                bounds, anchor_point = target_frame
+                preview_bounds = bounds
+                preview_anchor_token = live_anchor_token
+                preview_anchor_abs = anchor_point
+            else:
+                bounds = snapshot.transform_bounds or snapshot.base_bounds
+                preview_bounds = bounds
+                preview_anchor_token = snapshot.transform_anchor_token or snapshot.anchor_token
+                preview_anchor_abs = self._compute_anchor_point(
+                    bounds[0],
+                    bounds[2],
+                    bounds[1],
+                    bounds[3],
+                    preview_anchor_token,
+                )
 
         signature_snapshot = (
             snapshot.base_bounds if snapshot is not None else None,
@@ -2950,9 +3205,8 @@ class OverlayConfigApp(tk.Tk):
             padding,
             selection,
             signature_snapshot,
-            live_anchor_token,
-            live_anchor_abs,
-            target_frame,
+            preview_bounds,
+            preview_anchor_abs,
         )
         if self._last_preview_signature == current_signature:
             return
@@ -2968,9 +3222,9 @@ class OverlayConfigApp(tk.Tk):
 
         label = selection[1]
         base_min_x, base_min_y, base_max_x, base_max_y = snapshot.base_bounds
-        trans_min_x, trans_min_y, trans_max_x, trans_max_y = snapshot.transform_bounds or snapshot.base_bounds
-        anchor_name = snapshot.anchor_token
-        actual_anchor_token = snapshot.transform_anchor_token or anchor_name
+        preview_bounds = preview_bounds or (snapshot.transform_bounds or snapshot.base_bounds)
+        trans_min_x, trans_min_y, trans_max_x, trans_max_y = preview_bounds
+        preview_anchor_token = preview_anchor_token or snapshot.transform_anchor_token or snapshot.anchor_token
 
         scale = max(0.01, min(inner_w / float(ABS_BASE_WIDTH), inner_h / float(ABS_BASE_HEIGHT)))
         content_w = ABS_BASE_WIDTH * scale
@@ -3015,7 +3269,7 @@ class OverlayConfigApp(tk.Tk):
         trans_x1 = offset_x + trans_max_x * scale
         trans_y1 = offset_y + trans_max_y * scale
         canvas.create_rectangle(trans_x0, trans_y0, trans_x1, trans_y1, **_rect_color("#ffa94d"))
-        actual_label = "Actual Placement"
+        actual_label = "Target Placement"
         actual_inside = (trans_x1 - trans_x0) >= 110 and (trans_y1 - trans_y0) >= 20
         actual_fill = "#ffffff" if not actual_inside else "#5a2d00"
         actual_label_x = trans_x0 + 4 if actual_inside else trans_x1 + 6
@@ -3029,14 +3283,8 @@ class OverlayConfigApp(tk.Tk):
             font=("TkDefaultFont", 8, "bold"),
         )
 
-        if snapshot.transform_bounds is not None:
-            anchor_px, anchor_py = self._compute_anchor_point(
-                trans_min_x,
-                trans_max_x,
-                trans_min_y,
-                trans_max_y,
-                actual_anchor_token,
-            )
+        if preview_anchor_abs is not None:
+            anchor_px, anchor_py = preview_anchor_abs
             anchor_screen_x = offset_x + anchor_px * scale
             anchor_screen_y = offset_y + anchor_py * scale
             anchor_radius = 4
@@ -3048,44 +3296,6 @@ class OverlayConfigApp(tk.Tk):
                 fill="#ffffff",
                 outline="#000000",
                 width=1,
-            )
-
-        target_frame = self._resolve_target_frame(snapshot)
-        if target_frame is not None:
-            (target_min_x, target_min_y, target_max_x, target_max_y), (target_anchor_x, target_anchor_y) = target_frame
-            target_x0 = offset_x + target_min_x * scale
-            target_y0 = offset_y + target_min_y * scale
-            target_x1 = offset_x + target_max_x * scale
-            target_y1 = offset_y + target_max_y * scale
-            target_color = "#ffb347"
-            canvas.create_rectangle(
-                target_x0,
-                target_y0,
-                target_x1,
-                target_y1,
-                outline=target_color,
-                dash=(4, 3),
-                width=2,
-            )
-            target_anchor_screen_x = offset_x + target_anchor_x * scale
-            target_anchor_screen_y = offset_y + target_anchor_y * scale
-            target_anchor_radius = 5
-            canvas.create_oval(
-                target_anchor_screen_x - target_anchor_radius,
-                target_anchor_screen_y - target_anchor_radius,
-                target_anchor_screen_x + target_anchor_radius,
-                target_anchor_screen_y + target_anchor_radius,
-                fill="#ff8800",
-                outline="#5a2d00",
-                width=1,
-            )
-            canvas.create_text(
-                (target_x0 + target_x1) / 2,
-                (target_y0 + target_y1) / 2,
-                text="Target",
-                fill="#ffa94d",
-                font=("TkDefaultFont", 8, "bold"),
-                anchor="center",
             )
 
         canvas.create_text(
@@ -3100,13 +3310,21 @@ class OverlayConfigApp(tk.Tk):
         self, selection: tuple[str, str], offset_x: float, offset_y: float, debounce_ms: int | None = None
     ) -> None:
         plugin_name, label = selection
+        self._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
         self._set_config_offsets(plugin_name, label, offset_x, offset_y)
+        self._last_edit_ts = time.time()
+        self._invalidate_group_cache_entry(plugin_name, label)
         delay = self._offset_write_debounce_ms if debounce_ms is None else debounce_ms
         self._schedule_groupings_config_write(delay)
         snapshot = self._group_snapshots.get(selection)
         if snapshot is not None:
             snapshot.offset_x = offset_x
             snapshot.offset_y = offset_y
+            # Clear any cached transform so preview/HUD stay aligned until client rewrites.
+            snapshot.has_transform = False
+            snapshot.transform_bounds = snapshot.base_bounds
+            snapshot.transform_anchor_token = snapshot.anchor_token
+            snapshot.transform_anchor = snapshot.base_anchor
             self._group_snapshots[selection] = snapshot
         _controller_debug(
             "Target updated for %s/%s: offset_x=%.1f offset_y=%.1f debounce_ms=%s",
@@ -3172,6 +3390,10 @@ class OverlayConfigApp(tk.Tk):
             justification,
         )
         self._schedule_groupings_config_write()
+        self._invalidate_group_cache_entry(plugin_name, label)
+        self._last_edit_ts = time.time()
+        self._offset_live_edit_until = max(getattr(self, "_offset_live_edit_until", 0.0) or 0.0, self._last_edit_ts + 5.0)
+        self._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
     def _handle_absolute_changed(self, axis: str) -> None:
         selection = self._get_current_group_selection()
         if selection is None or not hasattr(self, "absolute_widget"):
@@ -3279,7 +3501,7 @@ class OverlayConfigApp(tk.Tk):
         # Freeze snapshot rebuilds briefly so cache polls don't snap preview back while holding arrows.
         # Keep preview in "live edit" mode a bit longer so cache polls/actual updates
         # cannot snap the target back while the user is holding the key.
-        self._offset_live_edit_until = time.time() + 1.0
+        self._offset_live_edit_until = time.time() + 5.0
         # Force preview refresh immediately to mirror HUD movement.
         self._last_preview_signature = None
         try:
@@ -3291,13 +3513,27 @@ class OverlayConfigApp(tk.Tk):
     def _send_active_group_selection(self, plugin_name: Optional[str], label: Optional[str]) -> None:
         plugin = (str(plugin_name or "").strip())
         group = (str(label or "").strip())
-        key = (plugin, group)
+        snapshot = self._get_group_snapshot((plugin, group)) if plugin and group else None
+        anchor_token = self._get_live_anchor_token(snapshot) if snapshot is not None else None
+        anchor_value = (anchor_token or "").strip().lower()
+        key = (plugin, group, anchor_value)
         if key == self._last_active_group_sent:
             return
-        payload = {"cli": "controller_active_group", "plugin": plugin, "label": group}
+        payload = {
+            "cli": "controller_active_group",
+            "plugin": plugin,
+            "label": group,
+            "anchor": anchor_value,
+            "edit_nonce": getattr(self, "_edit_nonce", ""),
+        }
         self._send_plugin_cli(payload)
         self._last_active_group_sent = key
-        _controller_debug("Controller active group signal sent: %s/%s", plugin or "<none>", group or "<none>")
+        _controller_debug(
+            "Controller active group signal sent: %s/%s anchor=%s",
+            plugin or "<none>",
+            group or "<none>",
+            anchor_value or "<none>",
+        )
 
     def _cancel_offset_resync(self) -> None:
         handle = getattr(self, "_offset_resync_handle", None)
@@ -3315,7 +3551,6 @@ class OverlayConfigApp(tk.Tk):
 
         def _resync() -> None:
             self._offset_resync_handle = None
-            self._offset_live_edit_until = 0.0
             self._last_preview_signature = None
             try:
                 self._refresh_current_group_snapshot(force_ui=True)
@@ -3508,6 +3743,46 @@ class OverlayConfigApp(tk.Tk):
         return bounds, (anchor_x, anchor_y)
 
 
+    def _invalidate_group_cache_entry(self, plugin_name: str, label: str) -> None:
+        """POC: clear transformed cache for a group and bump timestamp so HUD follows controller."""
+
+        if not plugin_name or not label:
+            return
+        path = getattr(self, "_groupings_cache_path", None)
+        if path is None:
+            root = Path(__file__).resolve().parents[1]
+            path = root / "overlay_group_cache.json"
+            self._groupings_cache_path = path
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        if not isinstance(raw, dict):
+            return
+        groups = raw.get("groups")
+        if not isinstance(groups, dict):
+            return
+        plugin_entry = groups.get(plugin_name)
+        if not isinstance(plugin_entry, dict):
+            return
+        entry = plugin_entry.get(label)
+        if not isinstance(entry, dict):
+            return
+        entry["transformed"] = None
+        base_entry = entry.get("base")
+        if isinstance(base_entry, dict):
+            base_entry["has_transformed"] = False
+            base_entry["edit_nonce"] = getattr(self, "_edit_nonce", "")
+        entry["last_updated"] = time.time()
+        entry["edit_nonce"] = getattr(self, "_edit_nonce", "")
+        try:
+            tmp_path = path.with_suffix(path.suffix + ".tmp")
+            tmp_path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
+            tmp_path.replace(path)
+            self._groupings_cache = raw
+        except Exception:
+            pass
+
     def _get_cache_entry(
         self, plugin_name: str, label: str
     ) -> tuple[dict[str, float], dict[str, float], str, float]:
@@ -3546,8 +3821,9 @@ class OverlayConfigApp(tk.Tk):
         group = groups.get(label)
         if not isinstance(group, dict):
             return
-        group["offsetX"] = offset_x
-        group["offsetY"] = offset_y
+        # Round to reduce float noise while keeping sub-pixel precision.
+        group["offsetX"] = round(offset_x, 3)
+        group["offsetY"] = round(offset_y, 3)
     def _handle_anchor_changed(self, anchor: str, prefer_user: bool = False) -> None:
         selection = self._get_current_group_selection()
         if selection is None:
@@ -3575,10 +3851,28 @@ class OverlayConfigApp(tk.Tk):
             prefer_user,
         )
 
+        self._last_edit_ts = time.time()
+        self._offset_live_edit_until = max(getattr(self, "_offset_live_edit_until", 0.0) or 0.0, self._last_edit_ts + 5.0)
+        self._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
         self._sync_absolute_for_current_group(force_ui=True, prefer_user=prefer_user)
         self._draw_preview()
         if captured:
             self._schedule_anchor_restore(selection)
+        # Notify client of anchor change for active group selection.
+        self._send_active_group_selection(plugin_name, label)
+        self._invalidate_group_cache_entry(plugin_name, label)
+        snapshot = self._group_snapshots.get(selection)
+        if snapshot is not None:
+            snapshot.has_transform = False
+            snapshot.transform_bounds = snapshot.base_bounds
+            snapshot.transform_anchor_token = snapshot.anchor_token
+            snapshot.transform_anchor = snapshot.base_anchor
+            snapshot.anchor_token = anchor
+            snapshot.transform_anchor_token = anchor
+            base_min_x, base_min_y, base_max_x, base_max_y = snapshot.base_bounds
+            snapshot.base_anchor = self._compute_anchor_point(base_min_x, base_max_x, base_min_y, base_max_y, anchor)
+            snapshot.transform_anchor = snapshot.base_anchor
+            self._group_snapshots[selection] = snapshot
 
     def _on_configure_activity(self) -> None:
         """Track recent move/resize to avoid closing during window drag."""
@@ -3759,6 +4053,7 @@ class OverlayConfigApp(tk.Tk):
     def _center_and_show(self) -> None:
         """Center the window before making it visible to avoid jumpiness."""
 
+        self._capture_foreground_window()
         self._center_on_screen()
         try:
             self.deiconify()
@@ -3907,6 +4202,66 @@ class OverlayConfigApp(tk.Tk):
             else:
                 self.focus_set()
                 self.after_idle(lambda: self.focus_set())
+        except Exception:
+            pass
+
+    def _capture_foreground_window(self) -> None:
+        """Remember the current foreground window before we take focus (Windows only)."""
+
+        self._previous_foreground_hwnd = None
+        if platform.system() != "Windows":
+            return
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+            hwnd = int(user32.GetForegroundWindow())
+            self._previous_foreground_hwnd = hwnd or None
+        except Exception:
+            self._previous_foreground_hwnd = None
+
+    def _restore_foreground_window(self) -> None:
+        """Best-effort restore focus to the window that was foreground before we opened."""
+
+        if platform.system() != "Windows":
+            self._previous_foreground_hwnd = None
+            return
+
+        target_hwnd = self._previous_foreground_hwnd
+        self._previous_foreground_hwnd = None
+        if not target_hwnd:
+            return
+
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            current_hwnd = None
+            try:
+                current_hwnd = int(self.winfo_id())
+            except Exception:
+                current_hwnd = None
+            if current_hwnd and current_hwnd == int(target_hwnd):
+                return
+
+            fg_hwnd = user32.GetForegroundWindow()
+            fg_tid = user32.GetWindowThreadProcessId(fg_hwnd, 0)
+            cur_tid = kernel32.GetCurrentThreadId()
+
+            attached = False
+            try:
+                if fg_tid and fg_tid != cur_tid:
+                    attached = bool(user32.AttachThreadInput(fg_tid, cur_tid, True))
+                user32.SetForegroundWindow(target_hwnd)
+                user32.SetActiveWindow(target_hwnd)
+                user32.SetFocus(target_hwnd)
+            finally:
+                if attached:
+                    try:
+                        user32.AttachThreadInput(fg_tid, cur_tid, False)
+                    except Exception:
+                        pass
         except Exception:
             pass
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -51,15 +52,42 @@ class _PluginConfig:
 class PluginOverrideManager:
     """Load and apply plugin-specific rendering overrides."""
 
-    def __init__(self, config_path: Path, logger, debug_config: Optional[DebugConfig] = None) -> None:
+    def __init__(
+        self,
+        config_path: Path,
+        logger,
+        debug_config: Optional[DebugConfig] = None,
+        groupings_loader: Optional[Any] = None,
+    ) -> None:
         self._path = config_path
         self._logger = logger
+        self._groupings_loader = groupings_loader
         self._mtime: Optional[float] = None
         self._plugins: Dict[str, _PluginConfig] = {}
         self._debug_config = debug_config or DebugConfig()
         self._diagnostic_spans: Dict[Tuple[str, str], Tuple[float, float, float]] = {}
         self._generation: int = 0
+        self._loader_loaded = False
+        self._controller_override_frozen: bool = False
+        self._controller_active_nonce: str = ""
+        self._controller_active_nonce_ts: float = 0.0
+        self._loaded_override_nonce: str = ""
+        self._last_reload_ts: float = 0.0
         self._load_config()
+
+    def apply_override_payload(self, payload: Optional[Mapping[str, Any]], nonce: str) -> None:
+        """Apply overrides directly from payload when nonce matches controller."""
+
+        if payload is None or not isinstance(payload, Mapping):
+            return
+        incoming_nonce = str(nonce or "").strip()
+        try:
+            if incoming_nonce:
+                self._controller_active_nonce = incoming_nonce
+                self._controller_active_nonce_ts = time.time()
+        except Exception:
+            pass
+        self._load_config_data(payload, mtime=time.time())
 
     # ------------------------------------------------------------------
     # Public API
@@ -174,6 +202,22 @@ class PluginOverrideManager:
     # Internal helpers
 
     def _reload_if_needed(self) -> None:
+        if self._groupings_loader is not None:
+            try:
+                if not self._loader_loaded:
+                    self._groupings_loader.load()
+                    self._loader_loaded = True
+                    changed = True
+                else:
+                    changed = bool(self._groupings_loader.reload_if_changed())
+            except Exception as exc:  # pragma: no cover - defensive guard
+                self._logger.warning("Failed to reload overrides via loader: %s", exc)
+                return
+            if not changed and self._mtime is not None:
+                return
+            self._load_config_from_loader()
+            return
+
         try:
             stat = self._path.stat()
         except FileNotFoundError:
@@ -200,9 +244,32 @@ class PluginOverrideManager:
             self._logger.warning("Failed to parse plugin override file %s: %s", self._path, exc)
             return
 
-        if not isinstance(raw, Mapping):
-            self._logger.warning("Plugin override file %s must contain a JSON object at the top level.", self._path)
+        self._load_config_data(raw, mtime=self._path.stat().st_mtime if self._path.exists() else None)
+
+    def _load_config_from_loader(self) -> None:
+        try:
+            raw = self._groupings_loader.merged()
+        except Exception as exc:
+            self._logger.warning("Failed to load overrides from loader: %s", exc)
             return
+        diag = self._groupings_loader.diagnostics() if self._groupings_loader else {}
+        mtime = diag.get("last_reload_ts", None) if isinstance(diag, Mapping) else None
+        self._load_config_data(raw, mtime=mtime)
+
+    def _load_config_data(self, raw: Any, mtime: Optional[float]) -> None:
+        if not isinstance(raw, Mapping):
+            self._logger.warning("Plugin override config must contain a JSON object at the top level.")
+            return
+        controller_nonce = None
+        try:
+            controller_nonce = str(raw.get("_edit_nonce", "")).strip()
+        except Exception:
+            controller_nonce = None
+        active_nonce = getattr(self, "_controller_active_nonce", "")
+        if active_nonce:
+            if not controller_nonce or controller_nonce != active_nonce:
+                self._logger.debug("Override reload skipped: nonce mismatch (controller=%s file=%s)", active_nonce, controller_nonce or "<missing>")
+                return
 
         plugins: Dict[str, _PluginConfig] = {}
         for plugin_name, plugin_payload in raw.items():
@@ -388,10 +455,15 @@ class PluginOverrideManager:
 
         self._plugins = plugins
         self._diagnostic_spans.clear()
-        try:
-            self._mtime = self._path.stat().st_mtime
-        except FileNotFoundError:
-            self._mtime = None
+        self._mtime = mtime if mtime is not None else (self._path.stat().st_mtime if self._path.exists() else None)
+        if controller_nonce:
+            self._loaded_override_nonce = controller_nonce
+        elif active_nonce and not self._loaded_override_nonce:
+            self._loaded_override_nonce = active_nonce
+        reload_ts = time.time()
+        if isinstance(mtime, (int, float)) and mtime > 0.0:
+            reload_ts = float(mtime)
+        self._last_reload_ts = reload_ts
         self._logger.debug(
             "Loaded %d plugin override configuration(s) from %s.",
             len(self._plugins),
@@ -402,6 +474,16 @@ class PluginOverrideManager:
     @property
     def generation(self) -> int:
         return self._generation
+
+    def current_override_nonce(self) -> str:
+        if self._controller_active_nonce:
+            return self._controller_active_nonce
+        if self._loaded_override_nonce:
+            return self._loaded_override_nonce
+        return ""
+
+    def override_generation_timestamp(self) -> float:
+        return float(self._last_reload_ts or 0.0)
 
     def force_reload(self) -> None:
         """Forcefully reload the override configuration from disk."""

@@ -51,6 +51,7 @@ class GroupPlacementCache:
         self._state: Dict[str, Any] = _default_state()
         self._dirty = False
         self._flush_timer: Optional[threading.Timer] = None
+        self._last_write_metadata: Dict[tuple[str, str], Dict[str, Any]] = {}
         self._ensure_parent()
         self._load_existing()
 
@@ -98,6 +99,12 @@ class GroupPlacementCache:
         suffix_key = (suffix or "").strip()
         normalized_payload = dict(normalized)
         transformed_payload = dict(transformed) if transformed is not None else None
+        edit_nonce = str(normalized_payload.get("edit_nonce") or "").strip()
+        controller_ts = normalized_payload.get("controller_ts")
+        try:
+            controller_ts_val = float(controller_ts)
+        except (TypeError, ValueError):
+            controller_ts_val = 0.0
         with self._lock:
             plugin_entry = self._state["groups"].setdefault(plugin_key, {})
             existing = plugin_entry.get(suffix_key)
@@ -105,10 +112,20 @@ class GroupPlacementCache:
             existing_transformed = existing.get("transformed") if isinstance(existing, dict) else None
             if existing_normalized == normalized_payload and existing_transformed == transformed_payload:
                 return
-            plugin_entry[suffix_key] = {
+            entry_payload: Dict[str, Any] = {
                 "base": normalized_payload,
                 "transformed": transformed_payload,
                 "last_updated": time.time(),
+            }
+            if edit_nonce:
+                entry_payload["edit_nonce"] = edit_nonce
+            if controller_ts_val > 0.0:
+                entry_payload["controller_ts"] = controller_ts_val
+            plugin_entry[suffix_key] = entry_payload
+            self._last_write_metadata[(plugin_key, suffix_key)] = {
+                "edit_nonce": edit_nonce,
+                "controller_ts": controller_ts_val,
+                "last_updated": entry_payload["last_updated"],
             }
             self._dirty = True
         self._schedule_flush()
@@ -156,6 +173,11 @@ class GroupPlacementCache:
                 self._dirty = True
             self._schedule_flush()
 
+    def flush_pending(self) -> None:
+        """Force an immediate flush of pending cache writes."""
+
+        self._flush()
+
     def _write_snapshot(self, snapshot: Mapping[str, Any]) -> bool:
         try:
             self._ensure_parent()
@@ -175,6 +197,10 @@ class GroupPlacementCache:
         if not isinstance(plugin_entry, dict):
             return None
         return plugin_entry.get(suffix) if isinstance(plugin_entry, dict) else None
+
+    def last_write_metadata(self, plugin: str, suffix: Optional[str]) -> Optional[Dict[str, Any]]:
+        key = ((plugin or "unknown").strip() or "unknown", (suffix or "").strip())
+        return self._last_write_metadata.get(key)
 
 
 def resolve_cache_path(root: Optional[Path] = None) -> Path:

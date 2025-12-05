@@ -125,6 +125,8 @@ class LegacyRenderPipeline:
         cache_transform_payloads: Dict[Tuple[str, Optional[str]], Dict[str, Any]] = {}
         active_group_keys: Set[Tuple[str, Optional[str]]] = set()
         offsets_by_group: Dict[Tuple[str, Optional[str]], Tuple[float, float]] = {}
+        override_nonce = owner._current_override_nonce()
+        override_ts = owner._current_override_generation_ts()
         for key, logical_bounds in overlay_bounds_base.items():
             if logical_bounds is None or not logical_bounds.is_valid():
                 continue
@@ -167,6 +169,8 @@ class LegacyRenderPipeline:
                 "offset_x": offset_x,
                 "offset_y": offset_y,
                 "bounds_tuple": bounds_tuple,
+                "edit_nonce": override_nonce,
+                "controller_ts": override_ts,
             }
             latest_base_payload[key] = payload_dict
             cache_base_payloads[key] = dict(payload_dict)

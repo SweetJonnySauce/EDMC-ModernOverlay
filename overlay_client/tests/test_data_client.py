@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,8 @@ from overlay_client.data_client import OverlayDataClient
 
 @pytest.fixture(scope="module")
 def qt_app():
+    # Force Qt to run headless for CI/CLI test runs.
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication.instance()
     if app is None:
         app = QApplication([])

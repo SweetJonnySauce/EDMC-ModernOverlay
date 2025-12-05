@@ -1,0 +1,34 @@
+{
+  "BGS-Tally": {
+    "idPrefixGroups": {
+      "BGS-Tally Tick Notifications": {
+        "offsetY": 0.0
+      }
+    }
+  },
+  "Bioscan": {
+    "idPrefixGroups": {
+      "Bioscan Details": {
+        "offsetX": 0.003,
+        "offsetY": -1.047
+      }
+    }
+  },
+  "ED-Mining-Analytics": {
+    "idPrefixGroups": {
+      "All-edmca-prefixes": {
+        "offsetX": 150.0,
+        "offsetY": -120.0
+      }
+    }
+  },
+  "EDR": {
+    "idPrefixGroups": {
+      "EDR Docking": {
+        "offsetX": 0.0,
+        "offsetY": 0.001
+      }
+    }
+  },
+  "_edit_nonce": "1764968666.960960-288003"
+}
