@@ -81,7 +81,7 @@ Phased Plan
 | 0 (POC) | Prove “controller target drives HUD”: on edit, clear `transformed`/set `has_transformed=false`/bump `last_updated`; controller ignores cached `transformed` entirely (uses base+overrides); extend live-edit window to keep snapshot in-memory; atomic writes for user overrides with post-edit reload pause; client fallback recomputes target from base+overrides and ignores cached `transformed`; overrides are pushed directly to client with `_edit_nonce` and applied immediately when matching. Validate via manual tweaks. Disposable shim acceptable. | Complete |
 | 1 | Harden controller invalidation + preview synthesis + nonce: keep cache invalidation, add generation/nonce to cache entries and snapshot gating; include nonce in override pushes; ensure atomic writes; add controller unit tests. | Complete (unit tests to add) |
 | 2 | Client stale-gating + single-application: ignore stale/mismatched cache transforms; recompute from base+overrides; fallback/draw apply offsets once and fill translation once; accept pushed overrides with nonce. Add client/unit tests for gating + no double-offset. | Complete |
-| 3 | Write-back discipline: after render with new offsets/anchor, write fresh `transformed` with updated `last_updated`/nonce; verify debounce/flush timing and convergence tests. | Pending |
+| 3 | Write-back discipline: after render with new offsets/anchor, write fresh `transformed` with updated `last_updated`/nonce; verify debounce/flush timing and convergence tests. | Complete |
 | 4 | Integration/regression: end-to-end edits without jumps; fallback matches controller target when HUD absent; clean up POC shims/flags, keep minimal logging. | Pending |
 | 5 | UI cleanup: simplify preview to draw target=actual only; remove/redesign absolute text red warning logic now that target and actual stay aligned in preview. | Pending |
 
@@ -112,6 +112,23 @@ Phase 2 Plan (Client stale-gating + single-application)
 - Render fallback synthesizes bounds from base + overrides unless cached transforms match offsets, nonce, and edit timestamp; fill translation now runs only for synthesized bounds to prevent double-shifts.
 - Plugin override manager/control surface track active nonce timestamps, override payloads apply immediately, and new tests cover cache gating, metadata persistence, and nonce/timestamp guard rails.
 - Tests: `make check` (ruff + mypy + full pytest suite, including new controller target box + group cache cases).
+
+### Phase 3 summary / test results
+- Controller-active mode now drives cache flush cadence: the payload log delay clamps to the active profile, pending log entries skip delays, and group cache debounce tightens while the controller heartbeat is fresh. Background/inactive mode retains the longer debounce.
+- `GroupPlacementCache` gained forced flush + metadata reporting; render surface tracks per-group generations, clears stale log state when `_edit_nonce` changes, records last-write diagnostics, and triggers an immediate flush (respecting a minimum interval) whenever controller-active renders produce cache updates.
+- Tests: `make check` (ruff, mypy, full pytest suite) plus new cases for cache debounce/flush, coordinator normalization metadata, controller mode payload delay adjustments, and forced flush behavior.
+
+Phase 3 Plan (Write-back discipline)
+------------------------------------
+- Goals: ensure every edit that reaches the client results in a timely cache write with the same transform geometry the HUD is rendering, so the controller preview/HUD fallback never stalls on stale data.
+- Steps:
+  1) **Snapshot plumbing:** expose the controller’s active nonce/timestamp (from the override manager/control surface) to the payload logging/caching path so `_apply_group_logging_payloads` and `_update_group_cache_from_payloads` know which generation they are persisting. Capture per-group last-write metadata in-memory for diagnostics.
+  2) **Flush cadence:** audit the debounce/timer pipeline (logging throttles → coordinator → `GroupPlacementCache`) and ensure rapid edits in controller-active mode shorten the flush window (e.g., bump cache debounce to sub-second while controller is active). Verify background mode still uses longer intervals to avoid disk churn.
+  3) **Write-after-edit guarantee:** when the controller is active and offsets change, force a cache flush (or direct write) after the first rendered frame so `overlay_group_cache.json` reflects the new transform even if additional edits are still in-flight. Provide guardrails to avoid unbounded writes (e.g., min interval, coalescing identical payloads).
+  4) **Stale-entry cleanup:** when a new generation/nonce arrives for a group, ensure any previous cached transformed data is immediately replaced/cleared in memory before the write to avoid HUD fallback seeing mismatched data.
+  5) **Logging/telemetry:** add debug logs (guarded by dev mode) that record when cache writes are forced, skipped, or delayed; include generation/nonce info so we can debug stuck writes. Consider wiring this into the controller preview overlay.
+  6) **Tests:** extend unit tests to assert (a) cache writes record the latest nonce/timestamp for every active group, (b) forced flushes happen when controller-active debounce is lowered, (c) stale cache entries are replaced promptly, and (d) background mode still batches writes. Introduce an integration-style test that simulates rapid offset changes and asserts the cache ends up with the expected transformed block after the final edit.
+  7) **Manual verification:** with the overlay + controller running, perform rapid alt-click and offset drags, then inspect `overlay_group_cache.json` to confirm each edit writes within the shortened window and reflects the on-screen placement. Verify that returning to inactive mode reverts to the longer debounce.
   
 Quick breadcrumbs for future sessions
 -------------------------------------

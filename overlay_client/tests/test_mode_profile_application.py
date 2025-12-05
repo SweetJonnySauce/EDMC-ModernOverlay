@@ -26,15 +26,22 @@ def test_apply_controller_mode_profile_updates_cache_debounce():
             )
             self._current_mode_profile = None
             self._cache_debounce_updates = []
+            self._payload_log_delay = 1.0
+            self._payload_log_delay_base = 1.0
+            self._controller_active_flush_interval = 1.0
 
         def _set_group_cache_debounce(self, debounce_seconds: float) -> None:
             self._cache_debounce_updates.append(debounce_seconds)
+
+        def controller_mode_state(self) -> str:
+            return "inactive"
 
     dummy = Dummy()
 
     dummy._apply_controller_mode_profile("active", reason="test-active")
     assert dummy._cache_debounce_updates == [0.5]
     assert dummy._current_mode_profile.cache_flush_seconds == 0.5
+    assert dummy._payload_log_delay < dummy._payload_log_delay_base
 
     # Applying the same profile should no-op and not append
     dummy._apply_controller_mode_profile("active", reason="unchanged")
@@ -44,3 +51,4 @@ def test_apply_controller_mode_profile_updates_cache_debounce():
     dummy._apply_controller_mode_profile("inactive", reason="test-inactive")
     assert dummy._cache_debounce_updates == [0.5, 5.0]
     assert dummy._current_mode_profile.cache_flush_seconds == 5.0
+    assert dummy._payload_log_delay == dummy._payload_log_delay_base

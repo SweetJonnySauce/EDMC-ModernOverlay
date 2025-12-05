@@ -418,8 +418,19 @@ class RenderSurfaceMixin:
         cache_transform_payloads = payload_results.get("cache_transform_payloads") or {}
         active_group_keys: Set[Tuple[str, Optional[str]]] = payload_results.get("active_group_keys") or set()
         now_monotonic = self._monotonic_now() if hasattr(self, "_monotonic_now") else time.monotonic()
+        mode_state = self.controller_mode_state() if hasattr(self, "controller_mode_state") else "inactive"
 
         for key, payload in latest_base_payload.items():
+            edit_nonce = str(payload.get("edit_nonce") or "")
+            last_nonce = self._group_cache_generations.get(key)
+            if edit_nonce and edit_nonce != last_nonce:
+                self._logged_group_bounds.pop(key, None)
+                self._logged_group_transforms.pop(key, None)
+                self._group_log_pending_base.pop(key, None)
+                self._group_log_pending_transform.pop(key, None)
+                self._group_cache_generations[key] = edit_nonce
+            elif not edit_nonce:
+                self._group_cache_generations.pop(key, None)
             bounds_tuple = payload.get("bounds_tuple")
             pending_payload = self._group_log_pending_base.get(key)
             pending_tuple = pending_payload.get("bounds_tuple") if pending_payload else None
@@ -477,8 +488,19 @@ class RenderSurfaceMixin:
                 )
                 self._group_log_next_allowed[key] = delay_target
 
-        self._update_group_cache_from_payloads(cache_base_payloads, cache_transform_payloads)
+        updated_cache_keys = self._update_group_cache_from_payloads(cache_base_payloads, cache_transform_payloads)
         self._flush_group_log_entries(active_group_keys)
+        if updated_cache_keys:
+            now = time.monotonic()
+            for key in updated_cache_keys:
+                snapshot = cache_base_payloads.get(key, {})
+                self._cache_write_metadata[key] = {
+                    "edit_nonce": str(snapshot.get("edit_nonce") or ""),
+                    "controller_ts": snapshot.get("controller_ts", 0.0),
+                    "timestamp": now,
+                }
+            if mode_state == "active":
+                self._force_group_cache_flush()
 
     def _maybe_collect_debug_helpers(
         self,
@@ -1453,11 +1475,30 @@ class RenderSurfaceMixin:
         self,
         base_payloads: Mapping[Tuple[str, Optional[str]], Mapping[str, Any]],
         transform_payloads: Mapping[Tuple[str, Optional[str]], Mapping[str, Any]],
-    ) -> None:
-        self._group_coordinator.update_cache_from_payloads(
-            base_payloads=base_payloads,
-            transform_payloads=transform_payloads,
+    ) -> Set[Tuple[str, Optional[str]]]:
+        return set(
+            self._group_coordinator.update_cache_from_payloads(
+                base_payloads=base_payloads,
+                transform_payloads=transform_payloads,
+            )
+            or []
         )
+
+    def _force_group_cache_flush(self) -> None:
+        cache = getattr(self, "_group_cache", None)
+        if cache is None:
+            return
+        min_interval = max(0.05, getattr(self, "_controller_active_flush_interval", 0.1))
+        now = time.monotonic()
+        last = getattr(self, "_last_cache_flush_ts", 0.0)
+        if last and now - last < min_interval:
+            return
+        try:
+            cache.flush_pending()
+            self._last_cache_flush_ts = now
+            _CLIENT_LOGGER.debug("Forced cache flush after controller edit (interval %.2fs)", min_interval)
+        except Exception as exc:
+            _CLIENT_LOGGER.debug("Forced cache flush failed: %s", exc, exc_info=exc)
 
     def _draw_payload_vertex_markers(self, painter: QPainter, points: Sequence[Tuple[int, int]]) -> None:
         if not points:

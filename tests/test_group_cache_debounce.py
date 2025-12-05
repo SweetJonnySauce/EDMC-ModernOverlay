@@ -1,6 +1,7 @@
+import json
+
 import group_cache
 import pytest
-
 
 def test_group_cache_configure_debounce_reschedules(monkeypatch, tmp_path):
     timers = []
@@ -63,3 +64,30 @@ def test_group_cache_update_records_metadata(tmp_path):
     entry = cache._state["groups"]["Plugin"]["G1"]
     assert entry["edit_nonce"] == "nonce-test"
     assert entry["controller_ts"] == pytest.approx(123.456, rel=0, abs=0.001)
+
+
+def test_group_cache_flush_pending_writes(tmp_path):
+    cache_path = tmp_path / "overlay_group_cache.json"
+    cache = group_cache.GroupPlacementCache(cache_path, debounce_seconds=10.0, logger=None)
+    normalized = {
+        "base_min_x": 1.0,
+        "base_min_y": 2.0,
+        "base_max_x": 3.0,
+        "base_max_y": 4.0,
+        "base_width": 2.0,
+        "base_height": 2.0,
+        "has_transformed": True,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "edit_nonce": "flush",
+        "controller_ts": 42.0,
+    }
+    cache.update_group("Plugin", "G1", normalized, None)
+    raw = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert raw["groups"] == {}  # not flushed yet due to debounce
+    cache.flush_pending()
+    flushed = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert "Plugin" in flushed["groups"]
+    meta = cache.last_write_metadata("Plugin", "G1")
+    assert meta is not None
+    assert meta["edit_nonce"] == "flush"

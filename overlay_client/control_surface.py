@@ -103,9 +103,10 @@ class ControlSurfaceMixin:
         except (TypeError, ValueError):
             numeric = self._payload_log_delay
         numeric = max(0.0, numeric)
-        if math.isclose(numeric, self._payload_log_delay, rel_tol=1e-9, abs_tol=1e-9):
+        if math.isclose(numeric, self._payload_log_delay_base, rel_tol=1e-9, abs_tol=1e-9):
             return
-        self._payload_log_delay = numeric
+        self._payload_log_delay_base = numeric
+        self._update_payload_log_delay_for_mode(self.controller_mode_state())
         now = time.monotonic()
         for key in self._group_log_pending_base.keys():
             self._group_log_next_allowed[key] = now + self._payload_log_delay

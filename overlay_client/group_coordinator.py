@@ -51,12 +51,13 @@ class GroupCoordinator:
         self,
         base_payloads: Mapping[Tuple[str, Optional[str]], Mapping[str, Any]],
         transform_payloads: Mapping[Tuple[str, Optional[str]], Mapping[str, Any]],
-    ) -> None:
+    ) -> Tuple[Tuple[str, Optional[str]], ...]:
         """Normalize and persist cache payloads."""
 
         cache = self._cache
         if cache is None:
-            return
+            return tuple()
+        updated: list[Tuple[str, Optional[str]]] = []
         for key, base_payload in base_payloads.items():
             plugin_label = (base_payload.get("plugin") or "").strip()
             suffix_label = base_payload.get("suffix")
@@ -70,9 +71,11 @@ class GroupCoordinator:
                     transformed_payload = self._transformed_cache_payload(raw_transform)
             try:
                 cache.update_group(plugin_label, suffix_label, normalized, transformed_payload)
+                updated.append((plugin_label, suffix_label if isinstance(suffix_label, str) else None))
             except Exception:
                 # Mirror current behavior: swallow cache errors to keep UI stable.
                 continue
+        return tuple(updated)
 
     def compute_group_nudges(
         self,

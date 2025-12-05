@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+import math
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from PyQt6.QtCore import Qt, QTimer, QPoint
@@ -224,11 +225,15 @@ class SetupSurfaceMixin:
         self._debug_group_bounds_final: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
         self._debug_group_state: Dict[Tuple[str, Optional[str]], _GroupDebugState] = {}
         self._payload_log_delay = max(0.0, float(getattr(initial, "payload_log_delay_seconds", 0.0) or 0.0))
+        self._payload_log_delay_base = self._payload_log_delay
         self._group_log_pending_base: Dict[Tuple[str, Optional[str]], Dict[str, Any]] = {}
         self._group_log_pending_transform: Dict[Tuple[str, Optional[str]], Dict[str, Any]] = {}
         self._group_log_next_allowed: Dict[Tuple[str, Optional[str]], float] = {}
         self._logged_group_bounds: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
         self._logged_group_transforms: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
+        self._group_cache_generations: Dict[Tuple[str, Optional[str]], str] = {}
+        self._cache_write_metadata: Dict[Tuple[str, Optional[str]], Dict[str, Any]] = {}
+        self._last_cache_flush_ts: float = 0.0
         self._last_overlay_bounds_for_target: Dict[Tuple[str, Optional[str]], Any] = {}
         self._last_transform_by_group: Dict[Tuple[str, Optional[str]], Any] = {}
         self._controller_mode = ControllerModeTracker(
@@ -247,6 +252,7 @@ class SetupSurfaceMixin:
             debounce_seconds=self._current_mode_profile.cache_flush_seconds,
             logger=_CLIENT_LOGGER,
         )
+        self._controller_active_flush_interval = self._current_mode_profile.cache_flush_seconds
         self._mode_profile.log_profile("inactive", self._current_mode_profile, "initial")
         self._group_coordinator = GroupCoordinator(cache=self._group_cache, logger=_CLIENT_LOGGER)
         self._render_pipeline = LegacyRenderPipeline(self)
@@ -388,9 +394,12 @@ class SetupSurfaceMixin:
         if previous == profile:
             if reason:
                 self._mode_profile.log_profile(mode, profile, f"{reason} (unchanged)")
+            self._update_payload_log_delay_for_mode(mode)
             return
         self._mode_profile.log_profile(mode, profile, reason or "apply")
         self._set_group_cache_debounce(profile.cache_flush_seconds)
+        self._controller_active_flush_interval = profile.cache_flush_seconds
+        self._update_payload_log_delay_for_mode(mode)
 
     def _set_group_cache_debounce(self, debounce_seconds: float) -> None:
         cache = getattr(self, "_group_cache", None)
@@ -405,6 +414,16 @@ class SetupSurfaceMixin:
                 exc,
                 exc_info=exc,
             )
+
+    def _update_payload_log_delay_for_mode(self, mode: str) -> None:
+        base_delay = getattr(self, "_payload_log_delay_base", self._payload_log_delay)
+        if mode == "active":
+            target = min(base_delay, max(0.0, self._controller_active_flush_interval / 2.0))
+        else:
+            target = base_delay
+        if not math.isclose(target, self._payload_log_delay, rel_tol=1e-6, abs_tol=1e-6):
+            self._payload_log_delay = target
+            _CLIENT_LOGGER.debug("Payload log delay set to %.3fs for controller mode %s", target, mode)
 
     def handle_controller_active_signal(self) -> None:
         self._controller_mode.mark_active()
