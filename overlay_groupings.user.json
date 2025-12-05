@@ -2,12 +2,13 @@
   "BGS-Tally": {
     "idPrefixGroups": {
       "BGS-Tally Colonisation": {
-        "offsetX": 580.0,
-        "offsetY": 380.0
+        "offsetX": 170.0,
+        "offsetY": 280.0
       },
       "BGS-Tally Tick Notifications": {
-        "offsetX": -400.0,
-        "offsetY": 400.0
+        "idPrefixGroupAnchor": "nw",
+        "offsetX": -1000.0,
+        "offsetY": 80.0
       }
     }
   },
@@ -35,5 +36,5 @@
       }
     }
   },
-  "_edit_nonce": "1764958022.297111-177515"
+  "_edit_nonce": "1764960029.686584-199995"
 }

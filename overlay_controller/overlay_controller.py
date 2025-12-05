@@ -2758,16 +2758,9 @@ class OverlayConfigApp(tk.Tk):
         if widget is None:
             self._absolute_warn = False
             return
+        # POC: disable red warning to avoid flashing during live moves.
         color = None
-        if snapshot is not None:
-            abs_x, abs_y = self._compute_absolute_from_snapshot(snapshot)
-            trans_x, trans_y = self._expected_transformed_anchor(snapshot)
-            if (
-                abs(abs_x - trans_x) > self._absolute_tolerance_px
-                or abs(abs_y - trans_y) > self._absolute_tolerance_px
-            ):
-                color = "#cc3333"
-        self._absolute_warn = bool(color)
+        self._absolute_warn = False
         try:
             widget.set_text_color(color)
         except Exception:
@@ -2837,7 +2830,7 @@ class OverlayConfigApp(tk.Tk):
         if loader is not None:
             try:
                 # Delay reloads immediately after an edit to avoid reading half-written user file.
-                if time.time() - getattr(self, "_last_edit_ts", 0.0) > 2.0:
+                if time.time() - getattr(self, "_last_edit_ts", 0.0) > 5.0:
                     reload_groupings = bool(loader.reload_if_changed())
             except Exception:
                 reload_groupings = False
@@ -3226,6 +3219,10 @@ class OverlayConfigApp(tk.Tk):
         trans_min_x, trans_min_y, trans_max_x, trans_max_y = snapshot.transform_bounds or snapshot.base_bounds
         anchor_name = snapshot.anchor_token
         actual_anchor_token = snapshot.transform_anchor_token or anchor_name
+        if target_frame is not None:
+            (target_min_x, target_min_y, target_max_x, target_max_y), (target_anchor_x, target_anchor_y) = target_frame
+            trans_min_x, trans_min_y, trans_max_x, trans_max_y = target_min_x, target_min_y, target_max_x, target_max_y
+            actual_anchor_token = snapshot.anchor_token
 
         scale = max(0.01, min(inner_w / float(ABS_BASE_WIDTH), inner_h / float(ABS_BASE_HEIGHT)))
         content_w = ABS_BASE_WIDTH * scale
@@ -3284,7 +3281,7 @@ class OverlayConfigApp(tk.Tk):
             font=("TkDefaultFont", 8, "bold"),
         )
 
-        if snapshot.transform_bounds is not None:
+        if snapshot.transform_bounds is not None or target_frame is not None:
             anchor_px, anchor_py = self._compute_anchor_point(
                 trans_min_x,
                 trans_max_x,
@@ -3437,7 +3434,7 @@ class OverlayConfigApp(tk.Tk):
         self._schedule_groupings_config_write()
         self._invalidate_group_cache_entry(plugin_name, label)
         self._last_edit_ts = time.time()
-        self._offset_live_edit_until = max(getattr(self, "_offset_live_edit_until", 0.0) or 0.0, self._last_edit_ts + 2.0)
+        self._offset_live_edit_until = max(getattr(self, "_offset_live_edit_until", 0.0) or 0.0, self._last_edit_ts + 5.0)
         self._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
     def _handle_absolute_changed(self, axis: str) -> None:
         selection = self._get_current_group_selection()
@@ -3546,7 +3543,7 @@ class OverlayConfigApp(tk.Tk):
         # Freeze snapshot rebuilds briefly so cache polls don't snap preview back while holding arrows.
         # Keep preview in "live edit" mode a bit longer so cache polls/actual updates
         # cannot snap the target back while the user is holding the key.
-        self._offset_live_edit_until = time.time() + 2.0
+        self._offset_live_edit_until = time.time() + 5.0
         # Force preview refresh immediately to mirror HUD movement.
         self._last_preview_signature = None
         try:
@@ -3897,7 +3894,7 @@ class OverlayConfigApp(tk.Tk):
         )
 
         self._last_edit_ts = time.time()
-        self._offset_live_edit_until = max(getattr(self, "_offset_live_edit_until", 0.0) or 0.0, self._last_edit_ts + 2.0)
+        self._offset_live_edit_until = max(getattr(self, "_offset_live_edit_until", 0.0) or 0.0, self._last_edit_ts + 5.0)
         self._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
         self._sync_absolute_for_current_group(force_ui=True, prefer_user=prefer_user)
         self._draw_preview()
