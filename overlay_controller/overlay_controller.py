@@ -2613,8 +2613,12 @@ class OverlayConfigApp(tk.Tk):
             trans_max_y = float(transformed_payload.get("trans_max_y", base_max_y))
             has_transform = True
         else:
-            trans_min_x, trans_min_y, trans_max_x, trans_max_y = base_bounds
-            has_transform = False
+            # Synthesize transform from base + offsets so preview "Actual" tracks target.
+            trans_min_x = base_min_x + offset_x
+            trans_min_y = base_min_y + offset_y
+            trans_max_x = base_max_x + offset_x
+            trans_max_y = base_max_y + offset_y
+            has_transform = True
         transform_bounds = (trans_min_x, trans_min_y, trans_max_x, trans_max_y)
         transform_anchor = self._compute_anchor_point(
             trans_min_x, trans_max_x, trans_min_y, trans_max_y, transform_anchor_token
@@ -3907,6 +3911,11 @@ class OverlayConfigApp(tk.Tk):
             snapshot.has_transform = False
             snapshot.transform_bounds = snapshot.base_bounds
             snapshot.transform_anchor_token = snapshot.anchor_token
+            snapshot.transform_anchor = snapshot.base_anchor
+            snapshot.anchor_token = anchor
+            snapshot.transform_anchor_token = anchor
+            base_min_x, base_min_y, base_max_x, base_max_y = snapshot.base_bounds
+            snapshot.base_anchor = self._compute_anchor_point(base_min_x, base_max_x, base_min_y, base_max_y, anchor)
             snapshot.transform_anchor = snapshot.base_anchor
             self._group_snapshots[selection] = snapshot
 
