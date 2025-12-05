@@ -30,6 +30,7 @@ Context
 -------
 - HUD payloads and controller preview jump to stale locations after offset edits because cached `transformed` blocks (with `has_transformed = true`) in `overlay_group_cache.json` are reused (e.g., `offset_dx/dy = 100/100` for `BGS-Tally Colonisation`).
 - Controller shows the new target (current X/Y), but the client renders using the cached transformed geometry, so HUD and preview diverge and the controller thinks the payload has not caught up.
+- Core rule: the controller sets the target; the client must work to match the controller’s target (not the other way around).
 
 Chosen Approach
 ---------------
@@ -37,6 +38,7 @@ Use a combined strategy to keep HUD and preview aligned:
 - Invalidate or rewrite the cached `transformed` entry on every edit (offset/anchor/justification) and bump `last_updated`.
 - Gate adoption of any `transformed` entry by timestamp/generation so stale cache cannot override a newer edit.
 - Optionally synthesize a fresh transformed block from base + new offsets + anchor to bridge the gap until the client rewrites.
+- Avoid double-applying offsets: when a transformed block exists, use it as-is; when absent, synthesize once from base + overrides (including fill translation) and persist it.
 
 Controller Actions
 ------------------
@@ -48,9 +50,11 @@ Controller Actions
 
 Client Actions
 --------------
+- Treat controller target as source of truth; HUD must converge to it.
 - When reading cache, only apply `transformed` if `last_updated >= last_edit_generation` (or matching generation nonce); otherwise recompute from base + offsets.
 - After rendering with new offsets, write back a fresh `transformed` block with updated `last_updated` so controller/HUD remain in sync.
 - Fallback: if cache is missing/invalid, recompute from base + offsets and continue.
+- Fallback specifics: do not reapply offsets on top of a `transformed` block; if no transform exists, synthesize transformed from base+overrides (including fill overflow translation) and write it back.
 
 Safeguards / Risk Mitigation
 ----------------------------
@@ -64,5 +68,27 @@ Safeguards / Risk Mitigation
 Testing Notes
 -------------
 - Controller tests: verify cache invalidation/rewrite on edits, timestamp bumps, and synthesized preview transforms.
-- Client/coordinator tests: ensure stale `transformed` entries are ignored when older than last edit/generation; fresh entries are applied.
-- End-to-end: edit offsets and confirm HUD and controller preview move together without snapping back; absolute widget color updates when the client write lands.
+- Client/coordinator tests: ensure stale `transformed` entries are ignored when older than last edit/generation; fresh entries are applied; fallback does not double-apply offsets and applies fill translation only once.
+- End-to-end: edit offsets and confirm HUD and controller preview move together without snapping back; absolute widget color updates when the client write lands; fallback rendering matches controller target when HUD payload is absent.
+
+Phased Plan
+-----------
+| Phase # | Description | Status |
+| --- | --- | --- |
+| 0 (POC) | Prove “controller target drives HUD”: on edit, clear `transformed`/set `has_transformed=false`/bump `last_updated`; fallback avoids reapplying offsets, synthesizes once from base+overrides (with fill translation); validate via manual tweaks. Disposable shim acceptable. | Not started |
+| 1 | Harden controller invalidation + preview synthesis: debounce + atomic cache writes, reload signal; snapshot uses synthesized transform until client rewrites. Add controller unit tests. | Not started |
+| 2 | Client stale-gating + single-application: ignore stale `transformed`; recompute from base+overrides; fallback/draw apply offsets once and fill translation once. Add client/unit tests for gating + no double-offset. | Not started |
+| 3 | Write-back discipline: after render with new offsets/anchor, write fresh `transformed` with updated `last_updated`; verify debounce/flush timing and convergence tests. | Not started |
+| 4 | Integration/regression: end-to-end edits without jumps; fallback matches controller target when HUD absent; clean up POC shims/flags, keep minimal logging. | Not started |
+
+Quick breadcrumbs for future sessions
+-------------------------------------
+- Key touchpoints:
+  - Controller: `overlay_controller/overlay_controller.py` — `_build_group_snapshot`, `_draw_preview`, `_persist_offsets`, `_send_active_group_selection`.
+  - Client: `overlay_client/render_surface.py` — `_fallback_bounds_from_cache`, `_apply_fill_translation_from_cache`, write-back via `_apply_group_logging_payloads` → `GroupPlacementCache`.
+  - Cache plumbing: `group_cache.py`; overrides: `overlay_client/plugin_overrides.py`.
+- Fallback/offset rule: if `transformed` exists, do not reapply offsets; if absent or stale, synthesize once from base+overrides (plus fill translation when fill+overflow) and persist it.
+- POC flag idea: gate the shim with a dev toggle (e.g., `DEV_TARGET_CACHE_INVALIDATION`) to make removal easy.
+- Tests to run on resume:
+  - Unit: controller invalidation/synthesis; client stale-gating; fallback no double-offset; fill translation only once.
+  - Manual: edit offsets/anchor in controller; verify preview + HUD target stay aligned with no snap-back; confirm cache `transformed` updates/nulls after edit; fallback path still aligns when HUD payload is absent.
