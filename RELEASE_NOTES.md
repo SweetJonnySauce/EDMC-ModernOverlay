@@ -8,6 +8,7 @@
 - Controller performance & usability: merged-group loader now feeds the controller UI, writes are isolated to the user config file, and reloads poll both shipped/user files with last-good fallback to keep editing responsive.
 - Layered configs: shipped defaults remain in `overlay_groupings.json`; per-user overrides live in `overlay_groupings.user.json` (or an override path) and are preserved across upgrades. No automatic migration runs in this release.
 - Linux install: added Arch/pacman support alongside existing installers.
+- Fix #26. Give focus back to game after closing the controller on Windows
 
 ## 0.7.4-dev
 - Controller startup no longer crashes when Tk rejects a binding; unsupported or empty sequences are skipped with a warning instead.
