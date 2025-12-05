@@ -1,6 +1,10 @@
 # Release Notes
 
 ## 0.7.5
+- Controller⇄client targeting rewrite: controller now pushes merged overrides with an edit nonce, cache entries carry nonce/timestamp metadata, and the client refuses stale transformed blocks so payloads never “jump” when editing offsets.
+- Cache + fallback hardening: while the controller is active we shorten cache flush debounces, immediately rewrite transformed bounds from the rendered geometry, and keep HUD fallback aligned even if the HUD momentarily drops payload frames.
+- Controller UI cleanup: preview now renders a single authoritative target box (no more dual “actual vs. target”), the absolute widget always mirrors controller coordinates without warning colors, and group pinning/anchor edits stay responsive.
+- Workflow + testing aids: added controller workflow helper/tests to validate cache geometry, expanded fallback regression tests, and folded the new behavior into the refactoring plan documentation.
 - Controller performance & usability: merged-group loader now feeds the controller UI, writes are isolated to the user config file, and reloads poll both shipped/user files with last-good fallback to keep editing responsive.
 - Layered configs: shipped defaults remain in `overlay_groupings.json`; per-user overrides live in `overlay_groupings.user.json` (or an override path) and are preserved across upgrades. No automatic migration runs in this release.
 - Linux install: added Arch/pacman support alongside existing installers.
