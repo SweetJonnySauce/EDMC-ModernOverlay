@@ -3160,11 +3160,10 @@ class OverlayConfigApp(tk.Tk):
 
         selection = self._get_current_group_selection()
         snapshot = self._get_group_snapshot(selection) if selection is not None else None
-        if snapshot is None:
-            live_anchor_token = None
-            live_anchor_abs = None
-            target_frame = None
-        else:
+        preview_bounds: tuple[float, float, float, float] | None = None
+        preview_anchor_token: str | None = None
+        preview_anchor_abs: tuple[float, float] | None = None
+        if snapshot is not None:
             live_anchor_token = self._get_live_anchor_token(snapshot)
             snapshot = self._translate_snapshot_for_fill(
                 snapshot,
@@ -3173,8 +3172,23 @@ class OverlayConfigApp(tk.Tk):
                 scale_mode_value=self._scale_mode_setting(),
                 anchor_token_override=live_anchor_token,
             )
-            live_anchor_abs = self._get_live_absolute_anchor(snapshot)
             target_frame = self._resolve_target_frame(snapshot)
+            if target_frame is not None:
+                bounds, anchor_point = target_frame
+                preview_bounds = bounds
+                preview_anchor_token = live_anchor_token
+                preview_anchor_abs = anchor_point
+            else:
+                bounds = snapshot.transform_bounds or snapshot.base_bounds
+                preview_bounds = bounds
+                preview_anchor_token = snapshot.transform_anchor_token or snapshot.anchor_token
+                preview_anchor_abs = self._compute_anchor_point(
+                    bounds[0],
+                    bounds[2],
+                    bounds[1],
+                    bounds[3],
+                    preview_anchor_token,
+                )
 
         signature_snapshot = (
             snapshot.base_bounds if snapshot is not None else None,
@@ -3191,9 +3205,8 @@ class OverlayConfigApp(tk.Tk):
             padding,
             selection,
             signature_snapshot,
-            live_anchor_token,
-            live_anchor_abs,
-            target_frame,
+            preview_bounds,
+            preview_anchor_abs,
         )
         if self._last_preview_signature == current_signature:
             return
@@ -3209,13 +3222,9 @@ class OverlayConfigApp(tk.Tk):
 
         label = selection[1]
         base_min_x, base_min_y, base_max_x, base_max_y = snapshot.base_bounds
-        trans_min_x, trans_min_y, trans_max_x, trans_max_y = snapshot.transform_bounds or snapshot.base_bounds
-        anchor_name = snapshot.anchor_token
-        actual_anchor_token = snapshot.transform_anchor_token or anchor_name
-        if target_frame is not None:
-            (target_min_x, target_min_y, target_max_x, target_max_y), (target_anchor_x, target_anchor_y) = target_frame
-            trans_min_x, trans_min_y, trans_max_x, trans_max_y = target_min_x, target_min_y, target_max_x, target_max_y
-            actual_anchor_token = snapshot.anchor_token
+        preview_bounds = preview_bounds or (snapshot.transform_bounds or snapshot.base_bounds)
+        trans_min_x, trans_min_y, trans_max_x, trans_max_y = preview_bounds
+        preview_anchor_token = preview_anchor_token or snapshot.transform_anchor_token or snapshot.anchor_token
 
         scale = max(0.01, min(inner_w / float(ABS_BASE_WIDTH), inner_h / float(ABS_BASE_HEIGHT)))
         content_w = ABS_BASE_WIDTH * scale
@@ -3260,7 +3269,7 @@ class OverlayConfigApp(tk.Tk):
         trans_x1 = offset_x + trans_max_x * scale
         trans_y1 = offset_y + trans_max_y * scale
         canvas.create_rectangle(trans_x0, trans_y0, trans_x1, trans_y1, **_rect_color("#ffa94d"))
-        actual_label = "Actual Placement"
+        actual_label = "Target Placement"
         actual_inside = (trans_x1 - trans_x0) >= 110 and (trans_y1 - trans_y0) >= 20
         actual_fill = "#ffffff" if not actual_inside else "#5a2d00"
         actual_label_x = trans_x0 + 4 if actual_inside else trans_x1 + 6
@@ -3274,14 +3283,8 @@ class OverlayConfigApp(tk.Tk):
             font=("TkDefaultFont", 8, "bold"),
         )
 
-        if snapshot.transform_bounds is not None or target_frame is not None:
-            anchor_px, anchor_py = self._compute_anchor_point(
-                trans_min_x,
-                trans_max_x,
-                trans_min_y,
-                trans_max_y,
-                actual_anchor_token,
-            )
+        if preview_anchor_abs is not None:
+            anchor_px, anchor_py = preview_anchor_abs
             anchor_screen_x = offset_x + anchor_px * scale
             anchor_screen_y = offset_y + anchor_py * scale
             anchor_radius = 4
@@ -3293,44 +3296,6 @@ class OverlayConfigApp(tk.Tk):
                 fill="#ffffff",
                 outline="#000000",
                 width=1,
-            )
-
-        target_frame = self._resolve_target_frame(snapshot)
-        if target_frame is not None:
-            (target_min_x, target_min_y, target_max_x, target_max_y), (target_anchor_x, target_anchor_y) = target_frame
-            target_x0 = offset_x + target_min_x * scale
-            target_y0 = offset_y + target_min_y * scale
-            target_x1 = offset_x + target_max_x * scale
-            target_y1 = offset_y + target_max_y * scale
-            target_color = "#ffb347"
-            canvas.create_rectangle(
-                target_x0,
-                target_y0,
-                target_x1,
-                target_y1,
-                outline=target_color,
-                dash=(4, 3),
-                width=2,
-            )
-            target_anchor_screen_x = offset_x + target_anchor_x * scale
-            target_anchor_screen_y = offset_y + target_anchor_y * scale
-            target_anchor_radius = 5
-            canvas.create_oval(
-                target_anchor_screen_x - target_anchor_radius,
-                target_anchor_screen_y - target_anchor_radius,
-                target_anchor_screen_x + target_anchor_radius,
-                target_anchor_screen_y + target_anchor_radius,
-                fill="#ff8800",
-                outline="#5a2d00",
-                width=1,
-            )
-            canvas.create_text(
-                (target_x0 + target_x1) / 2,
-                (target_y0 + target_y1) / 2,
-                text="Target",
-                fill="#ffa94d",
-                font=("TkDefaultFont", 8, "bold"),
-                anchor="center",
             )
 
         canvas.create_text(

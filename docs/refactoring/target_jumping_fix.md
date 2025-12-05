@@ -145,6 +145,16 @@ Phase 4 Plan (Integration/regression hardening)
 - Expanded fallback resiliency coverage so repeated cache fallback/Fill translation paths stay stable while the HUD is catching up.
 - Cleaned up controller logging/UI by removing the unused absolute warning flag, keeping the absolute widget text neutral now that preview/target always match.
 - Tests: `make check` (ruff, mypy, full pytest suite including the new workflow/fallback coverage).
+
+Phase 5 Plan (UI cleanup)
+-------------------------
+- Goals: align the controller preview/UI with the stabilized behavior—target box always matches actual, red absolute warnings are obsolete, and dev-only scaffolding from earlier phases can be simplified for clarity.
+- Steps:
+  1) **Preview overlay:** drop the dual “target vs. actual” rectangles in the controller preview; render a single box that always represents the authoritative controller target, and adjust legends/tooltips accordingly.
+  2) **Absolute widget polish:** remove the warning pipeline (`_absolute_warn`, color flips, catch-up messaging) and ensure the absolute X/Y fields simply reflect the current target with smooth updates; keep the px/% parsing UX unchanged.
+  3) **Contextual tips & documentation:** update contextual hints, helper text, and README snippets so they no longer mention temporary warning states or preview lag; emphasize that the controller’s coordinates are always authoritative.
+  4) **Developer flags cleanup:** audit any dev-only switches added during the POC (e.g., preview actual mirroring toggles) and remove them unless still needed; ensure remaining debug overlays map to current behavior.
+  5) **Tests/manual sweep:** run through controller UI workflows (group selection, absolute edits, anchor pinning) to confirm previews and widgets update smoothly without flashes; adjust existing screenshot-based docs if needed.
 Quick breadcrumbs for future sessions
 -------------------------------------
 - Key touchpoints:
