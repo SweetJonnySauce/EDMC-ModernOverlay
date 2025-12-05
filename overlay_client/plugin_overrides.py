@@ -71,6 +71,20 @@ class PluginOverrideManager:
         self._controller_active_nonce: str = ""
         self._load_config()
 
+    def apply_override_payload(self, payload: Optional[Mapping[str, Any]], nonce: str) -> None:
+        """Apply overrides directly from payload when nonce matches controller."""
+
+        if payload is None or not isinstance(payload, Mapping):
+            return
+        active_nonce = getattr(self, "_controller_active_nonce", "")
+        incoming_nonce = str(nonce or "").strip()
+        try:
+            if incoming_nonce:
+                self._controller_active_nonce = incoming_nonce
+        except Exception:
+            pass
+        self._load_config_data(payload, mtime=time.time())
+
     # ------------------------------------------------------------------
     # Public API
 
@@ -185,8 +199,6 @@ class PluginOverrideManager:
 
     def _reload_if_needed(self) -> None:
         if self._groupings_loader is not None:
-            if getattr(self, "_controller_override_frozen", False) and getattr(self, "_controller_active_nonce", ""):
-                return
             try:
                 if not self._loader_loaded:
                     self._groupings_loader.load()

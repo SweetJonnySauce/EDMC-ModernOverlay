@@ -1975,6 +1975,21 @@ class _PluginRuntime:
                 self._publish_payload(message)
                 LOGGER.debug("Controller override reload dispatched (nonce=%s)", nonce or "none")
                 return {"status": "ok"}
+            if command == "controller_overrides_payload":
+                overrides = payload.get("overrides")
+                nonce_raw = payload.get("nonce")
+                nonce = str(nonce_raw).strip() if nonce_raw is not None else ""
+                if not isinstance(overrides, Mapping):
+                    raise ValueError("Overrides payload must be an object")
+                message = {
+                    "event": "OverlayOverridesPayload",
+                    "overrides": overrides,
+                    "nonce": nonce,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+                self._publish_payload(message)
+                LOGGER.debug("Controller overrides payload dispatched (nonce=%s)", nonce or "none")
+                return {"status": "ok"}
             if command == "test_message":
                 text = str(payload.get("message") or "").strip()
                 if not text:

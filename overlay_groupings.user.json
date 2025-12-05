@@ -2,8 +2,12 @@
   "BGS-Tally": {
     "idPrefixGroups": {
       "BGS-Tally Colonisation": {
-        "offsetX": 0.0,
-        "offsetY": 280.0
+        "offsetX": 580.0,
+        "offsetY": 380.0
+      },
+      "BGS-Tally Tick Notifications": {
+        "offsetX": -400.0,
+        "offsetY": 400.0
       }
     }
   },
@@ -15,6 +19,14 @@
       }
     }
   },
+  "ED-Mining-Analytics": {
+    "idPrefixGroups": {
+      "All-edmca-prefixes": {
+        "offsetX": 150.0,
+        "offsetY": -120.0
+      }
+    }
+  },
   "EDR": {
     "idPrefixGroups": {
       "EDR Docking": {
@@ -22,5 +34,6 @@
         "offsetY": 0.001
       }
     }
-  }
+  },
+  "_edit_nonce": "1764958022.297111-177515"
 }

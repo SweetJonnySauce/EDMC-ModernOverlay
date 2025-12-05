@@ -707,6 +707,29 @@ class ControlSurfaceMixin:
         except Exception as exc:
             _CLIENT_LOGGER.debug("Override reload failed: %s", exc, exc_info=exc)
 
+    def apply_override_payload(self, payload: Optional[Mapping[str, Any]]) -> None:
+        if payload is None or not isinstance(payload, Mapping):
+            return
+        overrides = payload.get("overrides")
+        nonce = payload.get("nonce")
+        try:
+            overrides_map = overrides if isinstance(overrides, Mapping) else None
+            nonce_val = str(nonce or "").strip()
+        except Exception:
+            return
+        mgr = getattr(self, "_override_manager", None)
+        if mgr is None:
+            return
+        try:
+            if nonce_val:
+                mgr._controller_active_nonce = nonce_val  # type: ignore[attr-defined]
+            mgr.apply_override_payload(overrides_map, nonce_val)
+            self._mark_legacy_cache_dirty()
+            self._request_repaint("override_payload", immediate=True)
+            _CLIENT_LOGGER.debug("Override payload applied (nonce=%s)", nonce_val or "none")
+        except Exception as exc:
+            _CLIENT_LOGGER.debug("Override payload failed: %s", exc, exc_info=exc)
+
     def set_active_controller_group(self, plugin: Optional[str], label: Optional[str], anchor: Optional[str] = None, edit_nonce: Optional[str] = None) -> None:
         plugin_name = str(plugin or "").strip()
         label_name = str(label or "").strip()
@@ -725,7 +748,6 @@ class ControlSurfaceMixin:
         if mgr is not None:
             try:
                 mgr._controller_active_nonce = nonce_value  # type: ignore[attr-defined]
-                mgr._controller_override_frozen = bool(nonce_value)  # type: ignore[attr-defined]
             except Exception:
                 pass
         self._request_repaint("controller_target", immediate=True)

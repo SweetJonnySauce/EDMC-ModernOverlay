@@ -75,7 +75,7 @@ Phased Plan
 -----------
 | Phase # | Description | Status |
 | --- | --- | --- |
-| 0 (POC) | Prove “controller target drives HUD”: on edit, clear `transformed`/set `has_transformed=false`/bump `last_updated`; fallback avoids reapplying offsets, synthesizes once from base+overrides (with fill translation); validate via manual tweaks. Disposable shim acceptable. | Not started |
+| 0 (POC) | Prove “controller target drives HUD”: on edit, clear `transformed`/set `has_transformed=false`/bump `last_updated`; controller ignores cached `transformed` entirely (uses base+overrides); extend live-edit window to keep snapshot in-memory; atomic writes for user overrides with post-edit reload pause; client fallback recomputes target from base+overrides and ignores cached `transformed`; overrides are pushed directly to client and applied regardless of previous nonce. Validate via manual tweaks. Disposable shim acceptable. | In progress |
 | 1 | Harden controller invalidation + preview synthesis: debounce + atomic cache writes, reload signal; snapshot uses synthesized transform until client rewrites. Add controller unit tests. | Not started |
 | 2 | Client stale-gating + single-application: ignore stale `transformed`; recompute from base+overrides; fallback/draw apply offsets once and fill translation once. Add client/unit tests for gating + no double-offset. | Not started |
 | 3 | Write-back discipline: after render with new offsets/anchor, write fresh `transformed` with updated `last_updated`; verify debounce/flush timing and convergence tests. | Not started |

@@ -11,8 +11,8 @@
         ],
         "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left",
-        "offsetX": 100,
-        "offsetY": 100
+        "offsetX": 0,
+        "offsetY": 0
       },
       "BGS-Tally Ready": {
         "idPrefixes": [

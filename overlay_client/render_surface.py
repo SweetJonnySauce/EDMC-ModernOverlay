@@ -1746,8 +1746,11 @@ class RenderSurfaceMixin:
         if entry is None:
             return None, None
         token_override = anchor_override
-        offset_dx = offset_dy = 0.0
         override_manager = getattr(self, "_override_manager", None)
+        offset_dx = offset_dy = 0.0
+        anchor_token_override: Optional[str] = None
+        active_nonce = getattr(self, "_controller_active_nonce", "")
+        entry_nonce = str(entry.get("edit_nonce") or "").strip() if isinstance(entry, Mapping) else ""
         if override_manager is not None:
             try:
                 offset_dx, offset_dy = override_manager.group_offsets(plugin, suffix)
@@ -1755,21 +1758,32 @@ class RenderSurfaceMixin:
                 offset_dx = offset_dy = 0.0
             try:
                 _, anchor_token = override_manager.group_preserve_fill_aspect(plugin, suffix)
-                if token_override is None:
-                    token_override = anchor_token
+                anchor_token_override = anchor_token
             except Exception:
-                pass
-        bounds, cache_anchor_token, width, height = self._overlay_bounds_from_cache_entry(entry or {})
+                anchor_token_override = None
+        base = entry.get("base") if isinstance(entry, Mapping) else None
+        transformed = entry.get("transformed") if isinstance(entry, Mapping) else None
+        cache_anchor_token = None
+        if isinstance(transformed, Mapping):
+            anchor_val = transformed.get("anchor")
+            if isinstance(anchor_val, str):
+                cache_anchor_token = anchor_val
+        bounds, base_anchor_token, width, height = self._overlay_bounds_from_cache_entry(entry or {})
         if bounds is None or not bounds.is_valid():
             return None, None
-        token = token_override or cache_anchor_token or "nw"
+        if active_nonce and entry_nonce and entry_nonce != active_nonce:
+            # nonce mismatch: treat as missing transform; continue to recompute from overrides
+            pass
+        # Build bounds from base + current overrides; do not trust cached transformed geometry.
         if offset_dx or offset_dy:
             bounds.translate(offset_dx, offset_dy)
-        # Preserve the original anchor position as the absolute reference, then rebuild bounds
-        # around that reference if the anchor token has changed.
-        anchor_abs = self._anchor_from_overlay_bounds(bounds, cache_anchor_token or "nw") or (bounds.min_x, bounds.min_y)
-        if token != (cache_anchor_token or "nw") and width > 0.0 and height > 0.0:
+        token = token_override or anchor_token_override or cache_anchor_token or base_anchor_token or "nw"
+        if token != (cache_anchor_token or base_anchor_token or "nw") and width > 0.0 and height > 0.0:
             try:
+                anchor_abs = self._anchor_from_overlay_bounds(bounds, cache_anchor_token or base_anchor_token or "nw") or (
+                    bounds.min_x,
+                    bounds.min_y,
+                )
                 bounds = self._build_bounds_with_anchor(width, height, token, anchor_abs[0], anchor_abs[1])
             except Exception:
                 pass
@@ -1778,7 +1792,6 @@ class RenderSurfaceMixin:
                 bounds = self._apply_fill_translation_from_cache(bounds, token, mapper)
             except Exception:
                 pass
-        # Cache bounds already incorporate offsets; avoid reapplying offsets to prevent resetting to origin.
         return bounds, token
 
     def _apply_fill_translation_from_cache(

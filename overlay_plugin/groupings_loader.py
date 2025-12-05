@@ -150,6 +150,11 @@ class GroupingsLoader:
         shipped_plugins = shipped if isinstance(shipped, Mapping) else {}
         user_plugins = user if isinstance(user, Mapping) else {}
 
+        # Pass through metadata keys (leading underscore) from user payload.
+        for key, value in user_plugins.items():
+            if isinstance(key, str) and key.startswith("_"):
+                merged[key] = value
+
         for plugin_name, base_entry in shipped_plugins.items():
             try:
                 result = self._merge_plugin(plugin_name, base_entry, user_plugins.get(plugin_name))
@@ -161,6 +166,8 @@ class GroupingsLoader:
 
         for plugin_name, user_entry in user_plugins.items():
             if plugin_name in merged:
+                continue
+            if isinstance(plugin_name, str) and plugin_name.startswith("_"):
                 continue
             try:
                 result = self._merge_plugin(plugin_name, None, user_entry)

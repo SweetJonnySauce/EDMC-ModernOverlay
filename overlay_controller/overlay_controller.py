@@ -2953,6 +2953,12 @@ class OverlayConfigApp(tk.Tk):
             tmp_path = user_path.with_suffix(user_path.suffix + ".tmp")
             tmp_path.write_text(text, encoding="utf-8")
             tmp_path.replace(user_path)
+            # Push merged overrides directly to plugin/client for immediate adoption.
+            merged_payload = dict(merged_view)
+            merged_payload["_edit_nonce"] = getattr(self, "_user_overrides_nonce", "")
+            self._send_plugin_cli(
+                {"cli": "controller_overrides_payload", "overrides": merged_payload, "nonce": merged_payload["_edit_nonce"]}
+            )
         except Exception:
             pass
 
