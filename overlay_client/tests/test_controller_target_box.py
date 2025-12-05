@@ -245,6 +245,46 @@ def test_target_box_cache_fallback_applies_fill_translation():
     assert rect[2] == 50
 
 
+def test_fallback_fill_translation_not_cumulative():
+    window = _WindowStub()
+    window._controller_active_group = ("PluginB", "G1")
+    window.controller_mode_state = lambda: "active"
+    window._last_overlay_bounds_for_target = {}
+    window._last_transform_by_group = {}
+    window._resolve_bounds_for_active_group = lambda ag, bm: bm.get(ag)
+    window._line_width = lambda key: 1
+    window._compute_legacy_mapper = lambda: _make_fill_mapper(overflow_y=True)
+    window._overlay_bounds_to_rect = lambda b, m: rs.QRect(
+        int(b.min_x), int(b.min_y), int(b.max_x - b.min_x), int(b.max_y - b.min_y)
+    )
+    window._overlay_point_to_screen = lambda pt, m: (int(pt[0]), int(pt[1]))
+    window._overlay_bounds_from_cache_entry = lambda entry, prefer_transformed=True: rs.RenderSurfaceMixin._overlay_bounds_from_cache_entry(  # type: ignore[misc]
+        entry, prefer_transformed=prefer_transformed
+    )
+    window._build_bounds_with_anchor = lambda w, h, token, ax, ay: rs._OverlayBounds(min_x=ax, min_y=ay, max_x=ax + w, max_y=ay + h)
+    window._anchor_from_overlay_bounds = lambda bounds, token: (bounds.min_x, bounds.min_y)
+    window._viewport_state = lambda: rs.ViewportState(width=1280.0, height=480.0, device_ratio=1.0)
+    cache_entry = {
+        "base": {
+            "base_min_x": 100.0,
+            "base_min_y": 100.0,
+            "base_max_x": 200.0,
+            "base_max_y": 200.0,
+            "base_width": 100.0,
+            "base_height": 100.0,
+        },
+        "transformed": None,
+    }
+    cache = SimpleNamespace(
+        get_group=lambda plugin, suffix: cache_entry if (plugin, suffix) == ("PluginB", "G1") else None,
+        _state={"groups": {"PluginB": {"G1": cache_entry}}},
+    )
+    window._group_cache = cache
+    bounds1, _ = window._fallback_bounds_from_cache(("PluginB", "G1"), mapper=window._compute_legacy_mapper())
+    bounds2, _ = window._fallback_bounds_from_cache(("PluginB", "G1"), mapper=window._compute_legacy_mapper())
+    assert bounds1 is not None and bounds2 is not None
+    assert bounds1.min_y == bounds2.min_y
+
 def test_cache_transform_used_when_nonce_and_timestamp_match():
     window = _WindowStub()
     cache_entry = {

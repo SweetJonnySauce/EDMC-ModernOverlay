@@ -129,7 +129,22 @@ Phase 3 Plan (Write-back discipline)
   5) **Logging/telemetry:** add debug logs (guarded by dev mode) that record when cache writes are forced, skipped, or delayed; include generation/nonce info so we can debug stuck writes. Consider wiring this into the controller preview overlay.
   6) **Tests:** extend unit tests to assert (a) cache writes record the latest nonce/timestamp for every active group, (b) forced flushes happen when controller-active debounce is lowered, (c) stale cache entries are replaced promptly, and (d) background mode still batches writes. Introduce an integration-style test that simulates rapid offset changes and asserts the cache ends up with the expected transformed block after the final edit.
   7) **Manual verification:** with the overlay + controller running, perform rapid alt-click and offset drags, then inspect `overlay_group_cache.json` to confirm each edit writes within the shortened window and reflects the on-screen placement. Verify that returning to inactive mode reverts to the longer debounce.
-  
+
+Phase 4 Plan (Integration/regression hardening)
+-----------------------------------------------
+- Goals: validate the full controller↔client loop end-to-end under realistic workloads, ensure fallback behavior matches controller targets even when HUD updates lag, and clean up instrumentation/flags now that the mechanism is stable.
+- Steps:
+  1) **Verification helpers:** add lightweight tooling (maybe `tests/controller_workflow.py`) that reads `overlay_group_cache.json`, controller preview snapshots, and the override files to assert consistency (offsets vs. transformed bounds) after each scenario. Hook this into CI-friendly tests guarded by an env flag so they can run when the overlay is available.
+  2) **Fallback resiliency:** simulate HUD delays by pausing the client’s payload model or forcing the target HUD to use cache fallback mid-edit; assert that when the HUD repaint resumes it lands exactly on the controller target and the fallback window does not produce oscillations. Add targeted unit tests if direct simulation is difficult.
+  3) **Logging cleanup:** review temporary debug logs/dev-mode toggles added during the POC and earlier phases (e.g., absolute text color handling, preview actual mirroring) and remove or gate any that are no longer needed. Ensure remaining logs clearly differentiate controller-driven state vs. fallback/state-machine events.
+  4) **Performance check:** profile disk I/O and CPU usage during controller-active bursts to confirm the forced cache flushes and tighter debounce don’t starve the game/overlay; if needed, expose rate-limit metrics and document how to tune `cache_flush_seconds` / payload log delay via settings.
+  5) **Tests:** update integration docs to describe the new runbook, add regression tests (unit/integration) covering fallback resumption and controller CLI pushes, and store a checklist for manual verification (controller open/close, rapid offset edits, pin/unpin, resolution sweep). Record results in this doc.
+
+### Phase 4 summary / test results
+- Added `tests/controller_workflow.py`, a CLI/helper that validates cache entries by comparing transformed bounds against stored offsets; the companion unit tests (`tests/test_controller_workflow.py`) guard the helper.
+- Expanded fallback resiliency coverage so repeated cache fallback/Fill translation paths stay stable while the HUD is catching up.
+- Cleaned up controller logging/UI by removing the unused absolute warning flag, keeping the absolute widget text neutral now that preview/target always match.
+- Tests: `make check` (ruff, mypy, full pytest suite including the new workflow/fallback coverage).
 Quick breadcrumbs for future sessions
 -------------------------------------
 - Key touchpoints:

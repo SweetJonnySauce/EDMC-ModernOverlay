@@ -1614,7 +1614,6 @@ class OverlayConfigApp(tk.Tk):
         self.overlay_border_width = 3
         self._focus_widgets: dict[tuple[str, int], object] = {}
         self._group_controls_enabled = True
-        self._absolute_warn = False
         self._current_direction = "right"
         self._groupings_data: dict[str, object] = {}
         self._idprefix_entries: list[tuple[str, str]] = []
@@ -2215,10 +2214,7 @@ class OverlayConfigApp(tk.Tk):
             primary = "Use Alt-click / Alt-arrow to move the overlay group to the screen edge."
         elif idx == 2:
             primary = "Set exact coordinates for this group."
-            if (not select_mode) and getattr(self, "_absolute_warn", False):
-                secondary = "Payload group is catching up—red values may change once cache updates."
-            else:
-                secondary = "Enter px or % values; Tab switches fields."
+            secondary = "Enter px or % values; Tab switches fields."
         elif idx == 3:
             primary = "Choose the anchor point used for transforms."
             secondary = "Use arrows or click dots to move the highlight."
@@ -2756,13 +2752,10 @@ class OverlayConfigApp(tk.Tk):
     def _update_absolute_widget_color(self, snapshot: _GroupSnapshot | None) -> None:
         widget = getattr(self, "absolute_widget", None)
         if widget is None:
-            self._absolute_warn = False
             return
-        # POC: disable red warning to avoid flashing during live moves.
-        color = None
-        self._absolute_warn = False
+        # Absolute preview now mirrors controller target; keep default text color.
         try:
-            widget.set_text_color(color)
+            widget.set_text_color(None)
         except Exception:
             pass
         self._update_contextual_tip()
