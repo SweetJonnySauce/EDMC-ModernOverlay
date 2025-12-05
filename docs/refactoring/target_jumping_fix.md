@@ -83,6 +83,7 @@ Phased Plan
 | 2 | Client stale-gating + single-application: ignore stale/mismatched cache transforms; recompute from base+overrides; fallback/draw apply offsets once and fill translation once; accept pushed overrides with nonce. Add client/unit tests for gating + no double-offset. | Pending |
 | 3 | Write-back discipline: after render with new offsets/anchor, write fresh `transformed` with updated `last_updated`/nonce; verify debounce/flush timing and convergence tests. | Pending |
 | 4 | Integration/regression: end-to-end edits without jumps; fallback matches controller target when HUD absent; clean up POC shims/flags, keep minimal logging. | Pending |
+| 5 | UI cleanup: simplify preview to draw target=actual only; remove/redesign absolute text red warning logic now that target and actual stay aligned in preview. | Pending |
 
 Quick breadcrumbs for future sessions
 -------------------------------------
