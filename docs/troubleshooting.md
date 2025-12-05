@@ -16,5 +16,6 @@ Use these steps to gather diagnostics when the overlay misbehaves. Dev mode gate
 - EDMC log (core):  
   - Windows: `%LOCALAPPDATA%\\EDMarketConnector\\EDMarketConnector.log`   
   - Linux: `~/.local/share/EDMarketConnector/EDMarketConnector.log`
+  - Flatpak: `~/.var/app/io.edcd.EDMarketConnector/data/EDMarketConnector/EDMarketConnector.log`
 - Overlay logs (client): `logs/EDMCModernOverlay/overlay_client.log` under the Modern Overlay plugin directory (or `logs/EDMCModernOverlay/overlay-payloads.log` when payload mirroring is on).
 - Debug flags live in `debug.json` in the plugin directory; missing keys are auto-filled in dev mode.
