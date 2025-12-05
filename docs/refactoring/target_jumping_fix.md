@@ -39,6 +39,7 @@ Use a combined strategy to keep HUD and preview aligned:
 - Gate adoption of any `transformed` entry by timestamp/generation so stale cache cannot override a newer edit.
 - Optionally synthesize a fresh transformed block from base + new offsets + anchor to bridge the gap until the client rewrites.
 - Avoid double-applying offsets: when a transformed block exists, use it as-is; when absent, synthesize once from base + overrides (including fill translation) and persist it.
+- Push overrides immediately: after controller writes merged overrides, send them to the client with the edit nonce so the client applies without waiting on file reload timing.
 
 Controller Actions
 ------------------
@@ -55,12 +56,14 @@ Client Actions
 - After rendering with new offsets, write back a fresh `transformed` block with updated `last_updated` so controller/HUD remain in sync.
 - Fallback: if cache is missing/invalid, recompute from base + offsets and continue.
 - Fallback specifics: do not reapply offsets on top of a `transformed` block; if no transform exists, synthesize transformed from base+overrides (including fill overflow translation) and write it back.
+- Override handling: accept pushed merged overrides (with `_edit_nonce`) from controller and apply immediately when nonce matches; preserve metadata through `GroupingsLoader` merge so nonce gating works.
 
 Safeguards / Risk Mitigation
 ----------------------------
 - Single writer / locking: designate one writer for the cache or use a simple lock/generation to avoid clobbering concurrent writes.
 - Atomic writes: write to temp then rename; validate JSON before swap.
 - Timestamp discipline: use monotonic timestamps or an edit generation counter to avoid skew issues.
+- Overrides: write user overrides atomically, carry `_edit_nonce` metadata through merge, and ignore mismatched nonce payloads.
 - Backward compatibility: feature-flag gating/invalidation so older clients/controllers continue to work with default behavior.
 - Logging and retries: log cache write/read failures and fall back to base+offset computation when cache is untrusted.
 - Throttle edits: debounce invalidation+reload to avoid flip-flops during rapid changes.
@@ -75,11 +78,11 @@ Phased Plan
 -----------
 | Phase # | Description | Status |
 | --- | --- | --- |
-| 0 (POC) | Prove “controller target drives HUD”: on edit, clear `transformed`/set `has_transformed=false`/bump `last_updated`; controller ignores cached `transformed` entirely (uses base+overrides); extend live-edit window to keep snapshot in-memory; atomic writes for user overrides with post-edit reload pause; client fallback recomputes target from base+overrides and ignores cached `transformed`; overrides are pushed directly to client and applied regardless of previous nonce. Validate via manual tweaks. Disposable shim acceptable. | In progress |
-| 1 | Harden controller invalidation + preview synthesis: debounce + atomic cache writes, reload signal; snapshot uses synthesized transform until client rewrites. Add controller unit tests. | Not started |
-| 2 | Client stale-gating + single-application: ignore stale `transformed`; recompute from base+overrides; fallback/draw apply offsets once and fill translation once. Add client/unit tests for gating + no double-offset. | Not started |
-| 3 | Write-back discipline: after render with new offsets/anchor, write fresh `transformed` with updated `last_updated`; verify debounce/flush timing and convergence tests. | Not started |
-| 4 | Integration/regression: end-to-end edits without jumps; fallback matches controller target when HUD absent; clean up POC shims/flags, keep minimal logging. | Not started |
+| 0 (POC) | Prove “controller target drives HUD”: on edit, clear `transformed`/set `has_transformed=false`/bump `last_updated`; controller ignores cached `transformed` entirely (uses base+overrides); extend live-edit window to keep snapshot in-memory; atomic writes for user overrides with post-edit reload pause; client fallback recomputes target from base+overrides and ignores cached `transformed`; overrides are pushed directly to client with `_edit_nonce` and applied immediately when matching. Validate via manual tweaks. Disposable shim acceptable. | Complete |
+| 1 | Harden controller invalidation + preview synthesis + nonce: keep cache invalidation, add generation/nonce to cache entries, include nonce in override pushes; ensure atomic writes; add controller unit tests. | Pending |
+| 2 | Client stale-gating + single-application: ignore stale/mismatched cache transforms; recompute from base+overrides; fallback/draw apply offsets once and fill translation once; accept pushed overrides with nonce. Add client/unit tests for gating + no double-offset. | Pending |
+| 3 | Write-back discipline: after render with new offsets/anchor, write fresh `transformed` with updated `last_updated`/nonce; verify debounce/flush timing and convergence tests. | Pending |
+| 4 | Integration/regression: end-to-end edits without jumps; fallback matches controller target when HUD absent; clean up POC shims/flags, keep minimal logging. | Pending |
 
 Quick breadcrumbs for future sessions
 -------------------------------------
