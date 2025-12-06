@@ -38,11 +38,11 @@ from overlay_client.window_utils import compute_legacy_mapper
 try:  # When run as a package (`python -m overlay_controller.overlay_controller`)
     from overlay_controller.input_bindings import BindingConfig, BindingManager
     from overlay_controller.selection_overlay import SelectionOverlay
-    from overlay_controller.services import GroupStateService
+    from overlay_controller.services import GroupStateService, ModeTimers, PluginBridge
 except ImportError:  # Fallback for spec-from-file/test harness
     from input_bindings import BindingConfig, BindingManager  # type: ignore
     from selection_overlay import SelectionOverlay  # type: ignore
-    from services import GroupStateService  # type: ignore
+    from services import GroupStateService, ModeTimers, PluginBridge  # type: ignore
 
 ABS_BASE_WIDTH = 1280
 ABS_BASE_HEIGHT = 960
@@ -50,6 +50,8 @@ ABS_MIN_X = 0.0
 ABS_MAX_X = float(ABS_BASE_WIDTH)
 ABS_MIN_Y = 0.0
 ABS_MAX_Y = float(ABS_BASE_HEIGHT)
+_USE_LEGACY_BRIDGE = os.getenv("MODERN_OVERLAY_LEGACY_BRIDGE", "").strip().lower() in {"1", "true", "yes", "on"}
+_USE_LEGACY_TIMERS = os.getenv("MODERN_OVERLAY_LEGACY_TIMERS", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _resolve_env_log_level_hint() -> Tuple[Optional[int], Optional[str]]:
@@ -1662,7 +1664,13 @@ class OverlayConfigApp(tk.Tk):
             cache_path=self._groupings_cache_path,
             loader=self._groupings_loader,
         )
-        self._force_render_override = _ForceRenderOverrideManager(root)
+        self._use_legacy_bridge = _USE_LEGACY_BRIDGE
+        self._plugin_bridge: PluginBridge | None = None
+        if self._use_legacy_bridge:
+            self._force_render_override = _ForceRenderOverrideManager(root)
+        else:
+            self._plugin_bridge = PluginBridge(root=root, logger=_controller_debug)
+            self._force_render_override = self._plugin_bridge.force_render_override
         self._absolute_user_state: dict[tuple[str, str], dict[str, float | None]] = {}
         self._group_snapshots: dict[tuple[str, str], _GroupSnapshot] = {}
         self._anchor_restore_state: dict[tuple[str, str], dict[str, float | None]] = {}
@@ -1684,12 +1692,25 @@ class OverlayConfigApp(tk.Tk):
             ),
             logger=_controller_debug,
         )
+        self._use_legacy_timers = _USE_LEGACY_TIMERS
+        self._mode_timers: ModeTimers | None = None
         self._current_mode_profile = self._mode_profile.resolve("active")
-        self._status_poll_handle: str | None = None
-        self._debounce_handles: dict[str, str | None] = {}
+        self._status_poll_handle: object | None = None
+        self._debounce_handles: dict[str, object | None] = {}
         self._write_debounce_ms = self._current_mode_profile.write_debounce_ms
         self._offset_write_debounce_ms = self._current_mode_profile.offset_write_debounce_ms
         self._status_poll_interval_ms = self._current_mode_profile.status_poll_ms
+        if not self._use_legacy_timers:
+            self._mode_timers = ModeTimers(
+                self._mode_profile,
+                after=self.after,
+                after_cancel=self.after_cancel,
+                time_source=time.time,
+                logger=_controller_debug,
+            )
+            self._write_debounce_ms = self._mode_timers.write_debounce_ms
+            self._offset_write_debounce_ms = self._mode_timers.offset_write_debounce_ms
+            self._status_poll_interval_ms = self._mode_timers.status_poll_interval_ms
         self._offset_step_px = 10.0
         self._offset_live_edit_until: float = 0.0
         self._offset_resync_handle: str | None = None
@@ -1698,6 +1719,7 @@ class OverlayConfigApp(tk.Tk):
         self._user_overrides_nonce: str = ""
         self._initial_geometry_applied = False
         self._port_path = root / "port.json"
+        self._settings_path = root / "overlay_settings.json"
         self._controller_heartbeat_ms = 15000
         self._controller_heartbeat_handle: str | None = None
         self._last_override_reload_nonce: Optional[str] = None
@@ -1769,7 +1791,10 @@ class OverlayConfigApp(tk.Tk):
         self.bind("<B1-Motion>", self._on_window_drag, add="+")
         self.bind("<ButtonRelease-1>", self._end_window_drag, add="+")
         self._apply_mode_profile("active", reason="startup")
-        self._status_poll_handle = self.after(self._current_mode_profile.status_poll_ms, self._poll_cache_and_status)
+        if self._mode_timers is not None:
+            self._status_poll_handle = self._mode_timers.start_status_poll(self._poll_cache_and_status)
+        else:
+            self._status_poll_handle = self.after(self._current_mode_profile.status_poll_ms, self._poll_cache_and_status)
         self.after(0, self._activate_force_render_override)
         self.after(0, self._start_controller_heartbeat)
         self.after(0, self._center_and_show)
@@ -2023,15 +2048,21 @@ class OverlayConfigApp(tk.Tk):
         except Exception:
             traceback.print_exc(file=sys.stderr)
 
-    def _send_plugin_cli(self, payload: Dict[str, Any]) -> None:
+    def _send_plugin_cli(self, payload: Dict[str, Any]) -> bool:
+        bridge = getattr(self, "_plugin_bridge", None)
+        if bridge is not None:
+            try:
+                return bool(bridge.send_cli(payload))
+            except Exception:
+                return False
         port_path = getattr(self, "_port_path", Path(__file__).resolve().parents[1] / "port.json")
         try:
             data = json.loads(port_path.read_text(encoding="utf-8"))
             port = int(data.get("port", 0))
         except Exception:
-            return
+            return False
         if port <= 0:
-            return
+            return False
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=1.5) as sock:
                 writer = sock.makefile("w", encoding="utf-8", newline="\n")
@@ -2039,10 +2070,18 @@ class OverlayConfigApp(tk.Tk):
                 writer.write("\n")
                 writer.flush()
         except Exception:
-            return
+            return False
+        return True
 
     def _send_controller_heartbeat(self) -> None:
-        self._send_plugin_cli({"cli": "controller_heartbeat"})
+        bridge = getattr(self, "_plugin_bridge", None)
+        if bridge is not None:
+            try:
+                bridge.send_heartbeat()
+            except Exception:
+                pass
+        else:
+            self._send_plugin_cli({"cli": "controller_heartbeat"})
         selection = self._get_current_group_selection()
         if selection is not None:
             plugin_name, label = selection
@@ -2851,7 +2890,14 @@ class OverlayConfigApp(tk.Tk):
         # While the user is actively holding offset arrows, prefer the in-memory snapshot
         # so the preview target does not snap back when the cache polls.
         now = time.time()
-        if now < getattr(self, "_offset_live_edit_until", 0.0):
+        timers = getattr(self, "_mode_timers", None)
+        live_edit_active = False
+        if timers is not None:
+            try:
+                live_edit_active = bool(timers.live_edit_active())
+            except Exception:
+                live_edit_active = False
+        if live_edit_active or now < getattr(self, "_offset_live_edit_until", 0.0):
             snapshot = self._group_snapshots.get(selection)
             if snapshot is not None:
                 self._set_group_controls_enabled(True)
@@ -2880,21 +2926,29 @@ class OverlayConfigApp(tk.Tk):
         return self._group_snapshots.get(key)
 
     def _poll_cache_and_status(self) -> None:
-        self._status_poll_handle = None
+        if self._mode_timers is None:
+            self._status_poll_handle = None
         reload_groupings = False
         loader = getattr(self, "_groupings_loader", None)
         state = self.__dict__.get("_group_state")
+        edit_delay_seconds = 5.0
         if state is not None:
             try:
                 reload_groupings = bool(
-                    state.reload_groupings_if_changed(last_edit_ts=getattr(self, "_last_edit_ts", 0.0), delay_seconds=5.0)
+                    state.reload_groupings_if_changed(last_edit_ts=getattr(self, "_last_edit_ts", 0.0), delay_seconds=edit_delay_seconds)
                 )
             except Exception:
                 reload_groupings = False
         elif loader is not None:
             try:
                 # Delay reloads immediately after an edit to avoid reading half-written user file.
-                if time.time() - getattr(self, "_last_edit_ts", 0.0) > 5.0:
+                timers = getattr(self, "_mode_timers", None)
+                should_reload = False
+                if timers is not None:
+                    should_reload = timers.should_reload_after_edit(delay_seconds=edit_delay_seconds)
+                else:
+                    should_reload = time.time() - getattr(self, "_last_edit_ts", 0.0) > edit_delay_seconds
+                if should_reload:
                     reload_groupings = bool(loader.reload_if_changed())
             except Exception:
                 reload_groupings = False
@@ -2911,7 +2965,8 @@ class OverlayConfigApp(tk.Tk):
             _controller_debug("Groupings reloaded from disk at %s", time.strftime("%H:%M:%S"))
             self._refresh_idprefix_options()
         self._refresh_current_group_snapshot(force_ui=False)
-        self._status_poll_handle = self.after(self._status_poll_interval_ms, self._poll_cache_and_status)
+        if self._mode_timers is None:
+            self._status_poll_handle = self.after(self._status_poll_interval_ms, self._poll_cache_and_status)
     def _refresh_idprefix_options(self) -> None:
         selection = self._get_current_group_selection()
         options = self._load_idprefix_options()
@@ -3081,6 +3136,12 @@ class OverlayConfigApp(tk.Tk):
     def _flush_groupings_config(self) -> None:
         self._debounce_handles["config_write"] = None
         self._last_edit_ts = time.time()
+        timers = getattr(self, "_mode_timers", None)
+        if timers is not None:
+            try:
+                timers.record_edit()
+            except Exception:
+                pass
         self._user_overrides_nonce = self._edit_nonce
         self._write_groupings_config()
         self._emit_override_reload_signal()
@@ -3092,6 +3153,11 @@ class OverlayConfigApp(tk.Tk):
     def _schedule_debounce(self, key: str, callback: callable, delay_ms: int | None = None) -> None:
         """Schedule a debounced callback keyed by name."""
 
+        timers = getattr(self, "_mode_timers", None)
+        if timers is not None:
+            handle = timers.schedule_debounce(key, callback, delay_ms=delay_ms)
+            self._debounce_handles[key] = handle
+            return
         existing = self._debounce_handles.get(key)
         if existing is not None:
             try:
@@ -3107,12 +3173,16 @@ class OverlayConfigApp(tk.Tk):
 
     def _schedule_groupings_cache_write(self, delay_ms: int | None = None) -> None:
         # Cache is maintained by overlay client; avoid scheduling writes from controller.
-        existing = self._debounce_handles.pop("cache_write", None)
-        if existing is not None:
-            try:
-                self.after_cancel(existing)
-            except Exception:
-                pass
+        timers = getattr(self, "_mode_timers", None)
+        if timers is not None:
+            timers.cancel_debounce("cache_write")
+        else:
+            existing = self._debounce_handles.pop("cache_write", None)
+            if existing is not None:
+                try:
+                    self.after_cancel(existing)
+                except Exception:
+                    pass
 
     def _emit_override_reload_signal(self) -> None:
         now = time.monotonic()
@@ -3128,10 +3198,27 @@ class OverlayConfigApp(tk.Tk):
             "edit_nonce": getattr(self, "_user_overrides_nonce", ""),
             "timestamp": time.time(),
         }
-        self._send_plugin_cli(payload)
+        bridge = getattr(self, "_plugin_bridge", None)
+        sent = False
+        if bridge is not None:
+            try:
+                sent = bool(bridge.emit_override_reload(nonce=nonce, edit_nonce=payload["edit_nonce"], timestamp=payload["timestamp"]))
+            except Exception:
+                sent = False
+        if not sent:
+            self._send_plugin_cli(payload)
         _controller_debug("Controller override reload signal sent (nonce=%s)", nonce)
 
     def _apply_mode_profile(self, mode: str, reason: str = "apply") -> None:
+        timers = getattr(self, "_mode_timers", None)
+        if timers is not None:
+            profile = timers.apply_mode(mode, reason=reason)
+            self._current_mode_profile = profile
+            self._write_debounce_ms = timers.write_debounce_ms
+            self._offset_write_debounce_ms = timers.offset_write_debounce_ms
+            self._status_poll_interval_ms = timers.status_poll_interval_ms
+            self._status_poll_handle = getattr(timers, "_status_poll_handle", None)
+            return
         profile = self._mode_profile.resolve(mode)
         previous = getattr(self, "_current_mode_profile", None)
         if previous == profile:
@@ -3164,6 +3251,13 @@ class OverlayConfigApp(tk.Tk):
         )
 
     def _cancel_status_poll(self) -> None:
+        timers = getattr(self, "_mode_timers", None)
+        if timers is not None:
+            try:
+                timers.stop_status_poll()
+            finally:
+                self._status_poll_handle = None
+            return
         handle = self._status_poll_handle
         if handle is None:
             return
@@ -3425,6 +3519,12 @@ class OverlayConfigApp(tk.Tk):
         else:
             self._set_config_offsets(plugin_name, label, offset_x, offset_y)
         self._last_edit_ts = time.time()
+        timers = getattr(self, "_mode_timers", None)
+        if timers is not None:
+            try:
+                timers.record_edit()
+            except Exception:
+                pass
         if state is None:
             self._invalidate_group_cache_entry(plugin_name, label)
         delay = self._offset_write_debounce_ms if debounce_ms is None else debounce_ms
@@ -3517,6 +3617,13 @@ class OverlayConfigApp(tk.Tk):
             self._invalidate_group_cache_entry(plugin_name, label)
         self._last_edit_ts = time.time()
         self._offset_live_edit_until = max(getattr(self, "_offset_live_edit_until", 0.0) or 0.0, self._last_edit_ts + 5.0)
+        timers = getattr(self, "_mode_timers", None)
+        if timers is not None:
+            try:
+                timers.start_live_edit_window(5.0)
+                timers.record_edit()
+            except Exception:
+                pass
         self._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
     def _handle_absolute_changed(self, axis: str) -> None:
         selection = self._get_current_group_selection()
@@ -3626,6 +3733,12 @@ class OverlayConfigApp(tk.Tk):
         # Keep preview in "live edit" mode a bit longer so cache polls/actual updates
         # cannot snap the target back while the user is holding the key.
         self._offset_live_edit_until = time.time() + 5.0
+        timers = getattr(self, "_mode_timers", None)
+        if timers is not None:
+            try:
+                timers.start_live_edit_window(5.0)
+            except Exception:
+                pass
         # Force preview refresh immediately to mirror HUD movement.
         self._last_preview_signature = None
         try:
@@ -3641,6 +3754,21 @@ class OverlayConfigApp(tk.Tk):
         anchor_token = self._get_live_anchor_token(snapshot) if snapshot is not None else None
         anchor_value = (anchor_token or "").strip().lower()
         key = (plugin, group, anchor_value)
+        bridge = getattr(self, "_plugin_bridge", None)
+        if bridge is not None:
+            try:
+                sent = bridge.send_active_group(plugin, group, anchor=anchor_value, edit_nonce=getattr(self, "_edit_nonce", ""))
+            except Exception:
+                sent = False
+            if sent:
+                self._last_active_group_sent = key
+                _controller_debug(
+                    "Controller active group signal sent: %s/%s anchor=%s",
+                    plugin or "<none>",
+                    group or "<none>",
+                    anchor_value or "<none>",
+                )
+            return
         if key == self._last_active_group_sent:
             return
         payload = {
@@ -3985,6 +4113,13 @@ class OverlayConfigApp(tk.Tk):
 
         self._last_edit_ts = time.time()
         self._offset_live_edit_until = max(getattr(self, "_offset_live_edit_until", 0.0) or 0.0, self._last_edit_ts + 5.0)
+        timers = getattr(self, "_mode_timers", None)
+        if timers is not None:
+            try:
+                timers.start_live_edit_window(5.0)
+                timers.record_edit()
+            except Exception:
+                pass
         self._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
         self._sync_absolute_for_current_group(force_ui=True, prefer_user=prefer_user)
         self._draw_preview()

@@ -46,8 +46,8 @@
 
 | Phase | Description | Status |
 | --- | --- | --- |
-| 1 | Extract group/config state management into a service with a narrow API; keep Tk shell unaware of JSON/cache details. | Not started |
-| 2 | Isolate plugin bridge + mode/heartbeat timers into dedicated helpers to decouple sockets and scheduling from UI. | Not started |
+| 1 | Extract group/config state management into a service with a narrow API; keep Tk shell unaware of JSON/cache details. | Completed |
+| 2 | Isolate plugin bridge + mode/heartbeat timers into dedicated helpers to decouple sockets and scheduling from UI. | Completed |
 | 3 | Move preview math/rendering into a pure helper and a canvas renderer class so visuals are testable without UI clutter. | Not started |
 | 4 | Split reusable widgets (idPrefix, offset, absolute XY, anchor, justification, tips) into `widgets/` modules. | Not started |
 | 5 | Slim `OverlayConfigApp` to orchestration only; wire services together; add/adjust tests for new seams. | Not started |
@@ -109,6 +109,46 @@ Stage 1.5 notes:
 - Plugin bridge should own port/settings reads and ForceRender override lifecycle, including the fallback that writes `overlay_settings.json` if the CLI is unreachable.
 - Risks: socket/heartbeat regressions; ForceRender fallback divergence; timer drift.
 - Mitigations: wrap send/heartbeat in thin adapter with fakes in tests; keep port/settings reads behind a single API; add tests for live-edit guard timing; ship a temporary “legacy bridge” flag to flip back if needed.
+
+| Stage | Description | Status |
+| --- | --- | --- |
+| 2.1 | Baseline existing bridge/timer behavior: map heartbeat/poll/backoff timings, ForceRender fallback, and current tests; run `make check` + headless controller pytest. | Completed |
+| 2.2 | Extract `services/plugin_bridge.py` with CLI/socket messaging, heartbeat, active-group/override signals, port/settings reads, and ForceRender fallback; add fakes/unit tests. | Completed |
+| 2.3 | Extract `services/mode_timers.py` to own mode profiles, poll interval management, debounced writes, live-edit reload guard, and injected `after/after_cancel`; add timing/guard tests. | Completed |
+| 2.4 | Wire controller to the bridge/timers behind a legacy flag; connect callbacks (`poll_cache`, `flush_config`, heartbeat triggers), adapt tests/mocks. | Completed |
+| 2.5 | Run headless + PyQt suites with new services enabled; flip default to new bridge/timers once green and keep legacy escape hatch documented. | Completed |
+
+Stage 2.1 notes:
+- Plugin CLI send path: `_send_plugin_cli` reads `_port_path` (defaults to repo-root `port.json`), best-effort connects to 127.0.0.1 with a 1.5s timeout, sends one line of JSON, and swallows errors (no retries/acks). Active-group updates and override reload signals reuse this helper.
+- Heartbeat: `_controller_heartbeat_ms` defaults to 15000ms (clamped to >=1000ms); `_start_controller_heartbeat` is scheduled at startup (after 0ms), sends `controller_heartbeat`, then reschedules itself. Each heartbeat also sends `controller_active_group` for the current selection (deduped via `_last_active_group_sent` and includes anchor + `edit_nonce`).
+- Mode/poll timers: `ControllerModeProfile` active=write 75ms/offset 75ms/status poll 50ms/cache_flush 1.0s; inactive=200/200/2500ms/5.0s. `_apply_mode_profile` clamps minimums (write/offset >=25ms, poll >=50ms) and reschedules `_status_poll_handle` on change. Startup applies the active profile and schedules `_poll_cache_and_status` after 50ms.
+- Cache poll + live-edit guards: `_poll_cache_and_status` asks `GroupStateService.reload_groupings_if_changed(last_edit_ts, delay_seconds=5.0)` (or `GroupingsLoader.reload_if_changed` only when >5s since last edit), reloads cache via `state.refresh_cache()` (or direct file read) and uses `cache_changed` stripping `last_updated`. Refreshes options/snapshots, then reschedules after the current poll interval. `_offset_live_edit_until` (set to now+5s after offset changes) and `_group_snapshots` short-circuit `_refresh_current_group_snapshot` to avoid snap-backs during live edits; `_schedule_offset_resync` refreshes after 75ms.
+- ForceRender fallback: `_ForceRenderOverrideManager` reads `overlay_settings.json` + `port.json`; `activate()` stores previous allow/force values, tries `force_render_override` over the socket (2s timeouts, waits for `status: ok`), and on failure defaults to False/False and writes settings directly with allow+force True. `deactivate()` restores the cached values, sends the CLI request, and always writes settings (logs to stderr when CLI unreachable).
+- Existing coverage: `overlay_controller/tests/test_status_poll_mode_profile.py` verifies mode-profile clamping/reschedule; `tests/test_controller_override_reload.py` covers `controller_override_reload` debouncing/deduping; `overlay_client/tests/test_controller_active_group.py` exercises client handling of active-group signals. Heartbeat and force-render fallback currently untested.
+- Tests run: `make check` (ruff, mypy, pytest) passing (284 passed, 21 skipped); `python -m pytest overlay_controller/tests` passing (25 passed, 3 skipped).
+
+Stage 2.2 notes:
+- Added `overlay_controller/services/plugin_bridge.py` with `PluginBridge` (port/settings resolution, CLI send helper, heartbeat send, active-group dedupe, override reload dedupe) and `ForceRenderOverrideManager` (socket-first override, fallback settings write when CLI unreachable).
+- Port/settings paths default to repo-root `port.json`/`overlay_settings.json`; connect/logger/time are injectable for tests; CLI send uses 1.5s timeout, ignores failures, and keeps last active-group key `(plugin, label, anchor)` to avoid duplicates.
+- Force-render manager preserves previous allow/force values (overridden by CLI response when present), attempts socket send with 2s timeout window, and writes settings on failure and after restore.
+- Tests: new `overlay_controller/tests/test_plugin_bridge.py` fakes sockets to cover CLI send, active-group dedupe, force-render fallback writing settings, and restore using server-provided prior values. `make check` now includes these (288 passed, 21 skipped).
+
+Stage 2.3 notes:
+- Added `overlay_controller/services/mode_timers.py` with `ModeTimers` owning mode profile application (clamps write/offset debounces to >=25ms, polls to >=50ms), status-poll scheduling via injected `after/after_cancel`, debounce helpers (write/offset), live-edit window tracking, and a post-edit reload guard (`record_edit` + `should_reload_after_edit`).
+- Constructor accepts `ControllerModeProfile`, callbacks for scheduling/cancel, time source, and logger; exposes `start_status_poll`/`stop_status_poll` with automatic reschedule after each poll.
+- Live-edit guard uses `start_live_edit_window` + `live_edit_active` to keep preview/snapshot refreshes from snapping back during edits; reload guard ensures groupings reload waits out a post-edit delay.
+- Tests: new `overlay_controller/tests/test_mode_timers.py` covers mode clamp/reschedule, poll rescheduling after callback, debounce helper behavior (including cancel/re-schedule), live-edit window, and reload guard. `make check` passing (292 passed, 21 skipped).
+
+Stage 2.4 notes:
+- Controller now wires to `PluginBridge`/`ModeTimers` with legacy escape hatches (`MODERN_OVERLAY_LEGACY_BRIDGE`, `MODERN_OVERLAY_LEGACY_TIMERS`). Default path uses services; legacy paths remain in-place.
+- `_send_plugin_cli` delegates to bridge; heartbeats use `send_heartbeat`; active-group/override reload signals use bridge APIs (still fallback to legacy socket writes). Force-render override uses bridge-managed manager when enabled.
+- Mode timers drive status-poll scheduling, debounce helpers, live-edit windows, and post-edit reload gating; legacy Tk `after` path retained when legacy flag set.
+- Live-edit guards now use service window tracking in addition to legacy `_offset_live_edit_until`; edit timestamps flow to timers for reload gating.
+- Tests: `make check` (ruff, mypy, pytest) passing with new wiring (292 passed, 21 skipped).
+
+Stage 2.5 notes:
+- Defaults now run with service-backed bridge/timers; legacy env flags remain documented for fallback (`MODERN_OVERLAY_LEGACY_BRIDGE`, `MODERN_OVERLAY_LEGACY_TIMERS`).
+- Test coverage with services enabled: `make check` (ruff, mypy, full pytest) passing (292 passed, 21 skipped) and `PYQT_TESTS=1 python -m pytest overlay_client/tests` passing (180 passed).
 
 ### Phase 3: Preview Math and Renderer
 - Move anchor/translation math, target-frame resolution, and fill-mode translation into `preview/snapshot_math.py` (pure functions).
