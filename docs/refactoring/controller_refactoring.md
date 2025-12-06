@@ -428,7 +428,7 @@ Stage 5.7 notes:
 | Stage | Description | Status |
 | --- | --- | --- |
 | 6.1 | Move `_GroupSnapshot` and snapshot helpers out of the shell (into preview controller/dataclass), update references/tests. | Completed |
-| 6.2 | Move remaining focus/nav/tip/highlight helpers into `FocusManager`; controller only wires callbacks/state. | Not started |
+| 6.2 | Move remaining focus/nav/tip/highlight helpers into `FocusManager`; controller only wires callbacks/state. | Completed |
 | 6.3 | Move persistence/test shims (`_write_groupings_config`, rounders, cache/loader helpers) into `EditController`/test helpers; update tests; drop shell copies. | Not started |
 | 6.4 | Strip residual legacy/fallback code and direct `__dict__` state pokes; enforce helper APIs; re-measure line count. | Not started |
 | 6.5 | Run full suites (lint/test/PyQt) and verify shell <650 lines; remove temporary shims. | Not started |
@@ -451,6 +451,25 @@ Stage 6.1 notes:
 - `_GroupSnapshot` now comes from `services.group_state.GroupSnapshot` (aliased for test compatibility); the shell no longer defines it. Snapshot build/absolute helpers moved into `PreviewController` with an internal snapshot map; the shell delegates `_build_group_snapshot`/`_compute_absolute_from_snapshot` (with a minimal legacy fallback for tests that construct partial apps).
 - `PreviewController` now owns snapshot storage (`snapshots`), build logic, and absolute computation; controller keeps a reference for legacy consumers.
 - Tests run: `make lint`, `make test` (296 passed, 21 skipped).
+
+Stage 6.2 notes:
+- Focus/navigation helpers (`focus_sidebar_up/down`, placement click, widget-select left/right), sidebar/placement highlight updates, contextual tips, and sidebar focus setters now live in `FocusManager`; controller methods delegate to the manager.
+- Manager accesses the app state via explicit calls; controller retains only wiring/callbacks. Existing `FocusManager` bindings remain.
+- Tests run: `make lint`, `make test` (296 passed, 21 skipped).
+
+#### Stage 6.2 Plan
+- **Goal:** Move the remaining focus/navigation/contextual tip/highlight helpers out of `overlay_controller.py` into `FocusManager`, leaving the shell to wire callbacks/state only.
+- **What to move:**
+  - Sidebar/placement focus navigation (`_set_sidebar_focus`, `_refresh_widget_focus`, `_update_sidebar_highlight`, `_update_placement_focus_highlight`, widget-select mode toggles, placement click handler).
+  - Contextual tip updates tied to focus state (`_update_contextual_tip`) and any focus-index bookkeeping currently in the shell.
+  - Any remaining key handlers that are focus-nav specific (e.g., move_widget_focus_left/right behaviors in selection mode) that can be hosted in `FocusManager` while keeping UI wiring in the shell.
+- **Interfaces:** Extend `FocusManager` with methods to perform these updates given the current app state/callbacks; controller invokes the manager rather than owning focus logic.
+- **Tests to run:** `make lint`, `make test`; if focus behaviors change visibly, consider `PYQT_TESTS=1 python -m pytest overlay_client/tests` before marking complete.
+- **Risks & mitigations:**
+  - Focus navigation regressions (skipped/incorrect focus targets) → port logic verbatim first, add/extend a small unit test in `test_focus_manager.py` to cover sidebar/placement highlights and selection-mode moves.
+  - Contextual tips not updating correctly → ensure `FocusManager` accepts a tip-callback and invoke it in the same places as before; add an assertion in tests if feasible.
+  - Coupling to UI state (`widget_select_mode`, `_sidebar_focus_index`, `_placement_open`) breaks when moved → pass required state into `FocusManager` methods explicitly; avoid hidden `__dict__` access.
+- **Guarantee alignment:** Removing focus/nav logic from the shell furthers the “UI-only shell” target; success requires shell focus helpers gone, behaviors unchanged (tests green), and the shell continues to only wire callbacks/state.
 
 ### Phase 7: Polish and Guardrails
 - Goal: tighten error handling/logging, document remaining public hooks, and remove dead code/constants now that the shell is thin.

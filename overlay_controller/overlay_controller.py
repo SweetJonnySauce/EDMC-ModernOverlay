@@ -269,17 +269,17 @@ class OverlayConfigApp(tk.Tk):
         self._sidebar_focus_index = 0
         self.widget_select_mode = True
         self.sidebar.grid_propagate(True)
+        self._binding_config = BindingConfig.load()
+        self._binding_manager = BindingManager(self, self._binding_config)
+        self._focus_manager = FocusManager(self, self._binding_manager)
         self._apply_placement_state()
         self._refresh_widget_focus()
         self._handle_idprefix_selected()
-        self._binding_config = BindingConfig.load()
         if sys.platform.startswith("win"):
             self.bind_all("<KeyPress-Alt_L>", self._handle_alt_press, add="+")
             self.bind_all("<KeyPress-Alt_R>", self._handle_alt_press, add="+")
             self.bind_all("<KeyRelease-Alt_L>", self._handle_alt_release, add="+")
             self.bind_all("<KeyRelease-Alt_R>", self._handle_alt_release, add="+")
-        self._binding_manager = BindingManager(self, self._binding_config)
-        self._focus_manager = FocusManager(self, self._binding_manager)
         self._register_focus_bindings()
         self._binding_manager.activate()
         self.bind("<Configure>", self._handle_configure)
@@ -446,198 +446,53 @@ class OverlayConfigApp(tk.Tk):
     def focus_sidebar_up(self, event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Move sidebar focus upward."""
 
-        if not self.widget_select_mode:
-            if self._handle_active_widget_key("Up", event):
-                return "break"
-            return
-        if not getattr(self, "sidebar_cells", None):
-            return
-        new_index = max(0, self._sidebar_focus_index - 1)
-        self._set_sidebar_focus(new_index)
-        self._refresh_widget_focus()
+        return self._focus_manager.focus_sidebar_up(event)
 
     def focus_sidebar_down(self, event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Move sidebar focus downward."""
 
-        if not self.widget_select_mode:
-            if self._handle_active_widget_key("Down", event):
-                return "break"
-            return
-        if not getattr(self, "sidebar_cells", None):
-            return
-        new_index = min(len(self.sidebar_cells) - 1, self._sidebar_focus_index + 1)
-        self._set_sidebar_focus(new_index)
-        self._refresh_widget_focus()
+        return self._focus_manager.focus_sidebar_down(event)
 
     def _set_sidebar_focus(self, index: int) -> None:
-        if not (0 <= index < len(self.sidebar_cells)):
-            return
-        self._sidebar_focus_index = index
-        self._update_sidebar_highlight()
+        self._focus_manager.set_sidebar_focus(index)
 
     def _handle_sidebar_click(self, index: int, _event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Move selection to a sidebar cell and enter focus mode."""
 
-        if not getattr(self, "sidebar_cells", None):
-            return
-        if not (0 <= index < len(self.sidebar_cells)):
-            return
-        block_focus = (not getattr(self, "_group_controls_enabled", True)) and index > 0
-        if block_focus:
-            if not self.widget_select_mode:
-                self.exit_focus_mode()
-            self.widget_focus_area = "sidebar"
-            self._set_sidebar_focus(index)
-            self._refresh_widget_focus()
-            try:
-                self.focus_set()
-            except Exception:
-                pass
-            return
-        if not self.widget_select_mode and index != getattr(self, "_sidebar_focus_index", -1):
-            self._on_focus_mode_exited()
-        self.widget_focus_area = "sidebar"
-        self._set_sidebar_focus(index)
-        self.widget_select_mode = False
-        self._on_focus_mode_entered()
-        self._refresh_widget_focus()
-        if self.widget_select_mode:
-            try:
-                self.focus_set()
-            except Exception:
-                pass
-        else:
-            target = self._get_active_focus_widget()
-            focus_target = getattr(target, "focus_set", None)
-            if callable(focus_target):
-                try:
-                    focus_target()
-                except Exception:
-                    pass
+        self._focus_manager.handle_sidebar_click(index)
 
     def _handle_placement_click(self, _event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Move selection to the placement area and enter focus mode."""
 
-        if not self._placement_open:
-            return
-        if not self.widget_select_mode and self.widget_focus_area == "sidebar":
-            self._on_focus_mode_exited()
-        self.widget_focus_area = "placement"
-        self.widget_select_mode = False
-        self._refresh_widget_focus()
-        if self.widget_select_mode:
-            try:
-                self.focus_set()
-            except Exception:
-                pass
+        self._focus_manager.handle_placement_click(_event)
 
     def move_widget_focus_left(self, event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Handle left arrow behavior in widget select mode."""
 
-        if not self.widget_select_mode:
-            if self._handle_active_widget_key("Left", event):
-                return "break"
-            return
-        if self._placement_open:
-            self._placement_open = False
-            self._apply_placement_state()
-            self.widget_focus_area = "sidebar"
-            self._refresh_widget_focus()
+        return self._focus_manager.move_widget_focus_left(event)
 
     def move_widget_focus_right(self, event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Handle right arrow behavior in widget select mode."""
 
-        if not self.widget_select_mode:
-            if self._handle_active_widget_key("Right", event):
-                return "break"
-            return
-        if not self._placement_open:
-            self._placement_open = True
-            self._apply_placement_state()
-        self.widget_focus_area = "sidebar"
-        self._refresh_widget_focus()
+        return self._focus_manager.move_widget_focus_right(event)
 
     def _update_sidebar_highlight(self) -> None:
-        if not self.sidebar_cells:
-            self.sidebar_overlay.hide()
-            return
-        if self.widget_focus_area != "sidebar":
-            self.sidebar_overlay.hide()
-            return
-
-        frame = self.sidebar_cells[self._sidebar_focus_index]
-        color = "#888888" if self.widget_select_mode else "#000000"
-        self.sidebar_overlay.show(frame, color)
+        self._focus_manager.update_sidebar_highlight()
 
     def _update_placement_focus_highlight(self) -> None:
-        is_active = self.widget_focus_area == "placement" and self._placement_open
-        if not is_active:
-            self.placement_overlay.hide()
-            return
-
-        color = "#888888" if self.widget_select_mode else "#000000"
-        self.placement_overlay.show(self.placement_frame, color)
+        self._focus_manager.update_placement_focus_highlight()
 
     def _update_contextual_tip(self) -> None:
-        helper = getattr(self, "tip_helper", None)
-        if helper is None:
-            return
-        primary: str | None = None
-        secondary: str | None = None
-        controls_enabled = getattr(self, "_group_controls_enabled", True)
-        in_sidebar = self.widget_focus_area == "sidebar" and bool(getattr(self, "sidebar_cells", None))
-
-        if not in_sidebar:
-            primary = "Use arrow keys to move between controls."
-            secondary = "Press Enter to focus a control; Esc exits focus mode."
-            helper.set_context(primary, secondary)
-            return
-
-        idx = max(0, min(getattr(self, "_sidebar_focus_index", 0), len(self.sidebar_cells) - 1))
-        if not controls_enabled and idx > 0:
-            primary = "Waiting for overlay cache to populate this group."
-            secondary = "Controls unlock once the latest payload arrives."
-            helper.set_context(primary, secondary)
-            return
-
-        select_mode = self.widget_select_mode
-        if select_mode:
-            focus_hint = "Press Space to edit; arrows move the selection."
-        else:
-            focus_hint = "Press Space to exit."
-
-        if idx == 0:
-            primary = "Pick an ID prefix group to adjust."
-            secondary = "Select the overlay group you want to adjust."
-            if select_mode:
-                secondary = "Select the overlay group you want to adjust; arrows move the selection."
-                focus_hint = "Press Space to edit."
-        elif idx == 1:
-            primary = "Use Alt-click / Alt-arrow to move the overlay group to the screen edge."
-        elif idx == 2:
-            primary = "Set exact coordinates for this group."
-            secondary = "Enter px or % values; Tab switches fields."
-        elif idx == 3:
-            primary = "Choose the anchor point used for transforms."
-            secondary = "Use arrows or click dots to move the highlight."
-        elif idx == 4:
-            primary = "Set payload justification."
-            secondary = "Left/Center/Right controls text alignment."
-
-        if focus_hint:
-            secondary = f"{secondary} {focus_hint}" if secondary else focus_hint
-
-        helper.set_context(primary, secondary)
+        self._focus_manager.update_contextual_tip()
 
     def _refresh_widget_focus(self) -> None:
+        manager = self.__dict__.get("_focus_manager")
+        if manager is not None:
+            return manager.refresh_widget_focus()
+        # Fallback during early init if focus manager is not yet wired.
         if hasattr(self, "sidebar_cells"):
             self._update_sidebar_highlight()
         self._update_placement_focus_highlight()
-        try:
-            self.indicator_wrapper.lift()
-        except Exception:
-            pass
-        self._update_contextual_tip()
 
     def close_application(self, event: tk.Event[tk.Misc] | None = None) -> None:  # type: ignore[name-defined]
         """Close the Overlay Controller window."""
