@@ -5,6 +5,9 @@ permissions:
 on:
   issues:
     types: [opened, edited, closed]
+  issue_comment:
+    types: [created, edited, deleted]
+
 
 jobs:
   notify:
