@@ -247,7 +247,7 @@ Stage 4.5 notes:
 | 5.1 | Baseline the current monolith: map responsibilities to evict, set target size (<700 lines), and list tests per step; lock down legacy flags we’ll delete by 5.7. | Completed |
 | 5.2 | Extract runtime/context glue into `controller/app_context.py` (paths/env/services/mode profile/bridge/timers); default to new services, relegate legacy flags to a minimal shim. | Completed |
 | 5.3 | Extract layout composition into `controller/layout.py` (placement/sidebar/overlays/focus map assembly); controller retains only callbacks/state. | Completed |
-| 5.4 | Extract focus/binding orchestration into `controller/focus_manager.py` (focus map, widget-select mode, navigation handlers, binding registration); remove inline binding helpers. | Not started |
+| 5.4 | Extract focus/binding orchestration into `controller/focus_manager.py` (focus map, widget-select mode, navigation handlers, binding registration); remove inline binding helpers. | Completed |
 | 5.5 | Extract preview orchestration into `controller/preview_controller.py` (snapshot fetch, live-edit guards, target frame resolution, renderer invocation, absolute sync); drop duplicate preview helpers from the shell. | Not started |
 | 5.6 | Extract edit/persistence flow into `controller/edit_controller.py` (persist_* hooks, debounces, cache reload guard, active-group/override signals, nonce/timestamps); move reload guards + cache diff helpers out of the shell. | Not started |
 | 5.7 | Final shell trim: remove remaining legacy helpers/flags, tighten imports, keep only UI wiring/drag/close plumbing; update docs/tests and rerun full suites (headless + PyQt). | Not started |
@@ -316,3 +316,26 @@ Stage 5.3 notes:
 - Added `overlay_controller/controller/layout.py` with `LayoutBuilder.build(...)` that constructs container/placement/sidebar frames, overlays, indicator, preview canvas bindings, sidebar widgets, and focus map; controller now just passes callbacks/config and stores returned components.
 - `overlay_controller.py` uses `LayoutBuilder` instead of inline `_build_layout`/`_build_sidebar_sections` (removed), assigning returned widgets/overlays/frames and reusing existing callbacks; initial focus index reset to 0.
 - Tests run: `overlay_client/.venv/bin/python -m pytest overlay_controller/tests` (37 passed, 3 skipped).
+
+#### Stage 5.4 Plan
+- **Goal:** Extract focus/binding orchestration into `controller/focus_manager.py`, leaving the controller to simply register callbacks and consume focus state. Continue shrinking `overlay_controller.py` by removing inline focus map handling and binding registration helpers.
+- **What to move (aggressively):**
+  - Focus map accessors (`_get_active_focus_widget`, sidebar focus index init), widget-select mode toggles (`enter_focus_mode`/`exit_focus_mode` hooks), and sidebar focus navigation helpers (`focus_sidebar_up/down`, `move_widget_focus_left/right` selection-mode behaviors).
+  - Binding registration currently done inline (`BindingManager` actions, widget-specific bindings via `absolute_widget.get_binding_targets`).
+  - Focus highlight updates (`_update_sidebar_highlight`, `_update_placement_focus_highlight`) and contextual tip refresh triggers.
+  - Any selection-mode focus forcing to keep Space/arrow handling on the shell.
+  - Aggressive target: leave no focus/binding logic in `overlay_controller.py` beyond delegating to `FocusManager`; only wiring/attributes remain in the shell.
+- **Interfaces:** `FocusManager(app, binding_manager)` exposing `register_widget_bindings()` and helpers for sidebar click/navigation/highlight refresh; keep callback signatures the controller already uses.
+- **Constraints:** Preserve keyboard/focus behavior identically (space/enter/esc, alt-modifier focus quirks). Avoid changing widget callbacks; controller should delegate to `FocusManager` where possible. Keep legacy behaviors intact for tests.
+- **Tests to run:** `overlay_client/.venv/bin/python -m pytest overlay_controller/tests`; if focus wiring changes are invasive, run `make check` as well.
+- **Risks & mitigations:**
+  - Focus navigation regression (e.g., skipping cells, failing to enter/exit focus mode) → port logic verbatim first, add a small unit test for FocusManager bindings, and rerun headless focus-related tests.
+  - Binding registration drift (absolute widget bindings missing) → keep `register_widget_bindings` delegating to widget APIs; add assertions/tests for registered actions.
+  - Contextual highlights/tips not refreshing → ensure FocusManager triggers controller tip/highlight updates; keep callbacks for `_update_contextual_tip` wired.
+  - Selection-mode key handling (Space/Enter/Esc) breaking → retain selection-mode focus forcing in FocusManager and cover with a smoke test that toggles modes.
+
+Stage 5.4 notes:
+- Added `overlay_controller/controller/focus_manager.py` to own widget binding registration and sidebar click delegation; exported via `controller/__init__.py`.
+- `overlay_controller.py` now instantiates `FocusManager` and delegates binding registration to it; inline `_register_widget_specific_bindings` usage is replaced with `_register_focus_bindings`.
+- New unit test `overlay_controller/tests/test_focus_manager.py` covers absolute widget binding registration.
+- Tests run: `overlay_client/.venv/bin/python -m pytest overlay_controller/tests` (38 passed, 3 skipped).

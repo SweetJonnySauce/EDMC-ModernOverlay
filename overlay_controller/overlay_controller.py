@@ -34,14 +34,14 @@ try:  # When run as a package (`python -m overlay_controller.overlay_controller`
     from overlay_controller.services import ModeTimers, PluginBridge
     from overlay_controller.preview import snapshot_math
     from overlay_controller.preview.renderer import PreviewRenderer
-    from overlay_controller.controller import AppContext, LayoutBuilder, build_app_context
+    from overlay_controller.controller import AppContext, FocusManager, LayoutBuilder, build_app_context
     from overlay_controller.widgets import AnchorSelectorWidget, alt_modifier_active  # noqa: F401
 except ImportError:  # Fallback for spec-from-file/test harness
     from input_bindings import BindingConfig, BindingManager  # type: ignore
     from services import ModeTimers, PluginBridge  # type: ignore
     import overlay_controller.preview.snapshot_math as snapshot_math  # type: ignore
     from overlay_controller.preview.renderer import PreviewRenderer  # type: ignore
-    from overlay_controller.controller import AppContext, LayoutBuilder, build_app_context  # type: ignore
+    from overlay_controller.controller import AppContext, FocusManager, LayoutBuilder, build_app_context  # type: ignore
     from overlay_controller.widgets import AnchorSelectorWidget, alt_modifier_active  # type: ignore  # noqa: F401
 
 ABS_BASE_WIDTH = 1280
@@ -395,48 +395,8 @@ class OverlayConfigApp(tk.Tk):
             self.bind_all("<KeyRelease-Alt_L>", self._handle_alt_release, add="+")
             self.bind_all("<KeyRelease-Alt_R>", self._handle_alt_release, add="+")
         self._binding_manager = BindingManager(self, self._binding_config)
-        self._binding_manager.register_action(
-            "indicator_toggle",
-            self.toggle_placement_window,
-            widgets=[self.indicator_wrapper, self.indicator_canvas],
-        )
-        self._binding_manager.register_action(
-            "sidebar_focus_up",
-            self.focus_sidebar_up,
-        )
-        self._binding_manager.register_action(
-            "sidebar_focus_down",
-            self.focus_sidebar_down,
-        )
-        self._binding_manager.register_action(
-            "widget_move_left",
-            self.move_widget_focus_left,
-        )
-        self._binding_manager.register_action(
-            "widget_move_right",
-            self.move_widget_focus_right,
-        )
-        self._binding_manager.register_action(
-            "alt_widget_move_up",
-            self.focus_sidebar_up,
-        )
-        self._binding_manager.register_action(
-            "alt_widget_move_down",
-            self.focus_sidebar_down,
-        )
-        self._binding_manager.register_action(
-            "alt_widget_move_left",
-            self.move_widget_focus_left,
-        )
-        self._binding_manager.register_action(
-            "alt_widget_move_right",
-            self.move_widget_focus_right,
-        )
-        self._binding_manager.register_action("enter_focus", self.enter_focus_mode)
-        self._binding_manager.register_action("widget_activate", self._handle_return_key)
-        self._binding_manager.register_action("exit_focus", self.exit_focus_mode)
-        self._binding_manager.register_action("close_app", self.close_application)
-        self._register_widget_specific_bindings()
+        self._focus_manager = FocusManager(self, self._binding_manager)
+        self._register_focus_bindings()
         self._binding_manager.activate()
         self.bind("<Configure>", self._handle_configure)
         self.bind("<FocusIn>", self._handle_focus_in)
@@ -484,6 +444,51 @@ class OverlayConfigApp(tk.Tk):
                 absolute_widget.focus_previous_field,
                 widgets=targets,
             )
+    def _register_focus_bindings(self) -> None:
+        """Register focus/navigation bindings via FocusManager."""
+
+        self._binding_manager.register_action(
+            "indicator_toggle",
+            self.toggle_placement_window,
+            widgets=[self.indicator_wrapper, self.indicator_canvas],
+        )
+        self._binding_manager.register_action(
+            "sidebar_focus_up",
+            self.focus_sidebar_up,
+        )
+        self._binding_manager.register_action(
+            "sidebar_focus_down",
+            self.focus_sidebar_down,
+        )
+        self._binding_manager.register_action(
+            "widget_move_left",
+            self.move_widget_focus_left,
+        )
+        self._binding_manager.register_action(
+            "widget_move_right",
+            self.move_widget_focus_right,
+        )
+        self._binding_manager.register_action(
+            "alt_widget_move_up",
+            self.focus_sidebar_up,
+        )
+        self._binding_manager.register_action(
+            "alt_widget_move_down",
+            self.focus_sidebar_down,
+        )
+        self._binding_manager.register_action(
+            "alt_widget_move_left",
+            self.move_widget_focus_left,
+        )
+        self._binding_manager.register_action(
+            "alt_widget_move_right",
+            self.move_widget_focus_right,
+        )
+        self._binding_manager.register_action("enter_focus", self.enter_focus_mode)
+        self._binding_manager.register_action("widget_activate", self._handle_return_key)
+        self._binding_manager.register_action("exit_focus", self.exit_focus_mode)
+        self._binding_manager.register_action("close_app", self.close_application)
+        self._focus_manager.register_widget_bindings()
 
     def report_callback_exception(self, exc, val, tb) -> None:  # type: ignore[override]
         """Ensure Tk errors are printed to stderr instead of being swallowed."""
