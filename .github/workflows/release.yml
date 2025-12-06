@@ -87,9 +87,9 @@ jobs:
             VER="dev-${shortsha}"
           fi
           # Windows PowerShell zip
-          (cd dist/windows_powershell && zip -r "../EDMCModernOverlay-windows_powershell-${VER}.zip" EDMCModernOverlay install_windows.ps1)
+          (cd dist/windows_powershell && zip -r "../EDMCModernOverlay-windows_powershell-${VER}.zip" EDMCModernOverlay install_windows.ps1 checksums.txt)
           # Linux tar.gz
-          (cd dist/linux && tar -czf "../EDMCModernOverlay-linux-${VER}.tar.gz" EDMCModernOverlay install_linux.sh install_matrix.json)
+          (cd dist/linux && tar -czf "../EDMCModernOverlay-linux-${VER}.tar.gz" EDMCModernOverlay install_linux.sh install_matrix.json checksums.txt)
           ls -al dist
 
       - name: Upload workflow artifacts
