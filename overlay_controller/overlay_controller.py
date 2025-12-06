@@ -38,6 +38,8 @@ try:  # When run as a package (`python -m overlay_controller.overlay_controller`
         FocusManager,
         LayoutBuilder,
         PreviewController,
+        log_exception,
+        safe_getattr,
         build_app_context,
     )
     from overlay_controller.widgets import AnchorSelectorWidget, alt_modifier_active  # noqa: F401
@@ -53,6 +55,8 @@ except ImportError:  # Fallback for spec-from-file/test harness
         FocusManager,
         LayoutBuilder,
         PreviewController,
+        log_exception,
+        safe_getattr,
         build_app_context,
     )
     from overlay_controller.widgets import AnchorSelectorWidget, alt_modifier_active  # type: ignore  # noqa: F401
@@ -87,7 +91,6 @@ _ENV_LOG_LEVEL_VALUE, _ENV_LOG_LEVEL_NAME = _resolve_env_log_level_hint()
 _LOG_LEVEL_OVERRIDE_VALUE: Optional[int] = None
 _LOG_LEVEL_OVERRIDE_NAME: Optional[str] = None
 _LOG_LEVEL_OVERRIDE_SOURCE: Optional[str] = None
-_GroupSnapshot = GroupSnapshot
 legacy_write_groupings_config = staticmethod(EditController.legacy_write_groupings_config)
 
 def _ForceRenderOverrideManager(root: Path):
@@ -98,14 +101,6 @@ def _ForceRenderOverrideManager(root: Path):
         port_path=root / "port.json",
         logger=_controller_debug,
     )
-
-def _safe_getattr(obj, name: str, default=None):
-    """Bypass Tk __getattr__ to avoid recursion when accessing private attrs."""
-    try:
-        return object.__getattribute__(obj, name)
-    except AttributeError:
-        return default
-
 
 class OverlayConfigApp(tk.Tk):
     """Basic UI skeleton that mirrors the design mockups."""
@@ -387,30 +382,31 @@ class OverlayConfigApp(tk.Tk):
 
 
     def _activate_force_render_override(self) -> None:
-        manager = getattr(self, "_force_render_override", None)
+        manager = safe_getattr(self, "_force_render_override", None)
         if manager is None:
             return
         try:
             manager.activate()
-        except Exception:
-            traceback.print_exc(file=sys.stderr)
+        except Exception as exc:
+            log_exception(_controller_debug, "ForceRender override activate failed", exc)
 
     def _deactivate_force_render_override(self) -> None:
-        manager = getattr(self, "_force_render_override", None)
+        manager = safe_getattr(self, "_force_render_override", None)
         if manager is None:
             return
         try:
             manager.deactivate()
-        except Exception:
-            traceback.print_exc(file=sys.stderr)
+        except Exception as exc:
+            log_exception(_controller_debug, "ForceRender override deactivate failed", exc)
 
     def _send_plugin_cli(self, payload: Dict[str, Any]) -> bool:
-        bridge = getattr(self, "_plugin_bridge", None)
+        bridge = safe_getattr(self, "_plugin_bridge", None)
         if bridge is None:
             return False
         try:
             return bool(bridge.send_cli(payload))
-        except Exception:
+        except Exception as exc:
+            log_exception(_controller_debug, "Plugin CLI send failed", exc)
             return False
 
     def _send_controller_heartbeat(self) -> None:
@@ -492,7 +488,7 @@ class OverlayConfigApp(tk.Tk):
         self._focus_manager.update_contextual_tip()
 
     def _refresh_widget_focus(self) -> None:
-        manager = _safe_getattr(self, "_focus_manager")
+        manager = safe_getattr(self, "_focus_manager")
         if manager is not None:
             return manager.refresh_widget_focus()
         # Fallback during early init if focus manager is not yet wired.
@@ -730,7 +726,7 @@ class OverlayConfigApp(tk.Tk):
                 pass
 
     def _load_idprefix_options(self) -> list[str]:
-        state = _safe_getattr(self, "_group_state")
+        state = safe_getattr(self, "_group_state")
         if state is not None:
             try:
                 self._groupings_cache = state.refresh_cache()
@@ -824,7 +820,7 @@ class OverlayConfigApp(tk.Tk):
                 self.exit_focus_mode()
         self._update_contextual_tip()
 
-    def _compute_absolute_from_snapshot(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
+    def _compute_absolute_from_snapshot(self, snapshot: GroupSnapshot) -> tuple[float, float]:
         controller = getattr(self, "_preview_controller", None)
         if controller is not None:
             try:
@@ -849,8 +845,8 @@ class OverlayConfigApp(tk.Tk):
         state["x_ts"] = ts
         state["y_ts"] = ts
 
-    def _build_group_snapshot(self, plugin_name: str, label: str) -> _GroupSnapshot | None:
-        controller = _safe_getattr(self, "_preview_controller")
+    def _build_group_snapshot(self, plugin_name: str, label: str) -> GroupSnapshot | None:
+        controller = safe_getattr(self, "_preview_controller")
         if controller is None:
             # Legacy/test fallback when preview controller is not initialized.
             cfg = self._get_group_config(plugin_name, label)
@@ -881,7 +877,7 @@ class OverlayConfigApp(tk.Tk):
             transform_anchor = self._compute_anchor_point(
                 trans_min_x, trans_max_x, trans_min_y, trans_max_y, transform_anchor_token
             )
-            return _GroupSnapshot(
+            return GroupSnapshot(
                 plugin=plugin_name,
                 label=label,
                 anchor_token=anchor_token,
@@ -898,7 +894,7 @@ class OverlayConfigApp(tk.Tk):
         return controller.build_group_snapshot(plugin_name, label)
 
     def _scale_mode_setting(self) -> str:
-        controller = _safe_getattr(self, "_preview_controller")
+        controller = safe_getattr(self, "_preview_controller")
         if controller is not None:
             try:
                 return controller.scale_mode_setting()
@@ -935,13 +931,13 @@ class OverlayConfigApp(tk.Tk):
 
     @staticmethod
     def _translate_snapshot_for_fill(
-        snapshot: _GroupSnapshot,
+        snapshot: GroupSnapshot,
         viewport_width: float,
         viewport_height: float,
         *,
         scale_mode_value: Optional[str] = None,
         anchor_token_override: Optional[str] = None,
-    ) -> _GroupSnapshot:
+    ) -> GroupSnapshot:
         result = snapshot_math.translate_snapshot_for_fill(
             snapshot,
             viewport_width,
@@ -951,8 +947,8 @@ class OverlayConfigApp(tk.Tk):
         )
         return result  # type: ignore[return-value]
 
-    def _update_absolute_widget_color(self, snapshot: _GroupSnapshot | None) -> None:
-        controller = _safe_getattr(self, "_preview_controller")
+    def _update_absolute_widget_color(self, snapshot: GroupSnapshot | None) -> None:
+        controller = safe_getattr(self, "_preview_controller")
         if controller is not None:
             try:
                 controller.update_absolute_widget_color(snapshot)
@@ -969,9 +965,9 @@ class OverlayConfigApp(tk.Tk):
         self._update_contextual_tip()
 
     def _apply_snapshot_to_absolute_widget(
-        self, selection: tuple[str, str], snapshot: _GroupSnapshot, force_ui: bool = True
+        self, selection: tuple[str, str], snapshot: GroupSnapshot, force_ui: bool = True
     ) -> None:
-        controller = _safe_getattr(self, "_preview_controller")
+        controller = safe_getattr(self, "_preview_controller")
         if controller is not None:
             try:
                 controller.apply_snapshot_to_absolute_widget(selection, snapshot, force_ui=force_ui)
@@ -992,13 +988,13 @@ class OverlayConfigApp(tk.Tk):
                 pass
 
     def _refresh_current_group_snapshot(self, force_ui: bool = True) -> None:
-        controller = _safe_getattr(self, "_preview_controller")
+        controller = safe_getattr(self, "_preview_controller")
         if controller is None:
             return
         controller.refresh_current_group_snapshot(force_ui=force_ui)
 
-    def _get_group_snapshot(self, selection: tuple[str, str] | None = None) -> _GroupSnapshot | None:
-        controller = _safe_getattr(self, "_preview_controller")
+    def _get_group_snapshot(self, selection: tuple[str, str] | None = None) -> GroupSnapshot | None:
+        controller = safe_getattr(self, "_preview_controller")
         if controller is not None:
             try:
                 return controller.get_group_snapshot(selection)
@@ -1014,7 +1010,7 @@ class OverlayConfigApp(tk.Tk):
             self._status_poll_handle = None
         reload_groupings = False
         loader = getattr(self, "_groupings_loader", None)
-        state = _safe_getattr(self, "_group_state")
+        state = safe_getattr(self, "_group_state")
         edit_delay_seconds = 5.0
         if state is not None:
             try:
@@ -1079,7 +1075,7 @@ class OverlayConfigApp(tk.Tk):
             self._handle_idprefix_selected()
 
     def _load_groupings_cache(self) -> dict[str, object]:
-        state = _safe_getattr(self, "_group_state")
+        state = safe_getattr(self, "_group_state")
         if state is not None:
             try:
                 return state.refresh_cache()
@@ -1103,7 +1099,7 @@ class OverlayConfigApp(tk.Tk):
     def _cache_changed(self, new_cache: dict[str, object], old_cache: dict[str, object]) -> bool:
         """Return True if cache differs, ignoring timestamp-only churn."""
 
-        state = _safe_getattr(self, "_group_state")
+        state = safe_getattr(self, "_group_state")
         if state is not None:
             try:
                 return state.cache_changed(new_cache)
@@ -1119,7 +1115,6 @@ class OverlayConfigApp(tk.Tk):
 
         return _strip_timestamps(new_cache) != _strip_timestamps(old_cache)
 
-    @staticmethod
     @staticmethod
     def _emit_override_reload_signal(self) -> None:
         controller = getattr(self, "_edit_controller", None)
@@ -1282,7 +1277,7 @@ class OverlayConfigApp(tk.Tk):
         self._draw_preview()
 
     def _draw_preview(self) -> None:
-        controller = _safe_getattr(self, "_preview_controller")
+        controller = safe_getattr(self, "_preview_controller")
         if controller is None:
             return
         controller.draw_preview()
@@ -1339,7 +1334,7 @@ class OverlayConfigApp(tk.Tk):
         if not isinstance(group, dict):
             return
         group["payloadJustification"] = justification
-        state = _safe_getattr(self, "_group_state")
+        state = safe_getattr(self, "_group_state")
         if state is not None:
             try:
                 state.persist_justification(
@@ -1617,7 +1612,7 @@ class OverlayConfigApp(tk.Tk):
 
         return resolved or anchor
 
-    def _expected_transformed_anchor(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
+    def _expected_transformed_anchor(self, snapshot: GroupSnapshot) -> tuple[float, float]:
         bounds = snapshot.transform_bounds
         if bounds is None:
             base_min_x, base_min_y, base_max_x, base_max_y = snapshot.base_bounds
@@ -1655,10 +1650,10 @@ class OverlayConfigApp(tk.Tk):
         ay = min_y if v == "top" else max_y if v == "bottom" else (min_y + max_y) / 2.0
         return ax, ay
 
-    def _get_live_anchor_token(self, snapshot: _GroupSnapshot) -> str:
+    def _get_live_anchor_token(self, snapshot: GroupSnapshot) -> str:
         """Best-effort anchor token sourced from the UI."""
 
-        controller = _safe_getattr(self, "_preview_controller")
+        controller = safe_getattr(self, "_preview_controller")
         if controller is not None:
             try:
                 return controller.get_live_anchor_token(snapshot)
@@ -1675,10 +1670,10 @@ class OverlayConfigApp(tk.Tk):
                     anchor_name = None
         return (anchor_name or snapshot.anchor_token or "nw").strip().lower()
 
-    def _get_live_absolute_anchor(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
+    def _get_live_absolute_anchor(self, snapshot: GroupSnapshot) -> tuple[float, float]:
         """Return anchor coordinates, preferring unsaved widget values when available."""
 
-        controller = _safe_getattr(self, "_preview_controller")
+        controller = safe_getattr(self, "_preview_controller")
         if controller is not None:
             try:
                 return controller.get_live_absolute_anchor(snapshot)
@@ -1698,10 +1693,10 @@ class OverlayConfigApp(tk.Tk):
         resolved_y = default_y if user_y is None else self._clamp_absolute_value(float(user_y), "y")
         return resolved_x, resolved_y
 
-    def _get_target_dimensions(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
+    def _get_target_dimensions(self, snapshot: GroupSnapshot) -> tuple[float, float]:
         """Use the actual placement bounds as the target frame size."""
 
-        controller = _safe_getattr(self, "_preview_controller")
+        controller = safe_getattr(self, "_preview_controller")
         if controller is not None:
             try:
                 return controller.get_target_dimensions(snapshot)
@@ -1718,7 +1713,7 @@ class OverlayConfigApp(tk.Tk):
     ) -> tuple[float, float, float, float]:
         """Translate an anchor coordinate into bounding box edges."""
 
-        controller = _safe_getattr(self, "_preview_controller")
+        controller = safe_getattr(self, "_preview_controller")
         if controller is not None:
             try:
                 return controller.bounds_from_anchor_point(anchor, anchor_x, anchor_y, width, height)
@@ -1750,7 +1745,7 @@ class OverlayConfigApp(tk.Tk):
 
         return min_x, min_y, max_x, max_y
 
-    def _resolve_target_frame(self, snapshot: _GroupSnapshot) -> tuple[tuple[float, float, float, float], tuple[float, float]] | None:
+    def _resolve_target_frame(self, snapshot: GroupSnapshot) -> tuple[tuple[float, float, float, float], tuple[float, float]] | None:
         """Return ((min_x, min_y, max_x, max_y), (anchor_x, anchor_y)) for the simulated placement."""
 
         controller = self.__dict__.get("_preview_controller")
@@ -1868,7 +1863,7 @@ class OverlayConfigApp(tk.Tk):
             return
         group["idPrefixGroupAnchor"] = anchor
         self._edit_controller.schedule_groupings_config_write()
-        state = _safe_getattr(self, "_group_state")
+        state = safe_getattr(self, "_group_state")
         if state is not None:
             try:
                 state.persist_anchor(plugin_name, label, anchor, edit_nonce=self._edit_nonce, write=False, invalidate_cache=True)

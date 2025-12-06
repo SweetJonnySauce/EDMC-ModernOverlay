@@ -4,10 +4,10 @@ import overlay_controller.overlay_controller as oc
 from overlay_controller.preview import snapshot_math
 
 
-def _make_snapshot() -> oc._GroupSnapshot:
+def _make_snapshot() -> oc.GroupSnapshot:
     base_bounds = (100.0, 100.0, 200.0, 200.0)
     anchor = (100.0, 100.0)
-    return oc._GroupSnapshot(
+    return oc.GroupSnapshot(
         plugin="PluginB",
         label="G1",
         anchor_token="nw",

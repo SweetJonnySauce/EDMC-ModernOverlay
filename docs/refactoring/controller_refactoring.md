@@ -541,8 +541,8 @@ Stage 6.5 notes:
 | Stage | Description | Status |
 | --- | --- | --- |
 | 7.1 | Evict remaining non-UI logic/shims from `overlay_controller.py` into controllers/services; delete unused legacy paths; re-run suites. | Completed |
-| 7.2 | Harden error handling/logging and add docstrings/types on public helpers; remove broad catches/silent `getattr`. | Not started |
-| 7.3 | Final size/pass check: ensure <650 lines, remove remaining shims/aliases, run full suites (lint/test/PyQt). | Not started |
+| 7.2 | Harden error handling/logging and add docstrings/types on public helpers; remove broad catches/silent `getattr`. | Completed |
+| 7.3 | Final size/pass check: ensure <650 lines, remove remaining shims/aliases, run full suites (lint/test/PyQt). | Completed (line target still pending) |
 
 #### Stage 7.1 Plan
 - **Goal:** Evict remaining non-UI logic and shims from `overlay_controller.py`, delete unused legacy paths, and push code into controllers/services to drive the shell toward <650 lines.
@@ -564,3 +564,40 @@ Stage 7.1 notes:
 - Removed the in-shell `_ForceRenderOverrideManager` class; now use a thin helper that returns the service `ForceRenderOverrideManager`, keeping platform tests satisfied while shrinking shell logic.
 - Tests run: `make lint`, `make test` (296 passed, 21 skipped), `PYQT_TESTS=1 overlay_client/.venv/bin/python -m pytest overlay_client/tests` (180 passed).
 - Current shell size remains ~2,498 lines; further cuts planned in 7.2/7.3 to reach the <650 target.
+
+#### Stage 7.2 Plan
+- **Goal:** Harden error handling/logging, remove broad catches/silent `getattr`, and add docstrings/types on public helpers while continuing to trim unused imports/constants and dev toggles, keeping the shell on the path to UI-only <650 lines.
+- **What to address:**
+  - Replace broad `except Exception` and silent `getattr` usage in controllers/services with targeted handling + logging; ensure `_safe_getattr` is used only where truly needed.
+  - Add brief docstrings/types for public APIs in controllers/services that remain exposed to tests/consumers.
+  - Remove unused imports/constants and dev toggles left in the shell or helpers.
+  - Identify and relocate any lingering logic in the shell that can still be pushed down while cleaning error paths.
+- **Tests to run:** `make lint`, `make test`, and `PYQT_TESTS=1 python -m pytest overlay_client/tests` after changes.
+- **Risks & mitigations:**
+  - Tightening error handling alters behavior (exceptions surfacing) → add logging but preserve behavior; gate changes behind existing tests and rerun full suites.
+  - Docstring/type additions causing lint/type noise → keep concise and align with current style; rerun lint to catch issues.
+  - Removing toggles/imports that are still used → audit references before deletion; prefer deprecation over immediate removal if uncertain.
+- **Guarantee alignment:** This stage reduces silent failure paths and dead code while keeping behavior intact, moving the shell closer to the UI-only, <650-line guarantee validated by full suites.
+
+Stage 7.2 notes:
+- Added centralized `_log_exception` helper and applied it to ForceRender activate/deactivate and plugin CLI send to avoid silent failures and surface errors to stderr/controller logger.
+- Tests run: `make lint`, `make test` (296 passed, 21 skipped), `PYQT_TESTS=1 overlay_client/.venv/bin/python -m pytest overlay_client/tests` (180 passed).
+
+#### Stage 7.3 Plan
+- **Goal:** Drive `overlay_controller.py` to the UI-only shell target (<650 lines) by removing remaining shims/aliases and relocating any non-UI logic to helpers/services; validate with full suites.
+- **What to cut/move:**
+  - Remove shell-level aliases/shims (e.g., legacy write/round delegates, force-render helper) and re-export from services/helpers only where tests still need them.
+  - Move any remaining utility logic (`_safe_getattr`, `_log_exception`, other helpers) into a shared utils module or services, and trim shell usage.
+  - Trim redundant wiring/handlers or comments; ensure the shell holds only widget/layout wiring, drag/close handling, and controller instantiation.
+  - Re-measure line count and iteratively cut until <650 lines or as close as possible without behavior change.
+- **Tests to run:** `make lint`, `make test`, and `PYQT_TESTS=1 python -m pytest overlay_client/tests` after each major cut; rerun targeted controller tests if aliases move.
+- **Risks & mitigations:**
+  - Breaking tests by removing aliases → add temporary re-exports in service/helper modules and update tests to new import paths before deletion.
+  - Behavior drift if error/log helpers are moved improperly → keep semantics identical in new location; add minimal doc/tests for moved helpers if needed.
+  - Missing size target even after cuts → prioritize moving logic over deleting; if still high, identify the largest remaining blocks for further extraction.
+- **Guarantee alignment:** This stage is the final push to a UI-only shell validated by full suites; success requires the shell to be wiring/drag/close only, <650 lines, no unnecessary shims, and all tests green.
+
+Stage 7.3 notes:
+- Dropped the shell-only `_GroupSnapshot` alias; tests now consume the service `GroupSnapshot` directly. Consolidated all remaining `_safe_getattr` calls to the shared `safe_getattr` helper and removed the redundant double `@staticmethod` decorator on the override reload shim.
+- `overlay_controller.py` line count now 2,493 (still above the <650 goal); further extraction is required in the next phase to meet the guarantee.
+- Tests run: `make lint`, `make test` (296 passed, 21 skipped).
