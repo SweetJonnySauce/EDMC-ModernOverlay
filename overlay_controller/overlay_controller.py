@@ -33,15 +33,13 @@ try:  # When run as a package (`python -m overlay_controller.overlay_controller`
     from overlay_controller.input_bindings import BindingConfig, BindingManager
     from overlay_controller.services import ModeTimers, PluginBridge
     from overlay_controller.preview import snapshot_math
-    from overlay_controller.preview.renderer import PreviewRenderer
-    from overlay_controller.controller import AppContext, FocusManager, LayoutBuilder, build_app_context
+    from overlay_controller.controller import AppContext, FocusManager, LayoutBuilder, PreviewController, build_app_context
     from overlay_controller.widgets import AnchorSelectorWidget, alt_modifier_active  # noqa: F401
 except ImportError:  # Fallback for spec-from-file/test harness
     from input_bindings import BindingConfig, BindingManager  # type: ignore
     from services import ModeTimers, PluginBridge  # type: ignore
     import overlay_controller.preview.snapshot_math as snapshot_math  # type: ignore
-    from overlay_controller.preview.renderer import PreviewRenderer  # type: ignore
-    from overlay_controller.controller import AppContext, FocusManager, LayoutBuilder, build_app_context  # type: ignore
+    from overlay_controller.controller import AppContext, FocusManager, LayoutBuilder, PreviewController, build_app_context  # type: ignore
     from overlay_controller.widgets import AnchorSelectorWidget, alt_modifier_active  # type: ignore  # noqa: F401
 
 ABS_BASE_WIDTH = 1280
@@ -306,6 +304,12 @@ class OverlayConfigApp(tk.Tk):
         self._anchor_restore_handles: dict[tuple[str, str], str | None] = {}
         self._absolute_tolerance_px = 0.5
         self._last_preview_signature: tuple[object, ...] | None = None
+        self._preview_controller = PreviewController(
+            self,
+            abs_width=ABS_BASE_WIDTH,
+            abs_height=ABS_BASE_HEIGHT,
+            padding=self.preview_canvas_padding,
+        )
         self._mode_profile = self._app_context.mode_profile
         self._use_legacy_timers = _USE_LEGACY_TIMERS
         self._mode_timers: ModeTimers | None = None
@@ -1203,6 +1207,12 @@ class OverlayConfigApp(tk.Tk):
         )
 
     def _scale_mode_setting(self) -> str:
+        controller = self.__dict__.get("_preview_controller")
+        if controller is not None:
+            try:
+                return controller.scale_mode_setting()
+            except Exception:
+                pass
         try:
             raw = json.loads(self._settings_path.read_text(encoding="utf-8"))
             value = raw.get("scale_mode")
@@ -1251,10 +1261,16 @@ class OverlayConfigApp(tk.Tk):
         return result  # type: ignore[return-value]
 
     def _update_absolute_widget_color(self, snapshot: _GroupSnapshot | None) -> None:
+        controller = self.__dict__.get("_preview_controller")
+        if controller is not None:
+            try:
+                controller.update_absolute_widget_color(snapshot)
+                return
+            except Exception:
+                pass
         widget = getattr(self, "absolute_widget", None)
         if widget is None:
             return
-        # Absolute preview now mirrors controller target; keep default text color.
         try:
             widget.set_text_color(None)
         except Exception:
@@ -1264,6 +1280,13 @@ class OverlayConfigApp(tk.Tk):
     def _apply_snapshot_to_absolute_widget(
         self, selection: tuple[str, str], snapshot: _GroupSnapshot, force_ui: bool = True
     ) -> None:
+        controller = self.__dict__.get("_preview_controller")
+        if controller is not None:
+            try:
+                controller.apply_snapshot_to_absolute_widget(selection, snapshot, force_ui=force_ui)
+                return
+            except Exception:
+                pass
         if not hasattr(self, "absolute_widget"):
             return
         abs_x, abs_y = self._compute_absolute_from_snapshot(snapshot)
@@ -1278,47 +1301,18 @@ class OverlayConfigApp(tk.Tk):
                 pass
 
     def _refresh_current_group_snapshot(self, force_ui: bool = True) -> None:
-        selection = self._get_current_group_selection()
-        if selection is None:
-            self._set_group_controls_enabled(False)
-            self._update_absolute_widget_color(None)
-            self._draw_preview()
+        controller = self.__dict__.get("_preview_controller")
+        if controller is None:
             return
-        plugin_name, label = selection
-
-        # While the user is actively holding offset arrows, prefer the in-memory snapshot
-        # so the preview target does not snap back when the cache polls.
-        now = time.time()
-        timers = getattr(self, "_mode_timers", None)
-        live_edit_active = False
-        if timers is not None:
-            try:
-                live_edit_active = bool(timers.live_edit_active())
-            except Exception:
-                live_edit_active = False
-        if live_edit_active or now < getattr(self, "_offset_live_edit_until", 0.0):
-            snapshot = self._group_snapshots.get(selection)
-            if snapshot is not None:
-                self._set_group_controls_enabled(True)
-                self._apply_snapshot_to_absolute_widget(selection, snapshot, force_ui=force_ui)
-                self._update_absolute_widget_color(snapshot)
-                self._draw_preview()
-                return
-
-        snapshot = self._build_group_snapshot(plugin_name, label)
-        if snapshot is None:
-            self._group_snapshots.pop(selection, None)
-            self._set_group_controls_enabled(False)
-            self._update_absolute_widget_color(None)
-            self._draw_preview()
-            return
-        self._group_snapshots[selection] = snapshot
-        self._set_group_controls_enabled(True)
-        self._apply_snapshot_to_absolute_widget(selection, snapshot, force_ui=force_ui)
-        self._update_absolute_widget_color(snapshot)
-        self._draw_preview()
+        controller.refresh_current_group_snapshot(force_ui=force_ui)
 
     def _get_group_snapshot(self, selection: tuple[str, str] | None = None) -> _GroupSnapshot | None:
+        controller = self.__dict__.get("_preview_controller")
+        if controller is not None:
+            try:
+                return controller.get_group_snapshot(selection)
+            except Exception:
+                pass
         key = selection if selection is not None else self._get_current_group_selection()
         if key is None:
             return None
@@ -1737,33 +1731,10 @@ class OverlayConfigApp(tk.Tk):
         self._draw_preview()
 
     def _draw_preview(self) -> None:
-        renderer = getattr(self, "_preview_renderer", None)
-        if renderer is None:
-            canvas = getattr(self, "preview_canvas", None)
-            if canvas is None:
-                return
-            renderer = PreviewRenderer(
-                canvas,
-                padding=getattr(self, "preview_canvas_padding", 10),
-                abs_width=ABS_BASE_WIDTH,
-                abs_height=ABS_BASE_HEIGHT,
-            )
-            self._preview_renderer = renderer
-
-        selection = self._get_current_group_selection()
-        snapshot = self._get_group_snapshot(selection) if selection is not None else None
-        renderer.draw(
-            selection,
-            snapshot,
-            live_anchor_token=self._get_live_anchor_token(snapshot) if snapshot is not None else None,
-            scale_mode_value=self._scale_mode_setting(),
-            resolve_target_frame=self._resolve_target_frame,
-            compute_anchor_point=self._compute_anchor_point,
-        )
-        try:
-            self._last_preview_signature = renderer._last_signature  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        controller = self.__dict__.get("_preview_controller")
+        if controller is None:
+            return
+        controller.draw_preview()
     def _persist_offsets(
         self, selection: tuple[str, str], offset_x: float, offset_y: float, debounce_ms: int | None = None
     ) -> None:
@@ -2184,6 +2155,12 @@ class OverlayConfigApp(tk.Tk):
     def _get_live_anchor_token(self, snapshot: _GroupSnapshot) -> str:
         """Best-effort anchor token sourced from the UI."""
 
+        controller = self.__dict__.get("_preview_controller")
+        if controller is not None:
+            try:
+                return controller.get_live_anchor_token(snapshot)
+            except Exception:
+                pass
         anchor_widget = getattr(self, "anchor_widget", None)
         anchor_name: str | None = None
         if anchor_widget is not None:
@@ -2198,6 +2175,12 @@ class OverlayConfigApp(tk.Tk):
     def _get_live_absolute_anchor(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
         """Return anchor coordinates, preferring unsaved widget values when available."""
 
+        controller = self.__dict__.get("_preview_controller")
+        if controller is not None:
+            try:
+                return controller.get_live_absolute_anchor(snapshot)
+            except Exception:
+                pass
         default_x, default_y = self._compute_absolute_from_snapshot(snapshot)
         abs_widget = getattr(self, "absolute_widget", None)
         if abs_widget is None:
@@ -2215,6 +2198,12 @@ class OverlayConfigApp(tk.Tk):
     def _get_target_dimensions(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
         """Use the actual placement bounds as the target frame size."""
 
+        controller = self.__dict__.get("_preview_controller")
+        if controller is not None:
+            try:
+                return controller.get_target_dimensions(snapshot)
+            except Exception:
+                pass
         bounds = snapshot.transform_bounds or snapshot.base_bounds
         min_x, min_y, max_x, max_y = bounds
         width = max(0.0, float(max_x - min_x))
@@ -2226,6 +2215,12 @@ class OverlayConfigApp(tk.Tk):
     ) -> tuple[float, float, float, float]:
         """Translate an anchor coordinate into bounding box edges."""
 
+        controller = self.__dict__.get("_preview_controller")
+        if controller is not None:
+            try:
+                return controller.bounds_from_anchor_point(anchor, anchor_x, anchor_y, width, height)
+            except Exception:
+                pass
         width = max(width, 0.0)
         height = max(height, 0.0)
         horizontal, vertical = self._anchor_sides(anchor)
@@ -2255,6 +2250,12 @@ class OverlayConfigApp(tk.Tk):
     def _resolve_target_frame(self, snapshot: _GroupSnapshot) -> tuple[tuple[float, float, float, float], tuple[float, float]] | None:
         """Return ((min_x, min_y, max_x, max_y), (anchor_x, anchor_y)) for the simulated placement."""
 
+        controller = self.__dict__.get("_preview_controller")
+        if controller is not None:
+            try:
+                return controller.resolve_target_frame(snapshot)
+            except Exception:
+                pass
         width, height = self._get_target_dimensions(snapshot)
         if width <= 0.0 or height <= 0.0:
             return None

@@ -248,7 +248,7 @@ Stage 4.5 notes:
 | 5.2 | Extract runtime/context glue into `controller/app_context.py` (paths/env/services/mode profile/bridge/timers); default to new services, relegate legacy flags to a minimal shim. | Completed |
 | 5.3 | Extract layout composition into `controller/layout.py` (placement/sidebar/overlays/focus map assembly); controller retains only callbacks/state. | Completed |
 | 5.4 | Extract focus/binding orchestration into `controller/focus_manager.py` (focus map, widget-select mode, navigation handlers, binding registration); remove inline binding helpers. | Completed |
-| 5.5 | Extract preview orchestration into `controller/preview_controller.py` (snapshot fetch, live-edit guards, target frame resolution, renderer invocation, absolute sync); drop duplicate preview helpers from the shell. | Not started |
+| 5.5 | Extract preview orchestration into `controller/preview_controller.py` (snapshot fetch, live-edit guards, target frame resolution, renderer invocation, absolute sync); drop duplicate preview helpers from the shell. | Completed |
 | 5.6 | Extract edit/persistence flow into `controller/edit_controller.py` (persist_* hooks, debounces, cache reload guard, active-group/override signals, nonce/timestamps); move reload guards + cache diff helpers out of the shell. | Not started |
 | 5.7 | Final shell trim: remove remaining legacy helpers/flags, tighten imports, keep only UI wiring/drag/close plumbing; update docs/tests and rerun full suites (headless + PyQt). | Not started |
 
@@ -338,4 +338,25 @@ Stage 5.4 notes:
 - Added `overlay_controller/controller/focus_manager.py` to own widget binding registration and sidebar click delegation; exported via `controller/__init__.py`.
 - `overlay_controller.py` now instantiates `FocusManager` and delegates binding registration to it; inline `_register_widget_specific_bindings` usage is replaced with `_register_focus_bindings`.
 - New unit test `overlay_controller/tests/test_focus_manager.py` covers absolute widget binding registration.
+- Tests run: `overlay_client/.venv/bin/python -m pytest overlay_controller/tests` (38 passed, 3 skipped).
+
+#### Stage 5.5 Plan
+- **Goal:** Extract preview orchestration into `controller/preview_controller.py`, removing preview-fetch/draw plumbing from `overlay_controller.py`. Aim to eliminate `_draw_preview` logic and preview helper methods from the shell.
+- **What to move (aggressively):**
+  - Snapshot fetch/refresh logic (current selection snapshot resolution, live-edit guards, snapshot storage/accessors).
+  - Preview renderer invocation, target frame resolution, anchor/absolute sync helpers, and signature caching.
+  - Scale mode/anchor token resolution, absolute widget sync (apply/get), and target dimension/bounds helpers.
+  - Live-edit offset guard handling tied to preview refreshes.
+- **Interfaces:** `PreviewController(app, abs_width, abs_height, padding)` exposing `refresh_current_group_snapshot(...)`, `get_group_snapshot(...)`, `draw_preview()`, and helper accessors for anchor/target-frame resolution; app supplies callbacks/time/renderer via injection if needed.
+- **Constraints:** Preserve visual output/order/caching; no behavior changes. Controller should delegate preview/anchor/absolute helper methods to the PreviewController.
+- **Tests to run:** `overlay_client/.venv/bin/python -m pytest overlay_controller/tests`; run `make check` if interface changes ripple across imports.
+- **Risks & mitigations:**
+  - Preview signature caching regressions (extra draws or missing updates) → port renderer invocation/signature handling verbatim; add/extend renderer/signature tests to cover live anchor changes.
+  - Live-edit guard behavior changing (snap-back during arrow holds) → keep existing live-edit guard checks in the helper and add a smoke test that simulates live-edit window timing.
+  - Target frame/anchor math drift → move helpers intact and rely on existing snapshot/translation tests; consider a targeted preview-controller unit test for target frame resolution.
+  - Absolute widget sync mismatches (UI not reflecting snapshot or vice versa) → keep apply/get helpers inside the controller with delegation; add a small unit test for absolute sync pathways if feasible.
+
+Stage 5.5 notes:
+- Added `overlay_controller/controller/preview_controller.py` to own snapshot refresh, live-edit guard handling, target-frame resolution, anchor/absolute sync helpers, and renderer invocation/signature caching; exported via `controller/__init__.py`.
+- `overlay_controller.py` now instantiates `PreviewController` and delegates preview/anchor/absolute helper methods and `_draw_preview`/snapshot refresh to it; preview math/renderer imports remain in the helper.
 - Tests run: `overlay_client/.venv/bin/python -m pytest overlay_controller/tests` (38 passed, 3 skipped).
