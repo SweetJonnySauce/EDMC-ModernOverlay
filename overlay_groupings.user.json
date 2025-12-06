@@ -1,10 +1,8 @@
 {
   "BGS-Tally": {
     "idPrefixGroups": {
-      "BGS-Tally Colonisation": {
-        "offsetX": 120.0
-      },
       "BGS-Tally Tick Notifications": {
+        "offsetX": 180.0,
         "offsetY": 0.0
       }
     }
@@ -14,6 +12,10 @@
       "Bioscan Details": {
         "offsetX": 0.003,
         "offsetY": -1.047
+      },
+      "Bioscan Radar": {
+        "offsetX": 0.0,
+        "offsetY": 0.0
       }
     }
   },
@@ -42,5 +44,5 @@
       }
     }
   },
-  "_edit_nonce": "1764995277.871459-466784"
+  "_edit_nonce": "1765061569.686534-718281"
 }

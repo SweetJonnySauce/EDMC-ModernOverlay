@@ -1,12 +1,13 @@
 import math
 
 import overlay_controller.overlay_controller as oc
+from overlay_controller.preview import snapshot_math
 
 
-def _make_snapshot() -> oc._GroupSnapshot:
+def _make_snapshot() -> oc.GroupSnapshot:
     base_bounds = (100.0, 100.0, 200.0, 200.0)
     anchor = (100.0, 100.0)
-    return oc._GroupSnapshot(
+    return oc.GroupSnapshot(
         plugin="PluginB",
         label="G1",
         anchor_token="nw",
@@ -24,7 +25,7 @@ def _make_snapshot() -> oc._GroupSnapshot:
 
 def test_translate_snapshot_fill_overflow_applies_shift():
     snap = _make_snapshot()
-    translated = oc.OverlayConfigApp._translate_snapshot_for_fill(
+    translated = snapshot_math.translate_snapshot_for_fill(
         snap,
         1280.0,
         720.0,
@@ -42,7 +43,7 @@ def test_translate_snapshot_fill_overflow_applies_shift():
 
 def test_translate_snapshot_fit_no_shift():
     snap = _make_snapshot()
-    translated = oc.OverlayConfigApp._translate_snapshot_for_fill(
+    translated = snapshot_math.translate_snapshot_for_fill(
         snap,
         1280.0,
         720.0,
@@ -56,7 +57,7 @@ def test_translate_snapshot_fit_no_shift():
 
 def test_translate_snapshot_anchor_override_changes_shift():
     snap = _make_snapshot()
-    translated = oc.OverlayConfigApp._translate_snapshot_for_fill(
+    translated = snapshot_math.translate_snapshot_for_fill(
         snap,
         1280.0,
         720.0,
