@@ -41,20 +41,35 @@ def _convert_native_rect_to_qt(
     if device_ratio <= 0.0:
         device_ratio = 1.0
 
-    scale_x = logical_geometry[2] / native_width if native_width else 1.0
-    scale_y = logical_geometry[3] / native_height if native_height else 1.0
+    geometries_match = (
+        math.isclose(logical_geometry[0], native_geometry[0], abs_tol=1e-4)
+        and math.isclose(logical_geometry[1], native_geometry[1], abs_tol=1e-4)
+        and math.isclose(logical_geometry[2], native_width, abs_tol=1e-4)
+        and math.isclose(logical_geometry[3], native_height, abs_tol=1e-4)
+    )
 
-    if math.isclose(scale_x, 1.0, abs_tol=1e-4):
-        scale_x = 1.0 / device_ratio
-    if math.isclose(scale_y, 1.0, abs_tol=1e-4):
-        scale_y = 1.0 / device_ratio
+    if geometries_match:
+        # On X11 some drivers report a DPR>1 while logical/native geometries are identical.
+        # Treat that as a 1:1 mapping to avoid double-scaling and shifting origins.
+        scale_x = 1.0
+        scale_y = 1.0
+        native_origin_x = logical_geometry[0]
+        native_origin_y = logical_geometry[1]
+    else:
+        scale_x = logical_geometry[2] / native_width if native_width else 1.0
+        scale_y = logical_geometry[3] / native_height if native_height else 1.0
 
-    native_origin_x = native_geometry[0]
-    native_origin_y = native_geometry[1]
-    if math.isclose(native_origin_x, logical_geometry[0], abs_tol=1e-4):
-        native_origin_x = logical_geometry[0] * device_ratio
-    if math.isclose(native_origin_y, logical_geometry[1], abs_tol=1e-4):
-        native_origin_y = logical_geometry[1] * device_ratio
+        if math.isclose(scale_x, 1.0, abs_tol=1e-4):
+            scale_x = 1.0 / device_ratio
+        if math.isclose(scale_y, 1.0, abs_tol=1e-4):
+            scale_y = 1.0 / device_ratio
+
+        native_origin_x = native_geometry[0]
+        native_origin_y = native_geometry[1]
+        if math.isclose(native_origin_x, logical_geometry[0], abs_tol=1e-4):
+            native_origin_x = logical_geometry[0] * device_ratio
+        if math.isclose(native_origin_y, logical_geometry[1], abs_tol=1e-4):
+            native_origin_y = logical_geometry[1] * device_ratio
 
     qt_x = logical_geometry[0] + (x - native_origin_x) * scale_x
     qt_y = logical_geometry[1] + (y - native_origin_y) * scale_y
