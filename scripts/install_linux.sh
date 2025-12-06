@@ -856,7 +856,6 @@ normalize_checksum_manifest_paths() {
     sed "s#  ${legacy_prefix}#  #g" "$CHECKSUM_MANIFEST_PATH" >"$tmp_manifest"
     CHECKSUM_MANIFEST_EFFECTIVE="$tmp_manifest"
     CHECKSUM_MANIFEST_TEMP="$tmp_manifest"
-    echo "ℹ️  Checking file integrity"
     log_verbose "Checksum manifest normalized to '$tmp_manifest' due to legacy dist/linux prefix."
 }
 
@@ -878,6 +877,11 @@ verify_checksums() {
         return
     fi
     require_command sha256sum "sha256sum (coreutils)"
+    local message="ℹ️  Checking file integrity"
+    if [[ "$label" == *"installed"* || "$label" == *"updated"* ]]; then
+        message="ℹ️  Checking file integrity of installed files"
+    fi
+    echo "$message"
     local manifest_path="${CHECKSUM_MANIFEST_EFFECTIVE:-$CHECKSUM_MANIFEST_PATH}"
     local -a sha_flags=()
     if [[ "$LOG_ENABLED" != true ]]; then

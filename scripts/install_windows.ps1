@@ -453,7 +453,6 @@ function Normalize-ChecksumLines {
         return $Lines
     }
 
-    Write-Info "ℹ️  Checking file integrity"
     $normalized = @()
     foreach ($line in $Lines) {
         if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith('#')) {
@@ -513,6 +512,11 @@ function Verify-Checksums {
 
     $lines = Get-Content -LiteralPath $ChecksumManifestPath -ErrorAction Stop
     $lines = Normalize-ChecksumLines -Lines $lines -BaseDir $BaseDir
+    $message = "ℹ️  Checking file integrity"
+    if ($labelToUse -match '(?i)installed' -or $labelToUse -match '(?i)updated') {
+        $message = "ℹ️  Checking file integrity of installed files"
+    }
+    Write-Info $message
 
     foreach ($line in $lines) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
