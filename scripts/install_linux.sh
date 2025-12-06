@@ -12,12 +12,14 @@ readonly EUROCAPS_FONT_URL="https://raw.githubusercontent.com/inorton/EDMCOverla
 readonly EUROCAPS_FONT_NAME="Eurocaps.ttf"
 readonly MODERN_PLUGIN_DIR_NAME="EDMCModernOverlay"
 readonly LEGACY_PLUGIN_DIR_NAME="EDMC-ModernOverlay"
+readonly CHECKSUM_MANIFEST_BASENAME="checksums.txt"
 
 ASSUME_YES=false
 DRY_RUN=false
 PLUGIN_DIR_OVERRIDE=""
 LOG_ENABLED=false
 LOG_FILE=""
+CHECKSUM_MANIFEST_PATH=""
 
 declare -a POSITIONAL_ARGS=()
 declare -a MATRIX_STANDARD_PATHS=()
@@ -807,6 +809,43 @@ find_release_root() {
     fi
 }
 
+locate_checksum_manifest() {
+    local candidate="${RELEASE_ROOT}/${CHECKSUM_MANIFEST_BASENAME}"
+    local fallback="${RELEASE_ROOT}/${MODERN_PLUGIN_DIR_NAME}/${CHECKSUM_MANIFEST_BASENAME}"
+    if [[ -f "$candidate" ]]; then
+        CHECKSUM_MANIFEST_PATH="$candidate"
+        log_verbose "Checksum manifest detected at '$CHECKSUM_MANIFEST_PATH'."
+        return
+    fi
+    if [[ -f "$fallback" ]]; then
+        CHECKSUM_MANIFEST_PATH="$fallback"
+        log_verbose "Checksum manifest detected at '$CHECKSUM_MANIFEST_PATH' (inside ${MODERN_PLUGIN_DIR_NAME})."
+        return
+    fi
+    CHECKSUM_MANIFEST_PATH=""
+    echo "ℹ️  No checksum manifest '${CHECKSUM_MANIFEST_BASENAME}' found alongside installer; skipping integrity verification."
+    log_verbose "No checksum manifest '${CHECKSUM_MANIFEST_BASENAME}' found alongside installer; skipping integrity verification."
+}
+
+verify_checksums() {
+    local base_dir="$1"
+    local label="${2:-$base_dir}"
+    if [[ -z "${CHECKSUM_MANIFEST_PATH:-}" ]]; then
+        return
+    fi
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "📝 [dry-run] Would verify integrity of '${label}' using $(basename "$CHECKSUM_MANIFEST_PATH")."
+        return
+    fi
+    require_command sha256sum "sha256sum (coreutils)"
+    if (cd "$base_dir" && sha256sum -c "$CHECKSUM_MANIFEST_PATH"); then
+        echo "✅ Integrity check passed for ${label}."
+    else
+        echo "❌ Integrity verification failed for ${label}. Re-download the release archive and try again." >&2
+        exit 1
+    fi
+}
+
 prompt_yes_no() {
     local prompt="${1:-Continue?}"
     if [[ "$ASSUME_YES" == true ]]; then
@@ -1307,6 +1346,7 @@ copy_initial_install() {
     fi
     cp -a "$src" "$plugin_root"
     local target="${plugin_root}/$(basename "$src")"
+    verify_checksums "$plugin_root" "installed plugin files"
     create_venv_and_install "$target"
 }
 
@@ -1332,6 +1372,7 @@ rsync_update_plugin() {
     echo "🔄 Updating existing Modern Overlay installation..."
     rsync -av --delete "${excludes[@]}" "$src"/ "$dest"/
     log_verbose "rsync update completed for '$dest'."
+    verify_checksums "$(dirname "$dest")" "updated plugin files"
 }
 
 ensure_existing_install() {
@@ -1358,6 +1399,8 @@ main() {
     find_release_root
     require_command python3 "python3"
     init_logging
+    locate_checksum_manifest
+    verify_checksums "$RELEASE_ROOT" "release bundle"
     print_breaking_change_warning
     if ((${#ORIGINAL_ARGS[@]} > 0)); then
         log_verbose "Command-line arguments: $(format_list_or_none "${ORIGINAL_ARGS[@]}")"

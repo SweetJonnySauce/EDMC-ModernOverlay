@@ -28,6 +28,12 @@ jobs:
           set -euo pipefail
           python3 scripts/verify_release_not_dev.py
 
+      - name: Generate checksum manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/generate_checksums.py
+
       - name: Prepare staging layout
         shell: bash
         run: |
@@ -53,6 +59,7 @@ jobs:
             '--exclude=EDMCModernOverlay.code-workspace'
             '--exclude=Makefile'
             '--exclude=*.md'
+            '--exclude=checksums.txt'
           )
 
           # Copy plugin code into EDMCModernOverlay directory for both bundles,
@@ -62,9 +69,10 @@ jobs:
 
           # Windows helper scripts at archive root
           cp scripts/install_windows.ps1 dist/windows_powershell/
+          cp checksums.txt dist/windows_powershell/
 
           # Linux helper script + manifest at archive root
-          cp scripts/install_linux.sh scripts/install_matrix.json dist/linux/
+          cp scripts/install_linux.sh scripts/install_matrix.json checksums.txt dist/linux/
 
       - name: Create archives
         shell: bash
@@ -117,6 +125,11 @@ jobs:
         shell: pwsh
         run: |
           python scripts/verify_release_not_dev.py
+
+      - name: Generate checksum manifest
+        shell: pwsh
+        run: |
+          python scripts/generate_checksums.py
 
       - name: Install ps2exe module
         shell: pwsh

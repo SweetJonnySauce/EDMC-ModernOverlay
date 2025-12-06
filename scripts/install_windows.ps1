@@ -96,6 +96,8 @@ $FontUrl = 'https://raw.githubusercontent.com/inorton/EDMCOverlay/master/EDMCOve
 $FontName = 'Eurocaps.ttf'
 $ModernPluginDirName = 'EDMCModernOverlay'
 $LegacyPluginDirName = 'EDMC-ModernOverlay'
+$ChecksumManifestBasename = 'checksums.txt'
+$script:ChecksumManifestPath = $null
 
 function Show-BreakingChangeWarning {
     Write-Warn 'Breaking upgrade notice: Modern Overlay now installs under the EDMCModernOverlay directory.'
@@ -346,6 +348,90 @@ function Find-ReleaseRoot {
     }
 
     Fail-Install "Could not find '$ModernPluginDirName' directory alongside install_windows.ps1."
+}
+
+function Resolve-ChecksumManifestPath {
+    param([string]$BaseDir)
+    $candidate = Join-Path $BaseDir $ChecksumManifestBasename
+    if (Test-Path -LiteralPath $candidate) {
+        return (Get-Item -LiteralPath $candidate).FullName
+    }
+    $fallback = Join-Path $BaseDir (Join-Path $ModernPluginDirName $ChecksumManifestBasename)
+    if (Test-Path -LiteralPath $fallback) {
+        return (Get-Item -LiteralPath $fallback).FullName
+    }
+    Write-Info "No checksum manifest '$ChecksumManifestBasename' found; skipping integrity verification."
+    return $null
+}
+
+function Convert-ManifestPathToWindows {
+    param([string]$RelativePath)
+    if ([string]::IsNullOrWhiteSpace($RelativePath)) {
+        return $RelativePath
+    }
+    return ($RelativePath -replace '/', [IO.Path]::DirectorySeparatorChar)
+}
+
+function Get-FileSha256 {
+    param([Parameter(Mandatory = $true)][string]$LiteralPath)
+
+    $stream = $null
+    try {
+        $stream = [IO.File]::OpenRead($LiteralPath)
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        $hashBytes = $sha.ComputeHash($stream)
+        $sha.Dispose()
+        return ([BitConverter]::ToString($hashBytes) -replace '-', '').ToLowerInvariant()
+    } finally {
+        if ($stream) {
+            $stream.Dispose()
+        }
+    }
+}
+
+function Verify-Checksums {
+    param(
+        [Parameter(Mandatory = $true)][string]$BaseDir,
+        [string]$Label = $null
+    )
+
+    if (-not $ChecksumManifestPath) {
+        return
+    }
+
+    $labelToUse = if ($Label) { $Label } else { $BaseDir }
+
+    if ($DryRun) {
+        Write-Info "[dry-run] Would verify integrity of '$labelToUse' using $(Split-Path -Leaf $ChecksumManifestPath)."
+        return
+    }
+
+    $lines = Get-Content -LiteralPath $ChecksumManifestPath -ErrorAction Stop
+    foreach ($line in $lines) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        if ($line.StartsWith('#')) { continue }
+
+        $match = [regex]::Match($line, '^(?<hash>[0-9A-Fa-f]{64})\s{2}(?<path>.+)$')
+        if (-not $match.Success) {
+            Fail-Install "Malformed checksum line: '$line'"
+        }
+
+        $expectedHash = $match.Groups['hash'].Value.ToLowerInvariant()
+        $relativePath = $match.Groups['path'].Value.Trim()
+        $relativeWinPath = Convert-ManifestPathToWindows -RelativePath $relativePath
+        $fullPath = Join-Path $BaseDir $relativeWinPath
+
+        if (-not (Test-Path -LiteralPath $fullPath)) {
+            Fail-Install "Integrity check failed: '$relativePath' missing under '$BaseDir'."
+        }
+
+        $actualHash = (Get-FileSha256 -LiteralPath $fullPath)
+        if ($actualHash -ne $expectedHash) {
+            Fail-Install "Integrity check failed for '$relativePath' (expected $expectedHash, got $actualHash)."
+        }
+    }
+
+    Write-Info "Integrity check passed for $labelToUse."
 }
 
 function Get-DefaultPluginRoot {
@@ -625,6 +711,7 @@ function Copy-InitialInstall {
         return
     }
     Copy-Item -Path $SourceDir -Destination $PluginRoot -Recurse -Force
+    Verify-Checksums -BaseDir $PluginRoot -Label 'installed plugin files'
     Create-VenvAndInstall -TargetDir $dest
 }
 
@@ -673,6 +760,8 @@ function Update-ExistingInstall {
         }
 
         Copy-Item -Path $SourceDir -Destination $parent -Recurse -Force
+
+        Verify-Checksums -BaseDir $parent -Label 'updated plugin files'
 
         if ($venvBackup) {
             $restoredVenv = Join-Path $DestDir 'overlay_client\.venv'
@@ -814,6 +903,8 @@ function Final-Notes {
 
 function Main {
     $script:ReleaseRoot = Find-ReleaseRoot
+    $script:ChecksumManifestPath = Resolve-ChecksumManifestPath -BaseDir $ReleaseRoot
+    Verify-Checksums -BaseDir $ReleaseRoot -Label 'release bundle'
     Show-BreakingChangeWarning
     $script:PayloadDir = Join-Path $ReleaseRoot $ModernPluginDirName
     if (-not (Test-Path -LiteralPath $PayloadDir)) {
