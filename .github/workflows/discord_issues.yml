@@ -1,4 +1,6 @@
 name: Discord Issue Notifications
+permissions:
+  issues: read
 
 on:
   issues:
