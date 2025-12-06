@@ -26,7 +26,7 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
 - Change absolute X/Y values using px or % values
 - Change the anchor point on the group to define where and how it's placed. Anchor points include nw, top, ne, right, se, bottom, sw, left, center.
 - Change justification within the payload (doesn't work on vector based images)
-- A preview window can be expanded with the right arrow (when a widget is not in focus) to see original placement, actual placement, and target. The delay is due to payload TTL values.
+- A preview window can be expanded with the right arrow (when a widget is not in focus) to see original placement, actual placement, and target.
 
 <img width="1147" height="677" alt="image" src="https://github.com/user-attachments/assets/618f06c2-18da-4bdc-b148-035921f7dcdb" />
 
