@@ -12,6 +12,10 @@
       "Bioscan Details": {
         "offsetX": 0.003,
         "offsetY": -1.047
+      },
+      "Bioscan Radar": {
+        "offsetX": 0.0,
+        "offsetY": 0.0
       }
     }
   },
@@ -40,5 +44,5 @@
       }
     }
   },
-  "_edit_nonce": "1765050651.193553-642955"
+  "_edit_nonce": "1765051551.787139-650256"
 }

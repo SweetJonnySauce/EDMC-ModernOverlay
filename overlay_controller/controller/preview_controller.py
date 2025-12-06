@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import json
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-from overlay_controller.preview import snapshot_math
 from overlay_controller.preview.renderer import PreviewRenderer
 
 if TYPE_CHECKING:

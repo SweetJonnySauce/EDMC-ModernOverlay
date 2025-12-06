@@ -33,13 +33,27 @@ try:  # When run as a package (`python -m overlay_controller.overlay_controller`
     from overlay_controller.input_bindings import BindingConfig, BindingManager
     from overlay_controller.services import ModeTimers, PluginBridge
     from overlay_controller.preview import snapshot_math
-    from overlay_controller.controller import AppContext, FocusManager, LayoutBuilder, PreviewController, build_app_context
+    from overlay_controller.controller import (
+        AppContext,
+        EditController,
+        FocusManager,
+        LayoutBuilder,
+        PreviewController,
+        build_app_context,
+    )
     from overlay_controller.widgets import AnchorSelectorWidget, alt_modifier_active  # noqa: F401
 except ImportError:  # Fallback for spec-from-file/test harness
     from input_bindings import BindingConfig, BindingManager  # type: ignore
     from services import ModeTimers, PluginBridge  # type: ignore
     import overlay_controller.preview.snapshot_math as snapshot_math  # type: ignore
-    from overlay_controller.controller import AppContext, FocusManager, LayoutBuilder, PreviewController, build_app_context  # type: ignore
+    from overlay_controller.controller import (  # type: ignore
+        AppContext,
+        EditController,
+        FocusManager,
+        LayoutBuilder,
+        PreviewController,
+        build_app_context,
+    )
     from overlay_controller.widgets import AnchorSelectorWidget, alt_modifier_active  # type: ignore  # noqa: F401
 
 ABS_BASE_WIDTH = 1280
@@ -309,6 +323,10 @@ class OverlayConfigApp(tk.Tk):
             abs_width=ABS_BASE_WIDTH,
             abs_height=ABS_BASE_HEIGHT,
             padding=self.preview_canvas_padding,
+        )
+        self._edit_controller = EditController(
+            self,
+            logger=_controller_debug,
         )
         self._mode_profile = self._app_context.mode_profile
         self._use_legacy_timers = _USE_LEGACY_TIMERS
@@ -1428,7 +1446,40 @@ class OverlayConfigApp(tk.Tk):
 
         return _strip_timestamps(new_cache) != _strip_timestamps(old_cache)
 
+    @staticmethod
+    def _round_offsets(payload: dict[str, object]) -> dict[str, object]:
+        """Return a copy with offsetX/offsetY rounded to 3 decimals to avoid float noise."""
+
+        result: dict[str, object] = {}
+        for plugin_name, plugin_entry in payload.items():
+            if not isinstance(plugin_entry, dict):
+                result[plugin_name] = plugin_entry
+                continue
+            plugin_copy: dict[str, object] = dict(plugin_entry)
+            groups = plugin_entry.get("idPrefixGroups")
+            if isinstance(groups, dict):
+                groups_copy: dict[str, object] = {}
+                for label, group_entry in groups.items():
+                    if not isinstance(group_entry, dict):
+                        groups_copy[label] = group_entry
+                        continue
+                    group_copy: dict[str, object] = dict(group_entry)
+                    if "offsetX" in group_copy and isinstance(group_copy["offsetX"], (int, float)):
+                        group_copy["offsetX"] = round(float(group_copy["offsetX"]), 3)
+                    if "offsetY" in group_copy and isinstance(group_copy["offsetY"], (int, float)):
+                        group_copy["offsetY"] = round(float(group_copy["offsetY"]), 3)
+                    groups_copy[label] = group_copy
+                plugin_copy["idPrefixGroups"] = groups_copy
+            result[plugin_name] = plugin_copy
+        return result
+
+    def _write_groupings_cache(self) -> None:
+        # Controller is read-only for overlay_group_cache.json; no-op to avoid clobbering client data.
+        return
+
     def _write_groupings_config(self) -> None:
+        """Persist groupings config (legacy path for tests/compat)."""
+
         state = self.__dict__.get("_group_state")
         if state is None:
             # Fallback to legacy in-controller write path when service is unavailable (legacy tests/harness).
@@ -1483,6 +1534,8 @@ class OverlayConfigApp(tk.Tk):
                 )
             except Exception:
                 return
+            return
+
         try:
             state._write_groupings_config(edit_nonce=getattr(self, "_user_overrides_nonce", ""))
             merged_payload = getattr(state, "_groupings_data", {})
@@ -1495,37 +1548,6 @@ class OverlayConfigApp(tk.Tk):
         except Exception:
             return
 
-    @staticmethod
-    def _round_offsets(payload: dict[str, object]) -> dict[str, object]:
-        """Return a copy with offsetX/offsetY rounded to 3 decimals to avoid float noise."""
-
-        result: dict[str, object] = {}
-        for plugin_name, plugin_entry in payload.items():
-            if not isinstance(plugin_entry, dict):
-                result[plugin_name] = plugin_entry
-                continue
-            plugin_copy: dict[str, object] = dict(plugin_entry)
-            groups = plugin_entry.get("idPrefixGroups")
-            if isinstance(groups, dict):
-                groups_copy: dict[str, object] = {}
-                for label, group_entry in groups.items():
-                    if not isinstance(group_entry, dict):
-                        groups_copy[label] = group_entry
-                        continue
-                    group_copy: dict[str, object] = dict(group_entry)
-                    if "offsetX" in group_copy and isinstance(group_copy["offsetX"], (int, float)):
-                        group_copy["offsetX"] = round(float(group_copy["offsetX"]), 3)
-                    if "offsetY" in group_copy and isinstance(group_copy["offsetY"], (int, float)):
-                        group_copy["offsetY"] = round(float(group_copy["offsetY"]), 3)
-                    groups_copy[label] = group_copy
-                plugin_copy["idPrefixGroups"] = groups_copy
-            result[plugin_name] = plugin_copy
-        return result
-
-    def _write_groupings_cache(self) -> None:
-        # Controller is read-only for overlay_group_cache.json; no-op to avoid clobbering client data.
-        return
-
     def _flush_groupings_config(self) -> None:
         self._debounce_handles["config_write"] = None
         self._last_edit_ts = time.time()
@@ -1536,7 +1558,13 @@ class OverlayConfigApp(tk.Tk):
             except Exception:
                 pass
         self._user_overrides_nonce = self._edit_nonce
-        self._write_groupings_config()
+        if hasattr(self, "_edit_controller"):
+            try:
+                self._edit_controller._write_groupings_config()
+            except Exception:
+                pass
+        else:
+            self._write_groupings_config()
         self._emit_override_reload_signal()
 
     def _flush_groupings_cache(self) -> None:
@@ -1546,23 +1574,10 @@ class OverlayConfigApp(tk.Tk):
     def _schedule_debounce(self, key: str, callback: callable, delay_ms: int | None = None) -> None:
         """Schedule a debounced callback keyed by name."""
 
-        timers = getattr(self, "_mode_timers", None)
-        if timers is not None:
-            handle = timers.schedule_debounce(key, callback, delay_ms=delay_ms)
-            self._debounce_handles[key] = handle
-            return
-        existing = self._debounce_handles.get(key)
-        if existing is not None:
-            try:
-                self.after_cancel(existing)
-            except Exception:
-                pass
-        delay = self._write_debounce_ms if delay_ms is None else delay_ms
-        handle = self.after(delay, callback)
-        self._debounce_handles[key] = handle
+        self._edit_controller.schedule_debounce(key, callback, delay_ms)
 
     def _schedule_groupings_config_write(self, delay_ms: int | None = None) -> None:
-        self._schedule_debounce("config_write", self._flush_groupings_config, delay_ms)
+        self._edit_controller.schedule_groupings_config_write(delay_ms)
 
     def _schedule_groupings_cache_write(self, delay_ms: int | None = None) -> None:
         # Cache is maintained by overlay client; avoid scheduling writes from controller.
@@ -1578,6 +1593,13 @@ class OverlayConfigApp(tk.Tk):
                     pass
 
     def _emit_override_reload_signal(self) -> None:
+        controller = getattr(self, "_edit_controller", None)
+        if controller is not None:
+            try:
+                controller._emit_override_reload_signal()
+                return
+            except Exception:
+                pass
         now = time.monotonic()
         last = getattr(self, "_last_override_reload_ts", 0.0)
         if last and now - last < 0.25:
@@ -1738,55 +1760,7 @@ class OverlayConfigApp(tk.Tk):
     def _persist_offsets(
         self, selection: tuple[str, str], offset_x: float, offset_y: float, debounce_ms: int | None = None
     ) -> None:
-        plugin_name, label = selection
-        self._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
-        state = self.__dict__.get("_group_state")
-        if state is not None:
-            try:
-                state.persist_offsets(
-                    plugin_name,
-                    label,
-                    offset_x,
-                    offset_y,
-                    edit_nonce=self._edit_nonce,
-                    write=False,
-                    invalidate_cache=True,
-                )
-                self._groupings_data = getattr(state, "_groupings_data", self._groupings_data)
-                self._groupings_cache = getattr(state, "_groupings_cache", self._groupings_cache)
-            except Exception:
-                self._set_config_offsets(plugin_name, label, offset_x, offset_y)
-        else:
-            self._set_config_offsets(plugin_name, label, offset_x, offset_y)
-        self._last_edit_ts = time.time()
-        timers = getattr(self, "_mode_timers", None)
-        if timers is not None:
-            try:
-                timers.record_edit()
-            except Exception:
-                pass
-        if state is None:
-            self._invalidate_group_cache_entry(plugin_name, label)
-        delay = self._offset_write_debounce_ms if debounce_ms is None else debounce_ms
-        self._schedule_groupings_config_write(delay)
-        snapshot = self._group_snapshots.get(selection)
-        if snapshot is not None:
-            snapshot.offset_x = offset_x
-            snapshot.offset_y = offset_y
-            # Clear any cached transform so preview/HUD stay aligned until client rewrites.
-            snapshot.has_transform = False
-            snapshot.transform_bounds = snapshot.base_bounds
-            snapshot.transform_anchor_token = snapshot.anchor_token
-            snapshot.transform_anchor = snapshot.base_anchor
-            self._group_snapshots[selection] = snapshot
-        _controller_debug(
-            "Target updated for %s/%s: offset_x=%.1f offset_y=%.1f debounce_ms=%s",
-            plugin_name,
-            label,
-            offset_x,
-            offset_y,
-            debounce_ms,
-        )
+        self._edit_controller.persist_offsets(selection, offset_x, offset_y, debounce_ms)
 
     def _handle_idprefix_selected(self, _selection: str | None = None) -> None:
         if not hasattr(self, "idprefix_widget"):
@@ -1852,7 +1826,7 @@ class OverlayConfigApp(tk.Tk):
             label,
             justification,
         )
-        self._schedule_groupings_config_write()
+        self._edit_controller.schedule_groupings_config_write()
         if state is None:
             self._invalidate_group_cache_entry(plugin_name, label)
         self._last_edit_ts = time.time()
@@ -1894,7 +1868,7 @@ class OverlayConfigApp(tk.Tk):
             self._apply_snapshot_to_absolute_widget(selection, snapshot, force_ui=True)
             return
 
-        self._persist_offsets(selection, new_offset_x, new_offset_y, debounce_ms=self._offset_write_debounce_ms)
+        self._edit_controller.persist_offsets(selection, new_offset_x, new_offset_y, debounce_ms=self._offset_write_debounce_ms)
         self._refresh_current_group_snapshot(force_ui=True)
 
     def _unpin_offset_if_moved(self, abs_x: float, abs_y: float) -> None:
@@ -1959,7 +1933,7 @@ class OverlayConfigApp(tk.Tk):
             self._apply_snapshot_to_absolute_widget(selection, snapshot, force_ui=True)
             return
 
-        self._persist_offsets(selection, new_offset_x, new_offset_y, debounce_ms=self._offset_write_debounce_ms)
+        self._edit_controller.persist_offsets(selection, new_offset_x, new_offset_y, debounce_ms=self._offset_write_debounce_ms)
         self._refresh_current_group_snapshot(force_ui=True)
 
         if pinned and anchor_target and hasattr(self, "anchor_widget"):
@@ -2364,7 +2338,7 @@ class OverlayConfigApp(tk.Tk):
         if not isinstance(group, dict):
             return
         group["idPrefixGroupAnchor"] = anchor
-        self._schedule_groupings_config_write()
+        self._edit_controller.schedule_groupings_config_write()
         state = self.__dict__.get("_group_state")
         if state is not None:
             try:

@@ -249,7 +249,7 @@ Stage 4.5 notes:
 | 5.3 | Extract layout composition into `controller/layout.py` (placement/sidebar/overlays/focus map assembly); controller retains only callbacks/state. | Completed |
 | 5.4 | Extract focus/binding orchestration into `controller/focus_manager.py` (focus map, widget-select mode, navigation handlers, binding registration); remove inline binding helpers. | Completed |
 | 5.5 | Extract preview orchestration into `controller/preview_controller.py` (snapshot fetch, live-edit guards, target frame resolution, renderer invocation, absolute sync); drop duplicate preview helpers from the shell. | Completed |
-| 5.6 | Extract edit/persistence flow into `controller/edit_controller.py` (persist_* hooks, debounces, cache reload guard, active-group/override signals, nonce/timestamps); move reload guards + cache diff helpers out of the shell. | Not started |
+| 5.6 | Extract edit/persistence flow into `controller/edit_controller.py` (persist_* hooks, debounces, cache reload guard, active-group/override signals, nonce/timestamps); move reload guards + cache diff helpers out of the shell. | Completed |
 | 5.7 | Final shell trim: remove remaining legacy helpers/flags, tighten imports, keep only UI wiring/drag/close plumbing; update docs/tests and rerun full suites (headless + PyQt). | Not started |
 
 #### Stage 5.1 Plan
@@ -359,4 +359,27 @@ Stage 5.4 notes:
 Stage 5.5 notes:
 - Added `overlay_controller/controller/preview_controller.py` to own snapshot refresh, live-edit guard handling, target-frame resolution, anchor/absolute sync helpers, and renderer invocation/signature caching; exported via `controller/__init__.py`.
 - `overlay_controller.py` now instantiates `PreviewController` and delegates preview/anchor/absolute helper methods and `_draw_preview`/snapshot refresh to it; preview math/renderer imports remain in the helper.
+- Tests run: `overlay_client/.venv/bin/python -m pytest overlay_controller/tests` (38 passed, 3 skipped).
+
+#### Stage 5.6 Plan
+- **Goal:** Extract edit/persistence flow into `controller/edit_controller.py`, pulling all persist hooks, debounce scheduling, cache reload guards, and override/active-group signaling out of `overlay_controller.py`. Aggressive target: no persistence/cache/override logic left inline.
+- **What to move (aggressively):**
+  - `persist_*` flows for offsets/anchor/justification (including edit nonce stamping, cache invalidation, live-edit windows).
+  - Debounce scheduling and cache/groupings write helpers; cache diff helpers and reload guards (`_poll_cache_and_status` pieces) related to persistence.
+  - Active-group and override-reload signal emission (bridge/CLI), heartbeat-triggered active-group send hooks, and last-sent tracking.
+  - Edit timestamp/nonce handling and live-edit delay coordination with timers.
+  - Any remaining ForceRender override triggers tied to persistence signals (if applicable).
+- **Interfaces:** `EditController(app, bridge, timers, group_state, cache_path, shipped_path, user_path, logger)` exposing methods for `persist_offsets/anchor/justification`, `schedule_writes`, `poll_cache_and_status`, `send_active_group`, and cache diff helpers. Controller should delegate persistence and signaling to this helper.
+- **Constraints:** Preserve debounce timings, nonce semantics, cache invalidation behavior, and live-edit guards; keep legacy fallbacks accessible if needed. No behavioral drift.
+- **Tests to run:** `overlay_client/.venv/bin/python -m pytest overlay_controller/tests`; run `make check` if interface changes are broad. Add unit coverage for the new EditController if feasible.
+- **Risks & mitigations:**
+  - Debounce/poll timing regressions (writes too fast/slow) → lift timings intact, add unit tests around debounce scheduling, and verify with existing status-poll tests.
+  - Cache reload/guard drift (reload during writes) → port reload-guard logic verbatim and add a unit test for post-edit delay handling.
+  - Active-group/override signals missing or duplicated → keep last-sent tracking in the helper; add a smoke test for dedupe and invoke existing override reload tests.
+  - Nonce/timestamp handling regression → ensure the helper stamps/propagates `_edit_nonce`/`_last_edit_ts` exactly as before; add a focused test if possible.
+  - Legacy fallback removal too early → keep a shim path for legacy cache/CLI write behavior until tests are green; remove only after validation.
+
+Stage 5.6 notes:
+- Added `overlay_controller/controller/edit_controller.py` to own persist hooks (offsets/justification), debounce scheduling, groupings config writes, and override reload signals; exported via `controller/__init__.py`.
+- `overlay_controller.py` now instantiates `_edit_controller`, delegates offset persistence and debounce/write scheduling to it, and uses helper for override reload + config writes; legacy `_write_groupings_config` wrapper retained for compatibility/tests.
 - Tests run: `overlay_client/.venv/bin/python -m pytest overlay_controller/tests` (38 passed, 3 skipped).

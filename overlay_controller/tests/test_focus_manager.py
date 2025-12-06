@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import types
 
-import pytest
-
 
 def test_focus_manager_registers_absolute_bindings():
     import overlay_controller.overlay_controller as oc
