@@ -28,8 +28,8 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
 - Change justification within the payload (doesn't work on vector based images)
 - A preview window can be expanded with the right arrow (when a widget is not in focus) to see original placement, actual placement, and target. The delay is due to payload TTL values.
 
-<img width="162" height="340" alt="image" src="https://github.com/user-attachments/assets/5e4fbc0b-57ac-4414-92d9-602de1521a51" />
-<img width="578" height="347" alt="image" src="https://github.com/user-attachments/assets/2626cfe7-8abf-40df-b71f-65b5d7e818fa" />
+<img width="1147" height="677" alt="image" src="https://github.com/user-attachments/assets/618f06c2-18da-4bdc-b148-035921f7dcdb" />
+
 
 # Installation
 
