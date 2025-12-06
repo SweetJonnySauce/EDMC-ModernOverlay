@@ -1,0 +1,16 @@
+2025-12-05 19:38:50 [DEBUG] Controller logger initialised: path=/home/jon/.local/share/EDMarketConnector/plugins/EDMCModernOverlay/logs/EDMCModernOverlay/overlay_controller.log level=DEBUG retention=5 max_bytes=524288
+2025-12-05 19:38:50 [INFO] Controller logger level forced to DEBUG via override
+2025-12-05 19:38:50 [DEBUG] Controller logger initialised: path=/home/jon/.local/share/EDMarketConnector/plugins/EDMCModernOverlay/logs/EDMCModernOverlay/overlay_controller.log level=DEBUG retention=5 max_bytes=524288
+2025-12-05 19:38:50 [INFO] Controller logger level forced to DEBUG via dev-mode override (original hint=INFO from env)
+2025-12-05 19:38:51 [DEBUG] Controller logger initialised: path=/home/jon/.local/share/EDMarketConnector/plugins/EDMCModernOverlay/logs/EDMCModernOverlay/overlay_controller.log level=DEBUG retention=5 max_bytes=524288
+2025-12-05 19:38:51 [INFO] Controller logger level forced to DEBUG via override
+2025-12-05 19:38:51 [DEBUG] Controller logger initialised: path=/home/jon/.local/share/EDMarketConnector/plugins/EDMCModernOverlay/logs/EDMCModernOverlay/overlay_controller.log level=DEBUG retention=5 max_bytes=524288
+2025-12-05 19:38:51 [INFO] Controller logger level forced to DEBUG via dev-mode override (original hint=INFO from env)
+2025-12-05 19:47:56 [DEBUG] Controller logger initialised: path=/home/jon/.local/share/EDMarketConnector/plugins/EDMCModernOverlay/logs/EDMCModernOverlay/overlay_controller.log level=DEBUG retention=5 max_bytes=524288
+2025-12-05 19:47:56 [INFO] Controller logger level forced to DEBUG via override
+2025-12-05 19:47:56 [DEBUG] Controller logger initialised: path=/home/jon/.local/share/EDMarketConnector/plugins/EDMCModernOverlay/logs/EDMCModernOverlay/overlay_controller.log level=DEBUG retention=5 max_bytes=524288
+2025-12-05 19:47:56 [INFO] Controller logger level forced to DEBUG via dev-mode override (original hint=INFO from env)
+2025-12-05 19:47:57 [DEBUG] Controller logger initialised: path=/home/jon/.local/share/EDMarketConnector/plugins/EDMCModernOverlay/logs/EDMCModernOverlay/overlay_controller.log level=DEBUG retention=5 max_bytes=524288
+2025-12-05 19:47:57 [INFO] Controller logger level forced to DEBUG via override
+2025-12-05 19:47:57 [DEBUG] Controller logger initialised: path=/home/jon/.local/share/EDMarketConnector/plugins/EDMCModernOverlay/logs/EDMCModernOverlay/overlay_controller.log level=DEBUG retention=5 max_bytes=524288
+2025-12-05 19:47:57 [INFO] Controller logger level forced to DEBUG via dev-mode override (original hint=INFO from env)

@@ -165,6 +165,7 @@ def test_post_process_follow_state_updates_visibility_and_fullscreen_hint() -> N
         update_auto_scale_fn=auto_scale,
         ensure_transient_parent_fn=ensure_parent,
         fullscreen_hint_fn=fullscreen_hint,
+        is_visible_fn=lambda: False,
     )
 
     assert visibility == [True]

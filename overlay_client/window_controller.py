@@ -114,6 +114,7 @@ class WindowController:
         update_auto_scale_fn: Callable[[int, int], None],
         ensure_transient_parent_fn: Callable[[str], None],
         fullscreen_hint_fn: Callable[[], bool],
+        is_visible_fn: Callable[[], bool],
     ) -> None:
         self._last_follow_state = state
         update_auto_scale_fn(target_tuple[2], target_tuple[3])
@@ -121,6 +122,7 @@ class WindowController:
         if fullscreen_hint_fn():
             self._fullscreen_hint_logged = True
         should_show = force_render or (state.is_visible and state.is_foreground)
-        if self._last_visibility_state != should_show:
+        actual_visible = is_visible_fn()
+        if self._last_visibility_state != should_show or actual_visible != should_show:
             update_follow_visibility_fn(should_show)
             self._last_visibility_state = should_show

@@ -373,6 +373,7 @@ class FollowSurfaceMixin:
             update_auto_scale_fn=self._update_auto_legacy_scale,
             ensure_transient_parent_fn=_ensure_parent,
             fullscreen_hint_fn=_fullscreen_hint,
+            is_visible_fn=lambda: self.isVisible(),
         )
         # Mirror controller flag back to overlay state for future checks.
         self._fullscreen_hint_logged = self._window_controller._fullscreen_hint_logged
