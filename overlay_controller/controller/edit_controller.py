@@ -224,6 +224,7 @@ class EditController:
                 )
             except Exception:
                 return
+            return
         try:
             state._write_groupings_config(edit_nonce=getattr(app, "_user_overrides_nonce", ""))
             merged_payload = getattr(state, "_groupings_data", {})
@@ -235,6 +236,12 @@ class EditController:
                 )
         except Exception:
             return
+
+    @classmethod
+    def legacy_write_groupings_config(cls, app) -> None:
+        """Legacy/test entry point forwarding to instance writer."""
+
+        cls(app, logger=lambda *_args, **_kwargs: None)._write_groupings_config()
 
     def _emit_override_reload_signal(self) -> None:
         app = self.app

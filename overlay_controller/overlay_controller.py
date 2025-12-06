@@ -88,6 +88,7 @@ _LOG_LEVEL_OVERRIDE_VALUE: Optional[int] = None
 _LOG_LEVEL_OVERRIDE_NAME: Optional[str] = None
 _LOG_LEVEL_OVERRIDE_SOURCE: Optional[str] = None
 _GroupSnapshot = GroupSnapshot
+legacy_write_groupings_config = staticmethod(EditController.legacy_write_groupings_config)
 
 
 class _ForceRenderOverrideManager:
@@ -106,6 +107,9 @@ class _ForceRenderOverrideManager:
 
 class OverlayConfigApp(tk.Tk):
     """Basic UI skeleton that mirrors the design mockups."""
+
+    _write_groupings_config = staticmethod(EditController.legacy_write_groupings_config)
+    _round_offsets = staticmethod(EditController._round_offsets)
 
     def __init__(self) -> None:
         super().__init__()
@@ -1115,13 +1119,6 @@ class OverlayConfigApp(tk.Tk):
 
     @staticmethod
     @staticmethod
-    def _round_offsets(payload: dict[str, object]) -> dict[str, object]:
-        return EditController._round_offsets(payload)
-
-    @staticmethod
-    def _write_groupings_config(app) -> None:
-        EditController(app, logger=_controller_debug)._write_groupings_config()
-
     def _emit_override_reload_signal(self) -> None:
         controller = getattr(self, "_edit_controller", None)
         if controller is not None:

@@ -452,11 +452,6 @@ Stage 6.1 notes:
 - `PreviewController` now owns snapshot storage (`snapshots`), build logic, and absolute computation; controller keeps a reference for legacy consumers.
 - Tests run: `make lint`, `make test` (296 passed, 21 skipped).
 
-Stage 6.2 notes:
-- Focus/navigation helpers (`focus_sidebar_up/down`, placement click, widget-select left/right), sidebar/placement highlight updates, contextual tips, and sidebar focus setters now live in `FocusManager`; controller methods delegate to the manager.
-- Manager accesses the app state via explicit calls; controller retains only wiring/callbacks. Existing `FocusManager` bindings remain.
-- Tests run: `make lint`, `make test` (296 passed, 21 skipped).
-
 #### Stage 6.2 Plan
 - **Goal:** Move the remaining focus/navigation/contextual tip/highlight helpers out of `overlay_controller.py` into `FocusManager`, leaving the shell to wire callbacks/state only.
 - **What to move:**
@@ -470,6 +465,25 @@ Stage 6.2 notes:
   - Contextual tips not updating correctly → ensure `FocusManager` accepts a tip-callback and invoke it in the same places as before; add an assertion in tests if feasible.
   - Coupling to UI state (`widget_select_mode`, `_sidebar_focus_index`, `_placement_open`) breaks when moved → pass required state into `FocusManager` methods explicitly; avoid hidden `__dict__` access.
 - **Guarantee alignment:** Removing focus/nav logic from the shell furthers the “UI-only shell” target; success requires shell focus helpers gone, behaviors unchanged (tests green), and the shell continues to only wire callbacks/state.
+
+Stage 6.2 notes:
+- Focus/navigation helpers (`focus_sidebar_up/down`, placement click, widget-select left/right), sidebar/placement highlight updates, contextual tips, and sidebar focus setters now live in `FocusManager`; controller methods delegate to the manager.
+- Manager accesses the app state via explicit calls; controller retains only wiring/callbacks. Existing `FocusManager` bindings remain.
+- Tests run: `make lint`, `make test` (296 passed, 21 skipped).
+
+#### Stage 6.3 Plan
+- **Goal:** Move remaining persistence/test shims out of `overlay_controller.py` into `EditController` or dedicated test helpers so the shell no longer owns cache/config write helpers or rounders, while keeping behavior identical.
+- **What to move:**
+  - Static rounders and the legacy `_write_groupings_config` wrapper currently aliased in the shell; relocate into `EditController` (or a small test helper) and re-export only if tests require a legacy symbol.
+  - Any residual cache/loader helpers tied to persistence that linger in the shell; push into services/edit controller.
+  - Direct `__dict__` state pokes for persistence/rounding that can be hidden behind helper methods.
+- **Interfaces:** Provide a small shim (if necessary) forwarding `_write_groupings_config` to `EditController` for tests, but remove shell ownership of persistence logic. Update tests to import from the new location where feasible.
+- **Tests to run:** `make lint`, `make test`; run `PYQT_TESTS=1 python -m pytest overlay_client/tests` if persistence paths change visibly.
+- **Risks & mitigations:**
+  - Tests still reference shell shims → add temporary re-export in a helper module and update tests incrementally; drop the shim once green.
+  - Persistence behavior drift (diff/rounding/cache invalidation) → move code verbatim, keep `_round_offsets`/diff logic intact in `EditController`, rely on existing controller_groupings_loader tests.
+  - Cache write/no-op semantics change → ensure cache write helpers remain no-op or relocated with identical behavior; add assertions if needed.
+- **Guarantee alignment:** Eliminating persistence helpers from the shell keeps us on the UI-only path; success means the shell no longer defines/owns persistence/rounder helpers and all suites stay green.
 
 ### Phase 7: Polish and Guardrails
 - Goal: tighten error handling/logging, document remaining public hooks, and remove dead code/constants now that the shell is thin.
