@@ -856,7 +856,7 @@ normalize_checksum_manifest_paths() {
     sed "s#  ${legacy_prefix}#  #g" "$CHECKSUM_MANIFEST_PATH" >"$tmp_manifest"
     CHECKSUM_MANIFEST_EFFECTIVE="$tmp_manifest"
     CHECKSUM_MANIFEST_TEMP="$tmp_manifest"
-    echo "ℹ️  Normalized checksum manifest paths (removed '${legacy_prefix}' prefix)."
+    echo "ℹ️  Checking file integrity"
     log_verbose "Checksum manifest normalized to '$tmp_manifest' due to legacy dist/linux prefix."
 }
 
@@ -879,12 +879,42 @@ verify_checksums() {
     fi
     require_command sha256sum "sha256sum (coreutils)"
     local manifest_path="${CHECKSUM_MANIFEST_EFFECTIVE:-$CHECKSUM_MANIFEST_PATH}"
-    if (cd "$base_dir" && sha256sum -c "$manifest_path"); then
-        echo "✅ Integrity check passed for ${label}."
-    else
-        echo "❌ Integrity verification failed for ${label}. Re-download the release archive and try again." >&2
-        exit 1
+    local -a sha_flags=()
+    if [[ "$LOG_ENABLED" != true ]]; then
+        sha_flags+=(--quiet)
     fi
+    local sha_output
+    if sha_output="$(cd "$base_dir" && sha256sum "${sha_flags[@]}" -c "$manifest_path" 2>&1)"; then
+        if [[ "$LOG_ENABLED" == true && -n "$sha_output" ]]; then
+            printf '%s\n' "$sha_output"
+        fi
+        echo "✅ Integrity check passed for ${label}."
+        return
+    fi
+
+    if [[ -n "$sha_output" ]]; then
+        printf '%s\n' "$sha_output" >&2
+    fi
+    echo "❌ Integrity verification failed for ${label}. Re-download the release archive and try again." >&2
+
+    # Ask before exiting so double-clicked installs don't close immediately.
+    local answer
+    while true; do
+        read -r -p "Continue anyway? [y/N]: " answer || answer=""
+        case "${answer,,}" in
+            y|yes)
+                echo "⚠️  Continuing despite failed integrity check."
+                return
+                ;;
+            ""|n|no)
+                echo "❌ Installation aborted due to failed integrity check."
+                exit 1
+                ;;
+            *)
+                echo "Please answer yes or no."
+                ;;
+        esac
+    done
 }
 
 prompt_yes_no() {

@@ -27,7 +27,9 @@ Print the actions that would be performed without making any changes.
 param(
     [string]$PluginDir,
     [switch]$AssumeYes,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$Log,
+    [string]$LogFile
 )
 
 $script:MinimumPSVersion = [Version]'3.0'
@@ -98,6 +100,8 @@ $ModernPluginDirName = 'EDMCModernOverlay'
 $LegacyPluginDirName = 'EDMC-ModernOverlay'
 $ChecksumManifestBasename = 'checksums.txt'
 $script:ChecksumManifestPath = $null
+$script:LogEnabled = $false
+$script:LogFilePath = $null
 
 function Show-BreakingChangeWarning {
     Write-Warn 'Breaking upgrade notice: Modern Overlay now installs under the EDMCModernOverlay directory.'
@@ -105,18 +109,34 @@ function Show-BreakingChangeWarning {
     Write-Warn 'Settings are not migrated automatically; re-enable the prior plugin manually if needed.'
 }
 
+function Write-LogLine {
+    param([string]$Message)
+    if (-not $script:LogEnabled -or [string]::IsNullOrWhiteSpace($script:LogFilePath)) {
+        return
+    }
+    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    try {
+        Add-Content -LiteralPath $script:LogFilePath -Value "[$timestamp] $Message" -ErrorAction Stop
+    } catch {
+        # If logging fails, continue without interrupting the install.
+    }
+}
+
 function Write-Info {
     param([string]$Message)
+    Write-LogLine "[INFO] $Message"
     Write-Host "[INFO] $Message"
 }
 
 function Write-Warn {
     param([string]$Message)
+    Write-LogLine "[WARN] $Message"
     Write-Host "[WARN] $Message" -ForegroundColor Yellow
 }
 
 function Write-ErrorLine {
     param([string]$Message)
+    Write-LogLine "[ERROR] $Message"
     Write-Host "[ERROR] $Message" -ForegroundColor Red
 }
 
@@ -295,6 +315,29 @@ function Prompt-YesNo {
     }
 }
 
+function Initialize-Logging {
+    if (-not $Log -and [string]::IsNullOrWhiteSpace($LogFile)) {
+        return
+    }
+
+    $script:LogEnabled = $true
+    $target = if (-not [string]::IsNullOrWhiteSpace($LogFile)) {
+        Normalize-Path $LogFile
+    } else {
+        $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        Normalize-Path (Join-Path $ScriptDir "install_windows_$timestamp.log")
+    }
+
+    $parent = Split-Path -Parent $target
+    if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    $script:LogFilePath = $target
+    Write-Info "Logging installation details to $target"
+    Write-LogLine "Verbose logging initialised (pid=$PID)"
+}
+
 function Normalize-Path {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path)) {
@@ -410,7 +453,7 @@ function Normalize-ChecksumLines {
         return $Lines
     }
 
-    Write-Info "Normalized checksum manifest paths by removing legacy '${legacyPrefix}' prefix."
+    Write-Info "ℹ️  Checking file integrity"
     $normalized = @()
     foreach ($line in $Lines) {
         if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith('#')) {
@@ -470,6 +513,7 @@ function Verify-Checksums {
 
     $lines = Get-Content -LiteralPath $ChecksumManifestPath -ErrorAction Stop
     $lines = Normalize-ChecksumLines -Lines $lines -BaseDir $BaseDir
+
     foreach ($line in $lines) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         if ($line.StartsWith('#')) { continue }
@@ -485,13 +529,29 @@ function Verify-Checksums {
         $fullPath = Join-Path $BaseDir $relativeWinPath
 
         if (-not (Test-Path -LiteralPath $fullPath)) {
-            Fail-Install "Integrity check failed: '$relativePath' missing under '$BaseDir'."
+            $failureMessage = "Integrity check failed: '$relativePath' missing under '$BaseDir'."
+            break
         }
 
         $actualHash = (Get-FileSha256 -LiteralPath $fullPath)
         if ($actualHash -ne $expectedHash) {
-            Fail-Install "Integrity check failed for '$relativePath' (expected $expectedHash, got $actualHash)."
+            $failureMessage = "Integrity check failed for '$relativePath' (expected $expectedHash, got $actualHash)."
+            break
         }
+
+        if ($script:LogEnabled -and $script:LogFilePath) {
+            Write-LogLine "$relativePath: OK"
+        }
+    }
+
+    if ($failureMessage) {
+        Write-ErrorLine $failureMessage
+        $proceed = Prompt-YesNo -Message "Continue anyway?" -Default:$false
+        if (-not $proceed) {
+            Fail-Install "Installation aborted due to failed integrity check."
+        }
+        Write-Warn "Continuing despite failed integrity check."
+        return
     }
 
     Write-Info "Integrity check passed for $labelToUse."
@@ -965,6 +1025,7 @@ function Final-Notes {
 }
 
 function Main {
+    Initialize-Logging
     $script:ReleaseRoot = Find-ReleaseRoot
     $script:ChecksumManifestPath = Resolve-ChecksumManifestPath -BaseDir $ReleaseRoot
     Verify-Checksums -BaseDir $ReleaseRoot -Label 'release bundle'

@@ -53,6 +53,7 @@ jobs:
             '--exclude=EDMCModernOverlay.code-workspace'
             '--exclude=Makefile'
             '--exclude=*.md'
+            '--exclude=overlay_groupings.user.json'
           )
 
           # Copy plugin code into EDMCModernOverlay directory for both bundles,
