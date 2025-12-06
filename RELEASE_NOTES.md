@@ -1,6 +1,7 @@
 # Release Notes
 
 ## 0.7.5
+- Integrity: installers now ship a per-file `checksums.txt` manifest. Both Linux and Windows installers validate the extracted bundle and installed plugin files against it; `generate_checksums.py` builds the manifest during release packaging.
 - Controller⇄client targeting rewrite: controller now pushes merged overrides with an edit nonce, cache entries carry nonce/timestamp metadata, and the client refuses stale transformed blocks so payloads never “jump” when editing offsets.
 - Diagnostics overhaul: EDMC’s DEBUG log level now drives every Modern Overlay logger, auto-creates `debug.json`, and exposes payload logging/stdout capture controls directly in the preferences panel while dev-only helpers live in the new `dev_settings.json`.
 - Cache + fallback hardening: while the controller is active we shorten cache flush debounces, immediately rewrite transformed bounds from the rendered geometry, and keep HUD fallback aligned even if the HUD momentarily drops payload frames.
