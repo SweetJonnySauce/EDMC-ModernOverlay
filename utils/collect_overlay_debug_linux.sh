@@ -285,8 +285,6 @@ print_command_availability() {
         'wmctrl|-V'
         'xwininfo|-version'
         'xprop|-version'
-        'swaymsg|-t get_version'
-        'hyprctl|version'
     )
 
     for entry in "${entries[@]}"; do
@@ -317,13 +315,95 @@ print_command_availability() {
 }
 
 check_required_packages() {
-    print_header "Required Packages"
-    local packages=(
-        libxcb-cursor0
-        libxkbcommon-x11-0
-    )
+    print_header "Required Packages (install_matrix.json)"
 
-    if command -v dpkg-query >/dev/null 2>&1; then
+    local distro_id=""
+    local distro_like=""
+    if [[ -r /etc/os-release ]]; then
+        # shellcheck disable=SC1091
+        . /etc/os-release
+        distro_id="${ID,,}"
+        distro_like="${ID_LIKE,,}"
+    fi
+
+    local profile=""
+    local pkg_mgr=""
+    local packages=()
+
+    select_profile() {
+        profile=$1
+        pkg_mgr=$2
+        shift 2
+        packages=("$@")
+    }
+
+    case "$distro_id" in
+        debian|ubuntu|pop|linuxmint|neon|zorin|kali|parrot)
+            select_profile "debian" "dpkg" \
+                python3 python3-venv python3-pip rsync curl wmctrl \
+                libxcb-cursor0 libxkbcommon-x11-0 x11-utils
+            ;;
+        fedora|rhel|centos|rocky|almalinux)
+            select_profile "fedora" "rpm" \
+                python3 python3-pip python3-virtualenv rsync curl wmctrl \
+                libxkbcommon libxkbcommon-x11 xcb-util-cursor xwininfo xprop
+            ;;
+        opensuse|opensuse-leap|opensuse-tumbleweed|sles)
+            select_profile "opensuse" "rpm" \
+                python3 python3-pip python3-virtualenv rsync curl wmctrl \
+                libxcb-cursor0 libxkbcommon-x11-0 xprop
+            ;;
+        arch|manjaro|endeavouros|steamos)
+            select_profile "arch" "pacman" \
+                python python-pip rsync curl wmctrl \
+                libxcb xcb-util-cursor libxkbcommon xorg-xprop
+            ;;
+    esac
+
+    if [[ -z "$profile" && -n "$distro_like" ]]; then
+        for token in $distro_like; do
+            case "$token" in
+                debian|ubuntu)
+                    select_profile "debian" "dpkg" \
+                        python3 python3-venv python3-pip rsync curl wmctrl \
+                        libxcb-cursor0 libxkbcommon-x11-0 x11-utils
+                    break
+                    ;;
+                fedora|rhel)
+                    select_profile "fedora" "rpm" \
+                        python3 python3-pip python3-virtualenv rsync curl wmctrl \
+                        libxkbcommon libxkbcommon-x11 xcb-util-cursor xwininfo xprop
+                    break
+                    ;;
+                suse)
+                    select_profile "opensuse" "rpm" \
+                        python3 python3-pip python3-virtualenv rsync curl wmctrl \
+                        libxcb-cursor0 libxkbcommon-x11-0 xprop
+                    break
+                    ;;
+                arch)
+                    select_profile "arch" "pacman" \
+                        python python-pip rsync curl wmctrl \
+                        libxcb xcb-util-cursor libxkbcommon xorg-xprop
+                    break
+                    ;;
+            esac
+        done
+    fi
+
+    if [[ -z "$profile" ]]; then
+        printf "Unable to map distro (ID=%s ID_LIKE=%s) to install_matrix.json profile; skipping package checks.\n" \
+            "${distro_id:-unknown}" "${distro_like:-unknown}"
+        return
+    fi
+
+    printf "Detected profile: %s (package manager: %s)\n" "$profile" "$pkg_mgr"
+
+    if [[ "$pkg_mgr" == "dpkg" ]]; then
+        if ! command -v dpkg-query >/dev/null 2>&1; then
+            echo "dpkg-query not available; unable to verify package installation."
+            return
+        fi
         for pkg in "${packages[@]}"; do
             if dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
                 printf '%s: installed\n' "$pkg"
@@ -331,8 +411,32 @@ check_required_packages() {
                 printf '%s: MISSING\n' "$pkg"
             fi
         done
+    elif [[ "$pkg_mgr" == "rpm" ]]; then
+        if ! command -v rpm >/dev/null 2>&1; then
+            echo "rpm not available; unable to verify package installation."
+            return
+        fi
+        for pkg in "${packages[@]}"; do
+            if rpm -q "$pkg" >/dev/null 2>&1; then
+                printf '%s: installed\n' "$pkg"
+            else
+                printf '%s: MISSING\n' "$pkg"
+            fi
+        done
+    elif [[ "$pkg_mgr" == "pacman" ]]; then
+        if ! command -v pacman >/dev/null 2>&1; then
+            echo "pacman not available; unable to verify package installation."
+            return
+        fi
+        for pkg in "${packages[@]}"; do
+            if pacman -Qi "$pkg" >/dev/null 2>&1; then
+                printf '%s: installed\n' "$pkg"
+            else
+                printf '%s: MISSING\n' "$pkg"
+            fi
+        done
     else
-        echo "dpkg-query not available; unable to verify package installation."
+        echo "Unsupported package manager '$pkg_mgr'; skipping package checks."
     fi
 }
 
@@ -347,7 +451,7 @@ abbrev_path() {
 
 check_python_modules() {
     print_header "Python Module Checks"
-    local modules=(pywayland pydbus)
+    local modules=(pydbus)
     local interpreters=()
     local venv_python="${OVERLAY_CLIENT_DIR}/.venv/bin/python"
     if [[ -x "$venv_python" ]]; then
@@ -391,6 +495,40 @@ check_python_modules() {
         done
         if [[ $found -eq 0 ]]; then
             printf '  (module unavailable in checked interpreters)\n'
+        fi
+    done
+}
+
+check_wayland_helpers() {
+    print_header "Wayland Helper Commands"
+    local entries=(
+        'swaymsg|-t get_version'
+        'hyprctl|version'
+    )
+
+    for entry in "${entries[@]}"; do
+        local cmd="${entry%%|*}"
+        local args="${entry#*|}"
+        if command -v "$cmd" >/dev/null 2>&1; then
+            local path
+            path="$(command -v "$cmd")"
+            printf '%s: %s\n' "$cmd" "$path"
+            if [[ -n "$args" ]]; then
+                # shellcheck disable=SC2206  # intentional word splitting for args list
+                local arg_array=( $args )
+                local output
+                output=$("$cmd" "${arg_array[@]}" 2>&1)
+                local status=$?
+                if [[ -n "$output" ]]; then
+                    while IFS= read -r line; do
+                        printf '  %s\n' "$line"
+                    done <<<"$output"
+                elif [[ $status -ne 0 ]]; then
+                    printf '  note: exit %d with no output\n' "$status"
+                fi
+            fi
+        else
+            printf '%s: <not found>\n' "$cmd"
         fi
     done
 }
@@ -999,6 +1137,7 @@ print_monitor_info
 check_required_packages
 check_virtualenv
 check_python_modules
+check_wayland_helpers
 print_debug_overlay_snapshot
 dump_json "overlay_settings.json" "$SETTINGS_PATH"
 dump_json "port.json" "$PORT_PATH"
