@@ -2,7 +2,6 @@
   "BGS-Tally": {
     "idPrefixGroups": {
       "BGS-Tally Tick Notifications": {
-        "offsetX": 180.0,
         "offsetY": 0.0
       }
     }
@@ -44,5 +43,5 @@
       }
     }
   },
-  "_edit_nonce": "1765052634.846606-660956"
+  "_edit_nonce": "1765053552.713880-670320"
 }

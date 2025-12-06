@@ -17,7 +17,6 @@ import traceback
 import logging
 import math
 from math import ceil
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -31,6 +30,7 @@ try:  # When run as a package (`python -m overlay_controller.overlay_controller`
     from overlay_controller.input_bindings import BindingConfig, BindingManager
     from overlay_controller.services import ModeTimers, PluginBridge
     from overlay_controller.services.plugin_bridge import ForceRenderOverrideManager
+    from overlay_controller.services.group_state import GroupSnapshot
     from overlay_controller.preview import snapshot_math
     from overlay_controller.controller import (
         AppContext,
@@ -45,6 +45,7 @@ except ImportError:  # Fallback for spec-from-file/test harness
     from input_bindings import BindingConfig, BindingManager  # type: ignore
     from services import ModeTimers, PluginBridge  # type: ignore
     from overlay_controller.services.plugin_bridge import ForceRenderOverrideManager  # type: ignore
+    from overlay_controller.services.group_state import GroupSnapshot  # type: ignore
     import overlay_controller.preview.snapshot_math as snapshot_math  # type: ignore
     from overlay_controller.controller import (  # type: ignore
         AppContext,
@@ -86,22 +87,7 @@ _ENV_LOG_LEVEL_VALUE, _ENV_LOG_LEVEL_NAME = _resolve_env_log_level_hint()
 _LOG_LEVEL_OVERRIDE_VALUE: Optional[int] = None
 _LOG_LEVEL_OVERRIDE_NAME: Optional[str] = None
 _LOG_LEVEL_OVERRIDE_SOURCE: Optional[str] = None
-
-
-@dataclass
-class _GroupSnapshot:
-    plugin: str
-    label: str
-    anchor_token: str  # desired/configured anchor
-    transform_anchor_token: str
-    offset_x: float
-    offset_y: float
-    base_bounds: Tuple[float, float, float, float]
-    base_anchor: Tuple[float, float]
-    transform_bounds: Optional[Tuple[float, float, float, float]]
-    transform_anchor: Optional[Tuple[float, float]]
-    has_transform: bool = False
-    cache_timestamp: float = 0.0
+_GroupSnapshot = GroupSnapshot
 
 
 class _ForceRenderOverrideManager:
@@ -191,7 +177,6 @@ class OverlayConfigApp(tk.Tk):
         self._plugin_bridge: PluginBridge | None = self._app_context.plugin_bridge
         self._force_render_override = self._app_context.force_render_override
         self._absolute_user_state: dict[tuple[str, str], dict[str, float | None]] = {}
-        self._group_snapshots: dict[tuple[str, str], _GroupSnapshot] = {}
         self._anchor_restore_state: dict[tuple[str, str], dict[str, float | None]] = {}
         self._anchor_restore_handles: dict[tuple[str, str], str | None] = {}
         self._absolute_tolerance_px = 0.5
@@ -202,6 +187,7 @@ class OverlayConfigApp(tk.Tk):
             abs_height=ABS_BASE_HEIGHT,
             padding=self.preview_canvas_padding,
         )
+        self._group_snapshots = self._preview_controller.snapshots
         self._edit_controller = EditController(
             self,
             logger=_controller_debug,
@@ -978,6 +964,12 @@ class OverlayConfigApp(tk.Tk):
         self._update_contextual_tip()
 
     def _compute_absolute_from_snapshot(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
+        controller = getattr(self, "_preview_controller", None)
+        if controller is not None:
+            try:
+                return controller.compute_absolute_from_snapshot(snapshot)
+            except Exception:
+                pass
         base_min_x, base_min_y, _, _ = snapshot.base_bounds
         return base_min_x + snapshot.offset_x, base_min_y + snapshot.offset_y
 
@@ -997,90 +989,52 @@ class OverlayConfigApp(tk.Tk):
         state["y_ts"] = ts
 
     def _build_group_snapshot(self, plugin_name: str, label: str) -> _GroupSnapshot | None:
-        state = self.__dict__.get("_group_state")
-        if state is not None:
-            try:
-                snapshot = state.snapshot(plugin_name, label)
-            except Exception:
-                snapshot = None
-            if snapshot is None:
+        controller = self.__dict__.get("_preview_controller")
+        if controller is None:
+            # Legacy/test fallback when preview controller is not initialized.
+            cfg = self._get_group_config(plugin_name, label)
+            base_payload, transformed_payload, cache_ts = self._get_cache_record(plugin_name, label)
+            if base_payload is None:
                 return None
-            return _GroupSnapshot(
-                plugin=snapshot.plugin,
-                label=snapshot.label,
-                anchor_token=snapshot.anchor_token,
-                transform_anchor_token=snapshot.transform_anchor_token,
-                offset_x=snapshot.offset_x,
-                offset_y=snapshot.offset_y,
-                base_bounds=snapshot.base_bounds,
-                base_anchor=snapshot.base_anchor,
-                transform_bounds=snapshot.transform_bounds,
-                transform_anchor=snapshot.transform_anchor,
-                has_transform=snapshot.has_transform,
-                cache_timestamp=snapshot.cache_timestamp,
-            )
-        cfg = self._get_group_config(plugin_name, label)
-        base_payload, transformed_payload, cache_ts = self._get_cache_record(plugin_name, label)
-        if base_payload is None:
-            return None
-        anchor_token = str(
-            cfg.get("idPrefixGroupAnchor")
-            or (transformed_payload.get("anchor") if transformed_payload else "nw")
-            or "nw"
-        ).lower()
-        transform_anchor_token = str(
-            transformed_payload.get("anchor", anchor_token) if isinstance(transformed_payload, dict) else anchor_token
-        ).lower()
-        offset_x = float(cfg.get("offsetX", 0.0)) if isinstance(cfg, dict) else 0.0
-        offset_y = float(cfg.get("offsetY", 0.0)) if isinstance(cfg, dict) else 0.0
-        base_min_x = float(base_payload.get("base_min_x", 0.0))
-        base_min_y = float(base_payload.get("base_min_y", 0.0))
-        base_max_x = float(base_payload.get("base_max_x", base_min_x))
-        base_max_y = float(base_payload.get("base_max_y", base_min_y))
-        base_bounds = (base_min_x, base_min_y, base_max_x, base_max_y)
-        base_anchor = self._compute_anchor_point(base_min_x, base_max_x, base_min_y, base_max_y, anchor_token)
-        def _transformed_matches_offsets(payload: dict[str, object]) -> bool:
-            tol = 0.5
-            try:
-                tx = float(payload.get("offset_dx", 0.0))
-                ty = float(payload.get("offset_dy", 0.0))
-            except Exception:
-                return False
-            return abs(tx - offset_x) <= tol and abs(ty - offset_y) <= tol
-
-        # edit_ts retained for potential future gating/debug.
-        use_transformed = False  # POC: ignore cached transforms to avoid snap-backs
-        if use_transformed and transformed_payload:
-            trans_min_x = float(transformed_payload.get("trans_min_x", base_min_x))
-            trans_min_y = float(transformed_payload.get("trans_min_y", base_min_y))
-            trans_max_x = float(transformed_payload.get("trans_max_x", base_max_x))
-            trans_max_y = float(transformed_payload.get("trans_max_y", base_max_y))
-            has_transform = True
-        else:
-            # Synthesize transform from base + offsets so preview "Actual" tracks target.
+            anchor_token = str(
+                cfg.get("idPrefixGroupAnchor")
+                or (transformed_payload.get("anchor") if transformed_payload else "nw")
+                or "nw"
+            ).lower()
+            transform_anchor_token = str(
+                transformed_payload.get("anchor", anchor_token) if isinstance(transformed_payload, dict) else anchor_token
+            ).lower()
+            offset_x = float(cfg.get("offsetX", 0.0)) if isinstance(cfg, dict) else 0.0
+            offset_y = float(cfg.get("offsetY", 0.0)) if isinstance(cfg, dict) else 0.0
+            base_min_x = float(base_payload.get("base_min_x", 0.0))
+            base_min_y = float(base_payload.get("base_min_y", 0.0))
+            base_max_x = float(base_payload.get("base_max_x", base_min_x))
+            base_max_y = float(base_payload.get("base_max_y", base_min_y))
+            base_bounds = (base_min_x, base_min_y, base_max_x, base_max_y)
+            base_anchor = self._compute_anchor_point(base_min_x, base_max_x, base_min_y, base_max_y, anchor_token)
             trans_min_x = base_min_x + offset_x
             trans_min_y = base_min_y + offset_y
             trans_max_x = base_max_x + offset_x
             trans_max_y = base_max_y + offset_y
-            has_transform = True
-        transform_bounds = (trans_min_x, trans_min_y, trans_max_x, trans_max_y)
-        transform_anchor = self._compute_anchor_point(
-            trans_min_x, trans_max_x, trans_min_y, trans_max_y, transform_anchor_token
-        )
-        return _GroupSnapshot(
-            plugin=plugin_name,
-            label=label,
-            anchor_token=anchor_token,
-            transform_anchor_token=transform_anchor_token,
-            offset_x=offset_x,
-            offset_y=offset_y,
-            base_bounds=base_bounds,
-            base_anchor=base_anchor,
-            transform_bounds=transform_bounds,
-            transform_anchor=transform_anchor,
-            has_transform=has_transform,
-            cache_timestamp=cache_ts,
-        )
+            transform_bounds = (trans_min_x, trans_min_y, trans_max_x, trans_max_y)
+            transform_anchor = self._compute_anchor_point(
+                trans_min_x, trans_max_x, trans_min_y, trans_max_y, transform_anchor_token
+            )
+            return _GroupSnapshot(
+                plugin=plugin_name,
+                label=label,
+                anchor_token=anchor_token,
+                transform_anchor_token=transform_anchor_token,
+                offset_x=offset_x,
+                offset_y=offset_y,
+                base_bounds=base_bounds,
+                base_anchor=base_anchor,
+                transform_bounds=transform_bounds,
+                transform_anchor=transform_anchor,
+                has_transform=True,
+                cache_timestamp=cache_ts,
+            )
+        return controller.build_group_snapshot(plugin_name, label)
 
     def _scale_mode_setting(self) -> str:
         controller = self.__dict__.get("_preview_controller")

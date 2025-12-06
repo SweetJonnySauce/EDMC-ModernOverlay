@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import json
 import time
-from typing import TYPE_CHECKING
 
 from overlay_controller.preview.renderer import PreviewRenderer
-
-if TYPE_CHECKING:
-    from overlay_controller.overlay_controller import _GroupSnapshot
+from overlay_controller.services.group_state import GroupSnapshot
 
 
 class PreviewController:
@@ -19,6 +16,11 @@ class PreviewController:
         self.abs_height = abs_height
         self.padding = padding
         self._renderer: PreviewRenderer | None = None
+        self._snapshots: dict[tuple[str, str], GroupSnapshot] = {}
+
+    @property
+    def snapshots(self) -> dict[tuple[str, str], GroupSnapshot]:
+        return self._snapshots
 
     def scale_mode_setting(self) -> str:
         try:
@@ -51,7 +53,7 @@ class PreviewController:
             except Exception:
                 live_edit_active = False
         if live_edit_active or now < getattr(self.app, "_offset_live_edit_until", 0.0):
-            snapshot = self.app._group_snapshots.get(selection)
+            snapshot = self._snapshots.get(selection)
             if snapshot is not None:
                 self.app._set_group_controls_enabled(True)
                 self.apply_snapshot_to_absolute_widget(selection, snapshot, force_ui=force_ui)
@@ -59,27 +61,27 @@ class PreviewController:
                 self.draw_preview()
                 return
 
-        snapshot = self.app._build_group_snapshot(plugin_name, label)
+        snapshot = self.build_group_snapshot(plugin_name, label)
         if snapshot is None:
-            self.app._group_snapshots.pop(selection, None)
+            self._snapshots.pop(selection, None)
             self.app._set_group_controls_enabled(False)
             self.update_absolute_widget_color(None)
             self.draw_preview()
             return
 
-        self.app._group_snapshots[selection] = snapshot
+        self._snapshots[selection] = snapshot
         self.app._set_group_controls_enabled(True)
         self.apply_snapshot_to_absolute_widget(selection, snapshot, force_ui=force_ui)
         self.update_absolute_widget_color(snapshot)
         self.draw_preview()
 
-    def get_group_snapshot(self, selection: tuple[str, str] | None = None) -> _GroupSnapshot | None:
+    def get_group_snapshot(self, selection: tuple[str, str] | None = None) -> GroupSnapshot | None:
         key = selection if selection is not None else self.app._get_current_group_selection()
         if key is None:
             return None
-        return self.app._group_snapshots.get(key)
+        return self._snapshots.get(key)
 
-    def update_absolute_widget_color(self, snapshot: _GroupSnapshot | None) -> None:
+    def update_absolute_widget_color(self, snapshot: GroupSnapshot | None) -> None:
         widget = getattr(self.app, "absolute_widget", None)
         if widget is None:
             return
@@ -90,11 +92,11 @@ class PreviewController:
         self.app._update_contextual_tip()
 
     def apply_snapshot_to_absolute_widget(
-        self, selection: tuple[str, str], snapshot: _GroupSnapshot, *, force_ui: bool = True
+        self, selection: tuple[str, str], snapshot: GroupSnapshot, *, force_ui: bool = True
     ) -> None:
         if not hasattr(self.app, "absolute_widget"):
             return
-        abs_x, abs_y = self.app._compute_absolute_from_snapshot(snapshot)
+        abs_x, abs_y = self.compute_absolute_from_snapshot(snapshot)
         self.app._store_absolute_state(selection, abs_x, abs_y)
         widget = getattr(self.app, "absolute_widget", None)
         if widget is None:
@@ -138,7 +140,7 @@ class PreviewController:
         except Exception:
             pass
 
-    def get_live_anchor_token(self, snapshot: _GroupSnapshot) -> str:
+    def get_live_anchor_token(self, snapshot: GroupSnapshot) -> str:
         anchor_widget = getattr(self.app, "anchor_widget", None)
         anchor_name: str | None = None
         if anchor_widget is not None:
@@ -150,8 +152,8 @@ class PreviewController:
                     anchor_name = None
         return (anchor_name or snapshot.anchor_token or "nw").strip().lower()
 
-    def get_live_absolute_anchor(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
-        default_x, default_y = self.app._compute_absolute_from_snapshot(snapshot)
+    def get_live_absolute_anchor(self, snapshot: GroupSnapshot) -> tuple[float, float]:
+        default_x, default_y = self.compute_absolute_from_snapshot(snapshot)
         abs_widget = getattr(self.app, "absolute_widget", None)
         if abs_widget is None:
             return default_x, default_y
@@ -165,7 +167,7 @@ class PreviewController:
         resolved_y = default_y if user_y is None else self.app._clamp_absolute_value(float(user_y), "y")
         return resolved_x, resolved_y
 
-    def get_target_dimensions(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
+    def get_target_dimensions(self, snapshot: GroupSnapshot) -> tuple[float, float]:
         bounds = snapshot.transform_bounds or snapshot.base_bounds
         min_x, min_y, max_x, max_y = bounds
         width = max(0.0, float(max_x - min_x))
@@ -201,7 +203,7 @@ class PreviewController:
 
         return min_x, min_y, max_x, max_y
 
-    def resolve_target_frame(self, snapshot: _GroupSnapshot):
+    def resolve_target_frame(self, snapshot: GroupSnapshot):
         width, height = self.get_target_dimensions(snapshot)
         if width <= 0.0 or height <= 0.0:
             return None
@@ -209,6 +211,64 @@ class PreviewController:
         anchor_x, anchor_y = self.get_live_absolute_anchor(snapshot)
         bounds = self.bounds_from_anchor_point(anchor_token, anchor_x, anchor_y, width, height)
         return bounds, (anchor_x, anchor_y)
+
+    def compute_absolute_from_snapshot(self, snapshot: GroupSnapshot) -> tuple[float, float]:
+        base_min_x, base_min_y, _, _ = snapshot.base_bounds
+        return base_min_x + snapshot.offset_x, base_min_y + snapshot.offset_y
+
+    def build_group_snapshot(self, plugin_name: str, label: str) -> GroupSnapshot | None:
+        state = getattr(self.app, "_group_state", None)
+        if state is not None:
+            try:
+                return state.snapshot(plugin_name, label)
+            except Exception:
+                return None
+
+        cfg = self.app._get_group_config(plugin_name, label)
+        base_payload, transformed_payload, cache_ts = self.app._get_cache_record(plugin_name, label)
+        if base_payload is None:
+            return None
+
+        anchor_token = str(
+            cfg.get("idPrefixGroupAnchor")
+            or (transformed_payload.get("anchor") if transformed_payload else "nw")
+            or "nw"
+        ).lower()
+        transform_anchor_token = str(
+            transformed_payload.get("anchor", anchor_token) if isinstance(transformed_payload, dict) else anchor_token
+        ).lower()
+        offset_x = float(cfg.get("offsetX", 0.0)) if isinstance(cfg, dict) else 0.0
+        offset_y = float(cfg.get("offsetY", 0.0)) if isinstance(cfg, dict) else 0.0
+        base_min_x = float(base_payload.get("base_min_x", 0.0))
+        base_min_y = float(base_payload.get("base_min_y", 0.0))
+        base_max_x = float(base_payload.get("base_max_x", base_min_x))
+        base_max_y = float(base_payload.get("base_max_y", base_min_y))
+        base_bounds = (base_min_x, base_min_y, base_max_x, base_max_y)
+        base_anchor = self.compute_anchor_point(base_min_x, base_max_x, base_min_y, base_max_y, anchor_token)
+
+        trans_min_x = base_min_x + offset_x
+        trans_min_y = base_min_y + offset_y
+        trans_max_x = base_max_x + offset_x
+        trans_max_y = base_max_y + offset_y
+        transform_bounds = (trans_min_x, trans_min_y, trans_max_x, trans_max_y)
+        transform_anchor = self.compute_anchor_point(
+            trans_min_x, trans_max_x, trans_min_y, trans_max_y, transform_anchor_token
+        )
+
+        return GroupSnapshot(
+            plugin=plugin_name,
+            label=label,
+            anchor_token=anchor_token,
+            transform_anchor_token=transform_anchor_token,
+            offset_x=offset_x,
+            offset_y=offset_y,
+            base_bounds=base_bounds,
+            base_anchor=base_anchor,
+            transform_bounds=transform_bounds,
+            transform_anchor=transform_anchor,
+            has_transform=True,
+            cache_timestamp=cache_ts,
+        )
 
     def compute_anchor_point(
         self, min_x: float, max_x: float, min_y: float, max_y: float, anchor: str

@@ -51,6 +51,8 @@
 | 3 | Move preview math/rendering into a pure helper and a canvas renderer class so visuals are testable without UI clutter. | Completed |
 | 4 | Split reusable widgets (idPrefix, offset, absolute XY, anchor, justification, tips) into `widgets/` modules. | Completed |
 | 5 | Slim `OverlayConfigApp` to orchestration only; wire services together; add/adjust tests for new seams. | Completed |
+| 6 | Finish shell eviction: purge remaining helpers/shims, shrink `overlay_controller.py` to a minimal UI shell. | Not started |
+| 7 | Polish/cleanup: tighten error handling/logging, doc/tests for public hooks, and remove dead code. | Not started |
 
 ## Phase Details
 
@@ -406,3 +408,62 @@ Stage 5.7 notes:
 - Retired legacy debounce/write helpers (`_write_groupings_config`, cache/debounce stubs) from `overlay_controller.py` and replaced them with small static wrappers that delegate to `EditController`; `EditController` owns offset rounding.
 - Simplified `AppContext` (no `use_legacy_bridge`), pruned the legacy test case, and trimmed imports accordingly.
 - Tests run after the trim: `make lint` and `make test` (full suite).
+
+### Phase 6: Shell Eviction and Line-Cut
+- Aggressive goal: drive `overlay_controller.py` to a true UI shell (<650 lines). Evict remaining business helpers, shims, and duplicated logic; tighten interfaces so services/controllers own behavior.
+- Best-practice gaps this phase addresses: remaining monolith size, UI shell still housing snapshot/persistence/focus helpers, leaky state access via `__dict__`, and legacy shims/test-only code sitting in the shell.
+- What to remove/move aggressively:
+  - `_GroupSnapshot` definition and any snapshot/absolute helpers still in the shell (move to preview controller or a dataclass module).
+  - Focus/navigation helpers still inline (sidebar/placement focus moves, selection-mode toggles, contextual tips/highlights) into `FocusManager`.
+  - Persistence/offset/absolute glue and test shims (`_write_groupings_config`, rounders, static wrappers) into `EditController` or a test helper module.
+  - Residual cache/loader helpers and any direct `__dict__` pokes for state that belong to services.
+  - UI-agnostic fallbacks and broad `getattr(..., None)` + silent `except Exception` patterns; move/limit to helpers with explicit logging.
+- Interfaces: `OverlayConfigApp` should only build widgets/layout/controllers, wire callbacks, manage window/drag/close, and forward to helpers. Public/test APIs live in services/helpers.
+- Tests to run: `make lint`, `make test`, and `PYQT_TESTS=1 python -m pytest overlay_client/tests` after big cuts; add/adjust unit tests for moved helpers.
+- Risks & mitigations:
+  - Breaking tests that reference legacy shims → provide temporary import shims in helper modules, update tests to new locations, then remove shims once green.
+  - Focus/preview behavior drift → migrate logic verbatim into managers, add small unit tests (focus nav, absolute sync), and rerun headless controller tests.
+  - Over-aggressive deletion → prefer moving intact code into helpers; measure file length after each cut.
+
+| Stage | Description | Status |
+| --- | --- | --- |
+| 6.1 | Move `_GroupSnapshot` and snapshot helpers out of the shell (into preview controller/dataclass), update references/tests. | Completed |
+| 6.2 | Move remaining focus/nav/tip/highlight helpers into `FocusManager`; controller only wires callbacks/state. | Not started |
+| 6.3 | Move persistence/test shims (`_write_groupings_config`, rounders, cache/loader helpers) into `EditController`/test helpers; update tests; drop shell copies. | Not started |
+| 6.4 | Strip residual legacy/fallback code and direct `__dict__` state pokes; enforce helper APIs; re-measure line count. | Not started |
+| 6.5 | Run full suites (lint/test/PyQt) and verify shell <650 lines; remove temporary shims. | Not started |
+
+#### Stage 6.1 Plan
+- **Goal:** Move `_GroupSnapshot` and any snapshot/absolute helper logic out of `overlay_controller.py` into the preview controller (or a dedicated dataclass module), so the shell no longer defines or owns snapshot shape/logic.
+- **What to move:**
+  - `_GroupSnapshot` dataclass definition.
+  - Snapshot build/access helpers still in the shell (e.g., `_build_group_snapshot`, `_get_group_snapshot`, anchor/absolute computation helpers) that belong in `PreviewController` or a dedicated snapshot module.
+  - Any snapshot-related state kept in the shell that can be owned by `PreviewController` (e.g., `_group_snapshots` management) while keeping UI wiring intact.
+- **Interfaces:** Expose `_GroupSnapshot` from the preview controller module (or a new `snapshot.py`) and update imports/tests to reference the new location. `OverlayConfigApp` should request snapshots through `PreviewController` APIs only.
+- **Tests to run:** `make lint`, `make test`, and (if snapshot rendering paths change) `PYQT_TESTS=1 python -m pytest overlay_client/tests` before marking complete.
+- **Risks & mitigations:**
+  - Snapshot type drift breaking rendering or anchor math → move code verbatim, keep `_GroupSnapshot` fields identical, and rerun snapshot/preview tests (`overlay_controller/tests/test_snapshot_translation.py`, `test_preview_renderer.py`).
+  - Hidden dependencies on the shell’s `_GroupSnapshot` symbol (tests or helpers) → add re-export/shim in the new module while updating references; remove shim only after tests are green.
+  - State ownership bugs (missing snapshot updates) when moving `_group_snapshots` handling → ensure `PreviewController` manages the map and controller uses its accessors; add a small unit test if needed.
+- **Guarantee alignment:** This cut removes business data structures from the shell, reducing size and coupling. Success criteria include: shell no longer defines `_GroupSnapshot`, snapshot helpers live in helpers/controllers, and full suites are green, keeping us on track for the “UI-only shell” guarantee in Phase 7.
+
+Stage 6.1 notes:
+- `_GroupSnapshot` now comes from `services.group_state.GroupSnapshot` (aliased for test compatibility); the shell no longer defines it. Snapshot build/absolute helpers moved into `PreviewController` with an internal snapshot map; the shell delegates `_build_group_snapshot`/`_compute_absolute_from_snapshot` (with a minimal legacy fallback for tests that construct partial apps).
+- `PreviewController` now owns snapshot storage (`snapshots`), build logic, and absolute computation; controller keeps a reference for legacy consumers.
+- Tests run: `make lint`, `make test` (296 passed, 21 skipped).
+
+### Phase 7: Polish and Guardrails
+- Goal: tighten error handling/logging, document remaining public hooks, and remove dead code/constants now that the shell is thin.
+- Best-practice gaps this phase addresses: overly broad `except Exception`/silent `getattr` usage, lack of docstrings/types on public helpers, and lingering dead code/imports/dev toggles.
+- What to address:
+  - Replace broad `except Exception`/silent `getattr` with targeted handling and logging in helpers; keep the shell minimal.
+  - Add docstrings/types for any public APIs (controllers/services) still exposed to tests/consumers.
+  - Delete unused imports/constants and any dev-only toggles no longer needed.
+- Guarantee to hit the goal: after completing 7.2, confirm `overlay_controller.py` contains only UI wiring/drag/close plumbing (no business helpers/shims), no broad silent catches remain in the shell, and full suites (lint/test/PyQt) are green.
+- Tests to run: `make lint`, `make test`; run targeted headless controller tests for areas touched by error-handling changes.
+- Risks & mitigations: risk of behavior change via stricter error paths → add logs but keep behavior; gate any semantic changes behind tests and small commits.
+
+| Stage | Description | Status |
+| --- | --- | --- |
+| 7.1 | Harden error handling/logging (replace broad catches) in controllers/services; add docstrings/types on public helpers. | Not started |
+| 7.2 | Remove dead code/imports/constants and dev toggles that survived earlier cuts; final cleanup pass. | Not started |
