@@ -178,3 +178,58 @@ def test_mixed_widths_with_baseline_and_fallback():
     # Baseline comes from base bounds (width 200); offsets are (200-100)/2 and (200-50)/2.
     assert offsets[1] == 50.0
     assert offsets[2] == 75.0
+
+
+def test_right_justification_offsets_wider_than_baseline():
+    key = ("plugin", "suffix")
+    command = CommandContext(
+        identifier=5,
+        key=key,
+        bounds=(0.0, 0.0, 120.0, 10.0),  # width > baseline
+        raw_min_x=10.0,
+        right_just_multiplier=1,
+        justification="right",
+        suffix="suffix",
+        plugin="plugin",
+        item_id="id5",
+    )
+    transform_by_group = {key: GroupTransform(bounds_min_x=0.0, payload_justification="right")}
+    base_overlay_bounds = {key: (0.0, 0.0, 100.0, 10.0)}  # baseline width 100
+
+    offsets = compute_justification_offsets(
+        [command],
+        transform_by_group,
+        base_overlay_bounds,
+        base_scale=1.0,
+        trace_fn=None,
+    )
+
+    # delta = 100 - 120 = -20; minus right-just delta of 10 = -30px shift (moves left).
+    assert offsets[5] == -30.0
+
+
+def test_center_justification_offsets_wider_than_baseline():
+    key = ("plugin", "suffix")
+    command = CommandContext(
+        identifier=6,
+        key=key,
+        bounds=(0.0, 0.0, 120.0, 10.0),  # width > baseline
+        raw_min_x=None,
+        right_just_multiplier=0,
+        justification="center",
+        suffix="suffix",
+        plugin="plugin",
+        item_id="id6",
+    )
+    base_overlay_bounds = {key: (0.0, 0.0, 100.0, 10.0)}  # baseline width 100
+
+    offsets = compute_justification_offsets(
+        [command],
+        {key: None},
+        base_overlay_bounds,
+        base_scale=1.0,
+        trace_fn=None,
+    )
+
+    # delta = (100 - 120)/2 = -10px shift (moves left).
+    assert offsets[6] == -10.0

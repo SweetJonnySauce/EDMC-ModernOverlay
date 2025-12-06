@@ -46,13 +46,12 @@ def calculate_offsets(requests: Sequence[JustificationRequest]) -> Dict[Any, flo
         if baseline <= 0.0:
             continue
         for request, width in entries:
+            # Preserve the sign so wider-than-baseline items can still shift left.
             delta = baseline - width
-            if delta <= 0.0:
-                continue
             if request.justification == "center":
                 delta *= 0.5
             adjusted = delta - max(0.0, float(request.right_justification_delta_px or 0.0))
-            if adjusted <= 0.0:
+            if adjusted == 0.0:
                 continue
             offsets[request.identifier] = adjusted
 
