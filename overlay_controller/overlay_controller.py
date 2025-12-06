@@ -25,17 +25,17 @@ from typing import Any, Dict, Optional, Tuple
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 _CONTROLLER_LOGGER: Optional[logging.Logger] = None
 
-from overlay_client.controller_mode import ControllerModeProfile, ModeProfile
+from overlay_client.controller_mode import ControllerModeProfile, ModeProfile  # noqa: F401
 from overlay_client.debug_config import DEBUG_CONFIG_ENABLED
 from overlay_client.logging_utils import build_rotating_file_handler, resolve_log_level, resolve_logs_dir
 from overlay_plugin.groupings_diff import diff_groupings, is_empty_diff
-from overlay_plugin.groupings_loader import GroupingsLoader
 try:  # When run as a package (`python -m overlay_controller.overlay_controller`)
     from overlay_controller.input_bindings import BindingConfig, BindingManager
     from overlay_controller.selection_overlay import SelectionOverlay
-    from overlay_controller.services import GroupStateService, ModeTimers, PluginBridge
+    from overlay_controller.services import ModeTimers, PluginBridge
     from overlay_controller.preview import snapshot_math
     from overlay_controller.preview.renderer import PreviewRenderer
+    from overlay_controller.controller import AppContext, build_app_context
     from overlay_controller.widgets import (
         AbsoluteXYWidget,
         AnchorSelectorWidget,
@@ -48,9 +48,10 @@ try:  # When run as a package (`python -m overlay_controller.overlay_controller`
 except ImportError:  # Fallback for spec-from-file/test harness
     from input_bindings import BindingConfig, BindingManager  # type: ignore
     from selection_overlay import SelectionOverlay  # type: ignore
-    from services import GroupStateService, ModeTimers, PluginBridge  # type: ignore
+    from services import ModeTimers, PluginBridge  # type: ignore
     import overlay_controller.preview.snapshot_math as snapshot_math  # type: ignore
     from overlay_controller.preview.renderer import PreviewRenderer  # type: ignore
+    from overlay_controller.controller import AppContext, build_app_context  # type: ignore
     from overlay_controller.widgets import (  # type: ignore
         AbsoluteXYWidget,
         AnchorSelectorWidget,
@@ -296,54 +297,34 @@ class OverlayConfigApp(tk.Tk):
         self._groupings_data: dict[str, object] = {}
         self._idprefix_entries: list[tuple[str, str]] = []
         root = Path(__file__).resolve().parents[1]
-        self._groupings_shipped_path = root / "overlay_groupings.json"
-        self._groupings_user_path = Path(
-            os.environ.get("MODERN_OVERLAY_USER_GROUPINGS_PATH", root / "overlay_groupings.user.json")
+        self._app_context: AppContext = build_app_context(
+            root=root,
+            use_legacy_bridge=_USE_LEGACY_BRIDGE,
+            legacy_force_override_factory=lambda r: _ForceRenderOverrideManager(r),
+            logger=_controller_debug,
         )
-        self._groupings_loader = GroupingsLoader(self._groupings_shipped_path, self._groupings_user_path)
+        self._groupings_shipped_path = self._app_context.shipped_path
+        self._groupings_user_path = self._app_context.user_groupings_path
+        self._groupings_loader = self._app_context.groupings_loader
         _controller_debug(
             "Groupings loader configured: shipped=%s user=%s",
             self._groupings_shipped_path,
             self._groupings_user_path,
         )
         self._groupings_path = self._groupings_user_path
-        self._groupings_cache_path = root / "overlay_group_cache.json"
+        self._groupings_cache_path = self._app_context.cache_path
         self._groupings_cache: dict[str, object] = {}
-        self._group_state = GroupStateService(
-            root=root,
-            shipped_path=self._groupings_shipped_path,
-            user_groupings_path=self._groupings_user_path,
-            cache_path=self._groupings_cache_path,
-            loader=self._groupings_loader,
-        )
-        self._use_legacy_bridge = _USE_LEGACY_BRIDGE
-        self._plugin_bridge: PluginBridge | None = None
-        if self._use_legacy_bridge:
-            self._force_render_override = _ForceRenderOverrideManager(root)
-        else:
-            self._plugin_bridge = PluginBridge(root=root, logger=_controller_debug)
-            self._force_render_override = self._plugin_bridge.force_render_override
+        self._group_state = self._app_context.group_state
+        self._use_legacy_bridge = self._app_context.use_legacy_bridge
+        self._plugin_bridge: PluginBridge | None = self._app_context.plugin_bridge
+        self._force_render_override = self._app_context.force_render_override
         self._absolute_user_state: dict[tuple[str, str], dict[str, float | None]] = {}
         self._group_snapshots: dict[tuple[str, str], _GroupSnapshot] = {}
         self._anchor_restore_state: dict[tuple[str, str], dict[str, float | None]] = {}
         self._anchor_restore_handles: dict[tuple[str, str], str | None] = {}
         self._absolute_tolerance_px = 0.5
         self._last_preview_signature: tuple[object, ...] | None = None
-        self._mode_profile = ControllerModeProfile(
-            active=ModeProfile(
-                write_debounce_ms=75,
-                offset_write_debounce_ms=75,
-                status_poll_ms=50,
-                cache_flush_seconds=1.0,
-            ),
-            inactive=ModeProfile(
-                write_debounce_ms=200,
-                offset_write_debounce_ms=200,
-                status_poll_ms=2500,
-                cache_flush_seconds=5.0,
-            ),
-            logger=_controller_debug,
-        )
+        self._mode_profile = self._app_context.mode_profile
         self._use_legacy_timers = _USE_LEGACY_TIMERS
         self._mode_timers: ModeTimers | None = None
         self._current_mode_profile = self._mode_profile.resolve("active")
@@ -370,9 +351,9 @@ class OverlayConfigApp(tk.Tk):
         self._edit_nonce: str = ""
         self._user_overrides_nonce: str = ""
         self._initial_geometry_applied = False
-        self._port_path = root / "port.json"
-        self._settings_path = root / "overlay_settings.json"
-        self._controller_heartbeat_ms = 15000
+        self._port_path = self._app_context.port_path
+        self._settings_path = self._app_context.settings_path
+        self._controller_heartbeat_ms = self._app_context.controller_heartbeat_ms
         self._controller_heartbeat_handle: str | None = None
         self._last_override_reload_nonce: Optional[str] = None
         self._last_override_reload_ts: float = 0.0

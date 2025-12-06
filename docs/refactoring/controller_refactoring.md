@@ -238,5 +238,64 @@ Stage 4.5 notes:
 - Leave `overlay_controller.py` as a thin `OverlayConfigApp` shell: layout, focus/drag handling, and orchestration of services/widgets.
 - Rewrite wiring to use the extracted services; remove direct JSON/socket/timer math from the Tk class.
 - Update or add tests around new seams (service unit tests + minimal integration harness for the shell).
+- Aggressive target: drive `overlay_controller.py` down toward 600–700 lines by 5.7 (no business logic left inline). Move any reusable helpers to `controller/` or `widgets/`; prune legacy escape hatches once replacements are wired.
 - Risks: orchestration regressions (missed signals, debounces); UI focus/close edge cases.
 - Mitigations: add a lightweight integration harness that stubs services/bridge, reuse existing focus/close tests, and gate rollout behind a dev flag until manual smoke passes.
+
+| Stage | Description | Status |
+| --- | --- | --- |
+| 5.1 | Baseline the current monolith: map responsibilities to evict, set target size (<700 lines), and list tests per step; lock down legacy flags we’ll delete by 5.7. | Completed |
+| 5.2 | Extract runtime/context glue into `controller/app_context.py` (paths/env/services/mode profile/bridge/timers); default to new services, relegate legacy flags to a minimal shim. | Completed |
+| 5.3 | Extract layout composition into `controller/layout.py` (placement/sidebar/overlays/focus map assembly); controller retains only callbacks/state. | Not started |
+| 5.4 | Extract focus/binding orchestration into `controller/focus_manager.py` (focus map, widget-select mode, navigation handlers, binding registration); remove inline binding helpers. | Not started |
+| 5.5 | Extract preview orchestration into `controller/preview_controller.py` (snapshot fetch, live-edit guards, target frame resolution, renderer invocation, absolute sync); drop duplicate preview helpers from the shell. | Not started |
+| 5.6 | Extract edit/persistence flow into `controller/edit_controller.py` (persist_* hooks, debounces, cache reload guard, active-group/override signals, nonce/timestamps); move reload guards + cache diff helpers out of the shell. | Not started |
+| 5.7 | Final shell trim: remove remaining legacy helpers/flags, tighten imports, keep only UI wiring/drag/close plumbing; update docs/tests and rerun full suites (headless + PyQt). | Not started |
+
+#### Stage 5.1 Plan
+- **Goal:** Baseline the current monolith, mark what must move out, and set a concrete size target (<700 lines) with a test cadence for each upcoming stage.
+- **Inventory to map:**
+  - Service/runtime glue (paths, env, loaders, mode profiles, bridge/timers, force-render) that should live in `controller/app_context.py`.
+  - Layout construction (frames, overlays, widgets, focus map) that should move to `controller/layout.py`.
+  - Focus/binding orchestration (focus map, widget-select mode, navigation handlers, binding registration) for `controller/focus_manager.py`.
+  - Preview orchestration (snapshot fetch/live-edit guard/target frame resolve/renderer invocation/absolute sync) for `controller/preview_controller.py`.
+  - Edit/persistence flow (persist_* hooks, debounce scheduling, cache reload guard, override/active-group signals, nonce/timestamp handling) for `controller/edit_controller.py`.
+  - Legacy helpers/flags earmarked for removal in 5.7.
+- **Deliverables:** Updated notes in this doc capturing current responsibilities, size target, and tests to run per stage; no code changes.
+- **Tests to run:** `python -m pytest overlay_controller/tests` (headless) after the baseline note-taking; defer `make check`/PyQt until after code-moving stages.
+
+Stage 5.1 notes:
+- Current size: `overlay_controller.py` is ~3,180 lines; aggressive target remains <700 by 5.7 with no business logic inline.
+- Responsibilities to evict:
+  - **Runtime/context glue:** path/env resolution, `GroupingsLoader` construction, cache/settings/port paths, mode profile defaults, plugin bridge/timer setup, legacy flags.
+  - **Layout assembly:** container/placement/sidebar frames, overlays (sidebar/placement), indicator, preview canvas binding, widget creation/packing, focus map population.
+  - **Focus/binding orchestration:** sidebar focus map, widget-select mode toggles, navigation handlers, binding registration (`BindingManager` actions, widget-specific bindings), contextual tips/highlights.
+  - **Preview orchestration:** snapshot fetch/build, live-edit guards, target frame resolution, renderer invocation/signature caching, absolute widget sync.
+  - **Edit/persistence flow:** persist offsets/anchors/justification, debounce scheduling, cache reload guard, override/active-group signals, nonce/timestamp management, cache diff helpers.
+  - **Legacy helpers/flags:** legacy bridge/timer toggles, redundant socket helpers, duplicated preview/math helpers earmarked for removal by 5.7.
+- Test cadence locked: run `overlay_controller/tests` after each stage; `make check` + PyQt suite after major extractions (5.4–5.7).
+- Tests run for baseline: `overlay_client/.venv/bin/python -m pytest overlay_controller/tests` (35 passed, 3 skipped).
+
+#### Stage 5.2 Plan
+- **Goal:** Extract runtime/context glue into `controller/app_context.py` and wire the controller to consume it, while keeping a minimal legacy escape hatch. Target a substantial line reduction by moving path/env/service construction and mode profile defaults out of the shell.
+- **What to move:**
+  - Path/env resolution: shipped/user groupings, cache, settings, port, root detection, env overrides (e.g., `MODERN_OVERLAY_USER_GROUPINGS_PATH`).
+  - GroupingsLoader/GroupStateService construction and initial cache/load state setup.
+  - ControllerModeProfile defaults and mode/timer configuration values.
+  - Plugin bridge/timers/force-render override wiring, including legacy flags (`MODERN_OVERLAY_LEGACY_BRIDGE`, `MODERN_OVERLAY_LEGACY_TIMERS`) scoped to a shim.
+  - Heartbeat interval defaults and any constants tied to the above context.
+- **Interfaces:** `build_app_context(root: Path, use_legacy_bridge: bool, logger) -> AppContext` with resolved paths, services, mode profile, heartbeat interval, bridge, force-render override, and loader references.
+- **Constraints:** No behavior changes; defaults remain intact; legacy flags still honored. Controller should only pull from the context and stop doing inline construction.
+- **Tests to run:** `overlay_client/.venv/bin/python -m pytest overlay_controller/tests` after wiring; defer `make check`/PyQt until after subsequent stages unless failures appear.
+- **Risks & mitigations:**
+  - Miswired paths/env overrides (user/shipped/cache/settings/port) could point to wrong files → keep defaults identical, add assertions/logging in the builder, and cover with a lightweight unit test for `build_app_context`.
+  - Bridge/timer legacy flags regressing behavior → isolate the shim, keep env flags honored, and document defaults in the builder; add a smoke test that instantiates with/without legacy flags.
+  - Mode profile defaults drifting → lift constants intact into the builder and verify via existing `test_status_poll_mode_profile`.
+  - Controller wiring misses a field (e.g., force-render override/heartbeat) → fail fast by typing the `AppContext` and updating controller initialization in one pass; run headless tests immediately.
+  - Aggressive pruning losing behavior → move code verbatim first, then trim imports; avoid reformatting logic in this step.
+
+Stage 5.2 notes:
+- Added `overlay_controller/controller/app_context.py` with `AppContext` + `build_app_context` to own path/env resolution, `GroupingsLoader`/`GroupStateService`, mode profile defaults, heartbeat interval, and plugin bridge/force-render wiring (legacy shim via injected factory).
+- Controller now builds `_app_context` and pulls shipped/user/cache/settings/port paths, loader, group state, mode profile, heartbeat, bridge, and force-render override from it; inline construction removed.
+- New unit test `overlay_controller/tests/test_app_context.py` covers path/env resolution, bridge/force-override wiring, and mode profile defaults (including legacy shim creation).
+- Tests run: `overlay_client/.venv/bin/python -m pytest overlay_controller/tests` (headless).
