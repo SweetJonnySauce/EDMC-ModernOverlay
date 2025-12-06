@@ -90,26 +90,21 @@ _LOG_LEVEL_OVERRIDE_SOURCE: Optional[str] = None
 _GroupSnapshot = GroupSnapshot
 legacy_write_groupings_config = staticmethod(EditController.legacy_write_groupings_config)
 
+def _ForceRenderOverrideManager(root: Path):
+    """Compatibility shim returning the service ForceRenderOverrideManager."""
+
+    return ForceRenderOverrideManager(
+        settings_path=root / "overlay_settings.json",
+        port_path=root / "port.json",
+        logger=_controller_debug,
+    )
+
 def _safe_getattr(obj, name: str, default=None):
     """Bypass Tk __getattr__ to avoid recursion when accessing private attrs."""
     try:
         return object.__getattribute__(obj, name)
     except AttributeError:
         return default
-
-
-class _ForceRenderOverrideManager:
-    """Compatibility shim delegating to the service ForceRenderOverrideManager."""
-
-    def __init__(self, root: Path) -> None:
-        self._delegate = ForceRenderOverrideManager(
-            settings_path=root / "overlay_settings.json",
-            port_path=root / "port.json",
-            logger=_controller_debug,
-        )
-
-    def __getattr__(self, name: str):
-        return getattr(self._delegate, name)
 
 
 class OverlayConfigApp(tk.Tk):

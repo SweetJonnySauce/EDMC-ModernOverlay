@@ -13,3 +13,5 @@ _external/
 _external/**    
 .hostvenv/
 .hostvenv/**
+logs/
+logs/**
