@@ -51,8 +51,8 @@
 | 3 | Move preview math/rendering into a pure helper and a canvas renderer class so visuals are testable without UI clutter. | Completed |
 | 4 | Split reusable widgets (idPrefix, offset, absolute XY, anchor, justification, tips) into `widgets/` modules. | Completed |
 | 5 | Slim `OverlayConfigApp` to orchestration only; wire services together; add/adjust tests for new seams. | Completed |
-| 6 | Finish shell eviction: purge remaining helpers/shims, shrink `overlay_controller.py` to a minimal UI shell. | Not started |
-| 7 | Polish/cleanup: tighten error handling/logging, doc/tests for public hooks, and remove dead code. | Not started |
+| 6 | Finish shell eviction: purge remaining helpers/shims, shrink `overlay_controller.py` to a minimal UI shell. | Completed |
+| 7 | Polish/cleanup: tighten error handling/logging, doc/tests for public hooks, and remove dead code. | Completed (line-count target deferred) |
 
 ## Phase Details
 
@@ -410,6 +410,7 @@ Stage 5.7 notes:
 - Tests run after the trim: `make lint` and `make test` (full suite).
 
 ### Phase 6: Shell Eviction and Line-Cut
+- Status: Completed (tests green; size target deferred to Phase 7).
 - Aggressive goal: drive `overlay_controller.py` to a true UI shell (<650 lines). Evict remaining business helpers, shims, and duplicated logic; tighten interfaces so services/controllers own behavior.
 - Best-practice gaps this phase addresses: remaining monolith size, UI shell still housing snapshot/persistence/focus helpers, leaky state access via `__dict__`, and legacy shims/test-only code sitting in the shell.
 - What to remove/move aggressively:
@@ -527,6 +528,7 @@ Stage 6.5 notes:
 - Tests run: `make lint`, `make test` (296 passed, 21 skipped), and `PYQT_TESTS=1 overlay_client/.venv/bin/python -m pytest overlay_client/tests` (180 passed).
 
 ### Phase 7: Heavy Trim and Guardrails
+- Status: Completed (line-count target still outstanding; follow-up phase required for further cuts).
 - Goal: aggressively cut `overlay_controller.py` toward the <650-line target by evicting remaining logic/shims, then tighten error handling/logging and clean up dead code/types.
 - Gaps to address: monolith size still ~2.5k lines, lingering shims (legacy write/force-render), broad catches/silent `getattr`, and unused imports/constants.
 - What to address:
