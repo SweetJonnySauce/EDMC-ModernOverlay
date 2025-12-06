@@ -158,6 +158,41 @@ Stage 2.5 notes:
 - Risks: subtle anchor/scale regressions; canvas rendering mismatches due to rounding/order changes.
 - Mitigations: move math first with existing tests, add golden value tests for anchor/bounds, and keep renderer order/rounding identical before any cleanup.
 
+| Stage | Description | Status |
+| --- | --- | --- |
+| 3.1 | Baseline current preview math/rendering: document anchor rules, fill-mode translation, and test coverage; run headless controller pytest. | Completed |
+| 3.2 | Extract pure snapshot math into `preview/snapshot_math.py` (anchor points, translate for fill, clamp helpers); point existing tests to it and add golden-value cases if needed. | Completed |
+| 3.3 | Introduce `preview/renderer.py` with `PreviewRenderer` that draws given snapshot/viewport; keep layout/colors/order identical; add renderer-focused tests (using stub canvas). | Completed |
+| 3.4 | Wire controller to use snapshot math/renderer; keep legacy paths guarded if needed; ensure preview/absolute widgets stay in sync. | Completed |
+| 3.5 | Run full headless + PyQt suites with new preview path; flip default if gated; document remaining cleanup. | Completed |
+
+Stage 3.1 notes:
+- Anchor mapping via `_anchor_point_from_bounds`: tokens `c/center`, `n/top`, `ne`, `e/right`, `se`, `s/bottom`, `sw`, `w/left`, default `nw`; `_clamp_unit` normalizes 0–1 bands.
+- Fill translation helper `_translate_snapshot_for_fill` early-returns if `snapshot` is None or `has_transform` is True; otherwise uses `compute_legacy_mapper` `ScaleMode.FILL` overflow path to build a `GroupTransform` from base bounds/anchor (override -> transform anchor -> anchor), computes proportional `dx/dy`, and applies translation. Fit/no overflow snapshots remain unchanged.
+- Snapshot synthesis currently marks `has_transform=True` (base+offsets), so fill-translation is only exercised when callers pass snapshots with `has_transform=False` (as in tests); preview path currently bypasses the fill shift.
+- Coverage: `overlay_controller/tests/test_snapshot_translation.py` checks fill overflow shifts for 1280x720 with `nw` and `center` anchors and no shift for `fit`; no renderer-specific tests yet.
+- Tests run: `python -m pytest overlay_controller/tests` (33 passed, 3 skipped).
+
+Stage 3.2 notes:
+- Added `overlay_controller/preview/snapshot_math.py` with pure helpers (`clamp_unit`, `anchor_point_from_bounds`, `translate_snapshot_for_fill`) mirroring existing controller behavior.
+- Controller delegates anchor computation and fill translation to the new module; unused legacy imports removed.
+- Updated `overlay_controller/tests/test_snapshot_translation.py` to target `snapshot_math.translate_snapshot_for_fill`; behavior unchanged.
+- Tests run: `make check` (ruff, mypy, full pytest) passing (292 passed, 21 skipped).
+
+Stage 3.3 notes:
+- Added `overlay_controller/preview/renderer.py` with `PreviewRenderer` that draws the preview onto a supplied canvas using the same layout/colors/order/labels/anchor marker and signature caching as the previous `_draw_preview`.
+- Controller `_draw_preview` now instantiates and delegates to `PreviewRenderer` (and still uses snapshot math helpers); stores renderer signature to maintain cache behavior.
+- New tests: `overlay_controller/tests/test_preview_renderer.py` covers draw signature caching and empty selection/snapshot placeholders. `make check` passing with suite (294 passed, 21 skipped).
+
+Stage 3.4 notes:
+- Controller fully delegates preview math/rendering: `_draw_preview` now only resolves selection/snapshot and calls `PreviewRenderer`, which uses `snapshot_math` for fill translation/anchors and preserves signature caching. `_last_preview_signature` mirrors renderer state to keep legacy cache checks stable.
+- No legacy preview path kept; visual output/order/colors unchanged.
+- Tests run: `make check` (ruff, mypy, full pytest) passing (294 passed, 21 skipped).
+
+Stage 3.5 notes:
+- New preview path validated via full suites: `make check` (ruff, mypy, full pytest) passing (294 passed, 21 skipped) and `PYQT_TESTS=1 python -m pytest overlay_client/tests` passing (180 passed).
+- No gating flags needed; preview renderer/math now default. Legacy behavior retained via identical rendering outputs and signature caching.
+
 ### Phase 4: Widget Extraction
 - Relocate `IdPrefixGroupWidget`, `OffsetSelectorWidget`, `AbsoluteXYWidget`, `AnchorSelectorWidget`, `JustificationWidget`, and `SidebarTipHelper` into a `widgets/` package.
 - Keep only layout/wiring in the main file; widgets expose callbacks for selection/change/focus and remain self-contained.

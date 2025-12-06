@@ -31,18 +31,18 @@ from overlay_client.debug_config import DEBUG_CONFIG_ENABLED
 from overlay_client.logging_utils import build_rotating_file_handler, resolve_log_level, resolve_logs_dir
 from overlay_plugin.groupings_diff import diff_groupings, is_empty_diff
 from overlay_plugin.groupings_loader import GroupingsLoader
-from overlay_client.group_transform import GroupTransform
-from overlay_client.viewport_helper import BASE_HEIGHT as VC_BASE_HEIGHT, BASE_WIDTH as VC_BASE_WIDTH, ScaleMode
-from overlay_client.viewport_transform import ViewportState, build_viewport, compute_proportional_translation
-from overlay_client.window_utils import compute_legacy_mapper
 try:  # When run as a package (`python -m overlay_controller.overlay_controller`)
     from overlay_controller.input_bindings import BindingConfig, BindingManager
     from overlay_controller.selection_overlay import SelectionOverlay
     from overlay_controller.services import GroupStateService, ModeTimers, PluginBridge
+    from overlay_controller.preview import snapshot_math
+    from overlay_controller.preview.renderer import PreviewRenderer
 except ImportError:  # Fallback for spec-from-file/test harness
     from input_bindings import BindingConfig, BindingManager  # type: ignore
     from selection_overlay import SelectionOverlay  # type: ignore
     from services import GroupStateService, ModeTimers, PluginBridge  # type: ignore
+    import overlay_controller.preview.snapshot_math as snapshot_math  # type: ignore
+    from overlay_controller.preview.renderer import PreviewRenderer  # type: ignore
 
 ABS_BASE_WIDTH = 1280
 ABS_BASE_HEIGHT = 960
@@ -2764,27 +2764,7 @@ class OverlayConfigApp(tk.Tk):
 
     @staticmethod
     def _anchor_point_from_bounds(bounds: tuple[float, float, float, float], anchor: str) -> tuple[float, float]:
-        min_x, min_y, max_x, max_y = bounds
-        mid_x = (min_x + max_x) / 2.0
-        mid_y = (min_y + max_y) / 2.0
-        token = (anchor or "nw").strip().lower()
-        if token in {"c", "center"}:
-            return mid_x, mid_y
-        if token in {"n", "top"}:
-            return mid_x, min_y
-        if token in {"ne"}:
-            return max_x, min_y
-        if token in {"right", "e"}:
-            return max_x, mid_y
-        if token in {"se"}:
-            return max_x, max_y
-        if token in {"bottom", "s"}:
-            return mid_x, max_y
-        if token in {"sw"}:
-            return min_x, max_y
-        if token in {"left", "w"}:
-            return min_x, mid_y
-        return min_x, min_y
+        return snapshot_math.anchor_point_from_bounds(bounds, anchor)
 
     @staticmethod
     def _translate_snapshot_for_fill(
@@ -2795,61 +2775,14 @@ class OverlayConfigApp(tk.Tk):
         scale_mode_value: Optional[str] = None,
         anchor_token_override: Optional[str] = None,
     ) -> _GroupSnapshot:
-        if snapshot is None or snapshot.has_transform:
-            return snapshot
-        scale_mode = (scale_mode_value or "fill").strip().lower()
-        mapper = compute_legacy_mapper(scale_mode, float(max(viewport_width, 1.0)), float(max(viewport_height, 1.0)))
-        transform = mapper.transform
-        if transform.mode is not ScaleMode.FILL or not (transform.overflow_x or transform.overflow_y):
-            return snapshot
-        base_bounds = snapshot.base_bounds
-        anchor_token = anchor_token_override or snapshot.transform_anchor_token or snapshot.anchor_token or "nw"
-        anchor_point = OverlayConfigApp._anchor_point_from_bounds(base_bounds, anchor_token)
-        base_width = VC_BASE_WIDTH if VC_BASE_WIDTH > 0.0 else 1.0
-        base_height = VC_BASE_HEIGHT if VC_BASE_HEIGHT > 0.0 else 1.0
-        clamp = OverlayConfigApp._clamp_unit
-        group_transform = GroupTransform(
-            dx=0.0,
-            dy=0.0,
-            band_min_x=clamp(base_bounds[0] / base_width),
-            band_max_x=clamp(base_bounds[2] / base_width),
-            band_min_y=clamp(base_bounds[1] / base_height),
-            band_max_y=clamp(base_bounds[3] / base_height),
-            band_anchor_x=clamp(anchor_point[0] / base_width),
-            band_anchor_y=clamp(anchor_point[1] / base_height),
-            bounds_min_x=base_bounds[0],
-            bounds_min_y=base_bounds[1],
-            bounds_max_x=base_bounds[2],
-            bounds_max_y=base_bounds[3],
-            anchor_token=anchor_token,
-            payload_justification="left",
+        result = snapshot_math.translate_snapshot_for_fill(
+            snapshot,
+            viewport_width,
+            viewport_height,
+            scale_mode_value=scale_mode_value,
+            anchor_token_override=anchor_token_override,
         )
-        viewport_state = ViewportState(width=float(max(viewport_width, 1.0)), height=float(max(viewport_height, 1.0)))
-        fill = build_viewport(mapper, viewport_state, group_transform, VC_BASE_WIDTH, VC_BASE_HEIGHT)
-        dx, dy = compute_proportional_translation(fill, group_transform, anchor_point)
-        if not (dx or dy):
-            return snapshot
-        trans_bounds = (
-            base_bounds[0] + dx,
-            base_bounds[1] + dy,
-            base_bounds[2] + dx,
-            base_bounds[3] + dy,
-        )
-        trans_anchor = (anchor_point[0] + dx, anchor_point[1] + dy)
-        return _GroupSnapshot(
-            plugin=snapshot.plugin,
-            label=snapshot.label,
-            anchor_token=snapshot.anchor_token,
-            transform_anchor_token=anchor_token,
-            offset_x=snapshot.offset_x,
-            offset_y=snapshot.offset_y,
-            base_bounds=snapshot.base_bounds,
-            base_anchor=snapshot.base_anchor,
-            transform_bounds=trans_bounds,
-            transform_anchor=trans_anchor,
-            has_transform=True,
-            cache_timestamp=snapshot.cache_timestamp,
-        )
+        return result  # type: ignore[return-value]
 
     def _update_absolute_widget_color(self, snapshot: _GroupSnapshot | None) -> None:
         widget = getattr(self, "absolute_widget", None)
@@ -3338,163 +3271,33 @@ class OverlayConfigApp(tk.Tk):
         self._draw_preview()
 
     def _draw_preview(self) -> None:
-        canvas = getattr(self, "preview_canvas", None)
-        if canvas is None:
-            return
-        width = int(canvas.winfo_width() or canvas["width"])
-        height = int(canvas.winfo_height() or canvas["height"])
-        padding = getattr(self, "preview_canvas_padding", 10)
-        inner_w = max(1, width - 2 * padding)
-        inner_h = max(1, height - 2 * padding)
+        renderer = getattr(self, "_preview_renderer", None)
+        if renderer is None:
+            canvas = getattr(self, "preview_canvas", None)
+            if canvas is None:
+                return
+            renderer = PreviewRenderer(
+                canvas,
+                padding=getattr(self, "preview_canvas_padding", 10),
+                abs_width=ABS_BASE_WIDTH,
+                abs_height=ABS_BASE_HEIGHT,
+            )
+            self._preview_renderer = renderer
 
         selection = self._get_current_group_selection()
         snapshot = self._get_group_snapshot(selection) if selection is not None else None
-        preview_bounds: tuple[float, float, float, float] | None = None
-        preview_anchor_token: str | None = None
-        preview_anchor_abs: tuple[float, float] | None = None
-        if snapshot is not None:
-            live_anchor_token = self._get_live_anchor_token(snapshot)
-            snapshot = self._translate_snapshot_for_fill(
-                snapshot,
-                inner_w,
-                inner_h,
-                scale_mode_value=self._scale_mode_setting(),
-                anchor_token_override=live_anchor_token,
-            )
-            target_frame = self._resolve_target_frame(snapshot)
-            if target_frame is not None:
-                bounds, anchor_point = target_frame
-                preview_bounds = bounds
-                preview_anchor_token = live_anchor_token
-                preview_anchor_abs = anchor_point
-            else:
-                bounds = snapshot.transform_bounds or snapshot.base_bounds
-                preview_bounds = bounds
-                preview_anchor_token = snapshot.transform_anchor_token or snapshot.anchor_token
-                preview_anchor_abs = self._compute_anchor_point(
-                    bounds[0],
-                    bounds[2],
-                    bounds[1],
-                    bounds[3],
-                    preview_anchor_token,
-                )
-
-        signature_snapshot = (
-            snapshot.base_bounds if snapshot is not None else None,
-            snapshot.transform_bounds if snapshot is not None else None,
-            snapshot.anchor_token if snapshot is not None else None,
-            snapshot.transform_anchor_token if snapshot is not None else None,
-            snapshot.offset_x if snapshot is not None else None,
-            snapshot.offset_y if snapshot is not None else None,
-            snapshot.cache_timestamp if snapshot is not None else None,
-        )
-        current_signature = (
-            width,
-            height,
-            padding,
+        renderer.draw(
             selection,
-            signature_snapshot,
-            preview_bounds,
-            preview_anchor_abs,
+            snapshot,
+            live_anchor_token=self._get_live_anchor_token(snapshot) if snapshot is not None else None,
+            scale_mode_value=self._scale_mode_setting(),
+            resolve_target_frame=self._resolve_target_frame,
+            compute_anchor_point=self._compute_anchor_point,
         )
-        if self._last_preview_signature == current_signature:
-            return
-        self._last_preview_signature = current_signature
-
-        canvas.delete("all")
-        if selection is None:
-            canvas.create_text(width // 2, height // 2, text="(select a group)", fill="#888888")
-            return
-        if snapshot is None:
-            canvas.create_text(width // 2, height // 2, text="(awaiting cache)", fill="#888888")
-            return
-
-        label = selection[1]
-        base_min_x, base_min_y, base_max_x, base_max_y = snapshot.base_bounds
-        preview_bounds = preview_bounds or (snapshot.transform_bounds or snapshot.base_bounds)
-        trans_min_x, trans_min_y, trans_max_x, trans_max_y = preview_bounds
-        preview_anchor_token = preview_anchor_token or snapshot.transform_anchor_token or snapshot.anchor_token
-
-        scale = max(0.01, min(inner_w / float(ABS_BASE_WIDTH), inner_h / float(ABS_BASE_HEIGHT)))
-        content_w = ABS_BASE_WIDTH * scale
-        content_h = ABS_BASE_HEIGHT * scale
-        offset_x = padding + max(0.0, (inner_w - content_w) / 2.0)
-        offset_y = padding + max(0.0, (inner_h - content_h) / 2.0)
-
-        canvas.create_rectangle(
-            offset_x,
-            offset_y,
-            offset_x + content_w,
-            offset_y + content_h,
-            outline="#555555",
-            dash=(3, 3),
-        )
-
-        def _rect_color(fill: str) -> dict[str, object]:
-            return {"fill": fill, "outline": "#000000", "width": 1}
-
-        norm_x0 = offset_x + base_min_x * scale
-        norm_y0 = offset_y + base_min_y * scale
-        norm_x1 = offset_x + base_max_x * scale
-        norm_y1 = offset_y + base_max_y * scale
-        canvas.create_rectangle(norm_x0, norm_y0, norm_x1, norm_y1, **_rect_color("#66a3ff"))
-        label_text = "Original Placement"
-        label_font = ("TkDefaultFont", 8, "bold")
-        inside = (norm_x1 - norm_x0) >= 110 and (norm_y1 - norm_y0) >= 20
-        label_fill = "#ffffff" if not inside else "#1c2b4a"
-        label_x = norm_x0 + 4 if inside else norm_x1 + 6
-        label_y = norm_y0 + 12 if inside else norm_y0
-        canvas.create_text(
-            label_x,
-            label_y,
-            text=label_text,
-            anchor="nw",
-            fill=label_fill,
-            font=label_font,
-        )
-
-        trans_x0 = offset_x + trans_min_x * scale
-        trans_y0 = offset_y + trans_min_y * scale
-        trans_x1 = offset_x + trans_max_x * scale
-        trans_y1 = offset_y + trans_max_y * scale
-        canvas.create_rectangle(trans_x0, trans_y0, trans_x1, trans_y1, **_rect_color("#ffa94d"))
-        actual_label = "Target Placement"
-        actual_inside = (trans_x1 - trans_x0) >= 110 and (trans_y1 - trans_y0) >= 20
-        actual_fill = "#ffffff" if not actual_inside else "#5a2d00"
-        actual_label_x = trans_x0 + 4 if actual_inside else trans_x1 + 6
-        actual_label_y = trans_y0 + 12 if actual_inside else trans_y0
-        canvas.create_text(
-            actual_label_x,
-            actual_label_y,
-            text=actual_label,
-            anchor="nw",
-            fill=actual_fill,
-            font=("TkDefaultFont", 8, "bold"),
-        )
-
-        if preview_anchor_abs is not None:
-            anchor_px, anchor_py = preview_anchor_abs
-            anchor_screen_x = offset_x + anchor_px * scale
-            anchor_screen_y = offset_y + anchor_py * scale
-            anchor_radius = 4
-            canvas.create_oval(
-                anchor_screen_x - anchor_radius,
-                anchor_screen_y - anchor_radius,
-                anchor_screen_x + anchor_radius,
-                anchor_screen_y + anchor_radius,
-                fill="#ffffff",
-                outline="#000000",
-                width=1,
-            )
-
-        canvas.create_text(
-            padding + 6,
-            padding + 6,
-            text=f"{label}",
-            anchor="nw",
-            fill="#ffffff",
-            font=("TkDefaultFont", 9, "bold"),
-        )
+        try:
+            self._last_preview_signature = renderer._last_signature  # type: ignore[attr-defined]
+        except Exception:
+            pass
     def _persist_offsets(
         self, selection: tuple[str, str], offset_x: float, offset_y: float, debounce_ms: int | None = None
     ) -> None:
