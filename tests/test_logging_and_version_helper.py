@@ -282,6 +282,32 @@ def test_set_payload_logging_preference_without_diagnostics(monkeypatch, tmp_pat
     assert runtime._payload_filter_path.exists() is False
 
 
+def test_troubleshooting_panel_state_reflects_runtime(monkeypatch, tmp_path):
+    runtime = _runtime_for_debug_json(tmp_path)
+    runtime._payload_filter_excludes = {"beta", "alpha"}
+    runtime._log_retention_override = 8
+    runtime._capture_client_stderrout = True
+    monkeypatch.setattr(load, "_diagnostic_logging_enabled", lambda: True)
+    state = runtime.get_troubleshooting_panel_state()
+    assert state.diagnostics_enabled is True
+    assert state.capture_enabled is True
+    assert state.log_retention_override == 8
+    assert state.exclude_plugins == ("alpha", "beta")
+
+
+def test_troubleshooting_panel_state_disabled(monkeypatch, tmp_path):
+    runtime = _runtime_for_debug_json(tmp_path)
+    runtime._capture_client_stderrout = False
+    runtime._payload_filter_excludes = set()
+    runtime._log_retention_override = None
+    monkeypatch.setattr(load, "_diagnostic_logging_enabled", lambda: False)
+    state = runtime.get_troubleshooting_panel_state()
+    assert state.diagnostics_enabled is False
+    assert state.capture_enabled is False
+    assert state.log_retention_override is None
+    assert state.exclude_plugins == ()
+
+
 def test_debug_config_edit_requires_diagnostics(monkeypatch, tmp_path):
     runtime = _runtime_for_debug_json(tmp_path)
     monkeypatch.setattr(load, "_diagnostic_logging_enabled", lambda: False)

@@ -87,8 +87,8 @@ Tracking these steps in this document keeps the debugging workflow aligned with 
 | 1b | Update overlay client/controller logging setup to honor the propagated level (raise to DEBUG when requested) and remove the release-mode debug demotion. | Completed |
 | 1c | Extend `_ensure_default_debug_config()` so `debug.json` is auto-created whenever EDMC logging is DEBUG, and wire stdout capture/watchdog toggles to the new gate. | Completed |
 | 1d | Implement the dev-mode override that forces all Modern Overlay loggers/capture to DEBUG even if EDMC logging is INFO/WARN. | Completed |
-| 2 | Split troubleshooting vs. dev toggles: keep payload logging/capture in `debug.json`, create `dev_settings.json` for tracing/visual dev flags, and load it only in dev mode (without auto-creating it when EDMC is merely DEBUG). Update preferences/UI/docs accordingly. | Not started |
-| 3 | Release-validation and polish: after the config split, update docs/tests accordingly and add the `release.yml` guard that fails when dev mode is enabled (`__version__` ends with `-dev` or `MODERN_OVERLAY_DEV_MODE` is set) so tagged builds never ship dev behaviour. | Not started |
+| 2 | Split troubleshooting vs. dev toggles: keep payload logging/capture in `debug.json`, create `dev_settings.json` for tracing/visual dev flags, and load it only in dev mode (without auto-creating it when EDMC is merely DEBUG). Update preferences/UI/docs accordingly. | Completed |
+| 3 | Release-validation and polish: after the config split, update docs/tests accordingly and add the `release.yml` guard that fails when dev mode is enabled (`__version__` ends with `-dev` or `MODERN_OVERLAY_DEV_MODE` is set) so tagged builds never ship dev behaviour. | Completed |
 
 ### Phase 1a Plan (Log-level propagation)
 1. **Expose EDMC log level in plugin runtime**  
@@ -167,8 +167,8 @@ Tracking these steps in this document keeps the debugging workflow aligned with 
 | 2b | **Loader implementation.** Teach `load.py` (and any helper modules) to load `debug.json` whenever `_diagnostic_logging_enabled()` is true, but only create/read `dev_settings.json` when dev mode is active. Ensure `dev_settings.json` shares the same fallback path (defaults + JSON schema validation) but never auto-seeds during release diagnostics. | Runtime | Completed |
 | 2c | **Overlay client/controller consumers.** Update modules such as `overlay_client/debug_config.py`, `overlay_client/setup_surface.py`, and controller helpers to consume the split configs: troubleshooting toggles should look at the `debug.json` payload (honouring `_diagnostic_logging_enabled()`), while dev-only visuals read from `dev_settings.json` and stay inactive otherwise. | Client/Controller | Completed |
 | 2d | **Preferences/UI updates.** Adjust the EDMC preferences panel so user-safe toggles (gridlines, payload cycling, log retention) appear regardless of dev mode, while the dev-only controls (force render, payload injector, overlays) reference the new `dev_settings` backing store. | Preferences | Completed |
-| 2e | **Docs + schema.** Add/update documentation describing both files, show example JSON, and update any schema or troubleshooting references. Reflect the new workflow in `docs/troubleshooting.md`, `docs/developer.md`, and `docs/refactoring/debug_refactor.md`. | Docs | Not started |
-| 2f | **Testing.** Add/extend unit coverage for the new loaders and consumers: verify that `debug.json` still auto-creates under EDMC DEBUG, `dev_settings.json` only appears in dev mode, and each flag path toggles the right behaviour. Ensure new tests for the overlay client/controller cover the config split. | Tests | Not started |
+| 2e | **Docs + schema.** Add/update documentation describing both files, show example JSON, and update any schema or troubleshooting references. Reflect the new workflow in `docs/troubleshooting.md`, `docs/developer.md`, and `docs/refactoring/debug_refactor.md`. | Docs | Completed |
+| 2f | **Testing.** Add/extend unit coverage for the new loaders and consumers: verify that `debug.json` still auto-creates under EDMC DEBUG, `dev_settings.json` only appears in dev mode, and each flag path toggles the right behaviour. Ensure new tests for the overlay client/controller cover the config split. | Tests | Completed |
 
 #### Phase 2a Mini-Plan (Define config boundaries)
 
@@ -240,3 +240,43 @@ Tracking these steps in this document keeps the debugging workflow aligned with 
 | 2d.2 | **Dev-only panel refresh.** Keep dev-only controls (force render, payload injector, overlay outlines, tracing toggles, repaint overrides) gated behind dev mode, but update their persistence to write into `dev_settings.json` instead of `debug.json`. Consider adding UI hints that these settings only apply when dev mode is active. |
 | 2d.3 | **Controller hooks.** Ensure the overlay controller UI (Tk side) surfaces any dev-only toggles it needs (e.g., tracing) based on `dev_settings.json`, and does not reference `debug.json` directly anymore. |
 | 2d.4 | **Documentation/tooltips.** Update the preference tooltips or inline docs so users know which settings require EDMC log level = DEBUG versus dev mode. |
+
+#### Phase 2e Results
+- Updated `docs/troubleshooting.md` with a dedicated diagnostics workflow, explicit EDMC log-level instructions, and example `debug.json`/`dev_settings.json` payloads so support can point users to the exact knobs that ship in each file.
+- Expanded `docs/developer.md` with the same JSON examples plus guidance on how to add new troubleshooting vs. dev flags, ensuring future refactors touch the right defaults, loaders, and documentation at the same time.
+- `RELEASE_NOTES.md` now calls out the diagnostics overhaul so release consumers understand that EDMC’s DEBUG level replaces the previous dev-mode requirement for log capture.
+
+#### Phase 2f Results
+- Added regression tests covering the troubleshooting panel state, payload logging preference plumbing, and the overlay client’s diagnostics gate so EDMC DEBUG (or the dev override) remains a single-switch entry point.
+- Launcher tests now assert that `_diagnostics_enabled()` honours both the propagated EDMC log level and the dev-mode override, preventing regressive UI states where diagnostics silently disappear.
+- Runtime tests validate that `get_troubleshooting_panel_state()` mirrors capture/log-retention/exclusion state and exposes the `_diagnostic_logging_enabled()` flag for the UI layer, ensuring the Diagnostics section knows when it can appear.
+
+#### Phase 2e Plan (Docs & schema updates)
+
+| Task | Description | Notes |
+| --- | --- | --- |
+| 2e.1 | **Schema/source-of-truth update.** Revise any JSON schema snippets (port.json, debug/dev settings) in `docs/troubleshooting.md`, `docs/developer.md`, and `docs/refactoring/debug_refactor.md` so they reflect the split between `debug.json` and `dev_settings.json`, including field descriptions and sample payloads. |
+| 2e.2 | **Workflow documentation.** Update troubleshooting steps to say “set EDMC log level to DEBUG to enable diagnostics” and explain how the diagnostics UI now maps to `debug.json`. Provide explicit guidance on when to edit each file manually (if ever) and how dev mode changes behaviour. |
+| 2e.3 | **Developer guidance.** Extend the developer/refactoring docs with a migration guide for maintainers: how to add new troubleshooting flags (update `DEFAULT_DEBUG_CONFIG`, docs, tests) versus dev-only toggles (update `DEFAULT_DEV_SETTINGS`, dev UI). Include reminders to update both the config loader and docs whenever new keys are introduced. |
+| 2e.4 | **Release artifacts.** Ensure `RELEASE_NOTES.md` (or the relevant changelog) calls out the new diagnostics flow so users know to rely on EDMC’s log level rather than dev builds for logging. |
+
+#### Phase 2f Plan (Test coverage)
+
+| Task | Description | Notes |
+| --- | --- | --- |
+| 2f.1 | **Runtime tests.** Add/extend tests in `tests/test_logging_and_version_helper.py` (and related suites) that cover the final config split: auto-creation of `debug.json`, dev-only creation of `dev_settings.json`, migration paths, and the new preference setters that mutate each file. |
+| 2f.2 | **Client/controller tests.** Expand `overlay_client/tests/test_debug_config_split.py`, `overlay_client/tests/test_logging_propagation.py`, and controller log-level tests to verify that diagnostics toggles remain active when EDMC logging is DEBUG, even without dev mode, while dev-only toggles stay inert. |
+| 2f.3 | **UI tests.** Add Tk/panel unit tests (where practical) to ensure the Diagnostics section appears when `_diagnostic_logging_enabled()` is true, the dev frame hides when dev mode is off, and toggles invoke the correct callbacks (troubleshooting vs. dev settings). |
+| 2f.4 | **Integration smoke.** Wire a smoke test (CLI script or pytest case) that simulates EDMC DEBUG mode end-to-end: launch the overlay client with the propagated log level, verify payload logging writes DEBUG lines, and confirm disabling diagnostics (EDMC=INFO) suppresses them. |
+
+### Phase 3 Plan (Release validation & polish)
+
+| Step | Description | Owner/Notes | Status |
+| --- | --- | --- | --- |
+| 3a | **CI guard.** Add a reusable verification script and wire it into `.github/workflows/release.yml` so every packaging job fails immediately if the version string carries a dev suffix or `MODERN_OVERLAY_DEV_MODE` is exported. | CI | Completed |
+| 3b | **Documentation updates.** Capture the release-guard rationale/results in this refactoring doc and ensure future release instructions call out the CI check. | Docs | Completed |
+
+#### Phase 3 Results
+- Introduced `scripts/verify_release_not_dev.py`, which inspects both the current `__version__` and the `MODERN_OVERLAY_DEV_MODE` override to ensure tagged builds never run with developer behaviour enabled.
+- Both release jobs now execute the guard right after checkout so the workflow fails fast if someone tags a `-dev` build or leaves a dev-mode env var set in the workflow dispatch.
+- This document records the guard so future maintainers know where the check lives and what it enforces.

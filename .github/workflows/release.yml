@@ -22,6 +22,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify release build is not in dev mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_release_not_dev.py
+
       - name: Prepare staging layout
         shell: bash
         run: |
@@ -106,6 +112,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Verify release build is not in dev mode
+        shell: pwsh
+        run: |
+          python scripts/verify_release_not_dev.py
 
       - name: Install ps2exe module
         shell: pwsh

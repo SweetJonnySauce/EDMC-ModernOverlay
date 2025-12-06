@@ -7,6 +7,8 @@ import sys
 
 import pytest
 
+from types import SimpleNamespace
+
 from overlay_client import launcher
 
 
@@ -85,3 +87,21 @@ def test_apply_log_level_hint_clamps_in_dev_mode(client_module, monkeypatch):
     client_module._CLIENT_LOGGER.setLevel(logging.INFO)
     client_module.apply_log_level_hint(logging.INFO, source="port")
     assert client_module._CLIENT_LOGGER.level == logging.DEBUG
+
+
+def test_diagnostics_enabled_when_edmc_debug(monkeypatch):
+    monkeypatch.setattr(launcher, "DEBUG_CONFIG_ENABLED", False, raising=False)
+    settings = SimpleNamespace(edmc_log_level=logging.DEBUG)
+    assert launcher._diagnostics_enabled(settings) is True
+
+
+def test_diagnostics_disabled_for_info_level(monkeypatch):
+    monkeypatch.setattr(launcher, "DEBUG_CONFIG_ENABLED", False, raising=False)
+    settings = SimpleNamespace(edmc_log_level=logging.INFO)
+    assert launcher._diagnostics_enabled(settings) is False
+
+
+def test_diagnostics_enabled_in_dev_mode(monkeypatch):
+    monkeypatch.setattr(launcher, "DEBUG_CONFIG_ENABLED", True, raising=False)
+    settings = SimpleNamespace(edmc_log_level=None)
+    assert launcher._diagnostics_enabled(settings) is True

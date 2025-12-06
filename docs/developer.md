@@ -145,6 +145,21 @@ These details are helpful when debugging sizing issues (e.g., 21:9 vs. 4:3 monit
 | `payload_logging.exclude_plugins` | `[]` | Lowercase prefixes of plugins to skip when mirroring payloads (e.g., `"bgstally-"`). |
 | `overlay_logs_to_keep` | `5` | Rotating overlay log retention (count of files), clamped to [1,20]. |
 
+Example payload emitted by `_ensure_default_debug_config()`:
+
+```json
+{
+  "capture_client_stderrout": true,
+  "overlay_logs_to_keep": 5,
+  "payload_logging": {
+    "overlay_payload_log_enabled": true,
+    "exclude_plugins": []
+  }
+}
+```
+
+The Diagnostics group in the EDMC preferences tab simply edits this file for you; only touch it manually when pre-seeding capture/log-retention defaults in automated test environments.
+
 ### `dev_settings.json` (dev mode only)
 
 Dev mode (`MODERN_OVERLAY_DEV_MODE=1` or `__version__` suffixed with `-dev`) unlocks high-risk helpers controlled by `dev_settings.json`. The plugin auto-creates this file the first time dev mode turns on; the overlay client/controller read it directly so edits take effect after a restart.
@@ -158,6 +173,24 @@ Dev mode (`MODERN_OVERLAY_DEV_MODE=1` or `__version__` suffixed with `-dev`) unl
 | `payload_vertex_markers` | `false` | Render per-vertex debug markers for vector payloads. |
 | `repaint_debounce_enabled` | `true` | Enable the 33 ms repaint debounce for ingest/purge bursts; set `false` to bypass for troubleshooting. |
 | `log_repaint_debounce` | `false` | Emit debug logs for repaint requests/debounce path plus 5s repaint/text-measure stats. |
+
+Sample dev payload (written when the file is missing):
+
+```json
+{
+  "tracing": {
+    "enabled": false,
+    "payload_ids": []
+  },
+  "overlay_outline": true,
+  "group_bounds_outline": true,
+  "payload_vertex_markers": false,
+  "repaint_debounce_enabled": true,
+  "log_repaint_debounce": false
+}
+```
+
+If you add a new troubleshooting or dev flag, update `DEFAULT_DEBUG_CONFIG` or `DEFAULT_DEV_SETTINGS` respectively, extend the loader/tests, and document the new key in this section so downstream tooling knows where to persist it.
 
 ### Fill-mode diagnostics
 

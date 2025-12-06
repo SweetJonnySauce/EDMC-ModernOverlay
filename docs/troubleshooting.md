@@ -28,3 +28,36 @@ Use these steps to gather diagnostics when the overlay misbehaves. EDMC’s own 
 - Overlay logs (client): `logs/EDMCModernOverlay/overlay_client.log` under the Modern Overlay plugin directory (or `logs/EDMCModernOverlay/overlay-payloads.log` when payload mirroring is on).
 - Overlay Controller log: `logs/EDMCModernOverlay/overlay_controller.log` (same directory as the client log). The controller writes a startup banner every time `!ovr` launches it and captures any uncaught exceptions or stack traces before it exits. Set EDMC to DEBUG (or use dev mode) so geometry/routing DEBUG logs are flushed to the file even before Tk initialises.
 - Debug flags live in `debug.json` in the plugin directory; Modern Overlay now auto-creates this file whenever EDMC logging is DEBUG (or dev mode is active) so users don’t need to craft it manually before capturing payloads. Developer-only overlay helpers (tracing, outlines, vertex markers) live in `dev_settings.json`, which is created/read only when dev mode is enabled so normal troubleshooting stays focused on capture/logging knobs.
+
+## Manual config reference
+
+Most users never need to edit JSON by hand because the Diagnostics section writes these values for you, but support workflows sometimes require double-checking what is on disk. `debug.json` is the troubleshooting store; only edit it when you want to seed capture/log-retention defaults before EDMC launches:
+
+```json
+{
+  "capture_client_stderrout": true,
+  "overlay_logs_to_keep": 5,
+  "payload_logging": {
+    "overlay_payload_log_enabled": true,
+    "exclude_plugins": []
+  }
+}
+```
+
+`dev_settings.json` is only honoured in dev mode and holds purely developer-facing toggles:
+
+```json
+{
+  "tracing": {
+    "enabled": false,
+    "payload_ids": []
+  },
+  "overlay_outline": true,
+  "group_bounds_outline": true,
+  "payload_vertex_markers": false,
+  "repaint_debounce_enabled": true,
+  "log_repaint_debounce": false
+}
+```
+
+If you do edit these files manually, restart EDMC afterwards so the plugin reloads them, and make sure EDMC log level is still set to DEBUG so diagnostics remain active.
