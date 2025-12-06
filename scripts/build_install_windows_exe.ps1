@@ -100,7 +100,7 @@ function Copy-PayloadTree {
 }
 
 $resolvedStaging = Resolve-StagingPath -Path $StagingPath
-$resolvedSource = Resolve-SourceRoot -Path $SourceRoot
+    $resolvedSource = Resolve-SourceRoot -Path $SourceRoot
 
 function Write-EmbeddedInstaller {
     param(
@@ -144,6 +144,11 @@ if ($resolvedSource) {
     Copy-Item -LiteralPath $sourceInstall -Destination $destInstall -Force
 }
 
+$checksumScript = Join-Path $resolvedSource 'scripts/generate_checksums.py'
+if (-not (Test-Path -LiteralPath $checksumScript)) {
+    Fail "Checksum generator not found at '$checksumScript'."
+}
+
 $installScript = Join-Path $resolvedStaging 'install_windows.ps1'
 if (-not (Test-Path -LiteralPath $installScript)) {
     Fail "install_windows.ps1 was not found at '$installScript'."
@@ -153,6 +158,10 @@ $payloadDir = $payloadDestination
 if (-not (Test-Path -LiteralPath $payloadDir)) {
     Fail "Payload directory '$payloadDir' was not found. Provide -SourceRoot or pre-stage the payload."
 }
+
+# Generate checksum manifest inside the payload so the installer can validate it.
+Write-Host "Generating checksum manifest for payload at '$payloadDir'."
+& python $checksumScript --target-dir $payloadDir --output (Join-Path $payloadDir 'checksums.txt')
 
 $payloadArchive = Join-Path $resolvedStaging 'embedded_payload.zip'
 if (Test-Path -LiteralPath $payloadArchive) {
