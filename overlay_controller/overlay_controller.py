@@ -90,6 +90,13 @@ _LOG_LEVEL_OVERRIDE_SOURCE: Optional[str] = None
 _GroupSnapshot = GroupSnapshot
 legacy_write_groupings_config = staticmethod(EditController.legacy_write_groupings_config)
 
+def _safe_getattr(obj, name: str, default=None):
+    """Bypass Tk __getattr__ to avoid recursion when accessing private attrs."""
+    try:
+        return object.__getattribute__(obj, name)
+    except AttributeError:
+        return default
+
 
 class _ForceRenderOverrideManager:
     """Compatibility shim delegating to the service ForceRenderOverrideManager."""
@@ -490,7 +497,7 @@ class OverlayConfigApp(tk.Tk):
         self._focus_manager.update_contextual_tip()
 
     def _refresh_widget_focus(self) -> None:
-        manager = self.__dict__.get("_focus_manager")
+        manager = _safe_getattr(self, "_focus_manager")
         if manager is not None:
             return manager.refresh_widget_focus()
         # Fallback during early init if focus manager is not yet wired.
@@ -728,7 +735,7 @@ class OverlayConfigApp(tk.Tk):
                 pass
 
     def _load_idprefix_options(self) -> list[str]:
-        state = self.__dict__.get("_group_state")
+        state = _safe_getattr(self, "_group_state")
         if state is not None:
             try:
                 self._groupings_cache = state.refresh_cache()
@@ -848,7 +855,7 @@ class OverlayConfigApp(tk.Tk):
         state["y_ts"] = ts
 
     def _build_group_snapshot(self, plugin_name: str, label: str) -> _GroupSnapshot | None:
-        controller = self.__dict__.get("_preview_controller")
+        controller = _safe_getattr(self, "_preview_controller")
         if controller is None:
             # Legacy/test fallback when preview controller is not initialized.
             cfg = self._get_group_config(plugin_name, label)
@@ -896,7 +903,7 @@ class OverlayConfigApp(tk.Tk):
         return controller.build_group_snapshot(plugin_name, label)
 
     def _scale_mode_setting(self) -> str:
-        controller = self.__dict__.get("_preview_controller")
+        controller = _safe_getattr(self, "_preview_controller")
         if controller is not None:
             try:
                 return controller.scale_mode_setting()
@@ -950,7 +957,7 @@ class OverlayConfigApp(tk.Tk):
         return result  # type: ignore[return-value]
 
     def _update_absolute_widget_color(self, snapshot: _GroupSnapshot | None) -> None:
-        controller = self.__dict__.get("_preview_controller")
+        controller = _safe_getattr(self, "_preview_controller")
         if controller is not None:
             try:
                 controller.update_absolute_widget_color(snapshot)
@@ -969,7 +976,7 @@ class OverlayConfigApp(tk.Tk):
     def _apply_snapshot_to_absolute_widget(
         self, selection: tuple[str, str], snapshot: _GroupSnapshot, force_ui: bool = True
     ) -> None:
-        controller = self.__dict__.get("_preview_controller")
+        controller = _safe_getattr(self, "_preview_controller")
         if controller is not None:
             try:
                 controller.apply_snapshot_to_absolute_widget(selection, snapshot, force_ui=force_ui)
@@ -990,13 +997,13 @@ class OverlayConfigApp(tk.Tk):
                 pass
 
     def _refresh_current_group_snapshot(self, force_ui: bool = True) -> None:
-        controller = self.__dict__.get("_preview_controller")
+        controller = _safe_getattr(self, "_preview_controller")
         if controller is None:
             return
         controller.refresh_current_group_snapshot(force_ui=force_ui)
 
     def _get_group_snapshot(self, selection: tuple[str, str] | None = None) -> _GroupSnapshot | None:
-        controller = self.__dict__.get("_preview_controller")
+        controller = _safe_getattr(self, "_preview_controller")
         if controller is not None:
             try:
                 return controller.get_group_snapshot(selection)
@@ -1012,7 +1019,7 @@ class OverlayConfigApp(tk.Tk):
             self._status_poll_handle = None
         reload_groupings = False
         loader = getattr(self, "_groupings_loader", None)
-        state = self.__dict__.get("_group_state")
+        state = _safe_getattr(self, "_group_state")
         edit_delay_seconds = 5.0
         if state is not None:
             try:
@@ -1077,7 +1084,7 @@ class OverlayConfigApp(tk.Tk):
             self._handle_idprefix_selected()
 
     def _load_groupings_cache(self) -> dict[str, object]:
-        state = self.__dict__.get("_group_state")
+        state = _safe_getattr(self, "_group_state")
         if state is not None:
             try:
                 return state.refresh_cache()
@@ -1101,7 +1108,7 @@ class OverlayConfigApp(tk.Tk):
     def _cache_changed(self, new_cache: dict[str, object], old_cache: dict[str, object]) -> bool:
         """Return True if cache differs, ignoring timestamp-only churn."""
 
-        state = self.__dict__.get("_group_state")
+        state = _safe_getattr(self, "_group_state")
         if state is not None:
             try:
                 return state.cache_changed(new_cache)
@@ -1280,7 +1287,7 @@ class OverlayConfigApp(tk.Tk):
         self._draw_preview()
 
     def _draw_preview(self) -> None:
-        controller = self.__dict__.get("_preview_controller")
+        controller = _safe_getattr(self, "_preview_controller")
         if controller is None:
             return
         controller.draw_preview()
@@ -1337,7 +1344,7 @@ class OverlayConfigApp(tk.Tk):
         if not isinstance(group, dict):
             return
         group["payloadJustification"] = justification
-        state = self.__dict__.get("_group_state")
+        state = _safe_getattr(self, "_group_state")
         if state is not None:
             try:
                 state.persist_justification(
@@ -1656,7 +1663,7 @@ class OverlayConfigApp(tk.Tk):
     def _get_live_anchor_token(self, snapshot: _GroupSnapshot) -> str:
         """Best-effort anchor token sourced from the UI."""
 
-        controller = self.__dict__.get("_preview_controller")
+        controller = _safe_getattr(self, "_preview_controller")
         if controller is not None:
             try:
                 return controller.get_live_anchor_token(snapshot)
@@ -1676,7 +1683,7 @@ class OverlayConfigApp(tk.Tk):
     def _get_live_absolute_anchor(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
         """Return anchor coordinates, preferring unsaved widget values when available."""
 
-        controller = self.__dict__.get("_preview_controller")
+        controller = _safe_getattr(self, "_preview_controller")
         if controller is not None:
             try:
                 return controller.get_live_absolute_anchor(snapshot)
@@ -1699,7 +1706,7 @@ class OverlayConfigApp(tk.Tk):
     def _get_target_dimensions(self, snapshot: _GroupSnapshot) -> tuple[float, float]:
         """Use the actual placement bounds as the target frame size."""
 
-        controller = self.__dict__.get("_preview_controller")
+        controller = _safe_getattr(self, "_preview_controller")
         if controller is not None:
             try:
                 return controller.get_target_dimensions(snapshot)
@@ -1716,7 +1723,7 @@ class OverlayConfigApp(tk.Tk):
     ) -> tuple[float, float, float, float]:
         """Translate an anchor coordinate into bounding box edges."""
 
-        controller = self.__dict__.get("_preview_controller")
+        controller = _safe_getattr(self, "_preview_controller")
         if controller is not None:
             try:
                 return controller.bounds_from_anchor_point(anchor, anchor_x, anchor_y, width, height)
@@ -1866,7 +1873,7 @@ class OverlayConfigApp(tk.Tk):
             return
         group["idPrefixGroupAnchor"] = anchor
         self._edit_controller.schedule_groupings_config_write()
-        state = self.__dict__.get("_group_state")
+        state = _safe_getattr(self, "_group_state")
         if state is not None:
             try:
                 state.persist_anchor(plugin_name, label, anchor, edit_nonce=self._edit_nonce, write=False, invalidate_cache=True)

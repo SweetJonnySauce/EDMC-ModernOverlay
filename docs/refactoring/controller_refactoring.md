@@ -471,6 +471,20 @@ Stage 6.2 notes:
 - Manager accesses the app state via explicit calls; controller retains only wiring/callbacks. Existing `FocusManager` bindings remain.
 - Tests run: `make lint`, `make test` (296 passed, 21 skipped).
 
+#### Stage 6.4 Plan
+- **Goal:** Strip remaining legacy/fallback code and direct `__dict__` state pokes from `overlay_controller.py`, enforcing helper/service APIs and pushing toward the <650-line shell target.
+- **What to remove/normalize:**
+  - Residual legacy shims or duplicated fallbacks (socket send fallbacks, heartbeat/override reload duplicates) now covered by services.
+  - Direct `__dict__` access for persistence/preview/focus state that can be replaced by helper methods or explicit accessors.
+  - Unused imports/constants/fields in the shell that became redundant after stages 6.1–6.3.
+  - Trim any redundant shell logging/commentary; measure file length after cuts.
+- **Interfaces:** Shell should only wire callbacks and keep minimal UI state; behavior lives in controllers/services. Temporary shims only remain if tests still depend on them, with an intent to drop them in 6.5.
+- **Tests to run:** `make lint`, `make test`; run `PYQT_TESTS=1 python -m pytest overlay_client/tests` if removing fallbacks touches runtime behavior.
+- **Risks & mitigations:**
+  - Removing a fallback still referenced by tests/runtime → audit call sites first; provide a temporary re-export if needed, and rerun full suites immediately.
+  - Breaking state flow by cutting `__dict__` accesses → replace with explicit getters/setters on controllers/services; add a small unit test if new accessors are added.
+  - Over-aggressive deletion to meet line target → prefer moving logic into helpers over deleting; track file length after each cut.
+- **Guarantee alignment:** This stage enforces the UI-only shell contract by removing redundant fallbacks and direct state hacking; success means shell contains only wiring/minimal state and all suites remain green.
 #### Stage 6.3 Plan
 - **Goal:** Move remaining persistence/test shims out of `overlay_controller.py` into `EditController` or dedicated test helpers so the shell no longer owns cache/config write helpers or rounders, while keeping behavior identical.
 - **What to move:**
