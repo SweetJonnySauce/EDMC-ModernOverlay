@@ -38,9 +38,11 @@ from overlay_client.window_utils import compute_legacy_mapper
 try:  # When run as a package (`python -m overlay_controller.overlay_controller`)
     from overlay_controller.input_bindings import BindingConfig, BindingManager
     from overlay_controller.selection_overlay import SelectionOverlay
+    from overlay_controller.services import GroupStateService
 except ImportError:  # Fallback for spec-from-file/test harness
     from input_bindings import BindingConfig, BindingManager  # type: ignore
     from selection_overlay import SelectionOverlay  # type: ignore
+    from services import GroupStateService  # type: ignore
 
 ABS_BASE_WIDTH = 1280
 ABS_BASE_HEIGHT = 960
@@ -1653,6 +1655,13 @@ class OverlayConfigApp(tk.Tk):
         self._groupings_path = self._groupings_user_path
         self._groupings_cache_path = root / "overlay_group_cache.json"
         self._groupings_cache: dict[str, object] = {}
+        self._group_state = GroupStateService(
+            root=root,
+            shipped_path=self._groupings_shipped_path,
+            user_groupings_path=self._groupings_user_path,
+            cache_path=self._groupings_cache_path,
+            loader=self._groupings_loader,
+        )
         self._force_render_override = _ForceRenderOverrideManager(root)
         self._absolute_user_state: dict[tuple[str, str], dict[str, float | None]] = {}
         self._group_snapshots: dict[tuple[str, str], _GroupSnapshot] = {}
@@ -2489,6 +2498,16 @@ class OverlayConfigApp(tk.Tk):
                 pass
 
     def _load_idprefix_options(self) -> list[str]:
+        state = self.__dict__.get("_group_state")
+        if state is not None:
+            try:
+                self._groupings_cache = state.refresh_cache()
+                options = state.load_options()
+                self._groupings_data = getattr(state, "_groupings_data", {})
+                self._idprefix_entries = list(state.idprefix_entries)
+                return options
+            except Exception:
+                pass
         loader = getattr(self, "_groupings_loader", None)
         if loader is not None:
             try:
@@ -2593,6 +2612,28 @@ class OverlayConfigApp(tk.Tk):
         state["y_ts"] = ts
 
     def _build_group_snapshot(self, plugin_name: str, label: str) -> _GroupSnapshot | None:
+        state = self.__dict__.get("_group_state")
+        if state is not None:
+            try:
+                snapshot = state.snapshot(plugin_name, label)
+            except Exception:
+                snapshot = None
+            if snapshot is None:
+                return None
+            return _GroupSnapshot(
+                plugin=snapshot.plugin,
+                label=snapshot.label,
+                anchor_token=snapshot.anchor_token,
+                transform_anchor_token=snapshot.transform_anchor_token,
+                offset_x=snapshot.offset_x,
+                offset_y=snapshot.offset_y,
+                base_bounds=snapshot.base_bounds,
+                base_anchor=snapshot.base_anchor,
+                transform_bounds=snapshot.transform_bounds,
+                transform_anchor=snapshot.transform_anchor,
+                has_transform=snapshot.has_transform,
+                cache_timestamp=snapshot.cache_timestamp,
+            )
         cfg = self._get_group_config(plugin_name, label)
         base_payload, transformed_payload, cache_ts = self._get_cache_record(plugin_name, label)
         if base_payload is None:
@@ -2842,7 +2883,15 @@ class OverlayConfigApp(tk.Tk):
         self._status_poll_handle = None
         reload_groupings = False
         loader = getattr(self, "_groupings_loader", None)
-        if loader is not None:
+        state = self.__dict__.get("_group_state")
+        if state is not None:
+            try:
+                reload_groupings = bool(
+                    state.reload_groupings_if_changed(last_edit_ts=getattr(self, "_last_edit_ts", 0.0), delay_seconds=5.0)
+                )
+            except Exception:
+                reload_groupings = False
+        elif loader is not None:
             try:
                 # Delay reloads immediately after an edit to avoid reading half-written user file.
                 if time.time() - getattr(self, "_last_edit_ts", 0.0) > 5.0:
@@ -2891,6 +2940,12 @@ class OverlayConfigApp(tk.Tk):
             self._handle_idprefix_selected()
 
     def _load_groupings_cache(self) -> dict[str, object]:
+        state = self.__dict__.get("_group_state")
+        if state is not None:
+            try:
+                return state.refresh_cache()
+            except Exception:
+                pass
         path = getattr(self, "_groupings_cache_path", None)
         if path is None:
             root = Path(__file__).resolve().parents[1]
@@ -2909,6 +2964,13 @@ class OverlayConfigApp(tk.Tk):
     def _cache_changed(self, new_cache: dict[str, object], old_cache: dict[str, object]) -> bool:
         """Return True if cache differs, ignoring timestamp-only churn."""
 
+        state = self.__dict__.get("_group_state")
+        if state is not None:
+            try:
+                return state.cache_changed(new_cache)
+            except Exception:
+                return False
+
         def _strip_timestamps(node: object) -> object:
             if isinstance(node, dict):
                 return {k: _strip_timestamps(v) for k, v in node.items() if k != "last_updated"}
@@ -2919,60 +2981,71 @@ class OverlayConfigApp(tk.Tk):
         return _strip_timestamps(new_cache) != _strip_timestamps(old_cache)
 
     def _write_groupings_config(self) -> None:
-        user_path = getattr(self, "_groupings_user_path", None) or getattr(self, "_groupings_path", None)
-        if user_path is None:
-            return
+        state = self.__dict__.get("_group_state")
+        if state is None:
+            # Fallback to legacy in-controller write path when service is unavailable (legacy tests/harness).
+            user_path = getattr(self, "_groupings_user_path", None) or getattr(self, "_groupings_path", None)
+            if user_path is None:
+                return
 
-        shipped_path = getattr(self, "_groupings_shipped_path", None)
-        if shipped_path is None:
-            root = Path(__file__).resolve().parents[1]
-            shipped_path = root / "overlay_groupings.json"
-            self._groupings_shipped_path = shipped_path
+            shipped_path = getattr(self, "_groupings_shipped_path", None)
+            if shipped_path is None:
+                root = Path(__file__).resolve().parents[1]
+                shipped_path = root / "overlay_groupings.json"
+                self._groupings_shipped_path = shipped_path
 
-        try:
-            shipped_raw = json.loads(shipped_path.read_text(encoding="utf-8"))
-        except Exception:
-            shipped_raw = {}
+            try:
+                shipped_raw = json.loads(shipped_path.read_text(encoding="utf-8"))
+            except Exception:
+                shipped_raw = {}
 
-        merged_view = getattr(self, "_groupings_data", None)
-        if not isinstance(merged_view, dict):
-            merged_view = {}
-        else:
-            # Round offsets to reduce float noise.
-            merged_view = OverlayConfigApp._round_offsets(merged_view)
-
-        try:
-            diff = diff_groupings(shipped_raw, merged_view)
-        except Exception:
-            return
-
-        if is_empty_diff(diff):
-            # Clear stale user overrides when merged view matches shipped defaults.
-            if user_path.exists():
-                try:
-                    user_path.write_text("{}\n", encoding="utf-8")
-                    _controller_debug("Cleared user groupings file; no overrides to persist.")
-                except Exception:
-                    pass
+            merged_view = getattr(self, "_groupings_data", None)
+            if not isinstance(merged_view, dict):
+                merged_view = {}
             else:
-                _controller_debug("Skip writing user groupings: no diff to persist.")
-            return
+                merged_view = OverlayConfigApp._round_offsets(merged_view)
 
+            try:
+                diff = diff_groupings(shipped_raw, merged_view)
+            except Exception:
+                return
+
+            if is_empty_diff(diff):
+                if user_path.exists():
+                    try:
+                        user_path.write_text("{}\n", encoding="utf-8")
+                        _controller_debug("Cleared user groupings file; no overrides to persist.")
+                    except Exception:
+                        pass
+                else:
+                    _controller_debug("Skip writing user groupings: no diff to persist.")
+                return
+
+            try:
+                payload = dict(diff) if isinstance(diff, dict) else {}
+                payload["_edit_nonce"] = getattr(self, "_user_overrides_nonce", "")
+                text = json.dumps(payload, indent=2) + "\n"
+                tmp_path = user_path.with_suffix(user_path.suffix + ".tmp")
+                tmp_path.write_text(text, encoding="utf-8")
+                tmp_path.replace(user_path)
+                merged_payload = dict(merged_view)
+                merged_payload["_edit_nonce"] = getattr(self, "_user_overrides_nonce", "")
+                self._send_plugin_cli(
+                    {"cli": "controller_overrides_payload", "overrides": merged_payload, "nonce": merged_payload["_edit_nonce"]}
+                )
+            except Exception:
+                return
         try:
-            payload = dict(diff) if isinstance(diff, dict) else {}
-            payload["_edit_nonce"] = getattr(self, "_user_overrides_nonce", "")
-            text = json.dumps(payload, indent=2) + "\n"
-            tmp_path = user_path.with_suffix(user_path.suffix + ".tmp")
-            tmp_path.write_text(text, encoding="utf-8")
-            tmp_path.replace(user_path)
-            # Push merged overrides directly to plugin/client for immediate adoption.
-            merged_payload = dict(merged_view)
-            merged_payload["_edit_nonce"] = getattr(self, "_user_overrides_nonce", "")
-            self._send_plugin_cli(
-                {"cli": "controller_overrides_payload", "overrides": merged_payload, "nonce": merged_payload["_edit_nonce"]}
-            )
+            state._write_groupings_config(edit_nonce=getattr(self, "_user_overrides_nonce", ""))
+            merged_payload = getattr(state, "_groupings_data", {})
+            if isinstance(merged_payload, dict):
+                merged_payload = dict(merged_payload)
+                merged_payload["_edit_nonce"] = getattr(self, "_user_overrides_nonce", "")
+                self._send_plugin_cli(
+                    {"cli": "controller_overrides_payload", "overrides": merged_payload, "nonce": merged_payload["_edit_nonce"]}
+                )
         except Exception:
-            pass
+            return
 
     @staticmethod
     def _round_offsets(payload: dict[str, object]) -> dict[str, object]:
@@ -3333,9 +3406,27 @@ class OverlayConfigApp(tk.Tk):
     ) -> None:
         plugin_name, label = selection
         self._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
-        self._set_config_offsets(plugin_name, label, offset_x, offset_y)
+        state = self.__dict__.get("_group_state")
+        if state is not None:
+            try:
+                state.persist_offsets(
+                    plugin_name,
+                    label,
+                    offset_x,
+                    offset_y,
+                    edit_nonce=self._edit_nonce,
+                    write=False,
+                    invalidate_cache=True,
+                )
+                self._groupings_data = getattr(state, "_groupings_data", self._groupings_data)
+                self._groupings_cache = getattr(state, "_groupings_cache", self._groupings_cache)
+            except Exception:
+                self._set_config_offsets(plugin_name, label, offset_x, offset_y)
+        else:
+            self._set_config_offsets(plugin_name, label, offset_x, offset_y)
         self._last_edit_ts = time.time()
-        self._invalidate_group_cache_entry(plugin_name, label)
+        if state is None:
+            self._invalidate_group_cache_entry(plugin_name, label)
         delay = self._offset_write_debounce_ms if debounce_ms is None else debounce_ms
         self._schedule_groupings_config_write(delay)
         snapshot = self._group_snapshots.get(selection)
@@ -3405,6 +3496,16 @@ class OverlayConfigApp(tk.Tk):
         if not isinstance(group, dict):
             return
         group["payloadJustification"] = justification
+        state = self.__dict__.get("_group_state")
+        if state is not None:
+            try:
+                state.persist_justification(
+                    plugin_name, label, justification, edit_nonce=self._edit_nonce, write=False, invalidate_cache=True
+                )
+                self._groupings_data = getattr(state, "_groupings_data", self._groupings_data)
+                self._groupings_cache = getattr(state, "_groupings_cache", self._groupings_cache)
+            except Exception:
+                pass
         _controller_debug(
             "Justification changed via justification_widget for %s/%s -> %s",
             plugin_name,
@@ -3412,7 +3513,8 @@ class OverlayConfigApp(tk.Tk):
             justification,
         )
         self._schedule_groupings_config_write()
-        self._invalidate_group_cache_entry(plugin_name, label)
+        if state is None:
+            self._invalidate_group_cache_entry(plugin_name, label)
         self._last_edit_ts = time.time()
         self._offset_live_edit_until = max(getattr(self, "_offset_live_edit_until", 0.0) or 0.0, self._last_edit_ts + 5.0)
         self._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
@@ -3865,6 +3967,14 @@ class OverlayConfigApp(tk.Tk):
             return
         group["idPrefixGroupAnchor"] = anchor
         self._schedule_groupings_config_write()
+        state = self.__dict__.get("_group_state")
+        if state is not None:
+            try:
+                state.persist_anchor(plugin_name, label, anchor, edit_nonce=self._edit_nonce, write=False, invalidate_cache=True)
+                self._groupings_data = getattr(state, "_groupings_data", self._groupings_data)
+                self._groupings_cache = getattr(state, "_groupings_cache", self._groupings_cache)
+            except Exception:
+                pass
         _controller_debug(
             "Anchor changed via anchor_widget for %s/%s -> %s (prefer_user=%s)",
             plugin_name,
@@ -3882,7 +3992,8 @@ class OverlayConfigApp(tk.Tk):
             self._schedule_anchor_restore(selection)
         # Notify client of anchor change for active group selection.
         self._send_active_group_selection(plugin_name, label)
-        self._invalidate_group_cache_entry(plugin_name, label)
+        if state is None:
+            self._invalidate_group_cache_entry(plugin_name, label)
         snapshot = self._group_snapshots.get(selection)
         if snapshot is not None:
             snapshot.has_transform = False
