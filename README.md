@@ -15,7 +15,7 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
 - Custom placement of Plugin overlays using the Overlay Controller (see below)
 - Works in borderless or windowed mode on any display size
 - Cross platform for Windows and Linux
-- Support 4 distributions for Linux (Debian, Fedora, OpenSUSE, Arch) and can be extended
+- Support 4 distributions for Linux (Debian, Fedora, OpenSUSE, Arch)
 - Supports host and Flatpak installs of EDMC on Linux
 - Code is 100% Python
 - Numerous development features for EDMC Plugin Developers
@@ -26,10 +26,9 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
 - Change absolute X/Y values using px or % values
 - Change the anchor point on the group to define where and how it's placed. Anchor points include nw, top, ne, right, se, bottom, sw, left, center.
 - Change justification within the payload (doesn't work on vector based images)
-- A preview window can be expanded with the right arrow (when a widget is not in focus) to see original placement, actual placement, and target. The delay is due to payload TTL values.
+- A preview window can be expanded with the right arrow (when a widget is not in focus) to see original placement, actual placement, and target.
 
-<img width="162" height="340" alt="image" src="https://github.com/user-attachments/assets/5e4fbc0b-57ac-4414-92d9-602de1521a51" />
-<img width="578" height="347" alt="image" src="https://github.com/user-attachments/assets/2626cfe7-8abf-40df-b71f-65b5d7e818fa" />
+<img width="1147" height="677" alt="image" src="https://github.com/user-attachments/assets/618f06c2-18da-4bdc-b148-035921f7dcdb" />
 
 # Installation
 
@@ -83,12 +82,10 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
 ## Everyday workflow
 1. **Enable the plugin in EDMC.** Install the plugin and restart EDMC. In EDMC, open `File → Settings → Plugins`, and navigate to `EDMCModernOverlay` for user settings.
 2. **Configure the HUD from EDMC.** Go to `File → Settings → EDMCModernOverlay` and adjust:
-   - Scaling (`Fit` keeps the original aspect ratio, `Fill` stretches groups proportionally).
    - Whether to show the connection status banner in lower left hand corner plus its gutter/margin in pixels.
-   - Debug overlay metrics and the corner they appear in.
    - Font scaling bounds for payload text. This sets the min/max size of the normal font on different display sizes. 
    - Elite title-bar compensation toggle + height. Turn this true if running in windowed mode with a title bar.
-   - Nudge overflowing payloads back into view” + gutter. Useful in `Fill` if you find text extending beyond the right or bottom edges of the screen.
+   - Nudge overflowing payloads back into view” + gutter. Useful if you find text extending beyond the edges of the screen.
    
 ## Programmatic API
 
