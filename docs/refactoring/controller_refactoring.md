@@ -48,8 +48,8 @@
 | --- | --- | --- |
 | 1 | Extract group/config state management into a service with a narrow API; keep Tk shell unaware of JSON/cache details. | Completed |
 | 2 | Isolate plugin bridge + mode/heartbeat timers into dedicated helpers to decouple sockets and scheduling from UI. | Completed |
-| 3 | Move preview math/rendering into a pure helper and a canvas renderer class so visuals are testable without UI clutter. | Not started |
-| 4 | Split reusable widgets (idPrefix, offset, absolute XY, anchor, justification, tips) into `widgets/` modules. | Not started |
+| 3 | Move preview math/rendering into a pure helper and a canvas renderer class so visuals are testable without UI clutter. | Completed |
+| 4 | Split reusable widgets (idPrefix, offset, absolute XY, anchor, justification, tips) into `widgets/` modules. | Completed |
 | 5 | Slim `OverlayConfigApp` to orchestration only; wire services together; add/adjust tests for new seams. | Not started |
 
 ## Phase Details
@@ -200,6 +200,39 @@ Stage 3.5 notes:
 - Document the binding/focus contract used by `BindingManager` (e.g., `set_focus_request_callback`, `get_binding_targets`) so keyboard navigation and overlays keep working.
 - Risks: broken focus/binding wiring; styling/geometry drift when detached from parent.
 - Mitigations: extract one widget at a time with a focused test per widget, keep existing callbacks/signatures, and run the controller manually to verify focus cycling/selection overlays.
+
+| Stage | Description | Status |
+| --- | --- | --- |
+| 4.1 | Baseline widget behaviors/bindings/layout: document callbacks, focus wiring, and current tests; run headless controller pytest. | Completed |
+| 4.2 | Extract `IdPrefixGroupWidget` to `widgets/idprefix.py` with existing API; adjust imports and add/align tests. | Completed |
+| 4.3 | Extract offset/absolute widgets (`OffsetSelectorWidget`, `AbsoluteXYWidget`) to `widgets/offset.py`/`widgets/absolute.py`; preserve change callbacks and focus hooks; update tests. | Completed |
+| 4.4 | Extract anchor/justification widgets to `widgets/anchor.py`/`widgets/justification.py`; ensure bindings and callbacks intact; update tests. | Completed |
+| 4.5 | Extract tips helper (`SidebarTipHelper`) and finalize widget package exports; refit controller imports; rerun full test suites. | Completed |
+
+Stage 4.1 notes:
+- Widgets and bindings baseline: `IdPrefixGroupWidget` handles Alt-key suppression for dropdown navigation; Offset selector uses Alt+Arrow to pin edges and focuses host on clicks; Absolute widget exposes `get_binding_targets` and change callbacks; Anchor/Justification widgets manage focus via `set_focus_request_callback` and emit change callbacks; `SidebarTipHelper` currently static text.
+- Focus wiring: `_focus_widgets` uses sidebar index mapping; `BindingManager` registers widget-specific bindings via `absolute_widget.get_binding_targets()`; widgets provide `on_focus_enter/exit` methods used by controller focus navigation.
+- Tests run: `python -m pytest overlay_controller/tests` (headless) passing (33 passed, 3 skipped).
+
+Stage 4.2 notes:
+- Added `overlay_controller/widgets` package with shared `alt_modifier_active` helper and `IdPrefixGroupWidget` moved to `widgets/idprefix.py` (API intact).
+- Controller imports widget/alt helper; removed inline class definition and unused ttk import.
+- Tests run: `python -m pytest overlay_controller/tests` (35 passed, 3 skipped).
+
+Stage 4.3 notes:
+- Moved `OffsetSelectorWidget` to `widgets/offset.py` (still uses `alt_modifier_active` helper) and `AbsoluteXYWidget` to `widgets/absolute.py`; exported via `widgets/__init__.py`.
+- Controller imports widgets from package; inline class definitions removed.
+- Tests run: `python -m pytest overlay_controller/tests` (35 passed, 3 skipped).
+
+Stage 4.4 notes:
+- Extracted `JustificationWidget` to `widgets/justification.py` and `AnchorSelectorWidget` to `widgets/anchor.py` (anchor uses shared `alt_modifier_active` helper); exported via `widgets/__init__.py`.
+- Controller now imports all widgets from the package; inline definitions removed.
+- Tests run: `python -m pytest overlay_controller/tests` (35 passed, 3 skipped).
+
+Stage 4.5 notes:
+- Moved `SidebarTipHelper` to `widgets/tips.py`; `widgets/__init__.py` exports all widgets (idprefix, offset, absolute, anchor, justification, tips) plus `alt_modifier_active`.
+- Controller sidebar wiring now imports all widgets from `overlay_controller.widgets`; inline helper removed from controller.
+- Tests run: `make check` (ruff, mypy, full pytest) passing (294 passed, 21 skipped).
 
 ### Phase 5: App Shell Slimdown and Tests
 - Leave `overlay_controller.py` as a thin `OverlayConfigApp` shell: layout, focus/drag handling, and orchestration of services/widgets.
