@@ -372,6 +372,68 @@ function Convert-ManifestPathToWindows {
     return ($RelativePath -replace '/', [IO.Path]::DirectorySeparatorChar)
 }
 
+function Normalize-ChecksumLines {
+    param(
+        [string[]]$Lines,
+        [string]$BaseDir
+    )
+
+    if (-not $Lines -or $Lines.Count -eq 0) {
+        return $Lines
+    }
+
+    $legacyPrefix = 'dist/linux/'
+
+    $samplePath = $null
+    foreach ($line in $Lines) {
+        $match = [regex]::Match($line, '^(?<hash>[0-9A-Fa-f]{64})\s{2}(?<path>.+)$')
+        if ($match.Success) {
+            $samplePath = $match.Groups['path'].Value.Trim()
+            break
+        }
+    }
+
+    if (-not $samplePath -or -not $samplePath.StartsWith($legacyPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        return $Lines
+    }
+
+    $sampleWithPrefix = Convert-ManifestPathToWindows -RelativePath $samplePath
+    $expectedWithPrefix = Join-Path $BaseDir $sampleWithPrefix
+    if (Test-Path -LiteralPath $expectedWithPrefix) {
+        return $Lines
+    }
+
+    $trimmedSample = $samplePath.Substring($legacyPrefix.Length)
+    $sampleTrimmedWin = Convert-ManifestPathToWindows -RelativePath $trimmedSample
+    $expectedTrimmed = Join-Path $BaseDir $sampleTrimmedWin
+    if (-not (Test-Path -LiteralPath $expectedTrimmed)) {
+        return $Lines
+    }
+
+    Write-Info "Normalized checksum manifest paths by removing legacy '${legacyPrefix}' prefix."
+    $normalized = @()
+    foreach ($line in $Lines) {
+        if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith('#')) {
+            $normalized += $line
+            continue
+        }
+        $match = [regex]::Match($line, '^(?<hash>[0-9A-Fa-f]{64})\s{2}(?<path>.+)$')
+        if (-not $match.Success) {
+            $normalized += $line
+            continue
+        }
+        $hash = $match.Groups['hash'].Value
+        $relativePath = $match.Groups['path'].Value.Trim()
+        if ($relativePath.StartsWith($legacyPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            $normalized += ("{0}  {1}" -f $hash, $relativePath.Substring($legacyPrefix.Length))
+        } else {
+            $normalized += $line
+        }
+    }
+
+    return $normalized
+}
+
 function Get-FileSha256 {
     param([Parameter(Mandatory = $true)][string]$LiteralPath)
 
@@ -407,6 +469,7 @@ function Verify-Checksums {
     }
 
     $lines = Get-Content -LiteralPath $ChecksumManifestPath -ErrorAction Stop
+    $lines = Normalize-ChecksumLines -Lines $lines -BaseDir $BaseDir
     foreach ($line in $lines) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         if ($line.StartsWith('#')) { continue }

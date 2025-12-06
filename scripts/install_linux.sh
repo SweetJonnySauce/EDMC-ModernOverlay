@@ -20,6 +20,8 @@ PLUGIN_DIR_OVERRIDE=""
 LOG_ENABLED=false
 LOG_FILE=""
 CHECKSUM_MANIFEST_PATH=""
+CHECKSUM_MANIFEST_EFFECTIVE=""
+CHECKSUM_MANIFEST_TEMP=""
 
 declare -a POSITIONAL_ARGS=()
 declare -a MATRIX_STANDARD_PATHS=()
@@ -814,17 +816,54 @@ locate_checksum_manifest() {
     local fallback="${RELEASE_ROOT}/${MODERN_PLUGIN_DIR_NAME}/${CHECKSUM_MANIFEST_BASENAME}"
     if [[ -f "$candidate" ]]; then
         CHECKSUM_MANIFEST_PATH="$candidate"
+        CHECKSUM_MANIFEST_EFFECTIVE="$candidate"
         log_verbose "Checksum manifest detected at '$CHECKSUM_MANIFEST_PATH'."
         return
     fi
     if [[ -f "$fallback" ]]; then
         CHECKSUM_MANIFEST_PATH="$fallback"
+        CHECKSUM_MANIFEST_EFFECTIVE="$fallback"
         log_verbose "Checksum manifest detected at '$CHECKSUM_MANIFEST_PATH' (inside ${MODERN_PLUGIN_DIR_NAME})."
         return
     fi
     CHECKSUM_MANIFEST_PATH=""
+    CHECKSUM_MANIFEST_EFFECTIVE=""
     echo "ℹ️  No checksum manifest '${CHECKSUM_MANIFEST_BASENAME}' found alongside installer; skipping integrity verification."
     log_verbose "No checksum manifest '${CHECKSUM_MANIFEST_BASENAME}' found alongside installer; skipping integrity verification."
+}
+
+normalize_checksum_manifest_paths() {
+    if [[ -z "${CHECKSUM_MANIFEST_PATH:-}" ]]; then
+        return
+    fi
+
+    CHECKSUM_MANIFEST_EFFECTIVE="$CHECKSUM_MANIFEST_PATH"
+    local legacy_prefix="dist/linux/"
+    local sample_path
+    sample_path="$(awk 'NR==1 {print $2}' "$CHECKSUM_MANIFEST_PATH" 2>/dev/null || true)"
+
+    if [[ "$sample_path" != "${legacy_prefix}"* ]]; then
+        return
+    fi
+
+    local trimmed_path="${sample_path#${legacy_prefix}}"
+    if [[ -e "${RELEASE_ROOT}/${sample_path}" || ! -e "${RELEASE_ROOT}/${trimmed_path%%/*}" ]]; then
+        return
+    fi
+
+    local tmp_manifest
+    tmp_manifest="$(mktemp -t edmcoverlay-checksums.XXXXXX)"
+    sed "s#  ${legacy_prefix}#  #g" "$CHECKSUM_MANIFEST_PATH" >"$tmp_manifest"
+    CHECKSUM_MANIFEST_EFFECTIVE="$tmp_manifest"
+    CHECKSUM_MANIFEST_TEMP="$tmp_manifest"
+    echo "ℹ️  Normalized checksum manifest paths (removed '${legacy_prefix}' prefix)."
+    log_verbose "Checksum manifest normalized to '$tmp_manifest' due to legacy dist/linux prefix."
+}
+
+cleanup_checksum_manifest_temp() {
+    if [[ -n "${CHECKSUM_MANIFEST_TEMP:-}" && -f "$CHECKSUM_MANIFEST_TEMP" ]]; then
+        rm -f "$CHECKSUM_MANIFEST_TEMP"
+    fi
 }
 
 verify_checksums() {
@@ -833,12 +872,14 @@ verify_checksums() {
     if [[ -z "${CHECKSUM_MANIFEST_PATH:-}" ]]; then
         return
     fi
+    normalize_checksum_manifest_paths
     if [[ "$DRY_RUN" == true ]]; then
         echo "📝 [dry-run] Would verify integrity of '${label}' using $(basename "$CHECKSUM_MANIFEST_PATH")."
         return
     fi
     require_command sha256sum "sha256sum (coreutils)"
-    if (cd "$base_dir" && sha256sum -c "$CHECKSUM_MANIFEST_PATH"); then
+    local manifest_path="${CHECKSUM_MANIFEST_EFFECTIVE:-$CHECKSUM_MANIFEST_PATH}"
+    if (cd "$base_dir" && sha256sum -c "$manifest_path"); then
         echo "✅ Integrity check passed for ${label}."
     else
         echo "❌ Integrity verification failed for ${label}. Re-download the release archive and try again." >&2
@@ -1394,6 +1435,7 @@ EOF
 }
 
 main() {
+    trap cleanup_checksum_manifest_temp EXIT
     local -a ORIGINAL_ARGS=("$@")
     parse_args "$@"
     find_release_root
