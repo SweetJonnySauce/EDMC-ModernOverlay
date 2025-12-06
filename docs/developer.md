@@ -58,10 +58,11 @@ Every call rewrites `overlay_groupings.json`, so keep the file under version con
 ## Versioning
 
 - The release number lives in `version.py` (`__version__`). Bump it before tagging so EDMC, the overlay client, and API consumers remain in sync.
-- `load.py` exposes that version via EDMC metadata fields and records it in `port.json` next to the broadcast port.
+- `load.py` exposes that version via EDMC metadata fields and records it in `port.json` next to the broadcast port (along with a `log_level` block that advertises EDMC’s current logging level).
 - The overlay client shows the running version in the “Connected to …” banner, making it easy to confirm which build is active.
 - Developer builds inherit BGSTally-style semantics: append `-dev` (or any `.dev*` suffix) to `__version__` **or** export `MODERN_OVERLAY_DEV_MODE=1` before launching EDMC to force dev mode. Dev builds default the plugin logger to DEBUG and log a startup banner; set `MODERN_OVERLAY_DEV_MODE=0` to suppress dev behaviour while keeping the `-dev` version string.
-- `debug.json` is only read when dev mode is active. Release builds ignore every flag in that file, so set `MODERN_OVERLAY_DEV_MODE=1` (or bump the version suffix to `-dev`) before relying on payload mirroring, group outlines, or trace helpers.
+- The dev override now forces every Modern Overlay logger (plugin, PyQt client, overlay controller, payload mirror) to DEBUG even if EDMC’s log level stays at INFO/WARN, and identifies that override in each log file so we know whether DEBUG came from EDMC or dev mode.
+- `debug.json` is only read when dev mode is active. Release builds ignore every flag in that file, so set `MODERN_OVERLAY_DEV_MODE=1` (or bump the version suffix to `-dev`) before relying on payload mirroring, group outlines, or trace helpers. When EDMC’s log level is DEBUG, the plugin now auto-creates `debug.json` (even in release builds) and pipes overlay stdout/stderr back to EDMC; dev mode bypasses the EDMC gate so stdout capture stays active even if EDMC logging isn’t DEBUG. During the logging refactor we’ll carve dev-only helpers into a new `dev_settings.json` (created/read only when dev mode is enabled) so `debug.json` stays focused on troubleshooting switches such as capture, payload logging, and log retention.
 
 ## Tests
 
@@ -131,18 +132,27 @@ Enable **Show debug overlay** to surface a live diagnostics panel in the corner 
 
 These details are helpful when debugging sizing issues (e.g., 21:9 vs. 4:3 monitors) or verifying that Fill-mode remaps are behaving as expected.
 
-## debug.json flags (dev mode only)
+## Debug configuration files
 
-The file `debug.json` is honoured only in dev builds (`MODERN_OVERLAY_DEV_MODE=1` or `__version__` suffixed with `-dev`). Missing keys are auto-populated with defaults; edits require an overlay restart.
+### `debug.json` (troubleshooting)
+
+`debug.json` is honoured whenever diagnostics are enabled (EDMC log level = DEBUG or dev mode), regardless of whether the build is tagged `-dev`. Missing keys are auto-populated by the plugin when diagnostics turn on; edits require an overlay restart to propagate.
 
 | Key | Default | Effect |
 | --- | --- | --- |
-| `trace_enabled` / `tracing.enabled` | `false` | Enable legacy payload tracing (mirrors payloads to `overlay-payloads.log` and adds per-payload trace hooks). |
-| `payload_ids` / `tracing.payload_ids` | `[]` | Optional allowlist of payload IDs/prefixes to trace; leave empty to trace all when `trace_enabled` is true. |
+| `capture_client_stderrout` | `true` | Pipe overlay stdout/stderr back to the EDMC log (only emitted when diagnostics are active). |
 | `payload_logging.overlay_payload_log_enabled` | `true` | Mirror payloads to `logs/EDMCModernOverlay/overlay-payloads.log`; combine with `exclude_plugins` to suppress noisy sources. |
 | `payload_logging.exclude_plugins` | `[]` | Lowercase prefixes of plugins to skip when mirroring payloads (e.g., `"bgstally-"`). |
-| `capture_client_stderrout` | `true` | Pipe overlay stdout/stderr back to EDMC logs (only emitted when EDMC log level is DEBUG). |
 | `overlay_logs_to_keep` | `5` | Rotating overlay log retention (count of files), clamped to [1,20]. |
+
+### `dev_settings.json` (dev mode only)
+
+Dev mode (`MODERN_OVERLAY_DEV_MODE=1` or `__version__` suffixed with `-dev`) unlocks high-risk helpers controlled by `dev_settings.json`. The plugin auto-creates this file the first time dev mode turns on; the overlay client/controller read it directly so edits take effect after a restart.
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `tracing.enabled` | `false` | Enable legacy payload tracing (mirrors payloads to `overlay-payloads.log` and adds per-payload trace hooks). |
+| `tracing.payload_ids` | `[]` | Optional allowlist of payload IDs/prefixes to trace; leave empty to trace all when tracing is enabled. |
 | `overlay_outline` | `true` | Draw a dashed border around the overlay window (debug overlay aid). |
 | `group_bounds_outline` | `true` | Draw dashed rectangles/anchors for cached groups (useful for Fill tuning). |
 | `payload_vertex_markers` | `false` | Render per-vertex debug markers for vector payloads. |
@@ -151,7 +161,7 @@ The file `debug.json` is honoured only in dev builds (`MODERN_OVERLAY_DEV_MODE=1
 
 ### Fill-mode diagnostics
 
-Enable `group_bounds_outline` in `debug.json` to render dashed rectangles (plus anchor dots) for each cached group while tuning Fill mode behaviour. Because Fill scales the legacy canvas until one axis overflows, these outlines make it easy to confirm that related payloads are translating together and remaining rigid even when they extend beyond the visible window.
+Enable `group_bounds_outline` in `dev_settings.json` to render dashed rectangles (plus anchor dots) for each cached group while tuning Fill mode behaviour. Because Fill scales the legacy canvas until one axis overflows, these outlines make it easy to confirm that related payloads are translating together and remaining rigid even when they extend beyond the visible window.
 
 ## Transform Pipeline Overview
 

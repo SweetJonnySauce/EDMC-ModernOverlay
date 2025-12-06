@@ -6,7 +6,7 @@ import logging
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Mapping, Optional
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Tuple
 
 try:
     from config import config as EDMC_CONFIG  # type: ignore
@@ -19,12 +19,24 @@ STATUS_BASE_MARGIN = 20
 LEGACY_STATUS_SLOT_MARGIN = 17
 STATUS_GUTTER_MAX = 500
 STATUS_GUTTER_DEFAULT = 50
+ROW_PAD = (6, 0)
 LATEST_RELEASE_URL = "https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest"
 CONFIG_PREFIX = "edmc_modern_overlay."
 CONFIG_STATE_VERSION = 1
 CONFIG_VERSION_KEY = f"{CONFIG_PREFIX}state_version"
+CLIENT_LOG_RETENTION_MIN = 1
+CLIENT_LOG_RETENTION_MAX = 20
+DEFAULT_CLIENT_LOG_RETENTION = 5
 
 LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class TroubleshootingPanelState:
+    diagnostics_enabled: bool = False
+    capture_enabled: bool = False
+    log_retention_override: Optional[int] = None
+    exclude_plugins: Tuple[str, ...] = ()
 
 
 def _config_available() -> bool:
@@ -151,7 +163,7 @@ class Preferences:
     overlay_opacity: float = 0.0
     show_connection_status: bool = False
     debug_overlay_corner: str = "NW"
-    client_log_retention: int = 5
+    client_log_retention: int = DEFAULT_CLIENT_LOG_RETENTION
     gridlines_enabled: bool = False
     gridline_spacing: int = 120
     force_render: bool = False
@@ -458,7 +470,6 @@ class PreferencesPanel:
         set_font_max_callback: Optional[Callable[[float], None]] = None,
         set_cycle_payload_callback: Optional[Callable[[bool], None]] = None,
         set_cycle_payload_copy_callback: Optional[Callable[[bool], None]] = None,
-        set_scale_mode_callback: Optional[Callable[[str], None]] = None,
         cycle_payload_prev_callback: Optional[Callable[[], None]] = None,
         cycle_payload_next_callback: Optional[Callable[[], None]] = None,
         restart_overlay_callback: Optional[Callable[[], None]] = None,
@@ -466,6 +477,11 @@ class PreferencesPanel:
         dev_mode: bool = False,
         plugin_version: Optional[str] = None,
         version_update_available: bool = False,
+        troubleshooting_state: Optional[TroubleshootingPanelState] = None,
+        set_capture_override_callback: Optional[Callable[[bool], None]] = None,
+        set_log_retention_override_callback: Optional[Callable[[Optional[int]], None]] = None,
+        set_payload_exclusion_callback: Optional[Callable[[Sequence[str]], None]] = None,
+        payload_logging_initial: Optional[bool] = None,
     ) -> None:
         import tkinter as tk
         from tkinter import ttk
@@ -487,19 +503,34 @@ class PreferencesPanel:
         self._var_title_bar_enabled = tk.BooleanVar(value=preferences.title_bar_enabled)
         self._var_title_bar_height = tk.IntVar(value=int(preferences.title_bar_height))
         self._var_debug_overlay = tk.BooleanVar(value=preferences.show_debug_overlay)
-        self._var_payload_logging = tk.BooleanVar(value=preferences.log_payloads)
+        initial_logging = preferences.log_payloads if payload_logging_initial is None else bool(payload_logging_initial)
+        self._var_payload_logging = tk.BooleanVar(value=initial_logging)
         self._var_min_font = tk.DoubleVar(value=float(preferences.min_font_point))
         self._var_max_font = tk.DoubleVar(value=float(preferences.max_font_point))
         self._var_cycle_payload = tk.BooleanVar(value=preferences.cycle_payload_ids)
         self._var_cycle_copy = tk.BooleanVar(value=preferences.copy_payload_id_on_cycle)
         self._var_launch_command = tk.StringVar(value=preferences.controller_launch_command)
+        state = troubleshooting_state or TroubleshootingPanelState(
+            diagnostics_enabled=False,
+            capture_enabled=False,
+            log_retention_override=None,
+            exclude_plugins=(),
+        )
+        self._diagnostics_enabled = bool(state.diagnostics_enabled)
+        self._var_capture_override = tk.BooleanVar(value=state.capture_enabled)
+        retention_value = state.log_retention_override
+        if retention_value is None:
+            try:
+                base_value = int(preferences.client_log_retention)
+            except Exception:
+                base_value = DEFAULT_CLIENT_LOG_RETENTION
+            base_value = max(CLIENT_LOG_RETENTION_MIN, min(base_value, CLIENT_LOG_RETENTION_MAX))
+            retention_value = base_value
+        self._var_log_retention_override_active = tk.BooleanVar(value=state.log_retention_override is not None)
+        self._var_log_retention_value = tk.IntVar(value=int(retention_value))
+        self._var_payload_exclude = tk.StringVar(value=", ".join(state.exclude_plugins))
         self._font_bounds_apply_in_progress = False
         self._launch_command_apply_in_progress = False
-        self._scale_mode_options = [
-            ("Fit (preserve aspect)", "fit"),
-            ("Fill (proportional rescale)", "fill"),
-        ]
-        self._var_scale_mode_display = tk.StringVar(value=self._display_for_scale_mode(preferences.scale_mode))
 
         self._send_test = send_test_callback
         self._set_opacity = set_opacity_callback
@@ -518,11 +549,13 @@ class PreferencesPanel:
         self._set_font_max = set_font_max_callback
         self._set_cycle_payload = set_cycle_payload_callback
         self._set_cycle_payload_copy = set_cycle_payload_copy_callback
-        self._set_scale_mode = set_scale_mode_callback
         self._cycle_prev_callback = cycle_payload_prev_callback
         self._cycle_next_callback = cycle_payload_next_callback
         self._restart_overlay = restart_overlay_callback
         self._set_launch_command = set_launch_command_callback
+        self._set_capture_override = set_capture_override_callback
+        self._set_log_retention_override = set_log_retention_override_callback
+        self._set_payload_exclusions = set_payload_exclusion_callback
 
         self._legacy_client = None
         self._status_gutter_spin = None
@@ -530,6 +563,8 @@ class PreferencesPanel:
         self._cycle_prev_btn = None
         self._cycle_next_btn = None
         self._cycle_copy_checkbox = None
+        self._log_retention_spin = None
+        self._payload_exclude_entry = None
         self._managed_fonts = []
         self._status_gutter_apply_in_progress = False
         self._var_status_gutter.trace_add("write", self._on_status_gutter_trace)
@@ -588,21 +623,6 @@ class PreferencesPanel:
         user_section.columnconfigure(0, weight=1)
         user_row = 0
 
-        scale_mode_row = ttk.Frame(user_section, style=self._frame_style)
-        scale_mode_label = nb.Label(scale_mode_row, text="Overlay scaling mode:")
-        scale_mode_label.pack(side="left")
-        self._scale_mode_combo = ttk.Combobox(
-            scale_mode_row,
-            values=[label for label, _ in self._scale_mode_options],
-            state="readonly",
-            width=28,
-            textvariable=self._var_scale_mode_display,
-        )
-        self._scale_mode_combo.pack(side="left", padx=(8, 0))
-        self._scale_mode_combo.bind("<<ComboboxSelected>>", self._on_scale_mode_change)
-        scale_mode_row.grid(row=user_row, column=0, sticky="w", pady=(8, 0))
-        user_row += 1
-
         status_row = ttk.Frame(user_section, style=self._frame_style)
         status_checkbox = nb.Checkbutton(
             status_row,
@@ -630,44 +650,7 @@ class PreferencesPanel:
         status_gutter_spin.bind("<Return>", self._on_status_gutter_event)
         self._status_gutter_spin = status_gutter_spin
 
-        status_row.grid(row=user_row, column=0, sticky="w", pady=(8, 0))
-        user_row += 1
-
-        debug_checkbox = nb.Checkbutton(
-            user_section,
-            text="Show debug overlay metrics (frame size, scaling)",
-            variable=self._var_debug_overlay,
-            onvalue=True,
-            offvalue=False,
-            command=self._on_debug_overlay_toggle,
-        )
-        debug_checkbox.grid(row=user_row, column=0, sticky="w", pady=(8, 0))
-        user_row += 1
-
-        corner_row = ttk.Frame(user_section, style=self._frame_style)
-        corner_label = nb.Label(corner_row, text="Debug overlay corner:")
-        corner_label.pack(side="left")
-        for label, value in (("NW", "NW"), ("NE", "NE"), ("SW", "SW"), ("SE", "SE")):
-            rb = nb.Radiobutton(
-                corner_row,
-                text=label,
-                value=value,
-                variable=self._var_debug_overlay_corner,
-                command=self._on_debug_overlay_corner_change,
-            )
-            rb.pack(side="left", padx=(6, 0))
-        corner_row.grid(row=user_row, column=0, sticky="w", pady=(8, 0))
-        user_row += 1
-
-        payload_logging_checkbox = nb.Checkbutton(
-            user_section,
-            text="Log incoming payloads to overlay-payloads.log (required for Payload Inspector)",
-            variable=self._var_payload_logging,
-            onvalue=True,
-            offvalue=False,
-            command=self._on_payload_logging_toggle,
-        )
-        payload_logging_checkbox.grid(row=user_row, column=0, sticky="w", pady=(8, 0))
+        status_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
         user_row += 1
 
         font_row = ttk.Frame(user_section, style=self._frame_style)
@@ -700,7 +683,7 @@ class PreferencesPanel:
         max_spin.pack(side="left")
         max_spin.bind("<FocusOut>", self._on_font_bounds_event)
         max_spin.bind("<Return>", self._on_font_bounds_event)
-        font_row.grid(row=user_row, column=0, sticky="w", pady=(8, 0))
+        font_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
         user_row += 1
 
         title_bar_row = ttk.Frame(user_section, style=self._frame_style)
@@ -731,7 +714,7 @@ class PreferencesPanel:
         if not self._var_title_bar_enabled.get():
             title_bar_height_spin.state(["disabled"])
         self._title_bar_height_spin = title_bar_height_spin
-        title_bar_row.grid(row=user_row, column=0, sticky="w", pady=(8, 0))
+        title_bar_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
         user_row += 1
 
         nudge_row = ttk.Frame(user_section, style=self._frame_style)
@@ -759,7 +742,7 @@ class PreferencesPanel:
         gutter_spin.pack(side="left")
         gutter_spin.bind("<FocusOut>", self._on_payload_gutter_event)
         gutter_spin.bind("<Return>", self._on_payload_gutter_event)
-        nudge_row.grid(row=user_row, column=0, sticky="w", pady=(8, 0))
+        nudge_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
         user_row += 1
 
         launch_row = ttk.Frame(user_section, style=self._frame_style)
@@ -768,8 +751,120 @@ class PreferencesPanel:
         launch_entry.pack(side="left", padx=(8, 0))
         launch_entry.bind("<FocusOut>", self._on_launch_command_event)
         launch_entry.bind("<Return>", self._on_launch_command_event)
-        launch_row.grid(row=user_row, column=0, sticky="w", pady=(8, 0))
+        launch_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
         user_row += 1
+
+        if self._diagnostics_enabled:
+            diagnostics_label = nb.Label(user_section, text="Diagnostics")
+            try:
+                diag_font = tkfont.Font(root=parent, font=diagnostics_label.cget("font"))
+            except Exception:
+                diag_font = None
+            else:
+                try:
+                    diag_font.configure(weight="bold")
+                    self._managed_fonts.append(diag_font)
+                    diagnostics_label.configure(font=diag_font)
+                except Exception:
+                    pass
+            diagnostics_frame = ttk.LabelFrame(user_section, labelwidget=diagnostics_label, padding=(8, 8))
+            diagnostics_frame.grid(row=user_row, column=0, sticky="we", pady=ROW_PAD)
+            diagnostics_frame.columnconfigure(0, weight=1)
+            diag_row = 0
+
+            debug_row = ttk.Frame(diagnostics_frame, style=self._frame_style)
+            debug_checkbox = nb.Checkbutton(
+                debug_row,
+                text="Show debug overlay metrics (frame size, scaling)",
+                variable=self._var_debug_overlay,
+                onvalue=True,
+                offvalue=False,
+                command=self._on_debug_overlay_toggle,
+            )
+            debug_checkbox.pack(side="left")
+            corner_label = nb.Label(debug_row, text="Corner:")
+            corner_label.pack(side="left", padx=(12, 4))
+            for label, value in (("NW", "NW"), ("NE", "NE"), ("SW", "SW"), ("SE", "SE")):
+                rb = nb.Radiobutton(
+                    debug_row,
+                    text=label,
+                    value=value,
+                    variable=self._var_debug_overlay_corner,
+                    command=self._on_debug_overlay_corner_change,
+                )
+                rb.pack(side="left", padx=(4, 0))
+            debug_row.grid(row=diag_row, column=0, sticky="w", pady=ROW_PAD)
+            diag_row += 1
+
+            payload_logging_checkbox = nb.Checkbutton(
+                diagnostics_frame,
+                text="Log incoming payloads to overlay-payloads.log (required for Payload Inspector)",
+                variable=self._var_payload_logging,
+                onvalue=True,
+                offvalue=False,
+                command=self._on_payload_logging_toggle,
+            )
+            payload_logging_checkbox.grid(row=diag_row, column=0, sticky="w", pady=ROW_PAD)
+            diag_row += 1
+
+            capture_checkbox = nb.Checkbutton(
+                diagnostics_frame,
+                text="Capture overlay stdout/stderr in the EDMC log",
+                variable=self._var_capture_override,
+                onvalue=True,
+                offvalue=False,
+                command=self._on_capture_override_toggle,
+            )
+            if not (self._diagnostics_enabled and self._set_capture_override):
+                capture_checkbox.state(["disabled"])
+            capture_checkbox.grid(row=diag_row, column=0, sticky="w", pady=ROW_PAD)
+            diag_row += 1
+
+            retention_row = ttk.Frame(diagnostics_frame, style=self._frame_style)
+            retention_row.grid(row=diag_row, column=0, sticky="w", pady=ROW_PAD)
+            retention_checkbox = nb.Checkbutton(
+                retention_row,
+                text="Override overlay log retention (rotating log files)",
+                variable=self._var_log_retention_override_active,
+                onvalue=True,
+                offvalue=False,
+                command=self._on_log_retention_override_toggle,
+            )
+            retention_checkbox.pack(side="left")
+            retention_spin = ttk.Spinbox(
+                retention_row,
+                from_=CLIENT_LOG_RETENTION_MIN,
+                to=CLIENT_LOG_RETENTION_MAX,
+                increment=1,
+                width=3,
+                textvariable=self._var_log_retention_value,
+                command=self._on_log_retention_override_command,
+                style=self._spinbox_style,
+            )
+            retention_spin.pack(side="left", padx=(12, 0))
+            retention_spin.bind("<FocusOut>", self._on_log_retention_override_event)
+            retention_spin.bind("<Return>", self._on_log_retention_override_event)
+            self._log_retention_spin = retention_spin
+            if not (self._diagnostics_enabled and self._set_log_retention_override):
+                retention_checkbox.state(["disabled"])
+            self._update_log_retention_spin_state()
+            diag_row += 1
+
+            exclude_row = ttk.Frame(diagnostics_frame, style=self._frame_style)
+            exclude_row.grid(row=diag_row, column=0, sticky="we", pady=ROW_PAD)
+            exclude_row.columnconfigure(0, weight=1)
+            exclude_label = nb.Label(exclude_row, text="Skip payload logging for plugin IDs:")
+            exclude_label.pack(side="left")
+            exclude_entry = nb.Entry(exclude_row, width=28, textvariable=self._var_payload_exclude)
+            exclude_entry.pack(side="left", padx=(8, 0), fill="x", expand=True)
+            exclude_entry.bind("<Return>", self._on_payload_exclude_event)
+            self._payload_exclude_entry = exclude_entry
+            exclude_button = nb.Button(exclude_row, text="Apply", command=self._on_payload_exclude_apply)
+            exclude_button.pack(side="left", padx=(8, 0))
+            if not (self._diagnostics_enabled and self._set_payload_exclusions):
+                exclude_entry.configure(state="disabled")
+                exclude_button.configure(state="disabled")
+            user_row += 1
 
         next_row = 2
         if self._dev_mode:
@@ -786,7 +881,7 @@ class PreferencesPanel:
                 except Exception:
                     pass
             dev_frame = ttk.LabelFrame(frame, labelwidget=dev_label, padding=(8, 8))
-            dev_frame.grid(row=next_row, column=0, sticky="we", pady=(16, 0))
+            dev_frame.grid(row=next_row, column=0, sticky="we", pady=ROW_PAD)
             dev_frame.columnconfigure(0, weight=1)
             dev_row = 0
 
@@ -795,7 +890,7 @@ class PreferencesPanel:
             if self._restart_overlay is None:
                 restart_btn.configure(state="disabled")
             restart_btn.pack(side="left")
-            restart_row.grid(row=dev_row, column=0, sticky="w")
+            restart_row.grid(row=dev_row, column=0, sticky="w", pady=ROW_PAD)
             dev_row += 1
 
             force_checkbox = nb.Checkbutton(
@@ -806,14 +901,14 @@ class PreferencesPanel:
                 offvalue=False,
                 command=self._on_force_render_toggle,
             )
-            force_checkbox.grid(row=dev_row, column=0, sticky="w", pady=(12, 0))
+            force_checkbox.grid(row=dev_row, column=0, sticky="w", pady=ROW_PAD)
             dev_row += 1
 
             opacity_label = nb.Label(
                 dev_frame,
                 text="Overlay background opacity (0.0 transparent – 1.0 opaque).",
             )
-            opacity_label.grid(row=dev_row, column=0, sticky="w", pady=(12, 0))
+            opacity_label.grid(row=dev_row, column=0, sticky="w", pady=ROW_PAD)
             dev_row += 1
 
             opacity_row = ttk.Frame(dev_frame, style=self._frame_style)
@@ -828,25 +923,23 @@ class PreferencesPanel:
                 style=self._scale_style,
             )
             opacity_scale.pack(side="left", fill="x")
-            opacity_row.grid(row=dev_row, column=0, sticky="we")
+            opacity_row.grid(row=dev_row, column=0, sticky="we", pady=ROW_PAD)
             dev_row += 1
 
+            grid_row = ttk.Frame(dev_frame, style=self._frame_style)
             grid_checkbox = nb.Checkbutton(
-                dev_frame,
+                grid_row,
                 text="Show light gridlines over the overlay background",
                 variable=self._var_gridlines_enabled,
                 onvalue=True,
                 offvalue=False,
                 command=self._on_gridlines_toggle,
             )
-            grid_checkbox.grid(row=dev_row, column=0, sticky="w", pady=(10, 0))
-            dev_row += 1
-
-            grid_spacing_row = ttk.Frame(dev_frame, style=self._frame_style)
-            grid_spacing_label = nb.Label(grid_spacing_row, text="Grid spacing (pixels):")
-            grid_spacing_label.pack(side="left")
+            grid_checkbox.pack(side="left")
+            grid_spacing_label = nb.Label(grid_row, text="Spacing (px):")
+            grid_spacing_label.pack(side="left", padx=(12, 4))
             grid_spacing_spin = ttk.Spinbox(
-                grid_spacing_row,
+                grid_row,
                 from_=10,
                 to=400,
                 increment=10,
@@ -855,10 +948,10 @@ class PreferencesPanel:
                 command=self._on_gridline_spacing_command,
                 style=self._spinbox_style,
             )
-            grid_spacing_spin.pack(side="left", padx=(6, 0))
+            grid_spacing_spin.pack(side="left")
             grid_spacing_spin.bind("<FocusOut>", self._on_gridline_spacing_event)
             grid_spacing_spin.bind("<Return>", self._on_gridline_spacing_event)
-            grid_spacing_row.grid(row=dev_row, column=0, sticky="w", pady=(2, 0))
+            grid_row.grid(row=dev_row, column=0, sticky="w", pady=ROW_PAD)
             dev_row += 1
 
             cycle_row = ttk.Frame(dev_frame, style=self._frame_style)
@@ -884,15 +977,13 @@ class PreferencesPanel:
             self._cycle_prev_btn.pack(side="left", padx=(8, 0))
             self._cycle_next_btn.pack(side="left", padx=(4, 0))
             self._cycle_copy_checkbox.pack(side="left", padx=(12, 0))
-            cycle_row.grid(row=dev_row, column=0, sticky="w", pady=(12, 0))
-            dev_row += 1
-
-            test_label = nb.Label(dev_frame, text="Send test message to overlay:")
-            test_label.grid(row=dev_row, column=0, sticky="w", pady=(12, 0))
+            cycle_row.grid(row=dev_row, column=0, sticky="w", pady=ROW_PAD)
             dev_row += 1
 
             test_row = ttk.Frame(dev_frame, style=self._frame_style)
-            test_entry = nb.EntryMenu(test_row, textvariable=self._test_var, width=40)
+            test_label = nb.Label(test_row, text="Send test message to overlay:")
+            test_label.pack(side="left", padx=(0, 8))
+            test_entry = nb.EntryMenu(test_row, textvariable=self._test_var, width=28)
             x_label = nb.Label(test_row, text="X:")
             x_entry = nb.EntryMenu(test_row, textvariable=self._test_x_var, width=6)
             y_label = nb.Label(test_row, text="Y:")
@@ -904,22 +995,20 @@ class PreferencesPanel:
             y_label.pack(side="left", padx=(8, 2))
             y_entry.pack(side="left")
             send_button.pack(side="left", padx=(8, 0))
-            test_row.grid(row=dev_row, column=0, sticky="we", pady=(2, 0))
+            test_row.grid(row=dev_row, column=0, sticky="we", pady=ROW_PAD)
             test_row.columnconfigure(0, weight=1)
             dev_row += 1
 
-            legacy_label = nb.Label(dev_frame, text="Legacy edmcoverlay compatibility:")
-            legacy_label.grid(row=dev_row, column=0, sticky="w", pady=(12, 0))
-            dev_row += 1
-
             legacy_row = ttk.Frame(dev_frame, style=self._frame_style)
+            legacy_label = nb.Label(legacy_row, text="Legacy edmcoverlay compatibility:")
+            legacy_label.pack(side="left", padx=(0, 8))
             legacy_text_btn = nb.Button(legacy_row, text="Send legacy text", command=self._on_legacy_text)
             legacy_rect_btn = nb.Button(legacy_row, text="Send legacy rectangle", command=self._on_legacy_rect)
             legacy_emoji_btn = nb.Button(legacy_row, text="Send legacy emoji", command=self._on_legacy_emoji)
             legacy_text_btn.pack(side="left")
             legacy_rect_btn.pack(side="left", padx=(8, 0))
             legacy_emoji_btn.pack(side="left", padx=(8, 0))
-            legacy_row.grid(row=dev_row, column=0, sticky="w", pady=(2, 0))
+            legacy_row.grid(row=dev_row, column=0, sticky="w", pady=ROW_PAD)
             dev_row += 1
 
             next_row += 1
@@ -927,7 +1016,7 @@ class PreferencesPanel:
         self._update_cycle_button_state()
 
         status_label = nb.Label(frame, textvariable=self._status_var, wraplength=400, justify="left")
-        status_label.grid(row=next_row, column=0, sticky="w", pady=(10, 0))
+        status_label.grid(row=next_row, column=0, sticky="w", pady=ROW_PAD)
         frame.columnconfigure(0, weight=1)
 
         self._frame = frame
@@ -943,19 +1032,6 @@ class PreferencesPanel:
         self._apply_title_bar_height(update_remote=False)
         self._apply_payload_gutter()
         self._preferences.save()
-
-    def _display_for_scale_mode(self, mode: str) -> str:
-        value = (mode or "fit").strip().lower()
-        for label, key in self._scale_mode_options:
-            if key == value:
-                return label
-        return self._scale_mode_options[0][0]
-
-    def _value_for_scale_mode_label(self, label: str) -> str:
-        for option_label, key in self._scale_mode_options:
-            if option_label == label:
-                return key
-        return self._scale_mode_options[0][1]
 
     def _init_theme_styles(self, nb):
         try:
@@ -1121,6 +1197,108 @@ class PreferencesPanel:
             return
         self._preferences.log_payloads = value
         self._preferences.save()
+
+    def _on_capture_override_toggle(self) -> None:
+        desired = bool(self._var_capture_override.get())
+        if not (self._diagnostics_enabled and self._set_capture_override):
+            self._var_capture_override.set(not desired)
+            self._status_var.set("Set EDMC log level to DEBUG (or enable dev mode) to capture stdout/stderr.")
+            return
+        try:
+            self._set_capture_override(desired)
+        except Exception as exc:
+            self._status_var.set(f"Failed to update stdout/stderr capture: {exc}")
+            self._var_capture_override.set(not desired)
+            return
+        self._status_var.set(
+            "Overlay stdout/stderr capture {}".format("enabled" if desired else "disabled")
+        )
+
+    def _update_log_retention_spin_state(self) -> None:
+        if self._log_retention_spin is None:
+            return
+        enabled = (
+            self._diagnostics_enabled
+            and self._set_log_retention_override is not None
+            and bool(self._var_log_retention_override_active.get())
+        )
+        if enabled:
+            self._log_retention_spin.state(["!disabled"])
+        else:
+            self._log_retention_spin.state(["disabled"])
+
+    def _on_log_retention_override_toggle(self) -> None:
+        active = bool(self._var_log_retention_override_active.get())
+        if not (self._diagnostics_enabled and self._set_log_retention_override):
+            self._var_log_retention_override_active.set(False)
+            self._status_var.set("Set EDMC logging to DEBUG to override overlay log retention.")
+            self._update_log_retention_spin_state()
+            return
+        if not active:
+            try:
+                self._set_log_retention_override(None)
+            except Exception as exc:
+                self._status_var.set(f"Failed to clear log retention override: {exc}")
+                self._var_log_retention_override_active.set(True)
+            else:
+                self._status_var.set("Overlay log retention override disabled.")
+        else:
+            if self._apply_log_retention_override(update_remote=True) is None:
+                self._var_log_retention_override_active.set(False)
+        self._update_log_retention_spin_state()
+
+    def _on_log_retention_override_command(self) -> None:
+        self._apply_log_retention_override()
+
+    def _on_log_retention_override_event(self, _event) -> None:  # pragma: no cover - Tk event
+        self._apply_log_retention_override()
+
+    def _apply_log_retention_override(self, update_remote: bool = True) -> Optional[int]:
+        try:
+            value = int(self._var_log_retention_value.get())
+        except Exception:
+            try:
+                value = int(self._preferences.client_log_retention)
+            except Exception:
+                value = DEFAULT_CLIENT_LOG_RETENTION
+        value = max(CLIENT_LOG_RETENTION_MIN, min(value, CLIENT_LOG_RETENTION_MAX))
+        self._var_log_retention_value.set(value)
+        if not update_remote or self._set_log_retention_override is None:
+            return value
+        try:
+            self._set_log_retention_override(value)
+        except Exception as exc:
+            self._status_var.set(f"Failed to update log retention override: {exc}")
+            return None
+        self._status_var.set(f"Overlay log retention override set to {value} files.")
+        return value
+
+    def _current_payload_excludes(self) -> Tuple[str, ...]:
+        raw = (self._var_payload_exclude.get() or "").replace(",", " ")
+        tokens: list[str] = []
+        seen: set[str] = set()
+        for token in raw.split():
+            cleaned = token.strip().lower()
+            if not cleaned or cleaned in seen:
+                continue
+            tokens.append(cleaned)
+            seen.add(cleaned)
+        return tuple(tokens)
+
+    def _on_payload_exclude_apply(self) -> None:
+        if not (self._diagnostics_enabled and self._set_payload_exclusions):
+            self._status_var.set("Set EDMC logging to DEBUG to edit payload exclusions.")
+            return
+        try:
+            self._set_payload_exclusions(self._current_payload_excludes())
+        except Exception as exc:
+            self._status_var.set(f"Failed to update payload exclusions: {exc}")
+            return
+        self._status_var.set("Payload logging exclusions updated.")
+
+    def _on_payload_exclude_event(self, _event) -> str:  # pragma: no cover - Tk event
+        self._on_payload_exclude_apply()
+        return "break"
 
     def _update_cycle_button_state(self) -> None:
         state = "normal" if self._var_cycle_payload.get() else "disabled"
@@ -1326,23 +1504,6 @@ class PreferencesPanel:
                 return
         self._preferences.save()
 
-    def _on_scale_mode_change(self, _event=None) -> None:
-        selection = self._var_scale_mode_display.get()
-        mode = self._value_for_scale_mode_label(selection)
-        if mode == self._preferences.scale_mode:
-            return
-        try:
-            if self._set_scale_mode:
-                self._set_scale_mode(mode)
-            else:
-                self._preferences.scale_mode = mode
-                self._preferences.save()
-        except Exception as exc:
-            self._status_var.set(f"Failed to update scaling mode: {exc}")
-            self._var_scale_mode_display.set(self._display_for_scale_mode(self._preferences.scale_mode))
-            return
-        self._preferences.scale_mode = mode
-        self._var_scale_mode_display.set(self._display_for_scale_mode(mode))
         self._preferences.save()
 
     def _on_font_bounds_command(self) -> None:

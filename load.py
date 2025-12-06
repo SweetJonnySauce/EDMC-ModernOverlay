@@ -16,7 +16,7 @@ import time
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Set, Tuple
 
 try:
     from monitor import game_running as _edmc_game_running, is_live_galaxy as _edmc_is_live_galaxy  # type: ignore
@@ -33,9 +33,13 @@ if __package__:
     from .overlay_plugin.overlay_watchdog import OverlayWatchdog
     from .overlay_plugin.overlay_socket_server import WebSocketBroadcaster
     from .overlay_plugin.preferences import (
+        CLIENT_LOG_RETENTION_MAX,
+        CLIENT_LOG_RETENTION_MIN,
+        DEFAULT_CLIENT_LOG_RETENTION,
         Preferences,
         PreferencesPanel,
         STATUS_GUTTER_MAX,
+        TroubleshootingPanelState,
         _normalise_launch_command,
     )
     from .overlay_plugin.version_helper import VersionStatus, evaluate_version_status
@@ -54,9 +58,13 @@ else:  # pragma: no cover - EDMC loads as top-level module
     from overlay_plugin.overlay_watchdog import OverlayWatchdog
     from overlay_plugin.overlay_socket_server import WebSocketBroadcaster
     from overlay_plugin.preferences import (
+        CLIENT_LOG_RETENTION_MAX,
+        CLIENT_LOG_RETENTION_MIN,
+        DEFAULT_CLIENT_LOG_RETENTION,
         Preferences,
         PreferencesPanel,
         STATUS_GUTTER_MAX,
+        TroubleshootingPanelState,
         _normalise_launch_command,
     )
     from overlay_plugin.version_helper import VersionStatus, evaluate_version_status
@@ -100,6 +108,8 @@ _LEVEL_NAME_MAP = {
     "DEBUG": logging.DEBUG,
     "TRACE": logging.DEBUG,
 }
+
+_DEV_LOG_LEVEL_OVERRIDE_EMITTED = False
 
 
 def _coerce_float(value: Any) -> Optional[float]:
@@ -196,17 +206,61 @@ def _resolve_edmc_log_level() -> int:
     return EDMC_DEFAULT_LOG_LEVEL
 
 
-def _ensure_plugin_logger_level() -> int:
-    level = _resolve_edmc_log_level()
-    logging.getLogger(LOGGER_NAME).setLevel(level)
+def _edmc_debug_logging_active() -> bool:
+    """Return True when EDMC logging is set to DEBUG or lower."""
+    try:
+        level = _resolve_edmc_log_level()
+    except Exception:
+        return False
+    return level <= logging.DEBUG
+
+def _dev_override_active() -> bool:
+    """Return True when Modern Overlay is running in dev mode."""
+
+    return bool(DEV_BUILD)
+
+
+def _diagnostic_logging_enabled() -> bool:
+    """Return True when logging gates should behave as if EDMC were DEBUG."""
+
+    return _edmc_debug_logging_active() or _dev_override_active()
+
+
+def _effective_log_level(level: Optional[int] = None) -> int:
+    """Return the level Modern Overlay loggers should use."""
+
+    if level is None:
+        level = _resolve_edmc_log_level()
+    if _dev_override_active() and level > logging.DEBUG:
+        return logging.DEBUG
     return level
+
+
+def _ensure_plugin_logger_level() -> int:
+    global _DEV_LOG_LEVEL_OVERRIDE_EMITTED
+
+    edmc_level = _resolve_edmc_log_level()
+    effective_level = _effective_log_level(edmc_level)
+    logger = logging.getLogger(LOGGER_NAME)
+    logger.setLevel(effective_level)
+    if (
+        _dev_override_active()
+        and effective_level < edmc_level
+        and not _DEV_LOG_LEVEL_OVERRIDE_EMITTED
+    ):
+        _DEV_LOG_LEVEL_OVERRIDE_EMITTED = True
+        logger.info(
+            "Dev mode forcing Modern Overlay logger to DEBUG (EDMC log level is %s)",
+            logging.getLevelName(edmc_level),
+        )
+    return effective_level
 
 
 class _EDMCLogHandler(logging.Handler):
     """Logging bridge that always respects EDMC's configured log level."""
 
     def emit(self, record: logging.LogRecord) -> None:
-        target_level = _resolve_edmc_log_level()
+        target_level = _effective_log_level()
         plugin_logger = logging.getLogger(LOGGER_NAME)
         if plugin_logger.level != target_level:
             plugin_logger.setLevel(target_level)
@@ -258,22 +312,20 @@ PAYLOAD_LOGGER_NAME = f"{LOGGER_NAME}.payloads"
 PAYLOAD_LOG_FILE_NAME = "overlay-payloads.log"
 PAYLOAD_LOG_DIR_NAME = PLUGIN_NAME
 PAYLOAD_LOG_MAX_BYTES = 512 * 1024
-DEFAULT_CLIENT_LOG_RETENTION = 5
-CLIENT_LOG_RETENTION_MIN = 1
-CLIENT_LOG_RETENTION_MAX = 20
 
 DEFAULT_DEBUG_CONFIG: Dict[str, Any] = {
     "capture_client_stderrout": True,
-    "trace_enabled": False,
-    "payload_ids": [],
     "overlay_logs_to_keep": 5,
-    "tracing": {
-        "enabled": False,
-        "payload_ids": [],
-    },
     "payload_logging": {
         "overlay_payload_log_enabled": True,
         "exclude_plugins": [],
+    },
+}
+
+DEFAULT_DEV_SETTINGS: Dict[str, Any] = {
+    "tracing": {
+        "enabled": False,
+        "payload_ids": [],
     },
     "overlay_outline": True,
     "group_bounds_outline": True,
@@ -356,16 +408,20 @@ class _PluginRuntime:
         self._log_retention_override: Optional[int] = None
         self._plugin_prefix_map: Dict[str, str] = self._load_plugin_prefix_map()
         self._payload_filter_path = self.plugin_dir / "debug.json"
+        self._dev_settings_path = self.plugin_dir / "dev_settings.json"
         self._payload_filter_mtime: Optional[float] = None
+        self._dev_settings_mtime: Optional[float] = None
         self._payload_filter_excludes: Set[str] = set()
         self._payload_logging_enabled: bool = False
         self._trace_enabled: bool = False
         self._trace_payload_prefixes: Tuple[str, ...] = ()
         self._capture_client_stderrout: bool = False
+        self._dev_settings: Dict[str, Any] = deepcopy(DEFAULT_DEV_SETTINGS)
         self._flatpak_context = self._detect_flatpak_context()
         self._flatpak_spawn_warning_emitted = False
         self._flatpak_host_warning_emitted = False
         self._load_payload_debug_config(force=True)
+        self._load_dev_settings(force=True)
         if self._payload_log_handler is None:
             self._configure_payload_logger()
         self._reset_force_render_override_on_startup()
@@ -625,11 +681,22 @@ class _PluginRuntime:
         for timer in timers:
             timer.cancel()
 
+    @staticmethod
+    def _build_log_level_payload() -> Dict[str, Any]:
+        level = _resolve_edmc_log_level()
+        try:
+            numeric = int(level)
+        except (TypeError, ValueError):
+            numeric = logging.INFO
+        level_name = logging.getLevelName(numeric)
+        return {"value": numeric, "name": str(level_name)}
+
     def _write_port_file(self) -> None:
         target = self.plugin_dir / "port.json"
         data = {
             "port": self.broadcaster.port,
             "version": PLUGIN_VERSION,
+            "log_level": self._build_log_level_payload(),
         }
         if self._flatpak_context.get("is_flatpak"):
             data["flatpak"] = True
@@ -824,10 +891,15 @@ class _PluginRuntime:
         LOGGER.info("Created default debug.json at %s to enable developer tracing.", self._payload_filter_path)
         return True
 
-    def _reset_trace_config(self) -> None:
-        self._trace_enabled = False
-        self._trace_payload_prefixes = ()
-        self._apply_capture_override(False)
+    def _ensure_default_dev_settings(self) -> bool:
+        payload = json.dumps(DEFAULT_DEV_SETTINGS, indent=2, sort_keys=True) + "\n"
+        try:
+            self._dev_settings_path.write_text(payload, encoding="utf-8")
+        except OSError as exc:
+            LOGGER.warning("Unable to create default dev_settings.json at %s: %s", self._dev_settings_path, exc)
+            return False
+        LOGGER.info("Created default dev_settings.json at %s for dev-mode helpers.", self._dev_settings_path)
+        return True
 
     def _load_payload_debug_config(self, *, force: bool = False) -> None:
         pref_logging_enabled = bool(getattr(self._preferences, "log_payloads", False)) if self._preferences else False
@@ -835,7 +907,8 @@ class _PluginRuntime:
         try:
             stat = self._payload_filter_path.stat()
         except FileNotFoundError:
-            created = self._ensure_default_debug_config() if DEV_BUILD else False
+            should_seed = _diagnostic_logging_enabled()
+            created = self._ensure_default_debug_config() if should_seed else False
             if created:
                 try:
                     stat = self._payload_filter_path.stat()
@@ -849,20 +922,23 @@ class _PluginRuntime:
                     self._payload_filter_excludes = set()
                     self._payload_logging_enabled = pref_logging_enabled
                     self._payload_filter_mtime = None
-                    self._reset_trace_config()
+                    self._apply_capture_override(False)
                 if retention_cleared:
                     self._on_log_retention_changed()
+                self._load_dev_settings(force=False)
                 return
         if stat is None:
             self._payload_filter_excludes = set()
             self._payload_logging_enabled = pref_logging_enabled
             self._payload_filter_mtime = None
-            self._reset_trace_config()
+            self._apply_capture_override(False)
             retention_cleared = self._set_log_retention_override(None)
             if retention_cleared:
                 self._on_log_retention_changed()
+            self._load_dev_settings(force=False)
             return
         if not force and self._payload_filter_mtime is not None and stat.st_mtime <= self._payload_filter_mtime:
+            self._load_dev_settings(force=False)
             return
         try:
             raw_text = self._payload_filter_path.read_text(encoding="utf-8")
@@ -870,11 +946,12 @@ class _PluginRuntime:
         except (OSError, json.JSONDecodeError):
             self._payload_filter_excludes = set()
             self._payload_logging_enabled = pref_logging_enabled
-            self._reset_trace_config()
+            self._apply_capture_override(False)
             retention_cleared = self._set_log_retention_override(None)
             if retention_cleared:
                 self._on_log_retention_changed()
             self._payload_filter_mtime = stat.st_mtime
+            self._load_dev_settings(force=False)
             return
         excludes: Set[str] = set()
         updated_defaults = False
@@ -894,40 +971,18 @@ class _PluginRuntime:
                             payload_section[key] = deepcopy(value)
                             updated_defaults = True
                     mutable_data["payload_logging"] = payload_section
-            tracing_defaults = DEFAULT_DEBUG_CONFIG.get("tracing")
-            if isinstance(tracing_defaults, Mapping):
-                tracing_section = mutable_data.setdefault("tracing", {})
-                if isinstance(tracing_section, Mapping):
-                    tracing_section = dict(tracing_section)
-                    for key, value in tracing_defaults.items():
-                        if key not in tracing_section:
-                            tracing_section[key] = deepcopy(value)
-                            updated_defaults = True
-                    mutable_data["tracing"] = tracing_section
             data = mutable_data
+        else:
+            data = deepcopy(DEFAULT_DEBUG_CONFIG)
+            updated_defaults = True
         needs_write = updated_defaults
+        if _dev_override_active():
+            if self._migrate_dev_settings_from_debug(data):
+                needs_write = True
+
         logging_override: Optional[bool] = None
-        trace_enabled = False
-        trace_payload_ids: Tuple[str, ...] = ()
         capture_client_stderrout = False
         log_retention_override: Optional[int] = None
-
-        def _coerce_payload_ids(value: Any) -> Tuple[str, ...]:
-            if value is None:
-                return ()
-            if isinstance(value, (list, tuple, set)):
-                cleaned: List[str] = []
-                for item in value:
-                    if isinstance(item, (str, int, float)):
-                        token = str(item).strip()
-                        if token:
-                            cleaned.append(token)
-                return tuple(cleaned)
-            if isinstance(value, (str, int, float)):
-                token = str(value).strip()
-                if token:
-                    return (token,)
-            return ()
 
         def _coerce_log_retention(value: Any) -> Optional[int]:
             if value is None:
@@ -942,58 +997,28 @@ class _PluginRuntime:
                 return CLIENT_LOG_RETENTION_MAX
             return numeric
 
-        if isinstance(data, Mapping):
-            payload_section = data.get("payload_logging")
-            if isinstance(payload_section, Mapping):
-                enabled_value = payload_section.get("overlay_payload_log_enabled")
-                if isinstance(enabled_value, bool):
-                    logging_override = enabled_value
-                elif enabled_value is not None:
-                    logging_override = bool(enabled_value)
-                exclude_values = payload_section.get("exclude_plugins")
-                if isinstance(exclude_values, Iterable):
-                    for value in exclude_values:
-                        if isinstance(value, str) and value.strip():
-                            excludes.add(value.strip().lower())
-            else:  # legacy schema support
-                filter_section = data.get("payload_filter")
-                if isinstance(filter_section, Mapping):
-                    exclude_values = filter_section.get("exclude_plugins")
-                    if isinstance(exclude_values, Iterable):
-                        for value in exclude_values:
-                            if isinstance(value, str) and value.strip():
-                                excludes.add(value.strip().lower())
-                legacy_flag = data.get("log_payloads")
-                if isinstance(legacy_flag, bool):
-                    logging_override = legacy_flag
-                elif legacy_flag is not None:
-                    logging_override = bool(legacy_flag)
-            tracing_section = data.get("tracing")
-            payload_value: Any = None
-            if isinstance(tracing_section, Mapping):
-                trace_enabled = bool(tracing_section.get("enabled", False))
-                payload_value = tracing_section.get("payload_ids")
-                if payload_value is None:
-                    payload_value = tracing_section.get("payload_id") or tracing_section.get("payload")
-            else:
-                trace_enabled = bool(data.get("trace_enabled", False))
-                payload_value = data.get("payload_ids")
-                if payload_value is None:
-                    payload_value = data.get("payload_id") or data.get("payload")
-            trace_payload_ids = _coerce_payload_ids(payload_value)
-            capture_value = data.get("capture_client_stderrout")
-            if isinstance(capture_value, bool):
-                capture_client_stderrout = capture_value
-            elif capture_value is not None:
-                capture_client_stderrout = bool(capture_value)
-            log_retention_override = _coerce_log_retention(data.get("overlay_logs_to_keep"))
-        else:
-            log_retention_override = None
+        logging_section = data.get("payload_logging")
+        if isinstance(logging_section, Mapping):
+            override = logging_section.get("overlay_payload_log_enabled")
+            if override is not None:
+                logging_override = bool(override)
+            exclude_value = logging_section.get("exclude_plugins")
+            if isinstance(exclude_value, (list, tuple, set)):
+                excludes = {
+                    str(item).strip().lower()
+                    for item in exclude_value
+                    if isinstance(item, (str, int, float)) and str(item).strip()
+                }
+        capture_value = data.get("capture_client_stderrout")
+        if isinstance(capture_value, bool):
+            capture_client_stderrout = capture_value
+        elif capture_value is not None:
+            capture_client_stderrout = bool(capture_value)
+        log_retention_override = _coerce_log_retention(data.get("overlay_logs_to_keep"))
+
         self._payload_filter_excludes = excludes
         effective_logging = pref_logging_enabled if logging_override is None else logging_override
         self._payload_logging_enabled = effective_logging
-        self._trace_enabled = trace_enabled
-        self._trace_payload_prefixes = trace_payload_ids
         self._apply_capture_override(capture_client_stderrout)
         self._payload_filter_mtime = stat.st_mtime
         retention_changed = self._set_log_retention_override(log_retention_override)
@@ -1004,6 +1029,189 @@ class _PluginRuntime:
                 self._payload_filter_path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
             except Exception:
                 LOGGER.debug("Failed to backfill defaults into debug.json", exc_info=True)
+        self._load_dev_settings(force=_dev_override_active())
+
+    def _read_debug_config_payload(self) -> Optional[MutableMapping[str, Any]]:
+        try:
+            raw_text = self._payload_filter_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            if not self._ensure_default_debug_config():
+                return None
+            try:
+                raw_text = self._payload_filter_path.read_text(encoding="utf-8")
+            except (FileNotFoundError, OSError) as exc:
+                LOGGER.warning("Unable to read debug.json after creating defaults: %s", exc)
+                return None
+        except OSError as exc:
+            LOGGER.warning("Unable to read debug.json at %s: %s", self._payload_filter_path, exc)
+            return None
+        try:
+            data = json.loads(raw_text)
+        except (json.JSONDecodeError, TypeError) as exc:
+            LOGGER.warning("Invalid debug.json detected; resetting to defaults: %s", exc)
+            return deepcopy(DEFAULT_DEBUG_CONFIG)
+        if not isinstance(data, MutableMapping):
+            return deepcopy(DEFAULT_DEBUG_CONFIG)
+        return dict(data)
+
+    def _edit_debug_config(self, mutator: Callable[[MutableMapping[str, Any]], bool]) -> None:
+        if not _diagnostic_logging_enabled():
+            raise RuntimeError("Set EDMC log level to DEBUG (or enable dev mode) to update debug.json.")
+        payload = self._read_debug_config_payload()
+        if payload is None:
+            raise RuntimeError(f"Unable to load debug.json from {self._payload_filter_path}")
+        changed = bool(mutator(payload))
+        if not changed:
+            return
+        try:
+            self._payload_filter_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        except OSError as exc:
+            raise RuntimeError(f"Failed to update debug.json: {exc}") from exc
+        self._load_payload_debug_config(force=True)
+
+    @staticmethod
+    def _coerce_payload_id_list(value: Any) -> List[str]:
+        if value is None:
+            return []
+        items: Iterable[Any]
+        if isinstance(value, (list, tuple, set)):
+            items = value
+        else:
+            items = (value,)
+        cleaned: List[str] = []
+        for item in items:
+            if isinstance(item, (str, int, float)):
+                token = str(item).strip()
+                if token:
+                    cleaned.append(token)
+        return cleaned
+
+    def _migrate_dev_settings_from_debug(self, data: MutableMapping[str, Any]) -> bool:
+        dev_payload: Dict[str, Any] = {}
+        migrated = False
+
+        tracing_section = data.pop("tracing", None)
+        if isinstance(tracing_section, Mapping):
+            tracing_payload: Dict[str, Any] = {}
+            tracing_payload["enabled"] = bool(tracing_section.get("enabled", False))
+            tracing_payload["payload_ids"] = self._coerce_payload_id_list(tracing_section.get("payload_ids"))
+            if not tracing_payload["payload_ids"]:
+                single = tracing_section.get("payload_id") or tracing_section.get("payload")
+                tracing_payload["payload_ids"] = self._coerce_payload_id_list(single)
+            dev_payload["tracing"] = tracing_payload
+            migrated = True
+        legacy_trace_enabled = data.pop("trace_enabled", None)
+        legacy_payload_ids = data.pop("payload_ids", None)
+        if legacy_trace_enabled is not None or legacy_payload_ids is not None:
+            tracing_payload = dev_payload.setdefault("tracing", {})
+            if legacy_trace_enabled is not None:
+                tracing_payload["enabled"] = bool(legacy_trace_enabled)
+            if legacy_payload_ids is not None:
+                tracing_payload["payload_ids"] = self._coerce_payload_id_list(legacy_payload_ids)
+            migrated = True
+
+        for key in ("overlay_outline", "group_bounds_outline", "payload_vertex_markers", "repaint_debounce_enabled", "log_repaint_debounce"):
+            if key in data:
+                dev_payload[key] = bool(data.pop(key))
+                migrated = True
+
+        if not migrated:
+            return False
+
+        if not self._dev_settings_path.exists():
+            if not self._ensure_default_dev_settings():
+                return False
+        try:
+            raw = self._dev_settings_path.read_text(encoding="utf-8")
+            existing = json.loads(raw)
+        except (OSError, json.JSONDecodeError):
+            existing = {}
+        normalized, _ = self._normalise_dev_settings(existing)
+
+        tracing_override = dev_payload.get("tracing")
+        if isinstance(tracing_override, Mapping):
+            tracing_block = normalized.setdefault("tracing", {})
+            tracing_block["enabled"] = bool(tracing_override.get("enabled", tracing_block.get("enabled", False)))
+            payload_ids = tracing_override.get("payload_ids")
+            if payload_ids is not None:
+                tracing_block["payload_ids"] = self._coerce_payload_id_list(payload_ids)
+        for key in ("overlay_outline", "group_bounds_outline", "payload_vertex_markers", "repaint_debounce_enabled", "log_repaint_debounce"):
+            if key in dev_payload:
+                normalized[key] = bool(dev_payload[key])
+
+        try:
+            self._dev_settings_path.write_text(json.dumps(normalized, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        except OSError as exc:
+            LOGGER.warning("Failed to migrate dev settings into %s: %s", self._dev_settings_path, exc)
+            return False
+        LOGGER.info("Migrated legacy dev settings from debug.json into %s", self._dev_settings_path)
+        return True
+
+    def _normalise_dev_settings(self, raw: Any) -> Tuple[Dict[str, Any], bool]:
+        normalized = deepcopy(DEFAULT_DEV_SETTINGS)
+        needs_write = False
+        if not isinstance(raw, Mapping):
+            return normalized, True
+        tracing_section = raw.get("tracing")
+        tracing_block = normalized["tracing"]
+        if isinstance(tracing_section, Mapping):
+            tracing_block["enabled"] = bool(tracing_section.get("enabled", tracing_block.get("enabled", False)))
+            payload_ids = tracing_section.get("payload_ids")
+            if payload_ids is None:
+                payload_ids = tracing_section.get("payload_id") or tracing_section.get("payload")
+            tracing_block["payload_ids"] = self._coerce_payload_id_list(payload_ids)
+        else:
+            needs_write = True
+        for key in ("overlay_outline", "group_bounds_outline", "payload_vertex_markers", "repaint_debounce_enabled", "log_repaint_debounce"):
+            if key in raw:
+                normalized[key] = bool(raw.get(key))
+        return normalized, needs_write
+
+    def _load_dev_settings(self, *, force: bool = False) -> None:
+        if not _dev_override_active():
+            self._dev_settings = deepcopy(DEFAULT_DEV_SETTINGS)
+            self._dev_settings_mtime = None
+            self._trace_enabled = False
+            self._trace_payload_prefixes = ()
+            return
+        stat: Optional[os.stat_result]
+        try:
+            stat = self._dev_settings_path.stat()
+        except FileNotFoundError:
+            created = self._ensure_default_dev_settings()
+            if created:
+                try:
+                    stat = self._dev_settings_path.stat()
+                except (FileNotFoundError, OSError):
+                    stat = None
+            else:
+                stat = None
+        if stat is None:
+            self._dev_settings = deepcopy(DEFAULT_DEV_SETTINGS)
+            self._dev_settings_mtime = None
+            self._trace_enabled = False
+            self._trace_payload_prefixes = ()
+            return
+        if not force and self._dev_settings_mtime is not None and stat.st_mtime <= self._dev_settings_mtime:
+            return
+        try:
+            raw_text = self._dev_settings_path.read_text(encoding="utf-8")
+            raw_data = json.loads(raw_text)
+        except (OSError, json.JSONDecodeError):
+            raw_data = {}
+        normalized, needs_write = self._normalise_dev_settings(raw_data)
+        self._dev_settings = normalized
+        self._dev_settings_mtime = stat.st_mtime
+        if needs_write:
+            try:
+                self._dev_settings_path.write_text(json.dumps(normalized, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            except Exception:
+                LOGGER.debug("Failed to backfill defaults into dev_settings.json", exc_info=True)
+        tracing = normalized.get("tracing", {})
+        self._trace_enabled = bool(tracing.get("enabled"))
+        payload_ids = tracing.get("payload_ids") or []
+        cleaned_ids = [str(item).strip() for item in payload_ids if isinstance(item, str) and str(item).strip()]
+        self._trace_payload_prefixes = tuple(cleaned_ids)
 
     def _start_watchdog(self) -> bool:
         overlay_root = self._locate_overlay_client()
@@ -1059,7 +1267,7 @@ class _PluginRuntime:
         return None
 
     def _capture_enabled(self) -> bool:
-        return bool(self._capture_client_stderrout and _resolve_edmc_log_level() <= logging.DEBUG)
+        return bool(self._capture_client_stderrout and _diagnostic_logging_enabled())
 
     def _apply_capture_override(self, enabled: bool) -> None:
         enabled = bool(enabled)
@@ -1068,9 +1276,9 @@ class _PluginRuntime:
         self._capture_client_stderrout = enabled
         if enabled:
             LOGGER.debug("Overlay stdout/stderr capture override enabled via debug.json.")
-            if _resolve_edmc_log_level() > logging.DEBUG:
+            if not _diagnostic_logging_enabled():
                 LOGGER.debug(
-                    "Overlay stdout/stderr capture override is active, but EDMC logging is not DEBUG; no output will be piped until logging is set to DEBUG."
+                    "Overlay stdout/stderr capture override is active, but EDMC logging is not DEBUG; no output will be piped until logging is set to DEBUG or dev mode is enabled."
                 )
         else:
             LOGGER.debug("Overlay stdout/stderr capture override disabled via debug.json.")
@@ -1082,10 +1290,18 @@ class _PluginRuntime:
         self._update_capture_state(self._capture_enabled())
 
     def _update_capture_state(self, enabled: bool) -> None:
+        edmc_debug = _edmc_debug_logging_active()
+        dev_override_only = _dev_override_active() and not edmc_debug
         if enabled and not self._capture_active:
-            LOGGER.debug("EDMC DEBUG mode detected; piping overlay stdout/stderr to EDMC log.")
+            if dev_override_only:
+                LOGGER.info(
+                    "Dev mode forcing overlay stdout/stderr capture; EDMC log level is %s.",
+                    logging.getLevelName(_resolve_edmc_log_level()),
+                )
+            else:
+                LOGGER.info("EDMC DEBUG mode detected; piping overlay stdout/stderr to EDMC log.")
         elif not enabled and self._capture_active:
-            LOGGER.debug("Overlay stdout/stderr capture inactive (override or EDMC logging level disabled piping).")
+            LOGGER.info("Overlay stdout/stderr capture inactive (override or EDMC logging level disabled piping).")
         self._capture_active = enabled
 
     def _desired_force_xwayland(self) -> bool:
@@ -1396,15 +1612,108 @@ class _PluginRuntime:
     def set_payload_logging_preference(self, value: bool) -> None:
         flag = bool(value)
         with self._prefs_lock:
-            if flag == getattr(self._preferences, "log_payloads", False):
-                return
             self._preferences.log_payloads = flag
             try:
                 self._preferences.save()
             except Exception as exc:
                 LOGGER.warning("Failed to persist payload logging preference: %s", exc)
+        if not _diagnostic_logging_enabled():
             self._payload_logging_enabled = flag
-        LOGGER.info("Overlay payload logging %s via preferences", "enabled" if flag else "disabled")
+            LOGGER.info("Overlay payload logging %s via preferences", "enabled" if flag else "disabled")
+            return
+
+        def mutator(payload: MutableMapping[str, Any]) -> bool:
+            section = payload.get("payload_logging")
+            if not isinstance(section, MutableMapping):
+                section = {}
+            normalized = dict(section)
+            current = normalized.get("overlay_payload_log_enabled")
+            if isinstance(current, bool) and current is flag:
+                payload["payload_logging"] = normalized
+                return False
+            normalized["overlay_payload_log_enabled"] = flag
+            payload["payload_logging"] = normalized
+            return True
+
+        self._edit_debug_config(mutator)
+        LOGGER.info(
+            "Overlay payload logging %s via debug.json override",
+            "enabled" if flag else "disabled",
+        )
+
+    def get_troubleshooting_panel_state(self) -> TroubleshootingPanelState:
+        with self._prefs_lock:
+            excludes = tuple(sorted(self._payload_filter_excludes))
+            retention = self._log_retention_override
+            capture = self._capture_client_stderrout
+        return TroubleshootingPanelState(
+            diagnostics_enabled=_diagnostic_logging_enabled(),
+            capture_enabled=capture,
+            log_retention_override=retention,
+            exclude_plugins=excludes,
+        )
+
+    def set_capture_override_preference(self, enabled: bool) -> None:
+        flag = bool(enabled)
+
+        def mutator(payload: MutableMapping[str, Any]) -> bool:
+            current = payload.get("capture_client_stderrout")
+            if isinstance(current, bool) and current is flag:
+                return False
+            payload["capture_client_stderrout"] = flag
+            return True
+
+        self._edit_debug_config(mutator)
+        LOGGER.info("Overlay stdout/stderr capture override %s via preferences UI", "enabled" if flag else "disabled")
+
+    def set_log_retention_override_preference(self, value: Optional[int]) -> None:
+        if value is not None:
+            try:
+                numeric = int(value)
+            except (TypeError, ValueError):
+                numeric = DEFAULT_CLIENT_LOG_RETENTION
+            numeric = max(CLIENT_LOG_RETENTION_MIN, min(numeric, CLIENT_LOG_RETENTION_MAX))
+        else:
+            numeric = None
+
+        def mutator(payload: MutableMapping[str, Any]) -> bool:
+            current = payload.get("overlay_logs_to_keep")
+            if current == numeric:
+                return False
+            payload["overlay_logs_to_keep"] = numeric
+            return True
+
+        self._edit_debug_config(mutator)
+        if numeric is None:
+            LOGGER.info("Overlay log retention override cleared via preferences UI")
+        else:
+            LOGGER.info("Overlay log retention override set to %d via preferences UI", numeric)
+
+    def set_payload_logging_exclusions(self, excludes: Sequence[str]) -> None:
+        cleaned: List[str] = []
+        seen: Set[str] = set()
+        for item in excludes:
+            token = str(item).strip().lower()
+            if not token or token in seen:
+                continue
+            cleaned.append(token)
+            seen.add(token)
+
+        def mutator(payload: MutableMapping[str, Any]) -> bool:
+            section = payload.get("payload_logging")
+            if not isinstance(section, MutableMapping):
+                section = {}
+            normalized = dict(section)
+            current = normalized.get("exclude_plugins")
+            if isinstance(current, list) and [str(item).strip().lower() for item in current] == cleaned:
+                payload["payload_logging"] = normalized
+                return False
+            normalized["exclude_plugins"] = cleaned
+            payload["payload_logging"] = normalized
+            return True
+
+        self._edit_debug_config(mutator)
+        LOGGER.info("Payload logging exclusions updated via preferences UI: %s", ", ".join(cleaned) or "<none>")
 
     def set_cycle_payload_preference(self, value: bool) -> None:
         flag = bool(value)
@@ -1423,18 +1732,6 @@ class _PluginRuntime:
                 return
             self._preferences.copy_payload_id_on_cycle = flag
             LOGGER.debug("Copy payload ID on cycle %s", "enabled" if flag else "disabled")
-            self._preferences.save()
-        self._send_overlay_config()
-
-    def set_scale_mode_preference(self, value: str) -> None:
-        mode = str(value or "fit").strip().lower()
-        if mode not in {"fit", "fill"}:
-            mode = "fit"
-        with self._prefs_lock:
-            if mode == self._preferences.scale_mode:
-                return
-            self._preferences.scale_mode = mode
-            LOGGER.debug("Overlay scale mode set to %s", mode)
             self._preferences.save()
         self._send_overlay_config()
 
@@ -2033,7 +2330,7 @@ class _PluginRuntime:
         self._publish_payload(payload)
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s debug_overlay_corner=%s status_bottom_margin=%s client_log_retention=%d gridlines_enabled=%s "
-            "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s scale_mode=%s "
+            "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s "
             "nudge_overflow=%s payload_gutter=%d payload_log_delay=%.2f font_min=%.1f font_max=%.1f platform_context=%s",
             payload["opacity"],
             payload["show_status"],
@@ -2048,7 +2345,6 @@ class _PluginRuntime:
             payload["show_debug_overlay"],
             payload["cycle_payload_ids"],
             payload["copy_payload_id_on_cycle"],
-            payload["scale_mode"],
             payload["nudge_overflow_payloads"],
             payload["payload_nudge_gutter"],
             payload["payload_log_delay_seconds"],
@@ -2239,21 +2535,22 @@ class _PluginRuntime:
             serialised = repr(payload)
         logger = self._payload_logger if self._payload_log_handler is not None else LOGGER
         self._load_payload_debug_config()
-        if not self._payload_logging_enabled:
+        if not self._payload_logging_enabled or not _diagnostic_logging_enabled():
             return
         plugin_name, payload_id = self._plugin_name_for_payload(payload)
         if self._payload_filter_excludes and plugin_name and plugin_name.lower() in self._payload_filter_excludes:
             return
+        log_method = logger.debug
         if event:
             if plugin_name:
-                logger.info("Overlay payload [%s] plugin=%s: %s", event, plugin_name, serialised)
+                log_method("Overlay payload [%s] plugin=%s: %s", event, plugin_name, serialised)
             else:
-                logger.info("Overlay payload [%s]: %s", event, serialised)
+                log_method("Overlay payload [%s]: %s", event, serialised)
         else:
             if plugin_name:
-                logger.info("Overlay payload plugin=%s: %s", plugin_name, serialised)
+                log_method("Overlay payload plugin=%s: %s", plugin_name, serialised)
             else:
-                logger.info("Overlay payload: %s", serialised)
+                log_method("Overlay payload: %s", serialised)
         legacy_raw = None
         if isinstance(payload, Mapping):
             legacy_raw = payload.get("legacy_raw")
@@ -2266,9 +2563,9 @@ class _PluginRuntime:
             if not legacy_plugin:
                 legacy_plugin = plugin_name
             if legacy_plugin:
-                logger.info("Overlay legacy_raw plugin=%s: %s", legacy_plugin, legacy_serialised)
+                log_method("Overlay legacy_raw plugin=%s: %s", legacy_plugin, legacy_serialised)
             else:
-                logger.info("Overlay legacy_raw: %s", legacy_serialised)
+                log_method("Overlay legacy_raw: %s", legacy_serialised)
 
     def _locate_overlay_python(self, overlay_env: Optional[Dict[str, str]] = None) -> Optional[List[str]]:
         env_override = os.getenv("EDMC_OVERLAY_PYTHON")
@@ -2397,6 +2694,10 @@ class _PluginRuntime:
         session = (env.get("XDG_SESSION_TYPE") or "").lower()
         compositor = self._detect_wayland_compositor()
         force_xwayland = bool(self._preferences.force_xwayland)
+        log_level_payload = self._build_log_level_payload()
+        env["EDMC_OVERLAY_LOG_LEVEL"] = str(log_level_payload.get("value"))
+        log_level_name = log_level_payload.get("name") or logging.getLevelName(logging.INFO)
+        env["EDMC_OVERLAY_LOG_LEVEL_NAME"] = str(log_level_name)
         env["EDMC_OVERLAY_SESSION_TYPE"] = session or "unknown"
         env["EDMC_OVERLAY_COMPOSITOR"] = compositor
         env["EDMC_OVERLAY_FORCE_XWAYLAND"] = "1" if force_xwayland else "0"
@@ -2620,6 +2921,12 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
     opacity_callback = _plugin.preview_overlay_opacity if _plugin else None
     version_status = _plugin.get_version_status() if _plugin else None
     version_update_available = bool(version_status.update_available) if version_status else False
+    diagnostics_state = TroubleshootingPanelState(
+        diagnostics_enabled=_diagnostic_logging_enabled(),
+        capture_enabled=False,
+        log_retention_override=None,
+        exclude_plugins=(),
+    )
     try:
         status_callback = _plugin.set_show_status_preference if _plugin else None
         status_gutter_callback = _plugin.set_status_gutter_preference if _plugin else None
@@ -2636,11 +2943,15 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         font_max_callback = _plugin.set_max_font_preference if _plugin else None
         cycle_toggle_callback = _plugin.set_cycle_payload_preference if _plugin else None
         cycle_copy_callback = _plugin.set_cycle_payload_copy_preference if _plugin else None
-        scale_mode_callback = _plugin.set_scale_mode_preference if _plugin else None
         cycle_prev_callback = _plugin.cycle_payload_prev if _plugin else None
         cycle_next_callback = _plugin.cycle_payload_next if _plugin else None
         restart_overlay_callback = _plugin.restart_overlay_client if _plugin else None
         launch_command_callback = _plugin.set_launch_command_preference if _plugin else None
+        capture_override_callback = _plugin.set_capture_override_preference if _plugin else None
+        log_retention_override_callback = _plugin.set_log_retention_override_preference if _plugin else None
+        payload_exclusion_callback = _plugin.set_payload_logging_exclusions if _plugin else None
+        if _plugin:
+            diagnostics_state = _plugin.get_troubleshooting_panel_state()
         if launch_command_callback:
             LOGGER.debug("Attaching launch command callback with initial value=%s", _preferences.controller_launch_command)
         panel = PreferencesPanel(
@@ -2663,7 +2974,6 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             font_max_callback,
             cycle_toggle_callback,
             cycle_copy_callback,
-            scale_mode_callback,
             cycle_prev_callback,
             cycle_next_callback,
             restart_overlay_callback,
@@ -2671,6 +2981,11 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             dev_mode=DEV_BUILD,
             plugin_version=MODERN_OVERLAY_VERSION,
             version_update_available=version_update_available,
+            troubleshooting_state=diagnostics_state,
+            set_capture_override_callback=capture_override_callback,
+            set_log_retention_override_callback=log_retention_override_callback,
+            set_payload_exclusion_callback=payload_exclusion_callback,
+            payload_logging_initial=_plugin._payload_logging_enabled if _plugin else None,
         )
     except Exception as exc:
         LOGGER.exception("Failed to build preferences panel: %s", exc)
@@ -2702,7 +3017,7 @@ def prefs_changed(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - save 
                 "Preferences saved: show_connection_status=%s "
                 "client_log_retention=%d gridlines_enabled=%s gridline_spacing=%d "
                 "force_render=%s title_bar_enabled=%s title_bar_height=%d force_xwayland=%s "
-                "debug_overlay=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s scale_mode=%s font_min=%.1f font_max=%.1f",
+                "debug_overlay=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s font_min=%.1f font_max=%.1f",
                 _preferences.show_connection_status,
                 _plugin._resolve_client_log_retention() if _plugin else _preferences.client_log_retention,
                 _preferences.gridlines_enabled,
@@ -2714,7 +3029,6 @@ def prefs_changed(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - save 
                 _preferences.show_debug_overlay,
                 _preferences.cycle_payload_ids,
                 _preferences.copy_payload_id_on_cycle,
-                _preferences.scale_mode,
                 _preferences.min_font_point,
                 _preferences.max_font_point,
             )

@@ -29,6 +29,9 @@ class InitialClientSettings:
     nudge_overflow_payloads: bool = False
     payload_nudge_gutter: int = 30
     payload_log_delay_seconds: float = 0.0
+    edmc_log_level: Optional[int] = None
+    edmc_log_level_name: Optional[str] = None
+    edmc_log_level_source: Optional[str] = None
 
 
 @dataclass

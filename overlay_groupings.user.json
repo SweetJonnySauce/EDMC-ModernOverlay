@@ -30,5 +30,14 @@
       }
     }
   },
-  "_edit_nonce": "1764968666.960960-288003"
+  "LandingPad": {
+    "idPrefixGroups": {
+      "LandingPad": {
+        "idPrefixGroupAnchor": "nw",
+        "offsetX": 0.0,
+        "offsetY": -53.0
+      }
+    }
+  },
+  "_edit_nonce": "1764982957.790537-419964"
 }

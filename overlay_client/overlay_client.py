@@ -79,8 +79,11 @@ _CLIENT_LOGGER.propagate = False
 # Opt-in propagation flag for environments/tests that want client logs upstream.
 if os.environ.get("EDMC_OVERLAY_PROPAGATE_LOGS", "").lower() in {"1", "true", "yes", "on"}:
     _CLIENT_LOGGER.propagate = True
+_RELEASE_FILTER_ENABLED = not DEBUG_CONFIG_ENABLED
+_LOG_LEVEL_HINT: Optional[int] = None
+_LOG_LEVEL_HINT_SOURCE: Optional[str] = None
 
-__all__ = ["OverlayWindow", "OverlayClient", "_MeasuredText"]
+__all__ = ["OverlayWindow", "OverlayClient", "_MeasuredText", "apply_log_level_hint"]
 
 
 class _ReleaseLogLevelFilter(logging.Filter):
@@ -91,13 +94,50 @@ class _ReleaseLogLevelFilter(logging.Filter):
         self._release_mode = release_mode
 
     def filter(self, record: logging.LogRecord) -> bool:  # pragma: no cover - logging shim
-        if self._release_mode and record.levelno == logging.DEBUG:
+        if _RELEASE_FILTER_ENABLED and self._release_mode and record.levelno == logging.DEBUG:
             record.levelno = logging.INFO
             record.levelname = "INFO"
         return True
 
 
 _CLIENT_LOGGER.addFilter(_ReleaseLogLevelFilter(release_mode=not DEBUG_CONFIG_ENABLED))
+
+
+def apply_log_level_hint(level: Optional[int], *, source: Optional[str] = None) -> None:
+    """Force the client logger level to the propagated EDMC level."""
+
+    global _LOG_LEVEL_HINT, _LOG_LEVEL_HINT_SOURCE, _RELEASE_FILTER_ENABLED
+    if level is None:
+        return
+    try:
+        numeric = int(level)
+    except (TypeError, ValueError):
+        return
+    original = numeric
+    hint_source = source or "EDMC"
+    dev_override_applied = False
+    if DEBUG_CONFIG_ENABLED and numeric > logging.DEBUG:
+        numeric = logging.DEBUG
+        dev_override_applied = True
+    _LOG_LEVEL_HINT = numeric
+    _LOG_LEVEL_HINT_SOURCE = hint_source
+    _RELEASE_FILTER_ENABLED = False
+    _CLIENT_LOGGER.setLevel(numeric)
+    level_name = logging.getLevelName(numeric)
+    log_level = numeric if numeric >= logging.INFO else logging.INFO
+    if dev_override_applied:
+        _CLIENT_LOGGER.info(
+            "Overlay client logger level forced to DEBUG via dev-mode override (original hint=%s from %s)",
+            logging.getLevelName(original),
+            hint_source,
+        )
+    else:
+        _CLIENT_LOGGER.log(
+            log_level,
+            "Overlay client logger level forced to %s via %s",
+            level_name,
+            hint_source,
+        )
 
 DEFAULT_WINDOW_BASE_WIDTH = 1280
 DEFAULT_WINDOW_BASE_HEIGHT = 960

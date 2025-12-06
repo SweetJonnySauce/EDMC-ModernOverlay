@@ -33,18 +33,54 @@ CLIENT_LOG_RETENTION_MAX = 20
 
 
 @dataclass(frozen=True)
+class TroubleshootingConfig:
+    overlay_logs_to_keep: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class DebugConfig:
     trace_enabled: bool = False
     trace_payload_ids: tuple[str, ...] = ()
     overlay_outline: bool = False
     group_bounds_outline: bool = False
     payload_vertex_markers: bool = False
-    overlay_logs_to_keep: Optional[int] = None
     repaint_debounce_enabled: Optional[bool] = None
     log_repaint_debounce: bool = False
 
 
-def load_debug_config(path: Path) -> DebugConfig:
+def _coerce_log_retention(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        numeric = int(value)
+    except (TypeError, ValueError):
+        return None
+    if numeric <= 0:
+        return CLIENT_LOG_RETENTION_MIN
+    if numeric > CLIENT_LOG_RETENTION_MAX:
+        return CLIENT_LOG_RETENTION_MAX
+    return numeric
+
+
+def load_troubleshooting_config(path: Path, *, enabled: bool) -> TroubleshootingConfig:
+    """Read user-facing troubleshooting flags (log retention) from debug.json."""
+
+    if not enabled:
+        return TroubleshootingConfig()
+    try:
+        raw_text = path.read_text(encoding="utf-8")
+        data = json.loads(raw_text)
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        data = {}
+    overlay_logs_to_keep = None
+    if isinstance(data, dict):
+        overlay_logs_to_keep = _coerce_log_retention(data.get("overlay_logs_to_keep"))
+    return TroubleshootingConfig(overlay_logs_to_keep=overlay_logs_to_keep)
+
+
+def load_dev_settings(path: Path) -> DebugConfig:
+    """Load dev-mode-only flags from dev_settings.json."""
+
     if not DEBUG_CONFIG_ENABLED:
         return DebugConfig()
     defaults = {
@@ -53,7 +89,6 @@ def load_debug_config(path: Path) -> DebugConfig:
         "overlay_outline": False,
         "group_bounds_outline": False,
         "payload_vertex_markers": False,
-        "overlay_logs_to_keep": None,
         "repaint_debounce_enabled": True,
         "log_repaint_debounce": False,
     }
@@ -119,28 +154,12 @@ def load_debug_config(path: Path) -> DebugConfig:
 
     log_repaint_debounce = bool(data.get("log_repaint_debounce", False))
 
-    def _coerce_log_retention(value: Any) -> Optional[int]:
-        if value is None:
-            return None
-        try:
-            numeric = int(value)
-        except (TypeError, ValueError):
-            return None
-        if numeric <= 0:
-            return CLIENT_LOG_RETENTION_MIN
-        if numeric > CLIENT_LOG_RETENTION_MAX:
-            return CLIENT_LOG_RETENTION_MAX
-        return numeric
-
-    overlay_logs_to_keep = _coerce_log_retention(data.get("overlay_logs_to_keep"))
-
     normalized = DebugConfig(
         trace_enabled=trace_enabled,
         trace_payload_ids=payload_ids,
         overlay_outline=overlay_outline,
         group_bounds_outline=group_bounds_outline,
         payload_vertex_markers=payload_vertex_markers,
-        overlay_logs_to_keep=overlay_logs_to_keep,
         repaint_debounce_enabled=repaint_debounce_enabled,
         log_repaint_debounce=log_repaint_debounce,
     )

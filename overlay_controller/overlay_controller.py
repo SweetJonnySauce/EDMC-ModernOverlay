@@ -50,6 +50,28 @@ ABS_MIN_Y = 0.0
 ABS_MAX_Y = float(ABS_BASE_HEIGHT)
 
 
+def _resolve_env_log_level_hint() -> Tuple[Optional[int], Optional[str]]:
+    raw_value = os.getenv("EDMC_OVERLAY_LOG_LEVEL")
+    raw_name = os.getenv("EDMC_OVERLAY_LOG_LEVEL_NAME")
+    level_value: Optional[int]
+    try:
+        level_value = int(raw_value) if raw_value is not None else None
+    except (TypeError, ValueError):
+        level_value = None
+    level_name = None
+    if raw_name:
+        level_name = raw_name.strip() or None
+    if level_name is None and level_value is not None:
+        level_name = logging.getLevelName(level_value)
+    return level_value, level_name
+
+
+_ENV_LOG_LEVEL_VALUE, _ENV_LOG_LEVEL_NAME = _resolve_env_log_level_hint()
+_LOG_LEVEL_OVERRIDE_VALUE: Optional[int] = None
+_LOG_LEVEL_OVERRIDE_NAME: Optional[str] = None
+_LOG_LEVEL_OVERRIDE_SOURCE: Optional[str] = None
+
+
 @dataclass
 class _GroupSnapshot:
     plugin: str
@@ -4327,7 +4349,50 @@ def _ensure_controller_logger(root_path: Path) -> Optional[logging.Logger]:
             formatter=formatter,
         )
         logger = logging.getLogger("EDMCModernOverlay.Controller")
-        logger.setLevel(resolve_log_level(DEBUG_CONFIG_ENABLED))
+        resolved_level = resolve_log_level(DEBUG_CONFIG_ENABLED)
+        level_source = "default"
+        hint_level: Optional[int] = None
+        hint_name: Optional[str] = None
+        hint_source: Optional[str] = None
+
+        def _coerce_candidate(value: Optional[int], name: Optional[str]) -> tuple[Optional[int], Optional[str]]:
+            candidate = value
+            candidate_name = name
+            if candidate is None and candidate_name:
+                attr = getattr(logging, candidate_name.upper(), None)
+                if isinstance(attr, int):
+                    candidate = int(attr)
+            if candidate is not None and candidate_name is None:
+                candidate_name = logging.getLevelName(candidate)
+            return candidate, candidate_name
+
+        if _LOG_LEVEL_OVERRIDE_VALUE is not None or _LOG_LEVEL_OVERRIDE_NAME:
+            candidate, candidate_name = _coerce_candidate(_LOG_LEVEL_OVERRIDE_VALUE, _LOG_LEVEL_OVERRIDE_NAME)
+            if candidate is not None:
+                resolved_level = int(candidate)
+                level_source = _LOG_LEVEL_OVERRIDE_SOURCE or "override"
+                hint_level = resolved_level
+                hint_name = candidate_name or logging.getLevelName(hint_level)
+                hint_source = level_source
+        elif _ENV_LOG_LEVEL_VALUE is not None or _ENV_LOG_LEVEL_NAME:
+            candidate, candidate_name = _coerce_candidate(_ENV_LOG_LEVEL_VALUE, _ENV_LOG_LEVEL_NAME)
+            if candidate is not None:
+                resolved_level = int(candidate)
+                level_source = "env"
+                hint_level = resolved_level
+                hint_name = candidate_name or logging.getLevelName(hint_level)
+                hint_source = level_source
+
+        dev_override_applied = False
+        if DEBUG_CONFIG_ENABLED and resolved_level > logging.DEBUG:
+            dev_override_applied = True
+            if hint_level is None:
+                hint_level = resolved_level
+                hint_name = logging.getLevelName(hint_level)
+                hint_source = level_source
+            resolved_level = logging.DEBUG
+
+        logger.setLevel(resolved_level)
         logger.propagate = False
         logger.handlers.clear()
         logger.addHandler(handler)
@@ -4338,6 +4403,21 @@ def _ensure_controller_logger(root_path: Path) -> Optional[logging.Logger]:
             5,
             512 * 1024,
         )
+        if dev_override_applied:
+            logger.info(
+                "Controller logger level forced to DEBUG via dev-mode override (original hint=%s from %s)",
+                hint_name or logging.getLevelName(hint_level or logging.DEBUG),
+                hint_source or level_source,
+            )
+        elif level_source in {"env", "override"}:
+            level_name = hint_name or logging.getLevelName(resolved_level)
+            telemetry_level = resolved_level if resolved_level >= logging.INFO else logging.INFO
+            logger.log(
+                telemetry_level,
+                "Controller logger level forced to %s via %s",
+                level_name,
+                level_source,
+            )
         _CONTROLLER_LOGGER = logger
         return logger
     except Exception:
@@ -4355,11 +4435,27 @@ def _controller_debug(message: str, *args: object) -> None:
             pass
 
 
+def set_log_level_hint(value: Optional[int], name: Optional[str] = None, source: str = "override") -> None:
+    """Test hook to override the controller log level without relying on env."""
+
+    global _LOG_LEVEL_OVERRIDE_VALUE, _LOG_LEVEL_OVERRIDE_NAME, _LOG_LEVEL_OVERRIDE_SOURCE, _CONTROLLER_LOGGER
+    _LOG_LEVEL_OVERRIDE_VALUE = value
+    _LOG_LEVEL_OVERRIDE_NAME = name
+    _LOG_LEVEL_OVERRIDE_SOURCE = source
+    _CONTROLLER_LOGGER = None
+
+
 def launch() -> None:
     """Entry point used by other modules."""
 
     root_path = Path(__file__).resolve().parents[1]
     _controller_debug("Launching overlay controller: python=%s cwd=%s", sys.executable, Path.cwd())
+    if _ENV_LOG_LEVEL_VALUE is not None or _ENV_LOG_LEVEL_NAME:
+        _controller_debug(
+            "EDMC log level hint: value=%s name=%s",
+            _ENV_LOG_LEVEL_VALUE,
+            _ENV_LOG_LEVEL_NAME or "unknown",
+        )
     pid_path = root_path / "overlay_controller.pid"
     try:
         pid_path.write_text(str(os.getpid()), encoding="utf-8")
