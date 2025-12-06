@@ -10,7 +10,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from version import DEV_MODE_ENV_VAR, __version__, is_dev_build
+from version import DEV_MODE_ENV_VAR, __version__, is_dev_build  # noqa: E402
 
 
 def _env_truthy(value: str | None) -> bool:
