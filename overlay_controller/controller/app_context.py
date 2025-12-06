@@ -22,16 +22,13 @@ class AppContext:
     group_state: GroupStateService
     mode_profile: ControllerModeProfile
     controller_heartbeat_ms: int
-    plugin_bridge: PluginBridge | None
+    plugin_bridge: PluginBridge
     force_render_override: object | None
-    use_legacy_bridge: bool
 
 
 def build_app_context(
     *,
     root: Path,
-    use_legacy_bridge: bool,
-    legacy_force_override_factory: Optional[Callable[[Path], object]] = None,
     logger: Optional[Callable[..., None]] = None,
 ) -> AppContext:
     shipped_path = root / "overlay_groupings.json"
@@ -65,17 +62,8 @@ def build_app_context(
         logger=logger,
     )
 
-    plugin_bridge: PluginBridge | None = None
-    force_render_override: object | None = None
-    if use_legacy_bridge:
-        if legacy_force_override_factory is not None:
-            try:
-                force_render_override = legacy_force_override_factory(root)
-            except Exception:
-                force_render_override = None
-    else:
-        plugin_bridge = PluginBridge(root=root, logger=logger)
-        force_render_override = plugin_bridge.force_render_override
+    plugin_bridge = PluginBridge(root=root, logger=logger)
+    force_render_override = plugin_bridge.force_render_override
 
     return AppContext(
         root=root,
@@ -90,5 +78,4 @@ def build_app_context(
         controller_heartbeat_ms=15000,
         plugin_bridge=plugin_bridge,
         force_render_override=force_render_override,
-        use_legacy_bridge=use_legacy_bridge,
     )

@@ -15,6 +15,33 @@ class EditController:
         self.app = app
         self._log = logger or (lambda *args, **kwargs: None)
 
+    @staticmethod
+    def _round_offsets(payload: dict[str, object]) -> dict[str, object]:
+        """Return a copy with offsets rounded to 3 decimals to avoid float noise."""
+
+        result: dict[str, object] = {}
+        for plugin_name, plugin_entry in payload.items():
+            if not isinstance(plugin_entry, dict):
+                result[plugin_name] = plugin_entry
+                continue
+            plugin_copy: dict[str, object] = dict(plugin_entry)
+            groups = plugin_entry.get("idPrefixGroups")
+            if isinstance(groups, dict):
+                groups_copy: dict[str, object] = {}
+                for label, group_entry in groups.items():
+                    if not isinstance(group_entry, dict):
+                        groups_copy[label] = group_entry
+                        continue
+                    group_copy: dict[str, object] = dict(group_entry)
+                    for key in ("offsetX", "offsetY"):
+                        value = group_copy.get(key)
+                        if isinstance(value, (int, float)):
+                            group_copy[key] = round(float(value), 3)
+                    groups_copy[label] = group_copy
+                plugin_copy["idPrefixGroups"] = groups_copy
+            result[plugin_name] = plugin_copy
+        return result
+
     # Persistence helpers -------------------------------------------------
     def persist_offsets(self, selection: tuple[str, str], offset_x: float, offset_y: float, debounce_ms: int | None) -> None:
         app = self.app
@@ -165,7 +192,7 @@ class EditController:
             if not isinstance(merged_view, dict):
                 merged_view = {}
             else:
-                merged_view = app._round_offsets(merged_view)
+                merged_view = self._round_offsets(merged_view)
 
             try:
                 diff = diff_groupings(shipped_raw, merged_view)

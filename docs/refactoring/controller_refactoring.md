@@ -50,7 +50,7 @@
 | 2 | Isolate plugin bridge + mode/heartbeat timers into dedicated helpers to decouple sockets and scheduling from UI. | Completed |
 | 3 | Move preview math/rendering into a pure helper and a canvas renderer class so visuals are testable without UI clutter. | Completed |
 | 4 | Split reusable widgets (idPrefix, offset, absolute XY, anchor, justification, tips) into `widgets/` modules. | Completed |
-| 5 | Slim `OverlayConfigApp` to orchestration only; wire services together; add/adjust tests for new seams. | Not started |
+| 5 | Slim `OverlayConfigApp` to orchestration only; wire services together; add/adjust tests for new seams. | Completed |
 
 ## Phase Details
 
@@ -284,7 +284,7 @@ Stage 5.1 notes:
   - ControllerModeProfile defaults and mode/timer configuration values.
   - Plugin bridge/timers/force-render override wiring, including legacy flags (`MODERN_OVERLAY_LEGACY_BRIDGE`, `MODERN_OVERLAY_LEGACY_TIMERS`) scoped to a shim.
   - Heartbeat interval defaults and any constants tied to the above context.
-- **Interfaces:** `build_app_context(root: Path, use_legacy_bridge: bool, logger) -> AppContext` with resolved paths, services, mode profile, heartbeat interval, bridge, force-render override, and loader references.
+- **Interfaces:** `build_app_context(root: Path, logger) -> AppContext` with resolved paths, services, mode profile, heartbeat interval, bridge, force-render override, and loader references.
 - **Constraints:** No behavior changes; defaults remain intact; legacy flags still honored. Controller should only pull from the context and stop doing inline construction.
 - **Tests to run:** `overlay_client/.venv/bin/python -m pytest overlay_controller/tests` after wiring; defer `make check`/PyQt until after subsequent stages unless failures appear.
 - **Risks & mitigations:**
@@ -383,3 +383,26 @@ Stage 5.6 notes:
 - Added `overlay_controller/controller/edit_controller.py` to own persist hooks (offsets/justification), debounce scheduling, groupings config writes, and override reload signals; exported via `controller/__init__.py`.
 - `overlay_controller.py` now instantiates `_edit_controller`, delegates offset persistence and debounce/write scheduling to it, and uses helper for override reload + config writes; legacy `_write_groupings_config` wrapper retained for compatibility/tests.
 - Tests run: `overlay_client/.venv/bin/python -m pytest overlay_controller/tests` (38 passed, 3 skipped).
+
+#### Stage 5.7 Plan
+- **Goal:** Final trim of `overlay_controller.py` to a thin shell (<650 lines). Remove legacy helpers/flags and push any remaining logic (cache reload guards, ForceRender/CLI fallbacks, heartbeat/active-group glue, debounce helpers, snapshot glue) into controllers/services. Leave only UI wiring, drag, and close plumbing.
+- **What to cut/move (aggressively):**
+  - Legacy bridge/timer/cache write fallbacks and inline `_write_groupings_config`/debounce stubs that duplicate EditController; consolidate override reload/active-group send paths into services.
+  - Leftover preview/layout/focus helpers still defined in the shell (anchor/absolute sync, sidebar highlight updates, selection-mode toggles) that can live in `PreviewController` or `FocusManager`.
+  - Residual snapshot/cache/loader helpers (cache diff/invalidation, reload gating) lingering in the shell; move to EditController or GroupStateService.
+  - Import trimming: drop unused widget/controller imports and lift small pure helpers into the appropriate modules.
+  - Remove legacy env flags once services are the only path; keep a small shim if tests rely on legacy symbols but target deleting unused code.
+- **Interfaces:** Keep `OverlayConfigApp` exposing only lifecycle wiring (init widgets/controllers, bind callbacks, start timers, teardown). Controllers/services own behavior; shell calls their APIs.
+- **Tests to run:** `make lint`, `make test`, plus `PYQT_TESTS=1 python -m pytest overlay_client/tests` once final trim is done to ensure UI paths stay green.
+- **Risks & mitigations:**
+  - Removing legacy fallbacks breaks external scripts/tests → audit references first, keep minimal shims with deprecation logs, and run full suites (headless + PyQt) immediately after removal.
+  - Missing glue after moving helpers (active-group/override reload not firing, debounces skipped) → add/extend unit tests around bridge/edit controllers and rerun `tests/test_controller_override_reload.py` and active-group tests to verify service path.
+  - UI focus/preview regressions if helpers move without callback wiring → move helpers alongside explicit callback hookups in FocusManager/PreviewController; rerun headless controller tests and manual smoke if needed.
+  - Line-count pressure leading to over-pruning → move logic into helpers instead of deleting; measure file length after each cut and stop deleting when behavior isn’t covered.
+  - ForceRender/heartbeat edge cases regress when legacy flags are removed → keep a temporary compatibility shim that delegates to services, and validate with `tests/test_overlay_controller_platform.py`/heartbeat-related coverage before deleting.
+
+Stage 5.7 notes:
+- Removed legacy bridge/timer env flags; controller always uses the service `PluginBridge`, with a thin compatibility shim `_ForceRenderOverrideManager` delegating to the service for tests. `_send_plugin_cli` now delegates to the bridge only (no socket fallback).
+- Retired legacy debounce/write helpers (`_write_groupings_config`, cache/debounce stubs) from `overlay_controller.py` and replaced them with small static wrappers that delegate to `EditController`; `EditController` owns offset rounding.
+- Simplified `AppContext` (no `use_legacy_bridge`), pruned the legacy test case, and trimmed imports accordingly.
+- Tests run after the trim: `make lint` and `make test` (full suite).

@@ -10,7 +10,6 @@ import os
 import tkinter as tk
 import platform
 import re
-import socket
 import subprocess
 import sys
 import time
@@ -28,10 +27,10 @@ _CONTROLLER_LOGGER: Optional[logging.Logger] = None
 from overlay_client.controller_mode import ControllerModeProfile, ModeProfile  # noqa: F401
 from overlay_client.debug_config import DEBUG_CONFIG_ENABLED
 from overlay_client.logging_utils import build_rotating_file_handler, resolve_log_level, resolve_logs_dir
-from overlay_plugin.groupings_diff import diff_groupings, is_empty_diff
 try:  # When run as a package (`python -m overlay_controller.overlay_controller`)
     from overlay_controller.input_bindings import BindingConfig, BindingManager
     from overlay_controller.services import ModeTimers, PluginBridge
+    from overlay_controller.services.plugin_bridge import ForceRenderOverrideManager
     from overlay_controller.preview import snapshot_math
     from overlay_controller.controller import (
         AppContext,
@@ -45,6 +44,7 @@ try:  # When run as a package (`python -m overlay_controller.overlay_controller`
 except ImportError:  # Fallback for spec-from-file/test harness
     from input_bindings import BindingConfig, BindingManager  # type: ignore
     from services import ModeTimers, PluginBridge  # type: ignore
+    from overlay_controller.services.plugin_bridge import ForceRenderOverrideManager  # type: ignore
     import overlay_controller.preview.snapshot_math as snapshot_math  # type: ignore
     from overlay_controller.controller import (  # type: ignore
         AppContext,
@@ -62,8 +62,6 @@ ABS_MIN_X = 0.0
 ABS_MAX_X = float(ABS_BASE_WIDTH)
 ABS_MIN_Y = 0.0
 ABS_MAX_Y = float(ABS_BASE_HEIGHT)
-_USE_LEGACY_BRIDGE = os.getenv("MODERN_OVERLAY_LEGACY_BRIDGE", "").strip().lower() in {"1", "true", "yes", "on"}
-_USE_LEGACY_TIMERS = os.getenv("MODERN_OVERLAY_LEGACY_TIMERS", "").strip().lower() in {"1", "true", "yes", "on"}
 
 _alt_modifier_active = alt_modifier_active
 
@@ -107,134 +105,17 @@ class _GroupSnapshot:
 
 
 class _ForceRenderOverrideManager:
-    """Manages temporary force-render overrides while the controller is open."""
+    """Compatibility shim delegating to the service ForceRenderOverrideManager."""
 
     def __init__(self, root: Path) -> None:
-        self._settings_path = root / "overlay_settings.json"
-        self._port_path = root / "port.json"
-        self._active = False
-        self._previous_force: Optional[bool] = None
-        self._previous_allow: Optional[bool] = None
-
-    def activate(self) -> None:
-        if self._active:
-            return
-        current_force, current_allow = self._read_force_settings()
-        self._previous_force = current_force
-        self._previous_allow = current_allow
-        response = self._send_override({"cli": "force_render_override", "allow": True, "force_render": True})
-        if response is not None:
-            previous_force = response.get("previous_force_render")
-            if isinstance(previous_force, bool):
-                self._previous_force = previous_force
-            previous_allow = response.get("previous_allow")
-            if isinstance(previous_allow, bool):
-                self._previous_allow = previous_allow
-        else:
-            if self._previous_force is None:
-                self._previous_force = False
-            if self._previous_allow is None:
-                self._previous_allow = False
-            self._update_settings_file(force=True, allow=True)
-        self._active = True
-
-    def deactivate(self) -> None:
-        if not self._active:
-            return
-        restore_force = self._previous_force if self._previous_force is not None else False
-        restore_allow = self._previous_allow if self._previous_allow is not None else False
-        response = self._send_override(
-            {
-                "cli": "force_render_override",
-                "allow": restore_allow,
-                "force_render": restore_force,
-            }
+        self._delegate = ForceRenderOverrideManager(
+            settings_path=root / "overlay_settings.json",
+            port_path=root / "port.json",
+            logger=_controller_debug,
         )
-        if response is None:
-            self._log("Overlay CLI unavailable while restoring force-render override; writing settings file directly.")
-            self._update_settings_file(force=restore_force, allow=restore_allow)
-        else:
-            self._update_settings_file(force=restore_force, allow=restore_allow)
-        self._active = False
-        self._previous_force = None
-        self._previous_allow = None
 
-    def _send_override(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        port = self._load_port()
-        if port is None:
-            return None
-        message = json.dumps(payload, ensure_ascii=False)
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=2.0) as sock:
-                sock.settimeout(2.0)
-                writer = sock.makefile("w", encoding="utf-8", newline="\n")
-                reader = sock.makefile("r", encoding="utf-8")
-                writer.write(message)
-                writer.write("\n")
-                writer.flush()
-                deadline = time.monotonic() + 2.0
-                while time.monotonic() < deadline:
-                    line = reader.readline()
-                    if not line:
-                        break
-                    try:
-                        response = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if isinstance(response, dict):
-                        status = response.get("status")
-                        if status == "ok":
-                            return response
-                        if status == "error":
-                            error_msg = response.get("error")
-                            if error_msg:
-                                self._log(f"Overlay client rejected force-render override: {error_msg}")
-                            return None
-        except OSError:
-            return None
-        except Exception:
-            traceback.print_exc(file=sys.stderr)
-            return None
-        return None
-
-    def _load_port(self) -> Optional[int]:
-        try:
-            data = json.loads(self._port_path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            return None
-        except json.JSONDecodeError:
-            return None
-        port = data.get("port")
-        if not isinstance(port, int) or port <= 0:
-            return None
-        return port
-
-    def _read_force_settings(self) -> tuple[bool, bool]:
-        try:
-            raw = json.loads(self._settings_path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            return False, False
-        except json.JSONDecodeError:
-            return False, False
-        return bool(raw.get("force_render", False)), bool(raw.get("allow_force_render_release", False))
-
-    def _update_settings_file(self, force: bool, allow: bool) -> None:
-        try:
-            raw = json.loads(self._settings_path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            raw = {}
-        except json.JSONDecodeError:
-            raw = {}
-        raw["force_render"] = bool(force)
-        raw["allow_force_render_release"] = bool(allow)
-        try:
-            self._settings_path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
-        except OSError:
-            pass
-
-    @staticmethod
-    def _log(message: str) -> None:
-        print(f"[overlay-controller] {message}", file=sys.stderr)
+    def __getattr__(self, name: str):
+        return getattr(self._delegate, name)
 
 
 class OverlayConfigApp(tk.Tk):
@@ -293,8 +174,6 @@ class OverlayConfigApp(tk.Tk):
         root = Path(__file__).resolve().parents[1]
         self._app_context: AppContext = build_app_context(
             root=root,
-            use_legacy_bridge=_USE_LEGACY_BRIDGE,
-            legacy_force_override_factory=lambda r: _ForceRenderOverrideManager(r),
             logger=_controller_debug,
         )
         self._groupings_shipped_path = self._app_context.shipped_path
@@ -309,7 +188,6 @@ class OverlayConfigApp(tk.Tk):
         self._groupings_cache_path = self._app_context.cache_path
         self._groupings_cache: dict[str, object] = {}
         self._group_state = self._app_context.group_state
-        self._use_legacy_bridge = self._app_context.use_legacy_bridge
         self._plugin_bridge: PluginBridge | None = self._app_context.plugin_bridge
         self._force_render_override = self._app_context.force_render_override
         self._absolute_user_state: dict[tuple[str, str], dict[str, float | None]] = {}
@@ -329,7 +207,6 @@ class OverlayConfigApp(tk.Tk):
             logger=_controller_debug,
         )
         self._mode_profile = self._app_context.mode_profile
-        self._use_legacy_timers = _USE_LEGACY_TIMERS
         self._mode_timers: ModeTimers | None = None
         self._current_mode_profile = self._mode_profile.resolve("active")
         self._status_poll_handle: object | None = None
@@ -337,17 +214,16 @@ class OverlayConfigApp(tk.Tk):
         self._write_debounce_ms = self._current_mode_profile.write_debounce_ms
         self._offset_write_debounce_ms = self._current_mode_profile.offset_write_debounce_ms
         self._status_poll_interval_ms = self._current_mode_profile.status_poll_ms
-        if not self._use_legacy_timers:
-            self._mode_timers = ModeTimers(
-                self._mode_profile,
-                after=self.after,
-                after_cancel=self.after_cancel,
-                time_source=time.time,
-                logger=_controller_debug,
-            )
-            self._write_debounce_ms = self._mode_timers.write_debounce_ms
-            self._offset_write_debounce_ms = self._mode_timers.offset_write_debounce_ms
-            self._status_poll_interval_ms = self._mode_timers.status_poll_interval_ms
+        self._mode_timers = ModeTimers(
+            self._mode_profile,
+            after=self.after,
+            after_cancel=self.after_cancel,
+            time_source=time.time,
+            logger=_controller_debug,
+        )
+        self._write_debounce_ms = self._mode_timers.write_debounce_ms
+        self._offset_write_debounce_ms = self._mode_timers.offset_write_debounce_ms
+        self._status_poll_interval_ms = self._mode_timers.status_poll_interval_ms
         self._offset_step_px = 10.0
         self._offset_live_edit_until: float = 0.0
         self._offset_resync_handle: str | None = None
@@ -538,28 +414,12 @@ class OverlayConfigApp(tk.Tk):
 
     def _send_plugin_cli(self, payload: Dict[str, Any]) -> bool:
         bridge = getattr(self, "_plugin_bridge", None)
-        if bridge is not None:
-            try:
-                return bool(bridge.send_cli(payload))
-            except Exception:
-                return False
-        port_path = getattr(self, "_port_path", Path(__file__).resolve().parents[1] / "port.json")
-        try:
-            data = json.loads(port_path.read_text(encoding="utf-8"))
-            port = int(data.get("port", 0))
-        except Exception:
-            return False
-        if port <= 0:
+        if bridge is None:
             return False
         try:
-            with socket.create_connection(("127.0.0.1", port), timeout=1.5) as sock:
-                writer = sock.makefile("w", encoding="utf-8", newline="\n")
-                writer.write(json.dumps(payload, ensure_ascii=False))
-                writer.write("\n")
-                writer.flush()
+            return bool(bridge.send_cli(payload))
         except Exception:
             return False
-        return True
 
     def _send_controller_heartbeat(self) -> None:
         bridge = getattr(self, "_plugin_bridge", None)
@@ -568,8 +428,6 @@ class OverlayConfigApp(tk.Tk):
                 bridge.send_heartbeat()
             except Exception:
                 pass
-        else:
-            self._send_plugin_cli({"cli": "controller_heartbeat"})
         selection = self._get_current_group_selection()
         if selection is not None:
             plugin_name, label = selection
@@ -1447,150 +1305,13 @@ class OverlayConfigApp(tk.Tk):
         return _strip_timestamps(new_cache) != _strip_timestamps(old_cache)
 
     @staticmethod
+    @staticmethod
     def _round_offsets(payload: dict[str, object]) -> dict[str, object]:
-        """Return a copy with offsetX/offsetY rounded to 3 decimals to avoid float noise."""
+        return EditController._round_offsets(payload)
 
-        result: dict[str, object] = {}
-        for plugin_name, plugin_entry in payload.items():
-            if not isinstance(plugin_entry, dict):
-                result[plugin_name] = plugin_entry
-                continue
-            plugin_copy: dict[str, object] = dict(plugin_entry)
-            groups = plugin_entry.get("idPrefixGroups")
-            if isinstance(groups, dict):
-                groups_copy: dict[str, object] = {}
-                for label, group_entry in groups.items():
-                    if not isinstance(group_entry, dict):
-                        groups_copy[label] = group_entry
-                        continue
-                    group_copy: dict[str, object] = dict(group_entry)
-                    if "offsetX" in group_copy and isinstance(group_copy["offsetX"], (int, float)):
-                        group_copy["offsetX"] = round(float(group_copy["offsetX"]), 3)
-                    if "offsetY" in group_copy and isinstance(group_copy["offsetY"], (int, float)):
-                        group_copy["offsetY"] = round(float(group_copy["offsetY"]), 3)
-                    groups_copy[label] = group_copy
-                plugin_copy["idPrefixGroups"] = groups_copy
-            result[plugin_name] = plugin_copy
-        return result
-
-    def _write_groupings_cache(self) -> None:
-        # Controller is read-only for overlay_group_cache.json; no-op to avoid clobbering client data.
-        return
-
-    def _write_groupings_config(self) -> None:
-        """Persist groupings config (legacy path for tests/compat)."""
-
-        state = self.__dict__.get("_group_state")
-        if state is None:
-            # Fallback to legacy in-controller write path when service is unavailable (legacy tests/harness).
-            user_path = getattr(self, "_groupings_user_path", None) or getattr(self, "_groupings_path", None)
-            if user_path is None:
-                return
-
-            shipped_path = getattr(self, "_groupings_shipped_path", None)
-            if shipped_path is None:
-                root = Path(__file__).resolve().parents[1]
-                shipped_path = root / "overlay_groupings.json"
-                self._groupings_shipped_path = shipped_path
-
-            try:
-                shipped_raw = json.loads(shipped_path.read_text(encoding="utf-8"))
-            except Exception:
-                shipped_raw = {}
-
-            merged_view = getattr(self, "_groupings_data", None)
-            if not isinstance(merged_view, dict):
-                merged_view = {}
-            else:
-                merged_view = OverlayConfigApp._round_offsets(merged_view)
-
-            try:
-                diff = diff_groupings(shipped_raw, merged_view)
-            except Exception:
-                return
-
-            if is_empty_diff(diff):
-                if user_path.exists():
-                    try:
-                        user_path.write_text("{}\n", encoding="utf-8")
-                        _controller_debug("Cleared user groupings file; no overrides to persist.")
-                    except Exception:
-                        pass
-                else:
-                    _controller_debug("Skip writing user groupings: no diff to persist.")
-                return
-
-            try:
-                payload = dict(diff) if isinstance(diff, dict) else {}
-                payload["_edit_nonce"] = getattr(self, "_user_overrides_nonce", "")
-                text = json.dumps(payload, indent=2) + "\n"
-                tmp_path = user_path.with_suffix(user_path.suffix + ".tmp")
-                tmp_path.write_text(text, encoding="utf-8")
-                tmp_path.replace(user_path)
-                merged_payload = dict(merged_view)
-                merged_payload["_edit_nonce"] = getattr(self, "_user_overrides_nonce", "")
-                self._send_plugin_cli(
-                    {"cli": "controller_overrides_payload", "overrides": merged_payload, "nonce": merged_payload["_edit_nonce"]}
-                )
-            except Exception:
-                return
-            return
-
-        try:
-            state._write_groupings_config(edit_nonce=getattr(self, "_user_overrides_nonce", ""))
-            merged_payload = getattr(state, "_groupings_data", {})
-            if isinstance(merged_payload, dict):
-                merged_payload = dict(merged_payload)
-                merged_payload["_edit_nonce"] = getattr(self, "_user_overrides_nonce", "")
-                self._send_plugin_cli(
-                    {"cli": "controller_overrides_payload", "overrides": merged_payload, "nonce": merged_payload["_edit_nonce"]}
-                )
-        except Exception:
-            return
-
-    def _flush_groupings_config(self) -> None:
-        self._debounce_handles["config_write"] = None
-        self._last_edit_ts = time.time()
-        timers = getattr(self, "_mode_timers", None)
-        if timers is not None:
-            try:
-                timers.record_edit()
-            except Exception:
-                pass
-        self._user_overrides_nonce = self._edit_nonce
-        if hasattr(self, "_edit_controller"):
-            try:
-                self._edit_controller._write_groupings_config()
-            except Exception:
-                pass
-        else:
-            self._write_groupings_config()
-        self._emit_override_reload_signal()
-
-    def _flush_groupings_cache(self) -> None:
-        self._debounce_handles["cache_write"] = None
-        # Read-only cache; skip writes.
-
-    def _schedule_debounce(self, key: str, callback: callable, delay_ms: int | None = None) -> None:
-        """Schedule a debounced callback keyed by name."""
-
-        self._edit_controller.schedule_debounce(key, callback, delay_ms)
-
-    def _schedule_groupings_config_write(self, delay_ms: int | None = None) -> None:
-        self._edit_controller.schedule_groupings_config_write(delay_ms)
-
-    def _schedule_groupings_cache_write(self, delay_ms: int | None = None) -> None:
-        # Cache is maintained by overlay client; avoid scheduling writes from controller.
-        timers = getattr(self, "_mode_timers", None)
-        if timers is not None:
-            timers.cancel_debounce("cache_write")
-        else:
-            existing = self._debounce_handles.pop("cache_write", None)
-            if existing is not None:
-                try:
-                    self.after_cancel(existing)
-                except Exception:
-                    pass
+    @staticmethod
+    def _write_groupings_config(app) -> None:
+        EditController(app, logger=_controller_debug)._write_groupings_config()
 
     def _emit_override_reload_signal(self) -> None:
         controller = getattr(self, "_edit_controller", None)
