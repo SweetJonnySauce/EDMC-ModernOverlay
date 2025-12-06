@@ -31,36 +31,18 @@ from overlay_client.logging_utils import build_rotating_file_handler, resolve_lo
 from overlay_plugin.groupings_diff import diff_groupings, is_empty_diff
 try:  # When run as a package (`python -m overlay_controller.overlay_controller`)
     from overlay_controller.input_bindings import BindingConfig, BindingManager
-    from overlay_controller.selection_overlay import SelectionOverlay
     from overlay_controller.services import ModeTimers, PluginBridge
     from overlay_controller.preview import snapshot_math
     from overlay_controller.preview.renderer import PreviewRenderer
-    from overlay_controller.controller import AppContext, build_app_context
-    from overlay_controller.widgets import (
-        AbsoluteXYWidget,
-        AnchorSelectorWidget,
-        IdPrefixGroupWidget,
-        JustificationWidget,
-        OffsetSelectorWidget,
-        SidebarTipHelper,
-        alt_modifier_active,
-    )
+    from overlay_controller.controller import AppContext, LayoutBuilder, build_app_context
+    from overlay_controller.widgets import AnchorSelectorWidget, alt_modifier_active  # noqa: F401
 except ImportError:  # Fallback for spec-from-file/test harness
     from input_bindings import BindingConfig, BindingManager  # type: ignore
-    from selection_overlay import SelectionOverlay  # type: ignore
     from services import ModeTimers, PluginBridge  # type: ignore
     import overlay_controller.preview.snapshot_math as snapshot_math  # type: ignore
     from overlay_controller.preview.renderer import PreviewRenderer  # type: ignore
-    from overlay_controller.controller import AppContext, build_app_context  # type: ignore
-    from overlay_controller.widgets import (  # type: ignore
-        AbsoluteXYWidget,
-        AnchorSelectorWidget,
-        IdPrefixGroupWidget,
-        JustificationWidget,
-        OffsetSelectorWidget,
-        SidebarTipHelper,
-        alt_modifier_active,
-    )
+    from overlay_controller.controller import AppContext, LayoutBuilder, build_app_context  # type: ignore
+    from overlay_controller.widgets import AnchorSelectorWidget, alt_modifier_active  # type: ignore  # noqa: F401
 
 ABS_BASE_WIDTH = 1280
 ABS_BASE_HEIGHT = 960
@@ -360,7 +342,51 @@ class OverlayConfigApp(tk.Tk):
         self._last_active_group_sent: Optional[tuple[str, str, str]] = None
 
         self._groupings_cache = self._load_groupings_cache()
-        self._build_layout()
+        layout_builder = LayoutBuilder(self)
+        layout = layout_builder.build(
+            sidebar_width=self.sidebar_width,
+            sidebar_pad=self.sidebar_pad,
+            container_pad_left=self.container_pad_left,
+            container_pad_right_open=self.container_pad_right_open,
+            container_pad_right_closed=self.container_pad_right_closed,
+            container_pad_vertical=self.container_pad_vertical,
+            placement_overlay_padding=self.placement_overlay_padding,
+            preview_canvas_padding=self.preview_canvas_padding,
+            overlay_padding=self.overlay_padding,
+            overlay_border_width=self.overlay_border_width,
+            placement_min_width=self.placement_min_width,
+            sidebar_selectable=True,
+            on_sidebar_click=self._handle_sidebar_click,
+            on_placement_click=lambda: self._handle_placement_click(),
+            on_idprefix_selected=self._handle_idprefix_selected,
+            on_offset_changed=self._handle_offset_changed,
+            on_absolute_changed=self._handle_absolute_changed,
+            on_anchor_changed=self._handle_anchor_changed,
+            on_justification_changed=self._handle_justification_changed,
+            load_idprefix_options=self._load_idprefix_options,
+        )
+        self.container = layout["container"]
+        self.placement_frame = layout["placement_frame"]
+        self.preview_canvas = layout["preview_canvas"]
+        self.sidebar = layout["sidebar"]
+        self.sidebar_cells = layout["sidebar_cells"]
+        self._focus_widgets = layout["focus_widgets"]
+        self.sidebar_context_frame = layout.get("sidebar_context_frame")
+        self.indicator_wrapper = layout["indicator_wrapper"]
+        self.indicator_canvas = layout["indicator_canvas"]
+        self.sidebar_overlay = layout["sidebar_overlay"]
+        self.placement_overlay = layout["placement_overlay"]
+        self.idprefix_widget = layout["idprefix_widget"]
+        self.offset_widget = layout["offset_widget"]
+        self.absolute_widget = layout["absolute_widget"]
+        self.anchor_widget = layout["anchor_widget"]
+        self.justification_widget = layout["justification_widget"]
+        self.tip_helper = layout["tip_helper"]
+        self._sidebar_focus_index = 0
+        self.widget_select_mode = True
+        self.sidebar.grid_propagate(True)
+        self._apply_placement_state()
+        self._refresh_widget_focus()
         self._handle_idprefix_selected()
         self._binding_config = BindingConfig.load()
         if sys.platform.startswith("win"):
@@ -464,204 +490,6 @@ class OverlayConfigApp(tk.Tk):
 
         traceback.print_exception(exc, val, tb, file=sys.stderr)
 
-    def _build_layout(self) -> None:
-        """Create the split view with placement and sidebar sections."""
-
-        self.container = tk.Frame(self)
-        self.container.grid(
-            row=0,
-            column=0,
-            sticky="nsew",
-            padx=(self.container_pad_left, self.container_pad_right_open),
-            pady=(self.container_pad_vertical, self.container_pad_vertical),
-        )
-
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(0, weight=1)
-
-        self.container.grid_rowconfigure(0, weight=1)
-        self.container.grid_columnconfigure(0, weight=0, minsize=self.sidebar_width)
-        self.container.grid_columnconfigure(1, weight=1)
-
-        # Placement window placeholder (open state)
-        self.placement_frame = tk.Frame(
-            self.container,
-            bd=0,
-            relief="flat",
-            background="#f5f5f5",
-        )
-        self.preview_canvas = tk.Canvas(
-            self.placement_frame,
-            bd=0,
-            highlightthickness=1,
-            relief="solid",
-            background="#202020",
-        )
-        self.preview_canvas.pack(fill="both", expand=True)
-        self.preview_canvas.bind("<Button-1>", self._handle_placement_click, add="+")
-        self.placement_frame.bind("<Button-1>", self._handle_placement_click, add="+")
-        self.preview_canvas.bind("<Configure>", lambda _e: self._draw_preview())
-
-        # Sidebar with individual selector sections
-        self.sidebar = tk.Frame(
-            self.container,
-            width=self.sidebar_width,
-            bd=0,
-            highlightthickness=0,
-        )
-        self.sidebar.grid(row=0, column=0, sticky="ns", padx=(0, self.sidebar_pad))
-        self._build_sidebar_sections()
-        self.sidebar.grid_propagate(True)
-
-        indicator_bg = self.container.cget("background")
-        self.indicator_wrapper = tk.Frame(
-            self.container,
-            width=self.indicator_hit_width,
-            height=self.indicator_height,
-            bd=0,
-            highlightthickness=0,
-            bg=indicator_bg,
-        )
-        self.indicator_wrapper.pack_propagate(False)
-        self.indicator_canvas = tk.Canvas(
-            self.indicator_wrapper,
-            width=self.indicator_hit_width,
-            height=self.indicator_height,
-            highlightthickness=0,
-            bg=indicator_bg,
-        )
-        self.indicator_canvas.pack(fill="both", expand=True)
-
-        self.sidebar_overlay = SelectionOverlay(
-            parent=self.sidebar,
-            padding=self.overlay_padding,
-            border_width=self.overlay_border_width,
-        )
-        self.placement_overlay = SelectionOverlay(
-            parent=self.container,
-            padding=self.placement_overlay_padding,
-            border_width=self.overlay_border_width,
-            corner_radius=0,
-        )
-        self._apply_placement_state()
-        self._refresh_widget_focus()
-
-    def _build_sidebar_sections(self) -> None:
-        """Create labeled boxes that will hold future controls."""
-
-        sections = [
-            ("idprefix group selector", 0, True),
-            ("offset selector", 0, True),
-            ("absolute x/y", 0, True),
-            ("anchor selector", 0, True),
-            ("payload justification", 0, True),
-            ("Handy tips will show up here in the future", 1, False),
-        ]
-
-        self.sidebar_cells: list[tk.Frame] = []
-        self._sidebar_focus_index = 0
-        self.widget_select_mode = True
-        selectable_index = 0
-
-        for index, (label_text, weight, is_selectable) in enumerate(sections):
-            default_height = 120 if label_text == "anchor selector" else 80
-            frame = tk.Frame(
-                self.sidebar,
-                bd=0,
-                relief="flat",
-                width=0 if index == 0 else 220,
-                height=0 if index == 0 else default_height,
-            )
-            frame.grid(
-                row=index,
-                column=0,
-                sticky="nsew",
-                pady=(
-                    self.overlay_padding if index == 0 else 1,
-                    self.overlay_padding if index == len(sections) - 1 else 1,
-                ),
-                padx=(self.overlay_padding, self.overlay_padding),
-            )
-            frame.grid_propagate(True)
-
-            focus_index = selectable_index if is_selectable else None
-            if is_selectable:
-                selectable_index += 1
-
-            if index == 0:
-                self.idprefix_widget = IdPrefixGroupWidget(frame, options=self._load_idprefix_options())
-                if is_selectable and focus_index is not None:
-                    self.idprefix_widget.set_focus_request_callback(
-                        lambda idx=focus_index: self._handle_sidebar_click(idx)
-                    )
-                self.idprefix_widget.set_selection_change_callback(lambda _sel=None: self._handle_idprefix_selected())
-                self.idprefix_widget.pack(fill="both", expand=True, padx=0, pady=0)
-                if is_selectable and focus_index is not None:
-                    self._focus_widgets[("sidebar", focus_index)] = self.idprefix_widget
-            elif index == 1:
-                self.offset_widget = OffsetSelectorWidget(frame)
-                if is_selectable and focus_index is not None:
-                    self.offset_widget.set_focus_request_callback(
-                        lambda idx=focus_index: self._handle_sidebar_click(idx)
-                    )
-                self.offset_widget.set_change_callback(self._handle_offset_changed)
-                self.offset_widget.pack(expand=True)
-                if is_selectable and focus_index is not None:
-                    self._focus_widgets[("sidebar", focus_index)] = self.offset_widget
-            elif index == 2:
-                self.absolute_widget = AbsoluteXYWidget(frame)
-                if is_selectable and focus_index is not None:
-                    self.absolute_widget.set_focus_request_callback(
-                        lambda idx=focus_index: self._handle_sidebar_click(idx)
-                    )
-                self.absolute_widget.set_change_callback(self._handle_absolute_changed)
-                self.absolute_widget.pack(fill="both", expand=True, padx=0, pady=0)
-                if is_selectable and focus_index is not None:
-                    self._focus_widgets[("sidebar", focus_index)] = self.absolute_widget
-            elif index == 3:
-                frame.configure(height=140)
-                frame.grid_propagate(False)
-                self.anchor_widget = AnchorSelectorWidget(frame)
-                if is_selectable and focus_index is not None:
-                    self.anchor_widget.set_focus_request_callback(
-                        lambda idx=focus_index: self._handle_sidebar_click(idx)
-                    )
-                self.anchor_widget.set_change_callback(self._handle_anchor_changed)
-                self.anchor_widget.pack(fill="both", expand=True, padx=4, pady=4)
-                if is_selectable and focus_index is not None:
-                    self._focus_widgets[("sidebar", focus_index)] = self.anchor_widget
-            elif index == 4:
-                self.justification_widget = JustificationWidget(frame)
-                if is_selectable and focus_index is not None:
-                    self.justification_widget.set_focus_request_callback(
-                        lambda idx=focus_index: self._handle_sidebar_click(idx)
-                    )
-                self.justification_widget.set_change_callback(self._handle_justification_changed)
-                self.justification_widget.pack(fill="both", expand=True, padx=4, pady=4)
-                if is_selectable and focus_index is not None:
-                    self._focus_widgets[("sidebar", focus_index)] = self.justification_widget
-            else:
-                self.tip_helper = SidebarTipHelper(frame)
-                self.tip_helper.pack(fill="both", expand=True, padx=2, pady=2)
-
-            if is_selectable and focus_index is not None:
-                frame.bind(
-                    "<Button-1>", lambda event, idx=focus_index: self._handle_sidebar_click(idx), add="+"
-                )
-                for child in frame.winfo_children():
-                    child.bind("<Button-1>", lambda event, idx=focus_index: self._handle_sidebar_click(idx), add="+")
-
-            grow_weight = 1 if index == len(sections) - 1 else 0
-            row_opts = {"weight": grow_weight}
-            if index == 3:
-                row_opts["minsize"] = 220
-            self.sidebar.grid_rowconfigure(index, **row_opts)
-            if is_selectable and focus_index is not None:
-                self.sidebar_cells.append(frame)
-            else:
-                self.sidebar_context_frame = frame
-
-        self.sidebar.grid_columnconfigure(0, weight=1)
 
     def _activate_force_render_override(self) -> None:
         manager = getattr(self, "_force_render_override", None)

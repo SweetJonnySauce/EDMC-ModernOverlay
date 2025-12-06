@@ -246,7 +246,7 @@ Stage 4.5 notes:
 | --- | --- | --- |
 | 5.1 | Baseline the current monolith: map responsibilities to evict, set target size (<700 lines), and list tests per step; lock down legacy flags we’ll delete by 5.7. | Completed |
 | 5.2 | Extract runtime/context glue into `controller/app_context.py` (paths/env/services/mode profile/bridge/timers); default to new services, relegate legacy flags to a minimal shim. | Completed |
-| 5.3 | Extract layout composition into `controller/layout.py` (placement/sidebar/overlays/focus map assembly); controller retains only callbacks/state. | Not started |
+| 5.3 | Extract layout composition into `controller/layout.py` (placement/sidebar/overlays/focus map assembly); controller retains only callbacks/state. | Completed |
 | 5.4 | Extract focus/binding orchestration into `controller/focus_manager.py` (focus map, widget-select mode, navigation handlers, binding registration); remove inline binding helpers. | Not started |
 | 5.5 | Extract preview orchestration into `controller/preview_controller.py` (snapshot fetch, live-edit guards, target frame resolution, renderer invocation, absolute sync); drop duplicate preview helpers from the shell. | Not started |
 | 5.6 | Extract edit/persistence flow into `controller/edit_controller.py` (persist_* hooks, debounces, cache reload guard, active-group/override signals, nonce/timestamps); move reload guards + cache diff helpers out of the shell. | Not started |
@@ -299,3 +299,20 @@ Stage 5.2 notes:
 - Controller now builds `_app_context` and pulls shipped/user/cache/settings/port paths, loader, group state, mode profile, heartbeat, bridge, and force-render override from it; inline construction removed.
 - New unit test `overlay_controller/tests/test_app_context.py` covers path/env resolution, bridge/force-override wiring, and mode profile defaults (including legacy shim creation).
 - Tests run: `overlay_client/.venv/bin/python -m pytest overlay_controller/tests` (headless).
+
+#### Stage 5.3 Plan
+- **Goal:** Move layout composition into `controller/layout.py`, leaving the controller to supply callbacks/state only. Target a large line drop by removing all inline frame/canvas/widget construction, focus map assembly, and indicator wiring from `overlay_controller.py`.
+- **What to move (aggressively):**
+  - Container/placement/sidebar frame creation and grid configuration.
+  - Indicator wrapper/canvas setup and placement overlay/sidebar overlay creation.
+  - Preview canvas creation/bindings.
+  - Sidebar sections (idprefix, offset, absolute, anchor, justification, tips): widget instantiation, packing, focus-map population, and click bindings.
+  - Layout constants (padding, overlay border, min widths) fed in as parameters from the controller—no layout literals left inline.
+- **Interfaces:** `LayoutBuilder(app).build(...) -> dict[...]` returning container/frames, preview canvas, overlays, indicator, sidebar cells, focus map, and optional context frame. Controller keeps ownership of callbacks.
+- **Constraints:** Preserve geometry/bindings/order exactly; no behavior changes. Keep alt-click bindings and focus callbacks intact. Controller should just pass callbacks/config and store returned components.
+- **Tests to run:** `overlay_client/.venv/bin/python -m pytest overlay_controller/tests` after wiring; run `make check` if layout refactor touches imports broadly.
+
+Stage 5.3 notes:
+- Added `overlay_controller/controller/layout.py` with `LayoutBuilder.build(...)` that constructs container/placement/sidebar frames, overlays, indicator, preview canvas bindings, sidebar widgets, and focus map; controller now just passes callbacks/config and stores returned components.
+- `overlay_controller.py` uses `LayoutBuilder` instead of inline `_build_layout`/`_build_sidebar_sections` (removed), assigning returned widgets/overlays/frames and reusing existing callbacks; initial focus index reset to 0.
+- Tests run: `overlay_client/.venv/bin/python -m pytest overlay_controller/tests` (37 passed, 3 skipped).
