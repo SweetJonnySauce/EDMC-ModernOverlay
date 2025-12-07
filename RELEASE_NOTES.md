@@ -15,6 +15,7 @@
   - Workflow + testing aids: added controller workflow helper/tests to validate cache geometry, expanded fallback regression tests, and folded the new behavior into the refactoring plan documentation.
   - Linux install: added Arch/pacman support alongside existing installers.
   - Fix #26. Give focus back to game after closing the controller on Windows
+  - Center justification now uses origin-aware baselines (ignoring non-justified frames) to keep centered text inside its containing box; right justification is unchanged.
 
 ## 0.7.4-dev
 - Controller startup no longer crashes when Tk rejects a binding; unsupported or empty sequences are skipped with a warning instead.
