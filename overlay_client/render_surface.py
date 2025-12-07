@@ -757,13 +757,37 @@ class RenderSurfaceMixin:
         def _trace(plugin: Optional[str], item_id: str, stage: str, details: Dict[str, float]) -> None:
             self._log_legacy_trace(plugin, item_id, stage, details)
 
+        command_by_identifier = {id(command): command for command in commands}
+        justify_base_bounds: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
+        justify_overlay_bounds: Dict[Tuple[str, Optional[str]], _OverlayBounds] = {}
+        for ctx in command_contexts:
+            if ctx.justification not in {"center", "right"}:
+                continue
+            cmd = command_by_identifier.get(ctx.identifier)
+            if cmd is None:
+                continue
+            if cmd.base_overlay_bounds:
+                bounds = justify_base_bounds.setdefault(ctx.key, _OverlayBounds())
+                bounds.include_rect(*cmd.base_overlay_bounds)
+            if cmd.overlay_bounds:
+                bounds = justify_overlay_bounds.setdefault(ctx.key, _OverlayBounds())
+                bounds.include_rect(*cmd.overlay_bounds)
+
         base_bounds_map: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
         for key, bounds in base_overlay_bounds.items():
             if bounds is None or not bounds.is_valid():
                 continue
             base_bounds_map[key] = (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y)
+        for key, bounds in justify_base_bounds.items():
+            if bounds is None or not bounds.is_valid():
+                continue
+            base_bounds_map[key] = (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y)
         overlay_bounds_map: Dict[Tuple[str, Optional[str]], Tuple[float, float, float, float]] = {}
         for key, bounds in overlay_bounds_by_group.items():
+            if bounds is None or not bounds.is_valid():
+                continue
+            overlay_bounds_map[key] = (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y)
+        for key, bounds in justify_overlay_bounds.items():
             if bounds is None or not bounds.is_valid():
                 continue
             overlay_bounds_map[key] = (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y)

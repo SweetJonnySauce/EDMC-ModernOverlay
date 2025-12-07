@@ -28,6 +28,7 @@ from overlay_client.debug_config import DEBUG_CONFIG_ENABLED
 from overlay_client.logging_utils import build_rotating_file_handler, resolve_log_level, resolve_logs_dir
 try:  # When run as a package (`python -m overlay_controller.overlay_controller`)
     from overlay_controller.input_bindings import BindingConfig, BindingManager
+    from overlay_controller.gamepad import GamepadBridge
     from overlay_controller.services import ModeTimers, PluginBridge
     from overlay_controller.services.plugin_bridge import ForceRenderOverrideManager
     from overlay_controller.services.group_state import GroupSnapshot
@@ -45,6 +46,7 @@ try:  # When run as a package (`python -m overlay_controller.overlay_controller`
     from overlay_controller.widgets import AnchorSelectorWidget, alt_modifier_active  # noqa: F401
 except ImportError:  # Fallback for spec-from-file/test harness
     from input_bindings import BindingConfig, BindingManager  # type: ignore
+    from gamepad import GamepadBridge  # type: ignore
     from services import ModeTimers, PluginBridge  # type: ignore
     from overlay_controller.services.plugin_bridge import ForceRenderOverrideManager  # type: ignore
     from overlay_controller.services.group_state import GroupSnapshot  # type: ignore
@@ -272,6 +274,11 @@ class OverlayConfigApp(tk.Tk):
         self.sidebar.grid_propagate(True)
         self._binding_config = BindingConfig.load()
         self._binding_manager = BindingManager(self, self._binding_config)
+        self._gamepad_bridge = GamepadBridge(
+            self,
+            self._binding_manager.trigger_action,
+            self._binding_manager.has_action,
+        )
         self._focus_manager = FocusManager(self, self._binding_manager)
         self._apply_placement_state()
         self._refresh_widget_focus()
@@ -283,6 +290,7 @@ class OverlayConfigApp(tk.Tk):
             self.bind_all("<KeyRelease-Alt_R>", self._handle_alt_release, add="+")
         self._register_focus_bindings()
         self._binding_manager.activate()
+        self._gamepad_bridge.start()
         self.bind("<Configure>", self._handle_configure)
         self.bind("<FocusIn>", self._handle_focus_in)
         self.bind("<space>", self._handle_space_key, add="+")
@@ -436,6 +444,14 @@ class OverlayConfigApp(tk.Tk):
                 pass
         self._controller_heartbeat_handle = None
 
+    def _stop_gamepad_bridge(self) -> None:
+        bridge = getattr(self, "_gamepad_bridge", None)
+        if bridge is not None:
+            try:
+                bridge.stop()
+            except Exception:
+                pass
+
     def toggle_placement_window(self) -> None:
         """Switch between the open and closed placement window layouts."""
 
@@ -522,6 +538,7 @@ class OverlayConfigApp(tk.Tk):
         self._stop_controller_heartbeat()
         self._deactivate_force_render_override()
         self._restore_foreground_window()
+        self._stop_gamepad_bridge()
         self.destroy()
 
     def _handle_focus_in(self, _event: tk.Event[tk.Misc]) -> None:  # type: ignore[name-defined]

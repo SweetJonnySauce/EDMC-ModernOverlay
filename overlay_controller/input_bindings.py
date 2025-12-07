@@ -215,3 +215,21 @@ class BindingManager:
         if not seq.startswith("<"):
             seq = f"<{seq}>"
         return seq
+
+    def trigger_action(self, action_name: str) -> bool:
+        """Invoke a registered action without relying on a Tk event."""
+
+        if action_name not in self._handlers:
+            return False
+        callback = self._get_wrapped_handler(action_name)
+        try:
+            callback(None)
+        except Exception as exc:
+            LOGGER.warning("Action '%s' handler raised: %s", action_name, exc)
+            return False
+        return True
+
+    def has_action(self, action_name: str) -> bool:
+        """Return True if an action handler is registered."""
+
+        return action_name in self._handlers

@@ -62,6 +62,33 @@ def test_center_justification_uses_scaled_baseline():
     assert offsets[2] == 40.0
 
 
+def test_center_justification_accounts_for_origin_offset():
+    key = ("plugin", "suffix")
+    command = CommandContext(
+        identifier=21,
+        key=key,
+        bounds=(10.0, 0.0, 110.0, 10.0),  # starts at x=10, width=100
+        raw_min_x=None,
+        right_just_multiplier=0,
+        justification="center",
+        suffix="suffix",
+        plugin="plugin",
+        item_id="id21",
+    )
+    base_overlay_bounds = {key: (0.0, 0.0, 200.0, 10.0)}  # width 200, origin at 0
+
+    offsets = compute_justification_offsets(
+        [command],
+        {key: None},
+        base_overlay_bounds,
+        base_scale=1.0,
+        trace_fn=None,
+    )
+
+    # Width gap gives +50px, origin gap of -10px → net +40px.
+    assert offsets[21] == 40.0
+
+
 def test_left_justification_produces_no_offset():
     key = ("plugin", "suffix")
     command = CommandContext(

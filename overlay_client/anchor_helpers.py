@@ -47,10 +47,12 @@ def compute_justification_offsets(
         width = float(ctx.bounds[2]) - float(ctx.bounds[0])
         base_bounds = base_overlay_bounds.get(key)
         baseline_width = None
+        baseline_min_x = None
         if base_bounds is not None:
             scale_value = base_scale
             if not isinstance(scale_value, (int, float)) or scale_value == 0.0:
                 scale_value = 1.0
+            baseline_min_x = base_bounds[0] * scale_value
             baseline_width = (base_bounds[2] - base_bounds[0]) * scale_value
         elif trace_fn:
             trace_fn(
@@ -98,6 +100,8 @@ def compute_justification_offsets(
                 justification=justification,
                 width=width,
                 baseline_width=baseline_width,
+                baseline_min_x=baseline_min_x,
+                payload_min_x=float(ctx.bounds[0]),
                 right_justification_delta_px=delta,
             )
         )
