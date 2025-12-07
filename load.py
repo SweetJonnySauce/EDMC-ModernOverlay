@@ -1818,11 +1818,11 @@ class _PluginRuntime:
                     exit_code = None
             LOGGER.debug("Overlay Controller process exited with code %s", exit_code)
             if exit_code not in (0, None) and self._capture_enabled():
+                formatted_output = self._format_controller_output(stdout, stderr)
                 LOGGER.warning(
-                    "Overlay Controller exited abnormally (code=%s). stdout=%r stderr=%r",
+                    "Overlay Controller exited abnormally (code=%s).\n%s",
                     exit_code,
-                    (stdout or "").strip(),
-                    (stderr or "").strip(),
+                    formatted_output,
                 )
         finally:
             with self._controller_launch_lock:
@@ -1902,6 +1902,15 @@ class _PluginRuntime:
             self._publish_payload({"event": "OverlayControllerActiveGroup", "plugin": "", "label": ""})
         except Exception:
             pass
+
+    def _format_controller_output(self, stdout: str, stderr: str) -> str:
+        def _format_stream(label: str, text: str) -> str:
+            if not text or not text.strip():
+                return f"{label}: <empty>"
+            cleaned = text.rstrip("\n")
+            return f"{label}:\n{cleaned}"
+
+        return "\n".join((_format_stream("stdout", stdout), _format_stream("stderr", stderr)))
 
     def _read_controller_pid_file(self) -> Optional[int]:
         try:
