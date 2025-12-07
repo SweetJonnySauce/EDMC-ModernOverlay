@@ -173,4 +173,4 @@ def test_stop_without_start_is_safe(monkeypatch, tmp_path):
     assert runtime._prefs_worker is None
     assert not runtime._tracked_threads
     # Broadcaster is created during __init__; when not started, handles remain limited to it.
-    assert runtime._tracked_handles == {runtime.broadcaster}
+    assert runtime._tracked_handles == [runtime.broadcaster]

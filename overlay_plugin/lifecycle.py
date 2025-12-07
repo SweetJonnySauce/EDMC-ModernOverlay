@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, Optional, Set
+from typing import Any, Dict, Optional, List, Set
 
 
 class LifecycleTracker:
@@ -12,15 +12,16 @@ class LifecycleTracker:
         self._logger = logger
         self._lock = threading.Lock()
         self._threads: Set[threading.Thread] = set()
-        self._handles: Set[Any] = set()
+        self._handles: Dict[int, Any] = {}
 
     @property
     def threads(self) -> Set[threading.Thread]:
         return self._threads
 
     @property
-    def handles(self) -> Set[Any]:
-        return self._handles
+    def handles(self) -> List[Any]:
+        with self._lock:
+            return list(self._handles.values())
 
     def track_thread(self, thread: threading.Thread) -> None:
         if thread is None:
@@ -38,13 +39,13 @@ class LifecycleTracker:
         if handle is None:
             return
         with self._lock:
-            self._handles.add(handle)
+            self._handles[id(handle)] = handle
 
     def untrack_handle(self, handle: Any) -> None:
         if handle is None:
             return
         with self._lock:
-            self._handles.discard(handle)
+            self._handles.pop(id(handle), None)
 
     def join_thread(self, thread: Optional[threading.Thread], name: Optional[str], *, timeout: float = 2.0) -> None:
         if thread is None:
@@ -57,6 +58,6 @@ class LifecycleTracker:
     def log_state(self, label: str) -> None:
         with self._lock:
             live_threads = [thr.name or repr(thr) for thr in self._threads if thr.is_alive()]
-            handles = list(self._handles)
+            handles = list(self._handles.values())
         if live_threads or handles:
             self._logger.debug("Tracked resources %s: threads=%s handles=%s", label, live_threads, handles)

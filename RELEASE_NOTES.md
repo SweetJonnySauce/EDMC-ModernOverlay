@@ -13,6 +13,7 @@
   - Integrity: installers now ship a per-file `checksums.txt` manifest. Both Linux and Windows installers validate the extracted bundle and installed plugin files against it; `generate_checksums.py` builds the manifest during release packaging.
   - Workflow + testing aids: added controller workflow helper/tests to validate cache geometry, expanded fallback regression tests, and folded the new behavior into the refactoring plan documentation.
   - Lifecycle hardening: centralized thread/timer management via a new lifecycle helper, moved background starts out of `__init__`, added join/cancel logging, and added leak-focused start/stop tests; full `make check` (PYQT_TESTS=1) passes.
+  - Runtime delegation: moved broadcaster/watchdog orchestration and controller launch/termination into dedicated helpers, added hook-level smoke tests, and reran full `make check` to confirm behavior parity.
   - Linux install: added Arch/pacman support alongside existing installers.
   - Fix #26. Give focus back to game after closing the controller on Windows
   - Center justification now uses origin-aware baselines (ignoring non-justified frames) to keep centered text inside its containing box; right justification is unchanged.
