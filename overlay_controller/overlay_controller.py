@@ -18,6 +18,7 @@ import logging
 import math
 from math import ceil
 from pathlib import Path
+import tempfile
 from typing import Any, Dict, Optional, Tuple
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -2372,13 +2373,29 @@ def _ensure_controller_logger(root_path: Path) -> Optional[logging.Logger]:
     try:
         log_dir = resolve_logs_dir(root_path, log_dir_name="EDMCModernOverlay")
         formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
-        handler = build_rotating_file_handler(
-            log_dir,
-            "overlay_controller.log",
-            retention=5,
-            max_bytes=512 * 1024,
-            formatter=formatter,
-        )
+        handler = None
+        try:
+            handler = build_rotating_file_handler(
+                log_dir,
+                "overlay_controller.log",
+                retention=5,
+                max_bytes=512 * 1024,
+                formatter=formatter,
+            )
+        except Exception:
+            fallback_dir = Path(tempfile.gettempdir()) / "EDMCModernOverlay" / "controller_logs"
+            try:
+                handler = build_rotating_file_handler(
+                    fallback_dir,
+                    "overlay_controller.log",
+                    retention=5,
+                    max_bytes=512 * 1024,
+                    formatter=formatter,
+                )
+            except Exception:
+                handler = None
+        if handler is None:
+            return None
         logger = logging.getLogger("EDMCModernOverlay.Controller")
         resolved_level = resolve_log_level(DEBUG_CONFIG_ENABLED)
         level_source = "default"

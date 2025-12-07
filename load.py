@@ -30,6 +30,7 @@ if __package__:
         DEV_MODE_ENV_VAR,
         is_dev_build,
     )
+    from .overlay_plugin.lifecycle import LifecycleTracker
     from .overlay_plugin.overlay_watchdog import OverlayWatchdog
     from .overlay_plugin.overlay_socket_server import WebSocketBroadcaster
     from .overlay_plugin.preferences import (
@@ -55,6 +56,7 @@ if __package__:
     from .EDMCOverlay.edmcoverlay import normalise_legacy_payload
 else:  # pragma: no cover - EDMC loads as top-level module
     from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR, is_dev_build
+    from overlay_plugin.lifecycle import LifecycleTracker
     from overlay_plugin.overlay_watchdog import OverlayWatchdog
     from overlay_plugin.overlay_socket_server import WebSocketBroadcaster
     from overlay_plugin.preferences import (
@@ -381,6 +383,9 @@ class _PluginRuntime:
         self.watchdog: Optional[OverlayWatchdog] = None
         self._legacy_tcp_server: Optional[LegacyOverlayTCPServer] = None
         self._lock = threading.Lock()
+        self._lifecycle = LifecycleTracker(LOGGER)
+        self._tracked_threads = self._lifecycle.threads
+        self._tracked_handles = self._lifecycle.handles
         self._prefs_lock = threading.Lock()
         self._prefs_queue: "queue.Queue[Optional[Callable[[], Any]]]" = queue.Queue()
         self._prefs_worker_stop = threading.Event()
@@ -425,13 +430,12 @@ class _PluginRuntime:
         if self._payload_log_handler is None:
             self._configure_payload_logger()
         self._reset_force_render_override_on_startup()
-        self._start_force_render_monitor_if_needed()
-        self._start_prefs_worker()
         self._version_status: Optional[VersionStatus] = None
         self._version_status_lock = threading.Lock()
         self._version_update_notice_sent = False
         self._version_notice_timer_lock = threading.Lock()
         self._version_notice_timers: Set[threading.Timer] = set()
+        self._version_check_thread: Optional[threading.Thread] = None
         self._launch_log_timer: Optional[threading.Timer] = None
         self._launch_log_pending: Optional[Tuple[str, str]] = None
         self._last_launch_info_value: str = ""
@@ -456,6 +460,7 @@ class _PluginRuntime:
         self._controller_status_id = "overlay-controller-status"
         self._controller_pid_path = self.plugin_dir / "overlay_controller.pid"
         self._last_override_reload_nonce: Optional[str] = None
+        self._lifecycle.track_handle(self.broadcaster)
 
     # Lifecycle ------------------------------------------------------------
 
@@ -485,6 +490,9 @@ class _PluginRuntime:
         if not self._running:
             return PLUGIN_NAME
 
+        self._start_prefs_worker()
+        self._start_force_render_monitor_if_needed()
+        self._start_version_status_check()
         register_publisher(self._publish_external)
         self._start_legacy_tcp_server()
         self._send_overlay_config(rebroadcast=True)
@@ -509,8 +517,10 @@ class _PluginRuntime:
                 LOGGER.debug("Overlay watchdog stopped and client terminated cleanly")
             else:
                 LOGGER.warning("Overlay watchdog stop reported incomplete shutdown")
+            self._lifecycle.untrack_handle(self.watchdog)
             self.watchdog = None
         self.broadcaster.stop()
+        self._lifecycle.untrack_handle(self.broadcaster)
         self._delete_port_file()
         if self._payload_log_handler is not None:
             self._payload_logger.removeHandler(self._payload_log_handler)
@@ -521,7 +531,12 @@ class _PluginRuntime:
             self._payload_log_handler = None
         self._force_monitor_stop.set()
         self._terminate_controller_process()
+        self._lifecycle.join_thread(self._force_monitor_thread, "ModernOverlayForceMonitor", timeout=2.0)
+        self._force_monitor_thread = None
+        self._lifecycle.join_thread(self._version_check_thread, "ModernOverlayVersionCheck", timeout=2.0)
+        self._version_check_thread = None
         self._stop_prefs_worker()
+        self._lifecycle.log_state("after stop")
 
     # Journal handling -----------------------------------------------------
 
@@ -679,7 +694,10 @@ class _PluginRuntime:
             timers = tuple(self._version_notice_timers)
             self._version_notice_timers.clear()
         for timer in timers:
-            timer.cancel()
+            try:
+                timer.cancel()
+            except Exception as exc:
+                LOGGER.warning("Failed to cancel version notice timer: %s", exc)
 
     @staticmethod
     def _build_log_level_payload() -> Dict[str, Any]:
@@ -747,12 +765,25 @@ class _PluginRuntime:
             backup_count,
         )
 
+    def _track_thread(self, thread: threading.Thread) -> None:
+        self._lifecycle.track_thread(thread)
+
+    def _untrack_thread(self, thread: Optional[threading.Thread]) -> None:
+        self._lifecycle.untrack_thread(thread)
+
+    def _track_handle(self, handle: Any) -> None:
+        self._lifecycle.track_handle(handle)
+
+    def _untrack_handle(self, handle: Any) -> None:
+        self._lifecycle.untrack_handle(handle)
+
     def _start_prefs_worker(self) -> None:
         if self._prefs_worker and self._prefs_worker.is_alive():
             return
         self._prefs_worker_stop.clear()
         worker = threading.Thread(target=self._prefs_worker_loop, name="ModernOverlayPrefs", daemon=True)
         self._prefs_worker = worker
+        self._lifecycle.track_thread(worker)
         worker.start()
 
     def _stop_prefs_worker(self) -> None:
@@ -764,6 +795,9 @@ class _PluginRuntime:
         worker = self._prefs_worker
         if worker:
             worker.join(timeout=2.0)
+            if worker.is_alive():
+                LOGGER.warning("Thread %s did not exit cleanly within %.1fs", worker.name, 2.0)
+        self._lifecycle.untrack_thread(worker)
         self._prefs_worker = None
 
     def _prefs_worker_loop(self) -> None:
@@ -832,7 +866,21 @@ class _PluginRuntime:
 
         thread = threading.Thread(target=_worker, name="ModernOverlayForceMonitor", daemon=True)
         self._force_monitor_thread = thread
+        self._lifecycle.track_thread(thread)
         thread.start()
+
+    def _start_version_status_check(self) -> None:
+        thread = self._version_check_thread
+        if thread and thread.is_alive():
+            return
+        worker = threading.Thread(
+            target=self._evaluate_version_status_once,
+            name="ModernOverlayVersionCheck",
+            daemon=True,
+        )
+        self._version_check_thread = worker
+        self._lifecycle.track_thread(worker)
+        worker.start()
 
     def _resolve_client_log_retention(self) -> int:
         try:
@@ -1253,6 +1301,7 @@ class _PluginRuntime:
         )
         self._update_capture_state(self._capture_enabled())
         self.watchdog.start()
+        self._lifecycle.track_handle(self.watchdog)
         return True
 
     def _locate_overlay_client(self) -> Optional[Path]:
@@ -1797,6 +1846,7 @@ class _PluginRuntime:
             self._controller_process = process
             self._controller_launch_thread = None
         LOGGER.debug("Overlay Controller process handle stored (pid=%s)", getattr(process, "pid", "?"))
+        self._lifecycle.track_handle(process)
 
         self._emit_controller_active_notice()
 
@@ -1964,19 +2014,20 @@ class _PluginRuntime:
                     terminated = True
                 except psutil.NoSuchProcess:
                     terminated = True
-                except Exception:
-                    pass
+                except Exception as exc:
+                    LOGGER.warning("Failed to terminate controller process via psutil: %s", exc)
             if not terminated:
                 try:
                     os.kill(target_pid, signal.SIGTERM)
                     terminated = True
-                except Exception:
-                    pass
+                except Exception as exc:
+                    LOGGER.warning("Failed to signal controller process pid=%s: %s", target_pid, exc)
         finally:
             self._cleanup_controller_pid_file()
             with self._controller_launch_lock:
                 if self._controller_process and getattr(self._controller_process, "pid", None) == target_pid:
                     self._controller_process = None
+        self._lifecycle.untrack_handle(handle)
 
     def _cycle_payload_step(self, direction: int) -> None:
         if not self._running:
@@ -2070,6 +2121,7 @@ class _PluginRuntime:
         )
         if server.start():
             self._legacy_tcp_server = server
+            self._lifecycle.track_handle(server)
         else:
             self._legacy_tcp_server = None
 
@@ -2082,6 +2134,7 @@ class _PluginRuntime:
         except Exception as exc:
             LOGGER.debug("Legacy overlay compatibility server shutdown error: %s", exc)
         self._legacy_tcp_server = None
+        self._lifecycle.untrack_handle(server)
 
     def _update_overlay_metrics(self, payload: Mapping[str, Any]) -> None:
         width = _coerce_float(payload.get("width"))
@@ -2887,8 +2940,8 @@ class _PluginRuntime:
         for timer in timers:
             try:
                 timer.cancel()
-            except Exception:
-                pass
+            except Exception as exc:
+                LOGGER.warning("Failed to cancel config rebroadcast timer: %s", exc)
 
 
 # EDMC hook functions ------------------------------------------------------
