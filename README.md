@@ -34,7 +34,7 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
 
 ## Prerequisites
 
-- Python 3.11
+- Python 3.10+
 - Elite Dangerous Market Connector installed
 - On Windows, Powershell 3 or greater is required for the installation (both exe or ps1 installations)
 

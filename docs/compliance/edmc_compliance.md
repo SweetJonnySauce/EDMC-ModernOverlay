@@ -28,7 +28,7 @@ These are EDMC best practices. Evaluate the code to make sure it's adhering to t
 - Performance awareness: efficient enough without premature micro-optimizations; measure before tuning.
 
 ## Checks (run per release or compliance review)
-- Confirm target Python version matches the version stated in EDMC core `docs/Releasing`; baseline (as of this review) is Python 3.10.3 32-bit for Windows builds. Update this file if the baseline changes. This applies to the EDMC plugin runtime; the controller/client run in their own environments.
+- Confirm target Python version matches the version stated in EDMC core `docs/Releasing`; baseline (as of this review) is Python 3.10.3 32-bit for Windows builds. Update this file if the baseline changes. This applies to the EDMC plugin runtime; the controller/client run in their own environments and require Python >= 3.10.
 - Run `python scripts/check_edmc_python.py` to enforce the plugin baseline in `docs/compliance/edmc_python_version.txt` (override with `ALLOW_EDMC_PYTHON_MISMATCH=1` only for non-release/dev work).
   - CI runs this via `.github/workflows/ci.yml` (override enabled because CI uses non-baseline Python/arch).
 - Re-scan imports to ensure only supported EDMC APIs/helpers (`config`, `monitor`, `theme`, `timeout_session`, etc.) are used in plugin code.
@@ -43,7 +43,7 @@ These are EDMC best practices. Evaluate the code to make sure it's adhering to t
 
 | Item | Status | Notes/Actions |
 | --- | --- | --- |
-| Stay aligned with EDMC core (PLUGINS.md:12/24/297/41) | Yes | Baseline pinned and enforced via `docs/compliance/edmc_python_version.txt` + `scripts/check_edmc_python.py`; release monitoring documented and added to PR checklist. |
+| Stay aligned with EDMC core (PLUGINS.md:12/24/297/41) | Yes | Baseline pinned and enforced via `docs/compliance/edmc_python_version.txt` + `scripts/check_edmc_python.py`; controller/client require Python >= 3.10 (installer + tooling enforce); release monitoring documented and added to PR checklist. |
 | Use only supported plugin API/helpers (PLUGINS.md:74/85/113/128/156/452) | Yes | Player-state handling now gates journal processing on `monitor.game_running()`/`monitor.is_live_galaxy()` with state resets; settings use namespaced `config` keys and `overlay_settings.json` shadowing is documented/intentional. |
 | Logging/versioning patterns (PLUGINS.md:168/212/230/263) | No | `PLUGIN_NAME`/`plugin_name` use `EDMCModernOverlay` while the folder is `EDMCModernOverlayDev`; align the directory and naming so logger wiring matches EDMC expectations. |
 | Responsive & Tk-safe runtime (PLUGINS.md:335/349/362/397/599) | Yes | Long-running work is threaded (watchdog, broadcaster, prefs worker, version check); Tk is untouched off the main thread; networking uses `requests`/`timeout_session`. |

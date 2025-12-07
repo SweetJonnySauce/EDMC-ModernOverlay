@@ -28,7 +28,7 @@ These are EDMC best practices. Evaluate the code to make sure it's adhering to t
 - Performance awareness: efficient enough without premature micro-optimizations; measure before tuning.
 
 ## Checks (run per release or compliance review)
-- Confirm target Python version matches the version stated in EDMC core `docs/Releasing`; baseline (as of this review) is Python 3.10.3 32-bit for Windows builds. Update this file if the baseline changes. This applies to the EDMC plugin runtime; the controller/client run in their own environments.
+- Confirm target Python version matches the version stated in EDMC core `docs/Releasing`; baseline (as of this review) is Python 3.10.3 32-bit for Windows builds. Update this file if the baseline changes. This applies to the EDMC plugin runtime; the controller/client run in their own environments and require Python >= 3.10.
 - Run `python scripts/check_edmc_python.py` to enforce the plugin baseline in `docs/compliance/edmc_python_version.txt` (override with `ALLOW_EDMC_PYTHON_MISMATCH=1` only for non-release/dev work).
   - CI runs this via `.github/workflows/ci.yml` (override enabled because CI uses non-baseline Python/arch).
 - Re-scan imports to ensure only supported EDMC APIs/helpers (`config`, `monitor`, `theme`, `timeout_session`, etc.) are used in plugin code.
@@ -43,7 +43,7 @@ These are EDMC best practices. Evaluate the code to make sure it's adhering to t
 
 | Item | Status | Notes/Actions |
 | --- | --- | --- |
-| Stay aligned with EDMC core (PLUGINS.md:12/24/297/41) | Yes | Baseline pinned at `docs/compliance/edmc_python_version.txt` (3.10.3 32-bit) and enforced by `scripts/check_edmc_python.py`; plugin ships as `EDMCModernOverlay/` with `plugin_start3` entrypoint (load.py:2892); EDMC release/discussion review captured in `.github/pull_request_template.md`. |
+| Stay aligned with EDMC core (PLUGINS.md:12/24/297/41) | Yes | Baseline pinned at `docs/compliance/edmc_python_version.txt` (3.10.3 32-bit) and enforced by `scripts/check_edmc_python.py`; controller/client require Python >= 3.10 (installer + tooling enforce); plugin ships as `EDMCModernOverlay/` with `plugin_start3` entrypoint (load.py:2892); EDMC release/discussion review captured in `.github/pull_request_template.md`. |
 | Use only supported plugin API/helpers (PLUGINS.md:74/85/113/128/156/452) | Yes | Journal handling gates on `monitor.game_running()`/`monitor.is_live_galaxy()` (load.py:528-559); release checks create HTTP sessions via `timeout_session.new_session`/`config.user_agent` and respect `config.debug_senders` (overlay_plugin/version_helper.py:148-199); settings use namespaced `config` keys with `overlay_settings.json` shadowing for the external client (overlay_plugin/preferences.py:17-199). |
 | Logging/versioning patterns (PLUGINS.md:168/212/230/263) | Yes | Logger/tag `EDMCModernOverlay` matches the release folder; `_EDMCLogHandler` forwards through EDMC’s log level and uses `exc_info` for tracebacks (load.py:259-299); EDMC `appversion` gates helper selection for HTTP sessions (overlay_plugin/version_helper.py:82-165). |
 | Responsive & Tk-safe runtime (PLUGINS.md:335/349/362/397/599) | Yes | Long-running work runs on threads (prefs worker, version check, broadcaster, watchdog, config rebroadcast timers) and network I/O uses `requests` via helpers; Tk touches are limited to `plugin_prefs`/`prefs_changed` on the main thread (load.py:2915-3040). |

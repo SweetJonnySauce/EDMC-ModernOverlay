@@ -1474,6 +1474,19 @@ main() {
     parse_args "$@"
     find_release_root
     require_command python3 "python3"
+    if ! python3 - <<'PY' 2>/dev/null; then
+import sys
+sys.exit(0) if sys.version_info >= (3, 10) else sys.exit(1)
+PY
+    then
+        version_raw="$(python3 -V 2>/dev/null || true)"
+        echo "❌ Python 3.10+ is required but was not found on PATH (python3). Detected: ${version_raw:-unknown}" >&2
+        read -r -p "Continue anyway with the available python3? [y/N] " reply
+        if [[ "${reply,,}" != "y" && "${reply,,}" != "yes" ]]; then
+            exit 1
+        fi
+        echo "⚠️  Continuing with python3 despite version check failure."
+    fi
     init_logging
     locate_checksum_manifest
     verify_checksums "$RELEASE_ROOT" "release bundle"
