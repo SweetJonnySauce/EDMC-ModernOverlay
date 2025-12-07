@@ -55,6 +55,33 @@ def _convert_native_rect_to_qt(
         scale_y = 1.0
         native_origin_x = logical_geometry[0]
         native_origin_y = logical_geometry[1]
+        if device_ratio > 1.0:
+            expected_native_width = logical_geometry[2] * device_ratio
+            expected_native_height = logical_geometry[3] * device_ratio
+            # If the reported native size is much smaller than the DPR implies, assume the
+            # tracker coordinates are native and scale them down to logical space.
+            width_gap = abs(expected_native_width - native_width)
+            height_gap = abs(expected_native_height - native_height)
+            tolerance_w = max(2.0, expected_native_width * 0.25)
+            tolerance_h = max(2.0, expected_native_height * 0.25)
+            if width_gap > tolerance_w or height_gap > tolerance_h:
+                scale_x = 1.0 / device_ratio
+                scale_y = 1.0 / device_ratio
+                native_origin_x = native_geometry[0]
+                native_origin_y = native_geometry[1]
+                if math.isclose(native_origin_x, logical_geometry[0], abs_tol=1e-4):
+                    native_origin_x = logical_geometry[0] * device_ratio
+                if math.isclose(native_origin_y, logical_geometry[1], abs_tol=1e-4):
+                    native_origin_y = logical_geometry[1] * device_ratio
+                _CLIENT_LOGGER.debug(
+                    "Applying DPR-based scaling with matching geometries: screen='%s' logical=%s native=%s dpr=%.3f scale=%.3fx%.3f",
+                    screen_info.name,
+                    logical_geometry,
+                    native_geometry,
+                    float(device_ratio),
+                    float(scale_x),
+                    float(scale_y),
+                )
     else:
         scale_x = logical_geometry[2] / native_width if native_width else 1.0
         scale_y = logical_geometry[3] / native_height if native_height else 1.0
