@@ -33,9 +33,9 @@ jobs:
             | ($e.comment.body // "") as $comment_body
             | ($comment_body | (if (.|length) > 1200 then (.[0:1200] + "...") else . end)) as $comment_snip
             | if ($e | has("comment")) then
-                {content: ("Issue comment on #" + $number + " " + $action + " by " + $actor + "\n" + $title + "\nComment:\n" + $comment_snip + "\n" + $url)}
+                {content: ("Issue comment on #" + $number + " " + $action + " by " + $actor + "\n" + $title + "\nComment:\n" + $comment_snip + "\n" + $url), flags: 4}
               else
-                {content: ("Issue #" + $number + " " + $action + " by " + $actor + "\n" + $title + "\n" + $issue_url)}
+                {content: ("Issue #" + $number + " " + $action + " by " + $actor + "\n" + $title + "\n" + $issue_url), flags: 4}
               end
           ' "$GITHUB_EVENT_PATH")
 
