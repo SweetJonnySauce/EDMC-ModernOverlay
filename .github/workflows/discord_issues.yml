@@ -22,14 +22,16 @@ jobs:
             exit 1
           fi
 
-          payload=$(jq -n \
-            --arg action "${{ github.event.action }}" \
-            --arg number "${{ github.event.issue.number }}" \
-            --arg title "${{ github.event.issue.title }}" \
-            --arg user "${{ github.event.issue.user.login }}" \
-            --arg url "${{ github.event.issue.html_url }}" \
-            '{content: ("Issue #" + $number + " " + $action + " by " + $user + "\n" + $title + "\n" + $url)}')
+          payload=$(jq -r '
+            . as $e
+            | ($e.issue.number | tostring) as $number
+            | ($e.issue.title // "") as $title
+            | ($e.issue.html_url // "") as $url
+            | ($e.sender.login // $e.issue.user.login // "") as $actor
+            | ($e.action // "") as $action
+            | {content: ("Issue #" + $number + " " + $action + " by " + $actor + "\n" + $title + "\n" + $url)}
+          ' "$GITHUB_EVENT_PATH")
 
-          curl -X POST -H "Content-Type: application/json" \
+          curl -f -X POST -H "Content-Type: application/json" \
             -d "$payload" \
             "$DISCORD_WEBHOOK"
