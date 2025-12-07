@@ -24,7 +24,7 @@
       "packages": {
         "core": ["python3", "python3-venv", "python3-pip", "rsync", "curl", "wmctrl"],
         "qt": ["libxcb-cursor0", "libxkbcommon-x11-0"],
-        "wayland": ["x11-utils"]
+        "wayland": ["x11-utils", "python3-pydbus"]
       }
     },
     {
@@ -40,7 +40,7 @@
       "packages": {
         "core": ["python3", "python3-pip", "python3-virtualenv", "rsync", "curl", "wmctrl"],
         "qt": ["libxkbcommon", "libxkbcommon-x11", "xcb-util-cursor"],
-        "wayland": ["xwininfo", "xprop"]
+        "wayland": ["xwininfo", "xprop", "python3-pydbus"]
       }
     },
     {
@@ -56,7 +56,7 @@
       "packages": {
         "core": ["python3", "python3-pip", "python3-virtualenv", "rsync", "curl", "wmctrl"],
         "qt": ["libxcb-cursor0", "libxkbcommon-x11-0"],
-        "wayland": ["xprop"]
+        "wayland": ["xprop", "xwininfo", "python3-pydbus"]
       }
     },
     {
@@ -72,7 +72,7 @@
       "packages": {
         "core": ["python", "python-pip", "rsync", "curl", "wmctrl"],
         "qt": ["libxcb", "xcb-util-cursor", "libxkbcommon"],
-        "wayland": ["xorg-xprop"]
+        "wayland": ["xorg-xprop", "xorg-xwininfo", "python-pydbus"]
       }
     }
   ]
