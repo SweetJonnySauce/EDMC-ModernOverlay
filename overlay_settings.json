@@ -7,7 +7,7 @@
   "gridline_spacing": 120,
   "force_render": false,
   "allow_force_render_release": false,
-  "force_xwayland": false,
+  "force_xwayland": true,
   "show_debug_overlay": false,
   "min_font_point": 6.0,
   "max_font_point": 14.0,

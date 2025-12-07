@@ -7,6 +7,7 @@ overlay_controller.pid
 payload_store/new-payloads.json
 overlay_group_cache.json
 overlay_group_cache.json.tmp
+overlay_groupings.user.json
 #*.code-workspace
 [Ee][Uu][Rr][Oo][Cc][Aa][Pp][Ss].[Tt][Tt][Ff]
 _external/
