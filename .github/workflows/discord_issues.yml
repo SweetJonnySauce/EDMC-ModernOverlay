@@ -31,7 +31,7 @@ jobs:
             | ($e.sender.login // $e.issue.user.login // "") as $actor
             | ($e.action // "") as $action
             | ($e.comment.body // "") as $comment_body
-            | ($comment_body | if (|length) > 1200 then (.[0:1200] + "…") else . end) as $comment_snip
+            | ($comment_body | (if (.|length) > 1200 then (.[0:1200] + "...") else . end)) as $comment_snip
             | if ($e | has("comment")) then
                 {content: ("Issue comment on #" + $number + " " + $action + " by " + $actor + "\n" + $title + "\nComment:\n" + $comment_snip + "\n" + $url)}
               else
