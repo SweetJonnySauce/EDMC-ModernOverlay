@@ -1478,7 +1478,6 @@ main() {
 import sys
 sys.exit(0) if sys.version_info >= (3, 10) else sys.exit(1)
 PY
-    then
         version_raw="$(python3 -V 2>/dev/null || true)"
         echo "❌ Python 3.10+ is required but was not found on PATH (python3). Detected: ${version_raw:-unknown}" >&2
         read -r -p "Continue anyway with the available python3? [y/N] " reply
