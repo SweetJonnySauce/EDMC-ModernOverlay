@@ -4,10 +4,8 @@ from __future__ import annotations
 import importlib
 import json
 import logging
-from logging.handlers import RotatingFileHandler
 import os
 import queue
-import signal
 import shutil
 import subprocess
 import sys
@@ -30,8 +28,16 @@ if __package__:
         DEV_MODE_ENV_VAR,
         is_dev_build,
     )
+    from .overlay_plugin.lifecycle import LifecycleTracker
     from .overlay_plugin.overlay_watchdog import OverlayWatchdog
     from .overlay_plugin.overlay_socket_server import WebSocketBroadcaster
+    from .overlay_plugin.logging_utils import build_rotating_payload_handler
+    from .overlay_plugin.runtime_services import start_runtime_services, stop_runtime_services
+    from .overlay_plugin.controller_services import (
+        controller_launch_sequence,
+        launch_controller,
+        terminate_controller_process,
+    )
     from .overlay_plugin.preferences import (
         CLIENT_LOG_RETENTION_MAX,
         CLIENT_LOG_RETENTION_MIN,
@@ -55,8 +61,16 @@ if __package__:
     from .EDMCOverlay.edmcoverlay import normalise_legacy_payload
 else:  # pragma: no cover - EDMC loads as top-level module
     from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR, is_dev_build
+    from overlay_plugin.lifecycle import LifecycleTracker
     from overlay_plugin.overlay_watchdog import OverlayWatchdog
     from overlay_plugin.overlay_socket_server import WebSocketBroadcaster
+    from overlay_plugin.logging_utils import build_rotating_payload_handler
+    from overlay_plugin.runtime_services import start_runtime_services, stop_runtime_services
+    from overlay_plugin.controller_services import (
+        controller_launch_sequence,
+        launch_controller,
+        terminate_controller_process,
+    )
     from overlay_plugin.preferences import (
         CLIENT_LOG_RETENTION_MAX,
         CLIENT_LOG_RETENTION_MIN,
@@ -117,6 +131,19 @@ def _coerce_float(value: Any) -> Optional[float]:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _env_flag(name: str) -> Optional[bool]:
+    """Parse a boolean environment flag, returning None when unset/invalid."""
+    value = os.environ.get(name)
+    if value is None:
+        return None
+    token = value.strip().lower()
+    if token in {"1", "true", "yes", "on"}:
+        return True
+    if token in {"0", "false", "no", "off"}:
+        return False
+    return None
 
 
 def _load_edmc_config_module() -> Optional[Any]:
@@ -381,6 +408,7 @@ class _PluginRuntime:
         self.watchdog: Optional[OverlayWatchdog] = None
         self._legacy_tcp_server: Optional[LegacyOverlayTCPServer] = None
         self._lock = threading.Lock()
+        self._lifecycle = LifecycleTracker(LOGGER)
         self._prefs_lock = threading.Lock()
         self._prefs_queue: "queue.Queue[Optional[Callable[[], Any]]]" = queue.Queue()
         self._prefs_worker_stop = threading.Event()
@@ -425,13 +453,12 @@ class _PluginRuntime:
         if self._payload_log_handler is None:
             self._configure_payload_logger()
         self._reset_force_render_override_on_startup()
-        self._start_force_render_monitor_if_needed()
-        self._start_prefs_worker()
         self._version_status: Optional[VersionStatus] = None
         self._version_status_lock = threading.Lock()
         self._version_update_notice_sent = False
         self._version_notice_timer_lock = threading.Lock()
         self._version_notice_timers: Set[threading.Timer] = set()
+        self._version_check_thread: Optional[threading.Thread] = None
         self._launch_log_timer: Optional[threading.Timer] = None
         self._launch_log_pending: Optional[Tuple[str, str]] = None
         self._last_launch_info_value: str = ""
@@ -456,35 +483,30 @@ class _PluginRuntime:
         self._controller_status_id = "overlay-controller-status"
         self._controller_pid_path = self.plugin_dir / "overlay_controller.pid"
         self._last_override_reload_nonce: Optional[str] = None
+        self._lifecycle.track_handle(self.broadcaster)
 
     # Lifecycle ------------------------------------------------------------
+
+    @property
+    def _tracked_threads(self):
+        return self._lifecycle.threads
+
+    @property
+    def _tracked_handles(self):
+        return self._lifecycle.handles
 
     def start(self) -> str:
         with self._lock:
             if self._running:
                 return PLUGIN_NAME
             _ensure_plugin_logger_level()
-            if self._legacy_overlay_active():
-                self._delete_port_file()
-                LOGGER.error("Legacy edmcoverlay overlay detected; Modern Overlay will remain inactive.")
-                return PLUGIN_NAME
-            server_started = self.broadcaster.start()
-            if not server_started:
-                _log("Overlay broadcast server failed to start; running in degraded mode.")
-                self._running = False
-                self._delete_port_file()
-            else:
-                self._write_port_file()
-                if not self._start_watchdog():
-                    self._running = False
-                    self.broadcaster.stop()
-                    self._delete_port_file()
-                    _log("Overlay client launch aborted; Modern Overlay plugin remains inactive.")
-                else:
-                    self._running = True
+            self._running = start_runtime_services(self, LOGGER, _log)
         if not self._running:
             return PLUGIN_NAME
 
+        self._start_prefs_worker()
+        self._start_force_render_monitor_if_needed()
+        self._start_version_status_check()
         register_publisher(self._publish_external)
         self._start_legacy_tcp_server()
         self._send_overlay_config(rebroadcast=True)
@@ -504,14 +526,7 @@ class _PluginRuntime:
         self._cancel_config_timers()
         self._cancel_version_notice_timers()
         self._stop_legacy_tcp_server()
-        if self.watchdog:
-            if self.watchdog.stop():
-                LOGGER.debug("Overlay watchdog stopped and client terminated cleanly")
-            else:
-                LOGGER.warning("Overlay watchdog stop reported incomplete shutdown")
-            self.watchdog = None
-        self.broadcaster.stop()
-        self._delete_port_file()
+        stop_runtime_services(self, LOGGER, self._lifecycle.untrack_handle)
         if self._payload_log_handler is not None:
             self._payload_logger.removeHandler(self._payload_log_handler)
             try:
@@ -521,7 +536,12 @@ class _PluginRuntime:
             self._payload_log_handler = None
         self._force_monitor_stop.set()
         self._terminate_controller_process()
+        self._lifecycle.join_thread(self._force_monitor_thread, "ModernOverlayForceMonitor", timeout=2.0)
+        self._force_monitor_thread = None
+        self._lifecycle.join_thread(self._version_check_thread, "ModernOverlayVersionCheck", timeout=2.0)
+        self._version_check_thread = None
         self._stop_prefs_worker()
+        self._lifecycle.log_state("after stop")
 
     # Journal handling -----------------------------------------------------
 
@@ -679,7 +699,10 @@ class _PluginRuntime:
             timers = tuple(self._version_notice_timers)
             self._version_notice_timers.clear()
         for timer in timers:
-            timer.cancel()
+            try:
+                timer.cancel()
+            except Exception as exc:
+                LOGGER.warning("Failed to cancel version notice timer: %s", exc)
 
     @staticmethod
     def _build_log_level_payload() -> Dict[str, Any]:
@@ -718,17 +741,16 @@ class _PluginRuntime:
         log_path = log_dir / PAYLOAD_LOG_FILE_NAME
         formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
         try:
-            handler = RotatingFileHandler(
-                log_path,
-                maxBytes=PAYLOAD_LOG_MAX_BYTES,
-                backupCount=backup_count,
-                encoding="utf-8",
+            handler = build_rotating_payload_handler(
+                log_dir,
+                PAYLOAD_LOG_FILE_NAME,
+                retention=retention,
+                max_bytes=PAYLOAD_LOG_MAX_BYTES,
+                formatter=formatter,
             )
         except Exception as exc:
             LOGGER.warning("Failed to initialise payload log at %s: %s", log_path, exc)
             return
-        handler.setFormatter(formatter)
-        handler.setLevel(logging.DEBUG)
 
         if self._payload_log_handler is not None:
             self._payload_logger.removeHandler(self._payload_log_handler)
@@ -747,12 +769,25 @@ class _PluginRuntime:
             backup_count,
         )
 
+    def _track_thread(self, thread: threading.Thread) -> None:
+        self._lifecycle.track_thread(thread)
+
+    def _untrack_thread(self, thread: Optional[threading.Thread]) -> None:
+        self._lifecycle.untrack_thread(thread)
+
+    def _track_handle(self, handle: Any) -> None:
+        self._lifecycle.track_handle(handle)
+
+    def _untrack_handle(self, handle: Any) -> None:
+        self._lifecycle.untrack_handle(handle)
+
     def _start_prefs_worker(self) -> None:
         if self._prefs_worker and self._prefs_worker.is_alive():
             return
         self._prefs_worker_stop.clear()
         worker = threading.Thread(target=self._prefs_worker_loop, name="ModernOverlayPrefs", daemon=True)
         self._prefs_worker = worker
+        self._lifecycle.track_thread(worker)
         worker.start()
 
     def _stop_prefs_worker(self) -> None:
@@ -764,6 +799,9 @@ class _PluginRuntime:
         worker = self._prefs_worker
         if worker:
             worker.join(timeout=2.0)
+            if worker.is_alive():
+                LOGGER.warning("Thread %s did not exit cleanly within %.1fs", worker.name, 2.0)
+        self._lifecycle.untrack_thread(worker)
         self._prefs_worker = None
 
     def _prefs_worker_loop(self) -> None:
@@ -832,7 +870,21 @@ class _PluginRuntime:
 
         thread = threading.Thread(target=_worker, name="ModernOverlayForceMonitor", daemon=True)
         self._force_monitor_thread = thread
+        self._lifecycle.track_thread(thread)
         thread.start()
+
+    def _start_version_status_check(self) -> None:
+        thread = self._version_check_thread
+        if thread and thread.is_alive():
+            return
+        worker = threading.Thread(
+            target=self._evaluate_version_status_once,
+            name="ModernOverlayVersionCheck",
+            daemon=True,
+        )
+        self._version_check_thread = worker
+        self._lifecycle.track_thread(worker)
+        worker.start()
 
     def _resolve_client_log_retention(self) -> int:
         try:
@@ -1253,6 +1305,7 @@ class _PluginRuntime:
         )
         self._update_capture_state(self._capture_enabled())
         self.watchdog.start()
+        self._lifecycle.track_handle(self.watchdog)
         return True
 
     def _locate_overlay_client(self) -> Optional[Path]:
@@ -1304,8 +1357,11 @@ class _PluginRuntime:
             LOGGER.info("Overlay stdout/stderr capture inactive (override or EDMC logging level disabled piping).")
         self._capture_active = enabled
 
-    def _desired_force_xwayland(self) -> bool:
-        return (os.environ.get("XDG_SESSION_TYPE") or "").lower() == "wayland"
+    def _desired_force_xwayland(self) -> Tuple[bool, str]:
+        env_override = _env_flag("EDMC_OVERLAY_FORCE_XWAYLAND")
+        if env_override is not None:
+            return env_override, "environment override"
+        return bool(self._preferences.force_xwayland), "user preference"
 
     def _sync_force_xwayland_ui(self) -> None:
         # UI toggle removed; keep method for legacy callers.
@@ -1318,22 +1374,21 @@ class _PluginRuntime:
         update_watchdog: bool,
         emit_config: bool,
     ) -> bool:
+        source = "user preference"
         with self._prefs_lock:
-            desired = self._desired_force_xwayland()
+            desired, source = self._desired_force_xwayland()
             current = bool(self._preferences.force_xwayland)
             if current == desired:
                 self._sync_force_xwayland_ui()
                 return False
             self._preferences.force_xwayland = desired
-            if persist:
+            # Only persist explicit user choices; env overrides should remain ephemeral.
+            if persist and source == "user preference":
                 try:
                     self._preferences.save()
                 except Exception as exc:
                     LOGGER.warning("Failed to save preferences while enforcing XWayland setting: %s", exc)
-        if desired:
-            LOGGER.info("Detected Wayland session; forcing overlay client to run via XWayland.")
-        else:
-            LOGGER.info("Detected non-Wayland session; disabling XWayland override.")
+        LOGGER.info("force_xwayland set to %s via %s.", desired, source)
         if update_watchdog and self.watchdog:
             try:
                 self.watchdog.set_environment(self._build_overlay_environment())
@@ -1742,19 +1797,7 @@ class _PluginRuntime:
         self._cycle_payload_step(1)
 
     def launch_overlay_controller(self) -> None:
-        with self._controller_launch_lock:
-            if self._controller_launch_thread and self._controller_launch_thread.is_alive():
-                raise RuntimeError("Overlay Controller launch already in progress.")
-            if self._controller_process and self._controller_process.poll() is None:
-                raise RuntimeError("Overlay Controller is already running.")
-            LOGGER.debug("Overlay Controller launch requested; preparing launch thread.")
-            thread = threading.Thread(
-                target=self._overlay_controller_launch_sequence,
-                name="OverlayControllerLaunch",
-                daemon=True,
-            )
-            self._controller_launch_thread = thread
-        thread.start()
+        launch_controller(self, LOGGER)
 
     def _controller_python_command(self, overlay_env: Dict[str, str]) -> List[str]:
         override = os.getenv("EDMC_OVERLAY_CONTROLLER_PYTHON")
@@ -1775,59 +1818,7 @@ class _PluginRuntime:
         )
 
     def _overlay_controller_launch_sequence(self) -> None:
-        try:
-            launch_env = self._build_overlay_environment()
-            python_command = self._controller_python_command(launch_env)
-            LOGGER.debug("Overlay Controller launch sequence starting with interpreter=%s", python_command[0])
-            for key in ("TCL_LIBRARY", "TK_LIBRARY"):
-                if key in launch_env:
-                    LOGGER.debug("Removing %s from controller environment to avoid Tcl/Tk conflicts", key)
-                    launch_env.pop(key, None)
-            capture_output = self._capture_enabled()
-            self._controller_countdown()
-            process = self._spawn_overlay_controller_process(python_command, launch_env, capture_output=capture_output)
-        except Exception as exc:
-            LOGGER.error("Overlay Controller launch failed: %s", exc, exc_info=exc)
-            self._emit_controller_message(f"Overlay Controller launch failed: {exc}", ttl=6.0)
-            with self._controller_launch_lock:
-                self._controller_launch_thread = None
-            return
-
-        with self._controller_launch_lock:
-            self._controller_process = process
-            self._controller_launch_thread = None
-        LOGGER.debug("Overlay Controller process handle stored (pid=%s)", getattr(process, "pid", "?"))
-
-        self._emit_controller_active_notice()
-
-        try:
-            exit_code: Optional[int] = None
-            stdout: str = ""
-            stderr: str = ""
-            try:
-                if self._capture_enabled():
-                    stdout, stderr = process.communicate()
-                    exit_code = process.returncode
-                else:
-                    exit_code = process.wait()
-            except Exception as exc:
-                LOGGER.debug("Overlay Controller process wait failed: %s", exc)
-                try:
-                    exit_code = process.poll()
-                except Exception:
-                    exit_code = None
-            LOGGER.debug("Overlay Controller process exited with code %s", exit_code)
-            if exit_code not in (0, None) and self._capture_enabled():
-                formatted_output = self._format_controller_output(stdout, stderr)
-                LOGGER.warning(
-                    "Overlay Controller exited abnormally (code=%s).\n%s",
-                    exit_code,
-                    formatted_output,
-                )
-        finally:
-            with self._controller_launch_lock:
-                self._controller_process = None
-            self._clear_controller_message()
+        controller_launch_sequence(self, LOGGER)
 
     def _controller_countdown(self) -> None:
         LOGGER.debug("Overlay Controller countdown started.")
@@ -1933,50 +1924,7 @@ class _PluginRuntime:
             pass
 
     def _terminate_controller_process(self) -> None:
-        handle: Optional[subprocess.Popen] = None
-        with self._controller_launch_lock:
-            handle = self._controller_process
-        pid_from_file = self._read_controller_pid_file()
-        target_pid = None
-        if handle and handle.poll() is None:
-            target_pid = handle.pid
-        elif pid_from_file and (handle is None or pid_from_file != getattr(handle, "pid", None)):
-            target_pid = pid_from_file
-        if target_pid is None:
-            self._cleanup_controller_pid_file()
-            return
-        LOGGER.debug("Attempting to stop Overlay Controller (pid=%s)", target_pid)
-        terminated = False
-        try:
-            try:
-                import psutil  # type: ignore
-            except Exception:
-                psutil = None  # type: ignore
-            if psutil is not None:
-                try:
-                    proc = psutil.Process(target_pid)
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=3.0)
-                    except psutil.TimeoutExpired:
-                        proc.kill()
-                        proc.wait(timeout=2.0)
-                    terminated = True
-                except psutil.NoSuchProcess:
-                    terminated = True
-                except Exception:
-                    pass
-            if not terminated:
-                try:
-                    os.kill(target_pid, signal.SIGTERM)
-                    terminated = True
-                except Exception:
-                    pass
-        finally:
-            self._cleanup_controller_pid_file()
-            with self._controller_launch_lock:
-                if self._controller_process and getattr(self._controller_process, "pid", None) == target_pid:
-                    self._controller_process = None
+        terminate_controller_process(self, LOGGER)
 
     def _cycle_payload_step(self, direction: int) -> None:
         if not self._running:
@@ -2070,6 +2018,7 @@ class _PluginRuntime:
         )
         if server.start():
             self._legacy_tcp_server = server
+            self._lifecycle.track_handle(server)
         else:
             self._legacy_tcp_server = None
 
@@ -2082,6 +2031,7 @@ class _PluginRuntime:
         except Exception as exc:
             LOGGER.debug("Legacy overlay compatibility server shutdown error: %s", exc)
         self._legacy_tcp_server = None
+        self._lifecycle.untrack_handle(server)
 
     def _update_overlay_metrics(self, payload: Mapping[str, Any]) -> None:
         width = _coerce_float(payload.get("width"))
@@ -2887,8 +2837,8 @@ class _PluginRuntime:
         for timer in timers:
             try:
                 timer.cancel()
-            except Exception:
-                pass
+            except Exception as exc:
+                LOGGER.warning("Failed to cancel config rebroadcast timer: %s", exc)
 
 
 # EDMC hook functions ------------------------------------------------------
@@ -2899,6 +2849,7 @@ _prefs_panel: Optional[PreferencesPanel] = None
 
 
 def plugin_start3(plugin_dir: str) -> str:
+    """EDMC entrypoint: initialise plugin and start runtime once."""
     _log(f"Initialising Modern Overlay plugin from {plugin_dir}")
     global _plugin, _preferences
     _preferences = Preferences(Path(plugin_dir), dev_mode=DEV_BUILD)
@@ -2907,6 +2858,7 @@ def plugin_start3(plugin_dir: str) -> str:
 
 
 def plugin_stop() -> None:
+    """EDMC entrypoint: stop plugin safely; idempotent if not running."""
     global _prefs_panel, _plugin, _preferences
     if _plugin:
         try:
@@ -2918,6 +2870,7 @@ def plugin_stop() -> None:
 
 
 def plugin_app(parent) -> Optional[Any]:  # pragma: no cover - EDMC Tk frame hook
+    """EDMC entrypoint: build preferences panel for EDMC UI."""
     return None
 
 

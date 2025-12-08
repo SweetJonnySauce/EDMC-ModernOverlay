@@ -14,11 +14,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Send Discord message
-        uses: Ilshidur/action-discord@master
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        with:
-          args: |
-            Issue **#${{ github.event.issue.number }}** \
-            *${{ github.event.action }}* by **${{ github.actor }}**  
-            <${{ github.event.issue.html_url }}>
+        run: |
+          if [ -z "$DISCORD_WEBHOOK" ]; then
+            echo "DISCORD_WEBHOOK secret is not set." >&2
+            exit 1
+          fi
+
+          payload=$(jq -r '
+            . as $e
+            | ($e.issue.number | tostring) as $number
+            | ($e.issue.title // "") as $title
+            | ($e.issue.html_url // "") as $issue_url
+            | ($e.comment.html_url // $issue_url) as $url
+            | ($e.sender.login // $e.issue.user.login // "") as $actor
+            | ($e.action // "") as $action
+            | ($e.comment.body // "") as $comment_body
+            | ($comment_body | (if (.|length) > 1200 then (.[0:1200] + "...") else . end)) as $comment_snip
+            | if ($e | has("comment")) then
+                {content: ("Issue comment on #" + $number + " " + $action + " by " + $actor + "\n" + $title + "\nComment:\n" + $comment_snip + "\n" + $url), flags: 4}
+              else
+                {content: ("Issue #" + $number + " " + $action + " by " + $actor + "\n" + $title + "\n" + $issue_url), flags: 4}
+              end
+          ' "$GITHUB_EVENT_PATH")
+
+          curl -f -X POST -H "Content-Type: application/json" \
+            -d "$payload" \
+            "$DISCORD_WEBHOOK"

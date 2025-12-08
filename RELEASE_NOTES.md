@@ -1,16 +1,22 @@
 # Release Notes
 
 ## 0.7.5
-- Integrity: installers now ship a per-file `checksums.txt` manifest. Both Linux and Windows installers validate the extracted bundle and installed plugin files against it; `generate_checksums.py` builds the manifest during release packaging.
-- Controller⇄client targeting rewrite: controller now pushes merged overrides with an edit nonce, cache entries carry nonce/timestamp metadata, and the client refuses stale transformed blocks so payloads never “jump” when editing offsets.
-- Diagnostics overhaul: EDMC’s DEBUG log level now drives every Modern Overlay logger, auto-creates `debug.json`, and exposes payload logging/stdout capture controls directly in the preferences panel while dev-only helpers live in the new `dev_settings.json`.
-- Cache + fallback hardening: while the controller is active we shorten cache flush debounces, immediately rewrite transformed bounds from the rendered geometry, and keep HUD fallback aligned even if the HUD momentarily drops payload frames.
-- Controller UI cleanup: preview now renders a single authoritative target box (no more dual “actual vs. target”), the absolute widget always mirrors controller coordinates without warning colors, and group pinning/anchor edits stay responsive.
-- Workflow + testing aids: added controller workflow helper/tests to validate cache geometry, expanded fallback regression tests, and folded the new behavior into the refactoring plan documentation.
-- Controller performance & usability: merged-group loader now feeds the controller UI, writes are isolated to the user config file, and reloads poll both shipped/user files with last-good fallback to keep editing responsive.
-- Layered configs: shipped defaults remain in `overlay_groupings.json`; per-user overrides live in `overlay_groupings.user.json` (or an override path) and are preserved across upgrades. No automatic migration runs in this release.
-- Linux install: added Arch/pacman support alongside existing installers.
-- Fix #26. Give focus back to game after closing the controller on Windows
+- Features:
+  - Controller⇄client targeting rewrite: controller now pushes merged overrides with an edit nonce, cache entries carry nonce/timestamp metadata, and the client refuses stale transformed blocks so payloads never “jump” when editing offsets.
+  - Diagnostics overhaul: EDMC’s DEBUG log level now drives every Modern Overlay logger, auto-creates `debug.json`, and exposes payload logging/stdout capture controls directly in the preferences panel while dev-only helpers live in the new `dev_settings.json`.
+  - Cache + fallback hardening: while the controller is active we shorten cache flush debounces, immediately rewrite transformed bounds from the rendered geometry, and keep HUD fallback aligned even if the HUD momentarily drops payload frames.
+  - Controller UI cleanup: preview now renders a single authoritative target box (no more dual “actual vs. target”), the absolute widget always mirrors controller coordinates without warning colors, and group pinning/anchor edits stay responsive.
+  - Controller performance & usability: merged-group loader now feeds the controller UI, writes are isolated to the user config file, and reloads poll both shipped/user files with last-good fallback to keep editing responsive.
+  - Layered configs: shipped defaults remain in `overlay_groupings.json`; per-user overrides live in `overlay_groupings.user.json` (or an override path) and are preserved across upgrades. No automatic migration runs in this release.
+- Maintenance:
+  - Runtime floor: client/controller now require Python 3.10+; packaging, docs, and both installers enforce/announce the new minimum with a continue-anyway prompt if an older interpreter is detected.
+  - Integrity: installers now ship a per-file `checksums.txt` manifest. Both Linux and Windows installers validate the extracted bundle and installed plugin files against it; `generate_checksums.py` builds the manifest during release packaging.
+  - Workflow + testing aids: added controller workflow helper/tests to validate cache geometry, expanded fallback regression tests, and folded the new behavior into the refactoring plan documentation.
+  - Lifecycle hardening: centralized thread/timer management via a new lifecycle helper, moved background starts out of `__init__`, added join/cancel logging, and added leak-focused start/stop tests; full `make check` (PYQT_TESTS=1) passes.
+  - Runtime delegation: moved broadcaster/watchdog orchestration and controller launch/termination into dedicated helpers, added hook-level smoke tests, and reran full `make check` to confirm behavior parity.
+  - Linux install: added Arch/pacman support alongside existing installers.
+  - Fix #26. Give focus back to game after closing the controller on Windows
+  - Center justification now uses origin-aware baselines (ignoring non-justified frames) to keep centered text inside its containing box; right justification is unchanged.
 
 ## 0.7.4-dev
 - Controller startup no longer crashes when Tk rejects a binding; unsupported or empty sequences are skipped with a warning instead.

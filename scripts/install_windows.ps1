@@ -626,24 +626,50 @@ function Resolve-Python {
         if (-not $cmd) {
             continue
         }
-        $checkArgs = @()
+        $versionArgs = @()
         if ($candidate.Args.Count -gt 0) {
-            $checkArgs += $candidate.Args
+            $versionArgs += $candidate.Args
         }
-        $checkArgs += @('-c', 'import sys; sys.exit(0) if sys.version_info >= (3, 8) else sys.exit(1)')
+        $versionArgs += @('-c', 'import sys; print(".".join(map(str, sys.version_info[:3])))')
 
+        $versionString = $null
         try {
-            & $candidate.Command @checkArgs *> $null
+            $versionString = (& $candidate.Command @versionArgs).Trim()
+        } catch {
+            $versionString = $null
+        }
+
+        $versionOk = $false
+        if (-not [string]::IsNullOrWhiteSpace($versionString)) {
+            try {
+                $v = [version]$versionString
+                if ($v.Major -gt 3 -or ($v.Major -eq 3 -and $v.Minor -ge 10)) {
+                    $versionOk = $true
+                }
+            } catch {
+                # leave as false
+            }
+        }
+
+        if ($versionOk) {
             return [pscustomobject]@{
                 Command    = $candidate.Command
                 PrefixArgs = $candidate.Args
             }
-        } catch {
-            continue
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($versionString)) {
+            Write-Warn "Detected $($candidate.Command) version $versionString (<3.10)."
+            if (Prompt-YesNo -Message "Continue anyway with $($candidate.Command)?" -Default:$false) {
+                return [pscustomobject]@{
+                    Command    = $candidate.Command
+                    PrefixArgs = $candidate.Args
+                }
+            }
         }
     }
 
-    Fail-Install 'Python 3.8+ is required but was not found on PATH.'
+    Fail-Install 'Python 3.10+ is required but was not found on PATH.'
 }
 
 function Ensure-EdmcNotRunning {

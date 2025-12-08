@@ -1,6 +1,11 @@
 # EDMC Modern Overlay (beta)
 [![Github All Releases](https://img.shields.io/github/downloads/SweetJonnySauce/EDMCModernOverlay/total.svg)](https://github.com/SweetJonnySauce/EDMCModernOverlay/releases/latest)
 [![GitHub Latest Version](https://img.shields.io/github/v/release/SweetJonnySauce/EDMCModernOverlay)](https://github.com/SweetJonnySauce/EDMCModernOverlay/releases/latest)
+[![Build Status][build-badge]][build-url]
+
+[build-badge]: https://github.com/SweetJonnySauce/EDMCModernOverlay/actions/workflows/ci.yml/badge.svg?branch=main
+[build-url]: https://github.com/SweetJonnySauce/EDMCModernOverlay/actions/workflows/ci.yml
+
 
 EDMC Modern Overlay (packaged as `EDMCModernOverlay`) is a drop-in replacement for [EDMCOverlay](https://github.com/inorton/EDMCOverlay) and [edmcoverlay2](https://github.com/pan-mroku/edmcoverlay2). It is a cross-platform (Windows and Linux), two-part implementation (plugin and overlay client) for Elite Dangerous Market Connector ([EDMC](https://github.com/EDCD/EDMarketConnector)). It streams data from EDMC plugins over a lightweight TCP socket and displays a transparent, click-through PyQt6 heads-up display on the Elite Dangerous game. It runs in both fullscreen borderless and windowed mode on any display size. The [plugin releases](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest) ship with both Windows and Linux installers.
 
@@ -34,7 +39,7 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
 
 ## Prerequisites
 
-- Python 3.11
+- Python 3.10+
 - Elite Dangerous Market Connector installed
 - On Windows, Powershell 3 or greater is required for the installation (both exe or ps1 installations)
 
@@ -55,10 +60,10 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
 - **Integrity checks:** Releases ship a `checksums.txt` manifest. Both installers (`install_linux.sh` and `install_windows.ps1`) verify the extracted bundle and the installed plugin files against that manifest; if verification fails, re-download the release and re-run the installer.
 
 - **Linux Dependency Packages:** `install_linux.sh` reads `install_matrix.json` and installs the distro-specific prerequisites for the overlay client. The manifest currently checks for and pulls in if necessary:
-  - Debian / Ubuntu: `python3`, `python3-venv`, `python3-pip`, `rsync`, `curl`, `wmctrl`, plus Qt helpers `libxcb-cursor0`, `libxkbcommon-x11-0` and Wayland helper `x11-utils`
-  - Fedora / RHEL / CentOS Stream: `python3`, `python3-pip`, `python3-virtualenv`, `rsync`, `curl`, `wmctrl`, `libxkbcommon`, `libxkbcommon-x11`, `xcb-util-cursor`, and Wayland helpers `xwininfo`, `xprop`
-  - openSUSE / SLE: `python3`, `python3-pip`, `python3-virtualenv`, `rsync`, `curl`, `wmctrl`, plus Qt helpers `libxcb-cursor0`, `libxkbcommon-x11-0`, and Wayland helper `xprop`
-  - Arch / Manjaro / SteamOS: `python`, `python-pip`, `rsync`, `curl`, `wmctrl`, plus Qt helpers `libxcb`, `xcb-util-cursor`, `libxkbcommon`, and Wayland helper `xorg-xprop`
+  - Debian / Ubuntu: `python3`, `python3-venv`, `python3-pip`, `rsync`, `curl`, `wmctrl`, plus Qt helpers `libxcb-cursor0`, `libxkbcommon-x11-0` and Wayland helpers `x11-utils`, `python3-pydbus`
+  - Fedora / RHEL / CentOS Stream: `python3`, `python3-pip`, `python3-virtualenv`, `rsync`, `curl`, `wmctrl`, `libxkbcommon`, `libxkbcommon-x11`, `xcb-util-cursor`, and Wayland helpers `xwininfo`, `xprop`, `python3-pydbus`
+  - openSUSE / SLE: `python3`, `python3-pip`, `python3-virtualenv`, `rsync`, `curl`, `wmctrl`, plus Qt helpers `libxcb-cursor0`, `libxkbcommon-x11-0`, and Wayland helpers `xprop`, `xwininfo`, `python3-pydbus`
+  - Arch / Manjaro / SteamOS: `python`, `python-pip`, `rsync`, `curl`, `wmctrl`, plus Qt helpers `libxcb`, `xcb-util-cursor`, `libxkbcommon`, and Wayland helpers `xorg-xprop`, `xorg-xwininfo`, `python-pydbus`
 
 - **Installation dependency for x11 tools isn't found** If you do a Linux install and you get an error that the x11 dependency can't be found or installed, you may be hitting this [bug](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/issues/15). There isn't a fix for this yet but you may be able to work around this. You specifically need `xwininfo` and `xprop`. If you have those installed, or can install them manually, then you should be able to install without the needed dependency.
 

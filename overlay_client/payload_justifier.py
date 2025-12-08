@@ -17,6 +17,8 @@ class JustificationRequest:
     justification: str
     width: float
     baseline_width: Optional[float] = None
+    baseline_min_x: Optional[float] = None
+    payload_min_x: Optional[float] = None
     right_justification_delta_px: float = 0.0
 
 
@@ -46,10 +48,15 @@ def calculate_offsets(requests: Sequence[JustificationRequest]) -> Dict[Any, flo
         if baseline <= 0.0:
             continue
         for request, width in entries:
-            # Preserve the sign so wider-than-baseline items can still shift left.
             delta = baseline - width
             if request.justification == "center":
-                delta *= 0.5
+                baseline_min_x = request.baseline_min_x
+                payload_min_x = request.payload_min_x
+                if baseline_min_x is not None and payload_min_x is not None:
+                    origin_delta = baseline_min_x - payload_min_x
+                    delta = origin_delta + (baseline - width) * 0.5
+                else:
+                    delta *= 0.5
             adjusted = delta - max(0.0, float(request.right_justification_delta_px or 0.0))
             if adjusted == 0.0:
                 continue
