@@ -104,4 +104,4 @@ jobs:
         shell: pwsh
         run: |
           Import-Module Pester -MinimumVersion 5.5.0 -Force
-          Invoke-Pester -CI tests/install_windows.Tests.ps1 -OutputFormat NUnitXml -OutputFile Test-Pester.xml
+          Invoke-Pester -Path tests/install_windows.Tests.ps1 -OutputFormat NUnitXml -OutputFile Test-Pester.xml
