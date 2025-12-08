@@ -512,12 +512,13 @@ function Verify-Checksums {
 
     $lines = Get-Content -LiteralPath $ChecksumManifestPath -ErrorAction Stop
     $lines = Normalize-ChecksumLines -Lines $lines -BaseDir $BaseDir
-    $message = "ℹ️  Checking file integrity"
+    $message = "Checking file integrity"
     if ($labelToUse -match '(?i)installed' -or $labelToUse -match '(?i)updated') {
-        $message = "ℹ️  Checking file integrity of installed files"
+        $message = "Checking file integrity of installed files"
     }
     Write-Info $message
 
+    $failureMessage = $null
     foreach ($line in $lines) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         if ($line.StartsWith('#')) { continue }
@@ -544,7 +545,7 @@ function Verify-Checksums {
         }
 
         if ($script:LogEnabled -and $script:LogFilePath) {
-            Write-LogLine "$relativePath: OK"
+            Write-LogLine "${relativePath}: OK"
         }
     }
 
@@ -630,11 +631,11 @@ function Resolve-Python {
         if ($candidate.Args.Count -gt 0) {
             $versionArgs += $candidate.Args
         }
-        $versionArgs += @('-c', 'import sys; print(".".join(map(str, sys.version_info[:3])))')
+        $versionArgs += @('--version')
 
         $versionString = $null
         try {
-            $versionString = (& $candidate.Command @versionArgs).Trim()
+            $versionString = (& $candidate.Command @versionArgs 2>&1).Trim()
         } catch {
             $versionString = $null
         }
@@ -642,9 +643,12 @@ function Resolve-Python {
         $versionOk = $false
         if (-not [string]::IsNullOrWhiteSpace($versionString)) {
             try {
-                $v = [version]$versionString
-                if ($v.Major -gt 3 -or ($v.Major -eq 3 -and $v.Minor -ge 10)) {
-                    $versionOk = $true
+                $match = [regex]::Match($versionString, '(?i)python\s+(?<maj>\d+)\.(?<min>\d+)\.(?<patch>\d+)')
+                if ($match.Success) {
+                    $v = [version]("{0}.{1}.{2}" -f $match.Groups['maj'].Value, $match.Groups['min'].Value, $match.Groups['patch'].Value)
+                    if ($v.Major -gt 3 -or ($v.Major -eq 3 -and $v.Minor -ge 10)) {
+                        $versionOk = $true
+                    }
                 }
             } catch {
                 # leave as false
@@ -821,7 +825,7 @@ function Create-VenvAndInstall {
     $rebuildRequested = $false
     if (Test-Path -LiteralPath $venvPath) {
         Write-Info "Existing Python virtual environment detected at '$venvPath'."
-        if (Prompt-YesNo -Message 'Rebuild the overlay_client virtual environment?' -Default:$true) {
+        if (Prompt-YesNo -Message 'Rebuild the overlay_client virtual environment?' -Default:$false) {
             $rebuildRequested = $true
         }
     }
