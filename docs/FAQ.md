@@ -131,12 +131,8 @@ Modern Overlay now ships with compositor-aware helpers and multiple fallbacks. T
   fi
   source ~/.bashrc
   ```
-- **KDE Plasma (KWin):** Install `pydbus>=0.6.0` in the client venv so the overlay can talk to KWin’s DBus scripting API when toggling click-through behaviour.
-  ```bash
-  cd /path/to/EDMCModernOverlay
-  source overlay_client/.venv/bin/activate
-  pip install pydbus
-  ```
+- **KDE Plasma (KWin):** Set `force_xwayland` to **false** in `overlay_settings.json`. KWin—Plasma handles Wayland windows natively, and forcing XWayland can break input/stacking.
+
 - **XWayland mode:** On Wayland sessions the overlay forces itself to launch under XWayland for compatibility. Keep this path in mind on GNOME Shell (Wayland), where native layer-shell hooks are not yet available; the overlay behaves like it does on X11 and stays pinned above Elite.
   ```bash
   # Example for Debian/Ubuntu; xprop/xwininfo ship in x11-utils and swaymsg comes with sway.

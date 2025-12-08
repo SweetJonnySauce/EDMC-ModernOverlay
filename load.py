@@ -133,6 +133,19 @@ def _coerce_float(value: Any) -> Optional[float]:
         return None
 
 
+def _env_flag(name: str) -> Optional[bool]:
+    """Parse a boolean environment flag, returning None when unset/invalid."""
+    value = os.environ.get(name)
+    if value is None:
+        return None
+    token = value.strip().lower()
+    if token in {"1", "true", "yes", "on"}:
+        return True
+    if token in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
 def _load_edmc_config_module() -> Optional[Any]:
     try:
         return importlib.import_module("config")
@@ -1344,8 +1357,11 @@ class _PluginRuntime:
             LOGGER.info("Overlay stdout/stderr capture inactive (override or EDMC logging level disabled piping).")
         self._capture_active = enabled
 
-    def _desired_force_xwayland(self) -> bool:
-        return (os.environ.get("XDG_SESSION_TYPE") or "").lower() == "wayland"
+    def _desired_force_xwayland(self) -> Tuple[bool, str]:
+        env_override = _env_flag("EDMC_OVERLAY_FORCE_XWAYLAND")
+        if env_override is not None:
+            return env_override, "environment override"
+        return bool(self._preferences.force_xwayland), "user preference"
 
     def _sync_force_xwayland_ui(self) -> None:
         # UI toggle removed; keep method for legacy callers.
@@ -1358,22 +1374,21 @@ class _PluginRuntime:
         update_watchdog: bool,
         emit_config: bool,
     ) -> bool:
+        source = "user preference"
         with self._prefs_lock:
-            desired = self._desired_force_xwayland()
+            desired, source = self._desired_force_xwayland()
             current = bool(self._preferences.force_xwayland)
             if current == desired:
                 self._sync_force_xwayland_ui()
                 return False
             self._preferences.force_xwayland = desired
-            if persist:
+            # Only persist explicit user choices; env overrides should remain ephemeral.
+            if persist and source == "user preference":
                 try:
                     self._preferences.save()
                 except Exception as exc:
                     LOGGER.warning("Failed to save preferences while enforcing XWayland setting: %s", exc)
-        if desired:
-            LOGGER.info("Detected Wayland session; forcing overlay client to run via XWayland.")
-        else:
-            LOGGER.info("Detected non-Wayland session; disabling XWayland override.")
+        LOGGER.info("force_xwayland set to %s via %s.", desired, source)
         if update_watchdog and self.watchdog:
             try:
                 self.watchdog.set_environment(self._build_overlay_environment())
