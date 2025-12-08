@@ -69,7 +69,7 @@ def load_excludes(manifest_path: pathlib.Path) -> dict:
     return {
         "directories": set(data.get("directories", [])),
         "root_directories": set(data.get("root_directories", [])),
-        "files": set(data.get("files", []) | {DEFAULT_MANIFEST, ".DS_Store"}),
+        "files": set(data.get("files", [])) | {DEFAULT_MANIFEST, ".DS_Store"},
         "patterns": list(data.get("patterns", [])),
         "substrings": set(data.get("substrings", [])) | DEFAULT_EXCLUDE_SUBSTRINGS,
     }
