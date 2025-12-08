@@ -938,6 +938,23 @@ prompt_yes_no() {
     done
 }
 
+prompt_yes_no_default_no() {
+    local prompt="${1:-Continue?}"
+    if [[ "$ASSUME_YES" == true ]]; then
+        echo "${prompt} [y/N]: y (auto-approved)"
+        return 0
+    fi
+    local answer
+    while true; do
+        read -r -p "${prompt} [y/N]: " answer || return 1
+        case "${answer}" in
+            [Yy][Ee][Ss]|[Yy]) return 0 ;;
+            [Nn][Oo]|[Nn]|'') return 1 ;;
+            *) echo "Please answer yes or no." ;;
+        esac
+    done
+}
+
 handle_dependency_install_failure() {
     local action="$1"
     local exit_code="$2"
@@ -1385,7 +1402,7 @@ create_venv_and_install() {
     local rebuild_requested=0
     if [[ -d overlay_client/.venv ]]; then
         echo "ℹ️  Existing Python virtual environment detected at overlay_client/.venv."
-        if prompt_yes_no "Rebuild the overlay_client virtual environment?"; then
+        if prompt_yes_no_default_no "Rebuild the overlay_client virtual environment?"; then
             rebuild_requested=1
         fi
     fi
@@ -1535,6 +1552,9 @@ PY
         echo "    Plugin files will be replaced; you'll be prompted whether to rebuild overlay_client/.venv afterwards."
         if ! prompt_yes_no "Proceed with updating the installation?"; then
             echo "❌ Installation aborted by user to protect the existing virtual environment." >&2
+            if [[ -t 0 ]]; then
+                read -r -p $'Hit Enter to continue...'
+            fi
             exit 1
         fi
         rsync_update_plugin "$src_dir" "$dest_dir"
