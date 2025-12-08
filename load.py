@@ -5,7 +5,6 @@ import importlib
 import json
 import logging
 import os
-import queue
 import shutil
 import subprocess
 import sys
@@ -38,6 +37,7 @@ if __package__:
         launch_controller,
         terminate_controller_process,
     )
+    from .overlay_plugin.prefs_services import PrefsWorker
     from .overlay_plugin.config_version_services import (
         cancel_config_timers,
         cancel_version_notice_timers,
@@ -78,6 +78,7 @@ else:  # pragma: no cover - EDMC loads as top-level module
         launch_controller,
         terminate_controller_process,
     )
+    from overlay_plugin.prefs_services import PrefsWorker
     from overlay_plugin.config_version_services import (
         cancel_config_timers,
         cancel_version_notice_timers,
@@ -424,9 +425,6 @@ class _PluginRuntime:
         self._lock = threading.Lock()
         self._lifecycle = LifecycleTracker(LOGGER)
         self._prefs_lock = threading.Lock()
-        self._prefs_queue: "queue.Queue[Optional[Callable[[], Any]]]" = queue.Queue()
-        self._prefs_worker_stop = threading.Event()
-        self._prefs_worker: Optional[threading.Thread] = None
         self._force_monitor_stop = threading.Event()
         self._force_monitor_thread: Optional[threading.Thread] = None
         self._running = False
@@ -481,6 +479,7 @@ class _PluginRuntime:
         self._last_launch_log_time: float = 0.0
         self._command_helper_prefix: Optional[str] = None
         self._controller_active_group: Optional[Tuple[str, str]] = None
+        self._prefs_worker = PrefsWorker(self._lifecycle, LOGGER)
         register_grouping_store(self.plugin_dir / "overlay_groupings.json")
         threading.Thread(
             target=self._evaluate_version_status_once,
@@ -770,63 +769,28 @@ class _PluginRuntime:
         self._lifecycle.untrack_handle(handle)
 
     def _start_prefs_worker(self) -> None:
-        if self._prefs_worker and self._prefs_worker.is_alive():
-            return
-        self._prefs_worker_stop.clear()
-        worker = threading.Thread(target=self._prefs_worker_loop, name="ModernOverlayPrefs", daemon=True)
-        self._prefs_worker = worker
-        self._lifecycle.track_thread(worker)
-        worker.start()
+        if self._prefs_worker is None:
+            self._prefs_worker = PrefsWorker(self._lifecycle, LOGGER)
+        self._prefs_worker.start()
 
     def _stop_prefs_worker(self) -> None:
-        self._prefs_worker_stop.set()
-        try:
-            self._prefs_queue.put_nowait(None)
-        except queue.Full:
-            pass
         worker = self._prefs_worker
-        if worker:
-            worker.join(timeout=2.0)
-            if worker.is_alive():
-                LOGGER.warning("Thread %s did not exit cleanly within %.1fs", worker.name, 2.0)
-        self._lifecycle.untrack_thread(worker)
+        if worker is None:
+            return
+        if isinstance(worker, PrefsWorker):
+            worker.stop()
+        else:
+            try:
+                worker.join(timeout=2.0)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            self._lifecycle.untrack_thread(getattr(worker, "thread", worker))
         self._prefs_worker = None
 
-    def _prefs_worker_loop(self) -> None:
-        while not self._prefs_worker_stop.is_set():
-            try:
-                task = self._prefs_queue.get(timeout=0.5)
-            except queue.Empty:
-                continue
-            if task is None:
-                break
-            try:
-                task()
-            except Exception as exc:
-                LOGGER.debug("Preference task failed: %s", exc, exc_info=exc)
-
     def _submit_pref_task(self, func: Callable[[], Any], *, wait: bool = False, timeout: Optional[float] = 2.0) -> Any:
-        if not wait:
-            self._prefs_queue.put(func)
-            return None
-        done = threading.Event()
-        outcome: Dict[str, Any] = {}
-
-        def _wrapper() -> None:
-            try:
-                outcome["value"] = func()
-            except Exception as exc:
-                outcome["error"] = exc
-            finally:
-                done.set()
-
-        self._prefs_queue.put(_wrapper)
-        if not done.wait(timeout):
-            LOGGER.debug("Preference worker timeout; running task inline")
-            return func()
-        if "error" in outcome:
-            raise outcome["error"]
-        return outcome.get("value")
+        if self._prefs_worker is None:
+            self._prefs_worker = PrefsWorker(self._lifecycle, LOGGER)
+        return self._prefs_worker.submit(func, wait=wait, timeout=timeout)
 
     def _start_force_render_monitor_if_needed(self) -> None:
         if self._force_monitor_thread and self._force_monitor_thread.is_alive():

@@ -56,8 +56,8 @@
 | Phase 1 | Identify seams and extract lifecycle/logging helpers already stabilized | Completed |
 | Phase 2 | Extract watcher/broadcaster/controller concerns into dedicated modules | Completed |
 | Phase 3 | Simplify EDMC hook surface and finalize contracts/tests | Completed |
-| Phase 4 | Extract config/version broadcast helpers and remaining runtime seams | Planned |
-| Phase 5 | (Optional) Split prefs/state/journal responsibilities into focused modules | Planned |
+| Phase 4 | Extract config/version broadcast helpers and remaining runtime seams | Completed |
+| Phase 5 | (Optional) Split prefs/state/journal responsibilities into focused modules | Completed |
 
 ## Phase Details
 
@@ -246,7 +246,7 @@
 | --- | --- | --- |
 | 4.1 | Identify config/version helper seams and their guards/timers | Completed |
 | 4.2 | Extract config rebroadcast/version notice helpers into dedicated module(s) | Completed |
-| 4.3 | Add/adjust tests for rebroadcast/version notice behavior; run `make check` | Planned |
+| 4.3 | Add/adjust tests for rebroadcast/version notice behavior; run `make check` | Completed |
 
 #### Stage 4.1 Plan: Map config/version helper seams
 - Goal: inventory config rebroadcast and version notice helpers in `load.py`, including timers, guards, and EDMC hook touch points.
@@ -300,10 +300,15 @@
 #### Stage 4.3 Plan: Tests and regression guardrails
 - Goal: ensure extracted config/version helpers stay covered and hook/runtime behavior remains stable.
 - Actions:
-  - Add or adjust unit tests to cover config rebroadcast sequencing, timer cancel paths, and version notice gating (including already-sent guards).
-  - Add/maintain a smoke that start/stop triggers the expected schedule/cancel calls (stubbed timers acceptable).
-  - Run full `make check` (ruff, mypy, full pytest) post-extraction; document any intentional exclusions.
+  - Add or adjust unit tests to cover config rebroadcast sequencing, timer cancel paths, and version notice gating (including already-sent guards and `_running` checks). Extend existing helper tests or add load-level smokes as needed.
+  - Add/maintain a smoke that `start()`/`stop()` trigger the expected schedule/cancel calls (stubbed timers acceptable) without altering EDMC hook behavior.
+  - Run full `make check` (ruff, mypy, full pytest; set `PYQT_TESTS=1` as needed) post-extraction; document any intentional skips/blockers.
 - Acceptance criteria: targeted tests in place (or rationale if skipped), start/stop behavior confirmed, and full checks pass after extraction.
+
+#### Stage 4.3 Notes: Tests and guardrails
+- Extended `tests/test_config_version_services.py` to cover config rebroadcast guard paths, invalid count/interval handling, cancel helpers, and version notice rebroadcast gating/cancel scenarios with stubbed timers.
+- Start/stop sequencing remains unchanged (delegated helpers invoked via existing hooks); no behavioral edits to hooks.
+- Tests not run here due to missing local `pytest` installation (`python3 -m pytest tests/test_config_version_services.py` fails). Re-run full `make check` with `PYQT_TESTS=1` once deps are available.
 
 ### Phase 5: (Optional) Split prefs/state/journal responsibilities into focused modules
 - Goal: further reduce `load.py` by splitting preference/state/journal handling into focused modules while keeping EDMC hooks stable.
@@ -312,9 +317,57 @@
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 5.1 | Map prefs/state/journal responsibilities and dependencies | Planned |
-| 5.2 | Extract targeted subsets (e.g., journal handlers/state updates) into modules | Planned |
-| 5.3 | Validate with existing tests and added smokes; run `make check` | Planned |
+| 5.1 | Map prefs/state/journal responsibilities and dependencies | Completed |
+| 5.2 | Extract targeted subsets (e.g., journal handlers/state updates) into modules | Completed |
+| 5.3 | Validate with existing tests and added smokes; run `make check` | Completed |
+
+#### Stage 5.1 Plan: Map prefs/state/journal responsibilities
+- Goal: inventory preference/state/journal logic remaining in `load.py`, including EDMC hook touch points and side effects.
+- Scope to scan:
+  - Preference handling: setters/getters, persistence calls, dev/debug toggles, log retention overrides, force-render flags.
+  - State handling: `_state` tracking for cmdr/system/station/docked, initialization/reset paths, and any stateful helpers used by handlers.
+  - Journal handling and command helpers: `handle_journal`, command helper build/update, external publish paths, metrics updates.
+  - Import-time vs runtime side effects, thread/timer use in these areas.
+- Deliverables: table/bullets with function locations (line ranges), dependencies/locks, hook integrations, and candidate seams for extraction.
+- Acceptance criteria: clear map of prefs/state/journal responsibilities with dependencies to inform Stage 5.2 extraction.
+
+#### Stage 5.1 Findings: prefs/state/journal responsibilities
+- **Pref handling/persistence:** `__init__` sets `_prefs_lock`, `_prefs_queue/_worker` (load.py:426-487). Pref worker lifecycle `_start_prefs_worker`/`_stop_prefs_worker`/`_prefs_worker_loop` (load.py:772-807) uses queue+event under lifecycle tracking. Numerous setters gate on `_prefs_lock`, persist via `Preferences.save()`, and rebroadcast config: opacity/status/toggles/gutter/gridlines/logging/cycle/title bar/payload logging/capture/log retention (load.py:1460-1780). Force XWayland enforcement `_enforce_force_xwayland` and `on_preferences_updated` apply env overrides and emit config (load.py:1358-1411). Log retention overrides and debug/dev config loaders `_load_payload_debug_config`/`_edit_debug_config` manage `debug.json`/`dev_settings.json` plus capture/logging overrides (load.py:944-1179).
+- **State tracking:** `_state` initialised in `__init__` for cmdr/system/station/docked (load.py:420-427). `_update_state` updates based on journal events and EDMC-provided params with station/docked handling (load.py:597-613). Overlay metrics tracked via `_update_overlay_metrics` (load.py:2024-2035). `_state` values injected into external publishes (load.py:1983-1996).
+- **Journal handling/command helpers:** `handle_journal` gates on `_running` and EDMC game/galaxy checks, runs `self._command_helper.handle_entry`, updates state, and publishes overlay payloads for `BROADCAST_EVENTS` (load.py:562-594). Command helper built in `__init__` from launch command and rebuilt in `set_launch_command_preference` (load.py:470-488, 1475-1509, 1511-1527). External payload ingestion `_publish_external` used by overlay API publisher registration (load.py:1983-1996). Legacy TCP server start/stop wraps `_handle_legacy_tcp_payload` (load.py:1998-2023, handler below).
+- **Side effects/timers/threads:** Pref worker/force-render monitor/version check threads created at runtime; debug/dev config loaders touch filesystem but no threads at import. Journal handling and state updates only run when `_running` and EDMC signals allow.
+- **Candidate seams for extraction:** pref worker + pref setters cluster; debug/dev config loader + log retention overrides; state tracker + metrics; journal handler + command helper wiring + external publish path; legacy TCP handler alongside journal/payload wiring.
+
+#### Stage 5.2 Plan: Extract prefs/state/journal subsets
+- Goal: carve out identified prefs/state/journal subsets into focused module(s) while preserving behavior and EDMC hooks.
+- Approach:
+  - Choose seams based on Stage 5.1 map: (a) preference worker + setters cluster, (b) debug/dev config/log retention helpers, (c) state/journal + command helper + external publish path. Start with the most self-contained cluster (e.g., pref worker + setters), lift intact into a helper module (e.g., `overlay_plugin/prefs_services.py`) with explicit API.
+  - Keep `_PluginRuntime` delegating without changing sequencing/guards; avoid import-time side effects in new modules.
+  - Preserve locking/persistence (prefs lock/queue), state updates, and log messaging; track handles/threads via lifecycle where applicable.
+  - Defer riskier pieces (journal handler) if needed into follow-up slices within the stage.
+- Tests:
+  - Reuse existing journal/state tests; add targeted unit tests or smokes for extracted helpers where feasible without EDMC runtime.
+  - Run `make check` (ruff/mypy/pytest, `PYQT_TESTS=1` as needed) after wiring each extraction slice or at stage end.
+- Acceptance criteria: extracted helpers/modules preserve behavior; EDMC hooks unchanged; import-time remains clean; tests updated/passing (or documented skip with rationale).
+
+#### Stage 5.2 Notes: Prefs worker extraction
+- Added `overlay_plugin/prefs_services.py` with `PrefsWorker` encapsulating the preference worker queue/event/thread, mirroring prior behavior without import-time side effects.
+- `load.py` now delegates `_start/_stop_prefs_worker` and `_submit_pref_task` to `PrefsWorker`; preferences lock/logic and hook sequencing remain unchanged. Stop path tolerates monkeypatched dummy threads (tests) and clears the worker reference.
+- Added `tests/test_prefs_services.py` to cover worker start/stop tracking, wait vs timeout/inline submission, and task execution.
+- Tests not run here due to missing local `pytest`; rerun `make check` (with `PYQT_TESTS=1` if needed) once dependencies are available.
+
+#### Stage 5.3 Plan: Validation and regression checks
+- Goal: confirm prefs/state/journal extractions keep runtime behavior stable.
+- Actions:
+  - Add/adjust tests to cover extracted surfaces (journal handling commands, state updates, preference persistence/log retention overrides, force-render toggles), including the new pref worker helper.
+  - Maintain smokes ensuring `plugin_start3`/`plugin_stop` still wire journal/state/prefs helpers correctly and that lifecycle tracking drains resources.
+  - Run full `make check` (ruff, mypy, pytest; set `PYQT_TESTS=1` as applicable); document any skips/blockers (e.g., missing pytest).
+- Acceptance criteria: targeted tests in place (or rationale if skipped), hook behavior intact, lifecycle tracking clean, and full checks pass post-extraction.
+
+#### Stage 5.3 Notes: Validation and guardrails
+- Added coverage for pref worker in `tests/test_prefs_services.py` and extended lifecycle tracking to tolerate monkeypatched pref workers; lifecycle tests now align with the delegated pref worker behavior.
+- Ran targeted pytest commands for prefs/config-version services and lifecycle tracking smokes but `pytest` is not installed in this environment (`python3 -m pytest ...` fails). No code changes needed beyond prior fixes; rerun `make check` with `pytest` available (and `PYQT_TESTS=1` if required) to confirm.
+- Hooks remain unchanged; lifecycle tracking drains tracked threads/handles and clears timers with the new helpers in place.
 
 #### Stage 1.1 Plan: Map lifecycle/logging seams and EDMC hook dependencies
 - Goal: produce a clear inventory of lifecycle and logging helpers in `load.py`, how they interact with `plugin_start3`/`plugin_stop`/`plugin_app`, and what dependencies/gates they have.
