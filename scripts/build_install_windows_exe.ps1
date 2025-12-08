@@ -212,7 +212,11 @@ if (-not (Test-Path -LiteralPath $payloadDir)) {
 
 # Generate checksum manifest inside the payload so the installer can validate it.
 Write-Host "Generating checksum manifest for payload at '$payloadDir'."
-& python $checksumScript --target-dir $payloadDir --output (Join-Path $payloadDir 'checksums.txt')
+$checksumPath = Join-Path $payloadDir 'checksums.txt'
+& python $checksumScript --target-dir $payloadDir --output $checksumPath --excludes $ExcludeManifest
+if (-not (Test-Path -LiteralPath $checksumPath)) {
+    Fail "Checksum manifest was not created at '$checksumPath'."
+}
 
 $payloadArchive = Join-Path $resolvedStaging 'embedded_payload.zip'
 if (Test-Path -LiteralPath $payloadArchive) {
