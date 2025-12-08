@@ -807,7 +807,7 @@ function Create-VenvAndInstall {
     )
 
     $venvPath = Join-Path $TargetDir 'overlay_client\.venv'
-    $requirements = Join-Path $TargetDir 'overlay_client\requirements.txt'
+    $requirements = Join-Path $TargetDir 'overlay_client\requirements\base.txt'
 
     if ($DryRun) {
         Write-Info "[dry-run] Would ensure Python virtual environment at '$venvPath' and install requirements from '$requirements'."

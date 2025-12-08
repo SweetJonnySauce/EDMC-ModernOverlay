@@ -1305,6 +1305,7 @@ ensure_system_packages() {
 
     if [[ "$session_stack" == "wayland" && ${#PROFILE_PACKAGES_WAYLAND[@]} > 0 ]]; then
         echo "ℹ️  Wayland session detected; including helper packages with the core dependencies."
+        echo "ℹ️  Wayland-specific Python dependencies install inside overlay_client/.venv when detected; no system package is required."
     elif [[ "$session_stack" == "x11" && ${#PROFILE_PACKAGES_WAYLAND[@]} > 0 ]]; then
         echo "ℹ️  X11 session detected; skipping Wayland helper packages."
     elif [[ "$session_stack" == "unknown" && ${#PROFILE_PACKAGES_WAYLAND[@]} > 0 ]]; then
@@ -1403,7 +1404,16 @@ create_venv_and_install() {
     source overlay_client/.venv/bin/activate
     echo "📦 Installing overlay client requirements..."
     pip install --upgrade pip >/dev/null
-    pip install -r overlay_client/requirements.txt
+    pip install -r overlay_client/requirements/base.txt
+
+    local session_stack
+    session_stack="$(detect_display_stack)"
+    if [[ "$session_stack" == "wayland" ]]; then
+        echo "📦 Installing Wayland-specific Python helpers into the virtualenv..."
+        pip install -r overlay_client/requirements/wayland.txt
+    else
+        echo "ℹ️  Skipping Wayland-specific Python helpers (session type: ${session_stack:-unknown})."
+    fi
     deactivate
 
     popd >/dev/null

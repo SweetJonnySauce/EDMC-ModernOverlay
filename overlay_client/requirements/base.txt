@@ -1,4 +1,3 @@
 PyQt6>=6.5
 # Optional compositor helpers (install when targeting specific environments):
-# pydbus>=0.6.0        # KDE KWin click-through scripting
 # pywayland>=0.4.15    # wlroots layer-shell integration helpers

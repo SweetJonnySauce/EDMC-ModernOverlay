@@ -41,7 +41,9 @@ EDMCModernOverlay/
 │   ├── platform_integration.py     # Window stacking/input helpers per platform
 │   ├── developer_helpers.py        # Dev utilities and logging helpers
 │   ├── window_tracking.py          # Elite Dangerous window tracking helpers
-│   ├── requirements.txt            # Client dependency list (PyQt6, etc.)
+│   ├── requirements/               # Client dependency lists
+│   │   ├── base.txt                # Core client requirements (PyQt6, etc.)
+│   │   └── wayland.txt             # Wayland/KDE helpers installed when Wayland is detected
 │   └── fonts/
 │       ├── README.txt
 │       ├── preferred_fonts.txt     # Optional case-insensitive priority list

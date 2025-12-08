@@ -1,4 +1,5 @@
--r ../overlay_client/requirements.txt
+-r ../overlay_client/requirements/base.txt
+-r ../overlay_client/requirements/wayland.txt
 
 pytest==8.3.3
 ruff==0.3.7
