@@ -37,23 +37,8 @@ jobs:
             echo "Exclude manifest not found at $EXCLUDE_MANIFEST" >&2
             exit 1
           fi
-          mapfile -t EXCLUDES < <(python3 - <<'PY'
-            import json
-            from pathlib import Path
-            manifest = json.loads(Path("scripts/release_excludes.json").read_text())
-            out = []
-            for d in manifest.get("directories", []):
-                out.append(f"--exclude={d}/")
-            for d in manifest.get("root_directories", []):
-                out.append(f"--exclude=/{d}/")
-            for f in manifest.get("files", []):
-                out.append(f"--exclude={f}")
-            for p in manifest.get("patterns", []):
-                out.append(f"--exclude={p}")
-            print("\n".join(out))
-PY
-          )
-          printf 'Release excludes:\\n%s\\n' "${EXCLUDES[@]}"
+          readarray -t EXCLUDES < <(python3 -c "import json, pathlib; m=json.loads(pathlib.Path('scripts/release_excludes.json').read_text()); out=[]; [out.append(f'--exclude={d}/') for d in m.get('directories', [])]; [out.append(f'--exclude=/{d}/') for d in m.get('root_directories', [])]; [out.append(f'--exclude={f}') for f in m.get('files', [])]; [out.append(f'--exclude={p}') for p in m.get('patterns', [])]; print('\\n'.join(out))")
+          printf 'Release excludes:\n%s\n' "${EXCLUDES[@]}"
 
           mkdir -p dist/windows_powershell dist/windows_powershell/EDMCModernOverlay
           mkdir -p dist/linux dist/linux/EDMCModernOverlay
@@ -68,7 +53,6 @@ PY
 
           # Linux helper script + manifest at archive root
           cp scripts/install_linux.sh scripts/install_matrix.json dist/linux/
-
       - name: Generate checksum manifest from staged payload
         shell: bash
         run: |
