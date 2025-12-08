@@ -1,8 +1,8 @@
 $pester = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [version]'5.5.0' } | Select-Object -First 1
 if (-not $pester) {
-    throw "Pester 5.5.0+ is required to run these tests. Install with: Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser"
+    Write-Error "Pester 5.5.0+ is required to run these tests. Install with: Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser"
+    return
 }
-Import-Module $pester -Force
 
 $ErrorActionPreference = 'Stop'
 

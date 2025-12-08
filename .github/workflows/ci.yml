@@ -90,14 +90,18 @@ jobs:
       - name: Install Pester 5
         shell: pwsh
         run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           $pester = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [version]'5.5.0' } | Select-Object -First 1
           if (-not $pester) {
             Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
             Install-Module -Name Pester -MinimumVersion 5.5.0 -Force -Scope CurrentUser
+            $pester = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [version]'5.5.0' } | Select-Object -First 1
           }
+          Import-Module $pester -Force
+          Get-Module Pester | Select-Object Name,Version | Format-Table -AutoSize
 
       - name: Run Windows installer tests
         shell: pwsh
         run: |
           Import-Module Pester -MinimumVersion 5.5.0 -Force
-          Invoke-Pester -CI tests/install_windows.Tests.ps1
+          Invoke-Pester -CI tests/install_windows.Tests.ps1 -OutputFormat NUnitXml -OutputFile Test-Pester.xml
