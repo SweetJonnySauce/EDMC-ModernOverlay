@@ -42,7 +42,8 @@ jobs:
             '--exclude=scripts/'
             '--exclude=dist/'
             '--exclude=docs/'
-            '--exclude=requirements/'
+            # Skip root-level dev requirements but keep overlay_client/requirements in the bundle.
+            '--exclude=/requirements/'
             '--exclude=tests/'
             '--exclude=schemas/'
             '--exclude=.codex/'
