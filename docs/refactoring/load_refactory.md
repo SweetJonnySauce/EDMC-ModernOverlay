@@ -244,9 +244,66 @@
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 4.1 | Identify config/version helper seams and their guards/timers | Planned |
-| 4.2 | Extract config rebroadcast/version notice helpers into dedicated module(s) | Planned |
+| 4.1 | Identify config/version helper seams and their guards/timers | Completed |
+| 4.2 | Extract config rebroadcast/version notice helpers into dedicated module(s) | Completed |
 | 4.3 | Add/adjust tests for rebroadcast/version notice behavior; run `make check` | Planned |
+
+#### Stage 4.1 Plan: Map config/version helper seams
+- Goal: inventory config rebroadcast and version notice helpers in `load.py`, including timers, guards, and EDMC hook touch points.
+- Scope to scan:
+  - Config helpers: `_send_overlay_config`, `_schedule_config_rebroadcasts`, `_cancel_config_timers`, and any related payload build/filter helpers.
+  - Version helpers: `_schedule_version_notice_rebroadcasts`, `_cancel_version_notice_timers`, notice emission guards, and dependencies on version status.
+  - Hook/runtime integration: where start/stop trigger these helpers, and any gating flags (dev mode, `_running`, notice sent flags).
+- Deliverables: table/bullets noting function locations (line ranges), gating conditions, timer setup/cancel paths, and import-time vs runtime side effects.
+- Acceptance criteria: complete map of config/version helper seams with dependencies and guards, ready to drive extraction in Stage 4.2.
+
+#### Stage 4.1 Findings: Config/version helper seams
+- **Config broadcast/rebroadcast:**
+  - `_send_overlay_config` (load.py:2263-2315) builds the OverlayConfig payload from preferences/platform context, caches `_last_config`, publishes via broadcaster, and when `rebroadcast=True` kicks off scheduled rebroadcasts.
+  - `_schedule_config_rebroadcasts` (load.py:2799-2824) validates `count/interval`, cancels existing timers, then spawns daemon `threading.Timer` instances tracked in `_config_timers` under `_config_timer_lock`; callbacks call `_rebroadcast_last_config` and untrack on completion.
+  - `_rebroadcast_last_config` (load.py:2826-2831) no-ops unless `_running` and `_last_config` exist; republishes the cached payload through the broadcaster/logging path.
+  - `_cancel_config_timers` (load.py:2833-2841) clears the timer set under lock and cancels each, warning on failures; invoked before scheduling and during `stop()`.
+  - Hook/runtime touch points: `start()` (load.py:498-514) sends config with `rebroadcast=True` after registering publisher/legacy TCP server; numerous preference/journal handlers call `_send_overlay_config()` for immediate updates; `stop()` cancels config timers early in teardown (load.py:517-540).
+  - Side effects: timers created only at runtime (not import); payloads flow through broadcaster/payload logger; state cached in `_last_config`.
+
+- **Version notice scheduling:**
+  - Version status fields/locks/timer sets are initialised in `_PluginRuntime.__init__` (load.py:450-486); a daemon thread starts immediately to run `_evaluate_version_status_once` (tracked via lifecycle).
+  - `_start_version_status_check` (load.py:876-887) guards against duplicate version-check threads and is called from `start()`.
+  - `_evaluate_version_status_once` (load.py:601-615) calls `evaluate_version_status`, stores under `_version_status_lock`, and triggers `_maybe_emit_version_update_notice`.
+  - `_maybe_emit_version_update_notice` (load.py:621-632) gates on status present, update availability, `_version_update_notice_sent`, and `_running`; on send success, schedules rebroadcasts.
+  - `_build_version_update_notice_payload` / `_send_version_update_notice` (load.py:634-660) construct and publish the legacy overlay notice; success sets `_version_update_notice_sent=True`.
+  - `_schedule_version_notice_rebroadcasts` (load.py:662-695) validates `count/interval`, cancels existing timers, and schedules daemon timers tracked in `_version_notice_timers`; callbacks bail if not `_running` or notice not yet sent, otherwise rebroadcast via `send_overlay_message`, then untrack.
+  - `_cancel_version_notice_timers` (load.py:697-705) clears/cancels timers with warnings on failure; `stop()` invokes it before other teardown.
+  - Side effects: timers/threads only created at runtime; import-time remains clean; notices use legacy overlay messaging path rather than broadcaster.
+
+#### Stage 4.2 Plan: Extract config rebroadcast/version notice helpers
+- Goal: move config rebroadcast and version notice scheduling helpers out of `load.py` into focused module(s) while preserving behavior and sequencing.
+- Approach:
+  - Introduce a dedicated helper module (e.g., `overlay_plugin/config_version_services.py`) or two focused modules to own config rebroadcast and version notice scheduling; keep APIs explicit and data-oriented.
+  - Lift logic intact first: `_send_overlay_config` delegates payload build/publish and rebroadcast scheduling; `_schedule/_cancel` timers move behind the helper; version notice schedule/cancel helpers move similarly while keeping `_running`/sent guards.
+  - Preserve sequencing: `start()` still sends config (with rebroadcast) after publisher/legacy server setup and then checks version notice; `stop()` still cancels timers early; timer tracking/untracking stays lifecycle-safe.
+  - Avoid import-time side effects: helper modules must not start timers/threads on import; all work remains runtime-triggered.
+- Tests:
+  - Add/adjust unit tests to cover helper APIs: config rebroadcast scheduling/cancel and version notice rebroadcast gating (already sent, not running, count/interval guards).
+  - Keep existing hook/lifecycle tests intact; run `make check` after wiring.
+- Acceptance criteria:
+  - Config and version notice helpers are delegated to new module(s) with behavior preserved (payload content, gating, timer lifecycle).
+  - EDMC hooks and start/stop sequencing unchanged; import-time remains clean.
+  - Targeted tests exist (or documented rationale if skipped) and `make check` passes.
+
+#### Stage 4.2 Notes: Config/version helper extraction
+- Added `overlay_plugin/config_version_services.py` with shared helpers for config rebroadcast scheduling/cancel, config rebroadcast dispatch, and version notice rebroadcast scheduling/cancel; no import-time side effects.
+- `load.py` now delegates `_schedule/_cancel` config timers, config rebroadcast, and version notice rebroadcast scheduling/cancel to the new helpers; start/stop sequencing and hooks unchanged.
+- Added `tests/test_config_version_services.py` with stubbed timers to cover scheduling/cancel guards and rebroadcast gating.
+- Tests not run here: `python3 -m pytest tests/test_config_version_services.py` failed because `pytest` is not installed in the current environment. Should rerun once dependencies are available.
+
+#### Stage 4.3 Plan: Tests and regression guardrails
+- Goal: ensure extracted config/version helpers stay covered and hook/runtime behavior remains stable.
+- Actions:
+  - Add or adjust unit tests to cover config rebroadcast sequencing, timer cancel paths, and version notice gating (including already-sent guards).
+  - Add/maintain a smoke that start/stop triggers the expected schedule/cancel calls (stubbed timers acceptable).
+  - Run full `make check` (ruff, mypy, full pytest) post-extraction; document any intentional exclusions.
+- Acceptance criteria: targeted tests in place (or rationale if skipped), start/stop behavior confirmed, and full checks pass after extraction.
 
 ### Phase 5: (Optional) Split prefs/state/journal responsibilities into focused modules
 - Goal: further reduce `load.py` by splitting preference/state/journal handling into focused modules while keeping EDMC hooks stable.

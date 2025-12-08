@@ -38,6 +38,13 @@ if __package__:
         launch_controller,
         terminate_controller_process,
     )
+    from .overlay_plugin.config_version_services import (
+        cancel_config_timers,
+        cancel_version_notice_timers,
+        rebroadcast_last_config,
+        schedule_config_rebroadcasts,
+        schedule_version_notice_rebroadcasts,
+    )
     from .overlay_plugin.preferences import (
         CLIENT_LOG_RETENTION_MAX,
         CLIENT_LOG_RETENTION_MIN,
@@ -70,6 +77,13 @@ else:  # pragma: no cover - EDMC loads as top-level module
         controller_launch_sequence,
         launch_controller,
         terminate_controller_process,
+    )
+    from overlay_plugin.config_version_services import (
+        cancel_config_timers,
+        cancel_version_notice_timers,
+        rebroadcast_last_config,
+        schedule_config_rebroadcasts,
+        schedule_version_notice_rebroadcasts,
     )
     from overlay_plugin.preferences import (
         CLIENT_LOG_RETENTION_MAX,
@@ -664,45 +678,19 @@ class _PluginRuntime:
         count: int = VERSION_UPDATE_NOTICE_REBROADCASTS,
         interval: float = VERSION_UPDATE_NOTICE_REBROADCAST_INTERVAL,
     ) -> None:
-        if count <= 0 or interval <= 0:
-            return
-
-        self._cancel_version_notice_timers()
-
-        def _schedule(delay: float) -> None:
-            timer_ref: Optional[threading.Timer] = None
-
-            def _callback() -> None:
-                try:
-                    if not self._running or not self._version_update_notice_sent:
-                        return
-                    payload = self._build_version_update_notice_payload()
-                    if send_overlay_message(payload):
-                        LOGGER.debug("Rebroadcasted version update notice to overlay")
-                finally:
-                    if timer_ref is not None:
-                        with self._version_notice_timer_lock:
-                            self._version_notice_timers.discard(timer_ref)
-
-            timer_ref = threading.Timer(delay, _callback)
-            timer_ref.daemon = True
-            with self._version_notice_timer_lock:
-                self._version_notice_timers.add(timer_ref)
-            timer_ref.start()
-
-        for index in range(count):
-            delay = interval * (index + 1)
-            _schedule(delay)
+        schedule_version_notice_rebroadcasts(
+            should_rebroadcast=lambda: self._running and self._version_update_notice_sent,
+            build_payload=self._build_version_update_notice_payload,
+            send_payload=send_overlay_message,
+            timers=self._version_notice_timers,
+            timer_lock=self._version_notice_timer_lock,
+            count=count,
+            interval=interval,
+            logger=LOGGER,
+        )
 
     def _cancel_version_notice_timers(self) -> None:
-        with self._version_notice_timer_lock:
-            timers = tuple(self._version_notice_timers)
-            self._version_notice_timers.clear()
-        for timer in timers:
-            try:
-                timer.cancel()
-            except Exception as exc:
-                LOGGER.warning("Failed to cancel version notice timer: %s", exc)
+        cancel_version_notice_timers(self._version_notice_timers, self._version_notice_timer_lock, LOGGER)
 
     @staticmethod
     def _build_log_level_payload() -> Dict[str, Any]:
@@ -2797,48 +2785,24 @@ class _PluginRuntime:
         return True
 
     def _schedule_config_rebroadcasts(self, count: int = 5, interval: float = 1.0) -> None:
-        if count <= 0 or interval <= 0:
-            return
-
-        self._cancel_config_timers()
-
-        def _schedule(delay: float) -> None:
-            timer_ref: Optional[threading.Timer] = None
-
-            def _callback() -> None:
-                try:
-                    self._rebroadcast_last_config()
-                finally:
-                    if timer_ref is not None:
-                        with self._config_timer_lock:
-                            self._config_timers.discard(timer_ref)
-
-            timer_ref = threading.Timer(delay, _callback)
-            timer_ref.daemon = True
-            with self._config_timer_lock:
-                self._config_timers.add(timer_ref)
-            timer_ref.start()
-
-        for index in range(count):
-            delay = interval * (index + 1)
-            _schedule(delay)
+        schedule_config_rebroadcasts(
+            rebroadcast_fn=self._rebroadcast_last_config,
+            timers=self._config_timers,
+            timer_lock=self._config_timer_lock,
+            count=count,
+            interval=interval,
+            logger=LOGGER,
+        )
 
     def _rebroadcast_last_config(self) -> None:
-        if not self._running:
-            return
-        if not self._last_config:
-            return
-        self._publish_payload(dict(self._last_config))
+        rebroadcast_last_config(
+            is_running=lambda: self._running,
+            last_config_provider=lambda: self._last_config,
+            publish_payload=self._publish_payload,
+        )
 
     def _cancel_config_timers(self) -> None:
-        with self._config_timer_lock:
-            timers = list(self._config_timers)
-            self._config_timers.clear()
-        for timer in timers:
-            try:
-                timer.cancel()
-            except Exception as exc:
-                LOGGER.warning("Failed to cancel config rebroadcast timer: %s", exc)
+        cancel_config_timers(self._config_timers, self._config_timer_lock, LOGGER)
 
 
 # EDMC hook functions ------------------------------------------------------
