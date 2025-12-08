@@ -80,3 +80,21 @@ jobs:
 
       - name: Run Linux installer tests
         run: bash tests/test_install_linux.sh
+
+  windows-installer-tests:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Pester 5
+        shell: pwsh
+        run: |
+          if (-not (Get-Module -ListAvailable -Name Pester -MinimumVersion 5.5.0)) {
+              Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+              Install-Module -Name Pester -MinimumVersion 5.5.0 -Force -Scope CurrentUser
+          }
+
+      - name: Run Windows installer tests
+        shell: pwsh
+        run: Invoke-Pester -CI tests/install_windows.Tests.ps1

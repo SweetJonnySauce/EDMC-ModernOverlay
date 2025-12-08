@@ -845,9 +845,14 @@ function Create-VenvAndInstall {
         Fail-Install "Virtual environment at '$venvPath' is missing python.exe."
     }
 
-    Write-Info 'Installing overlay client requirements (this may take a moment)...'
-    & $venvPython -m pip install --upgrade pip
-    & $venvPython -m pip install -r $requirements
+    $skipPipInstalls = ($env:MODERN_OVERLAY_INSTALLER_SKIP_PIP -eq '1')
+    if (-not $skipPipInstalls) {
+        Write-Info 'Installing overlay client requirements (this may take a moment)...'
+        & $venvPython -m pip install --upgrade pip
+        & $venvPython -m pip install -r $requirements
+    } else {
+        Write-Info 'MODERN_OVERLAY_INSTALLER_SKIP_PIP=1 set; skipping pip installation.'
+    }
 }
 
 function Ensure-ExistingInstall {
