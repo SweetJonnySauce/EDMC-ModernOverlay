@@ -3,15 +3,37 @@ if (-not $pester) {
     Write-Error "Pester 5.5.0+ is required to run these tests. Install with: Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser"
     return
 }
+$pesterVersion = $pester.Version.ToString()
+Write-Host "Using Pester $pesterVersion"
 
 $ErrorActionPreference = 'Stop'
 
-$testPath = if ($PSCommandPath) { $PSCommandPath } elseif ($MyInvocation.MyCommand.Path) { $MyInvocation.MyCommand.Path } elseif ($PSScriptRoot) { Join-Path $PSScriptRoot (Split-Path -Leaf $MyInvocation.MyCommand.Path) } else { $null }
+$testPath = $null
+if ($PSCommandPath) { $testPath = $PSCommandPath }
+elseif ($MyInvocation.MyCommand.Path) { $testPath = $MyInvocation.MyCommand.Path }
+elseif ($PSScriptRoot) { $testPath = Join-Path $PSScriptRoot (Split-Path -Leaf $MyInvocation.MyCommand.Path) }
+
+if (-not $testPath) {
+    try {
+        $gitRoot = (git rev-parse --show-toplevel 2>$null)
+        if ($gitRoot) {
+            $testPath = Join-Path $gitRoot 'tests\install_windows.Tests.ps1'
+        }
+    } catch { }
+}
+if (-not $testPath -and $env:GITHUB_WORKSPACE) {
+    $testPath = Join-Path $env:GITHUB_WORKSPACE 'tests\install_windows.Tests.ps1'
+}
+
 if (-not $testPath) {
     throw "Unable to determine test file path (PSCommandPath/MyInvocation/PSScriptRoot unavailable)."
 }
 $here = Split-Path -Parent $testPath
 $repoRoot = Split-Path -Parent $here
+$env:TEST_RESOLVED_PATH = $testPath
+$env:TEST_RESOLVED_ROOT = $repoRoot
+Write-Host "Test path: $testPath"
+Write-Host "Repo root: $repoRoot"
 $env:MODERN_OVERLAY_INSTALLER_IMPORT = '1'
 $env:MODERN_OVERLAY_INSTALLER_SKIP_PIP = '1'
 

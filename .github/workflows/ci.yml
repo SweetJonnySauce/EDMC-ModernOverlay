@@ -90,6 +90,8 @@ jobs:
       - name: Install Pester 5
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Module Pester -ErrorAction SilentlyContinue
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           $pester = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [version]'5.5.0' } | Select-Object -First 1
           if (-not $pester) {
@@ -103,7 +105,10 @@ jobs:
       - name: Run Windows installer tests
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Module Pester -ErrorAction SilentlyContinue
           Import-Module Pester -MinimumVersion 5.5.0 -Force
+          Write-Host ("Using Pester {0}" -f (Get-Module Pester).Version)
           $config = @{
             Run = @{ Path = 'tests/install_windows.Tests.ps1' }
             TestResult = @{
