@@ -5,9 +5,13 @@ param(
     [string]$StagingPath = (Get-Location).Path,
     # When provided, copy the plugin payload + installer script from this repo root into the staging directory.
     [string]$SourceRoot,
-    [string[]]$ExcludeDirectories = @('.git', '.github', 'scripts', 'dist', 'docs', 'tests', 'schemas', '.codex', '.vscode'),
-    [string[]]$ExcludeFiles = @('debug.json', 'EDMC-ModernOverlay.code-workspace'),
-    [string[]]$ExcludePatterns = @('*.md')
+    # Path to JSON manifest of excludes (directories, root_directories, files, patterns, substrings).
+    [string]$ExcludeManifest,
+    [string[]]$ExcludeDirectories = @(),
+    [string[]]$ExcludeRootDirectories = @(),
+    [string[]]$ExcludeFiles = @(),
+    [string[]]$ExcludePatterns = @(),
+    [string[]]$ExcludeSubstrings = @()
 )
 
 Set-StrictMode -Version Latest
@@ -49,19 +53,36 @@ function Should-ExcludeItem {
     param(
         [System.IO.FileSystemInfo]$Item,
         [string[]]$DirectoryNames,
+        [string[]]$RootDirectoryNames,
         [string[]]$FileNames,
-        [string[]]$Patterns
+        [string[]]$Patterns,
+        [string[]]$Substrings,
+        [string]$BaseRoot
     )
 
     $name = $Item.Name
+    $relative = $Item.FullName.Substring($BaseRoot.Length).TrimStart('\', '/')
+    $relativePosix = $relative -replace '\\', '/'
+
     if ($Item.PSIsContainer -and $DirectoryNames -contains $name) {
         return $true
+    }
+    if ($Item.PSIsContainer -and $RootDirectoryNames -contains $name) {
+        $firstSegment = $relativePosix.Split('/')[0]
+        if ($firstSegment -eq $name) {
+            return $true
+        }
     }
     if (-not $Item.PSIsContainer -and $FileNames -contains $name) {
         return $true
     }
     foreach ($pattern in $Patterns) {
         if ($name -like $pattern) {
+            return $true
+        }
+    }
+    foreach ($substr in $Substrings) {
+        if ($relativePosix -like "*$substr*") {
             return $true
         }
     }
@@ -73,8 +94,11 @@ function Copy-PayloadTree {
         [string]$Source,
         [string]$Destination,
         [string[]]$DirectoryExcludes,
+        [string[]]$RootDirectoryExcludes,
         [string[]]$FileExcludes,
-        [string[]]$PatternExcludes
+        [string[]]$PatternExcludes,
+        [string[]]$SubstringExcludes,
+        [string]$BaseRoot
     )
 
     if (-not (Test-Path -LiteralPath $Destination)) {
@@ -82,13 +106,13 @@ function Copy-PayloadTree {
     }
 
     foreach ($item in (Get-ChildItem -LiteralPath $Source -Force)) {
-        if (Should-ExcludeItem -Item $item -DirectoryNames $DirectoryExcludes -FileNames $FileExcludes -Patterns $PatternExcludes) {
+        if (Should-ExcludeItem -Item $item -DirectoryNames $DirectoryExcludes -RootDirectoryNames $RootDirectoryExcludes -FileNames $FileExcludes -Patterns $PatternExcludes -Substrings $SubstringExcludes -BaseRoot $BaseRoot) {
             continue
         }
 
         $target = Join-Path $Destination $item.Name
         if ($item.PSIsContainer) {
-            Copy-PayloadTree -Source $item.FullName -Destination $target -DirectoryExcludes $DirectoryExcludes -FileExcludes $FileExcludes -PatternExcludes $PatternExcludes
+            Copy-PayloadTree -Source $item.FullName -Destination $target -DirectoryExcludes $DirectoryExcludes -RootDirectoryExcludes $RootDirectoryExcludes -FileExcludes $FileExcludes -PatternExcludes $PatternExcludes -SubstringExcludes $SubstringExcludes -BaseRoot $BaseRoot
         } else {
             $parent = Split-Path -Parent $target
             if (-not (Test-Path -LiteralPath $parent)) {
@@ -100,7 +124,34 @@ function Copy-PayloadTree {
 }
 
 $resolvedStaging = Resolve-StagingPath -Path $StagingPath
-    $resolvedSource = Resolve-SourceRoot -Path $SourceRoot
+$resolvedSource = Resolve-SourceRoot -Path $SourceRoot
+
+# Load excludes from manifest if provided; otherwise fall back to defaults passed in.
+if (-not $ExcludeManifest) {
+    $ExcludeManifest = Join-Path $resolvedSource 'scripts/release_excludes.json'
+}
+
+$excludeDirs = @()
+$excludeRootDirs = @()
+$excludeFiles = @()
+$excludePatterns = @()
+$excludeSubstrings = @('overlay_client/.venv')
+
+if (Test-Path -LiteralPath $ExcludeManifest) {
+    $excludes = Get-Content -LiteralPath $ExcludeManifest -Raw | ConvertFrom-Json
+    if ($excludes.directories) { $excludeDirs = $excludes.directories }
+    if ($excludes.root_directories) { $excludeRootDirs = $excludes.root_directories }
+    if ($excludes.files) { $excludeFiles = $excludes.files }
+    if ($excludes.patterns) { $excludePatterns = $excludes.patterns }
+    if ($excludes.substrings) { $excludeSubstrings = $excludes.substrings }
+}
+
+# Allow explicit overrides/augments from parameters.
+if ($ExcludeDirectories) { $excludeDirs += $ExcludeDirectories }
+if ($ExcludeRootDirectories) { $excludeRootDirs += $ExcludeRootDirectories }
+if ($ExcludeFiles) { $excludeFiles += $ExcludeFiles }
+if ($ExcludePatterns) { $excludePatterns += $ExcludePatterns }
+if ($ExcludeSubstrings) { $excludeSubstrings += $ExcludeSubstrings }
 
 function Write-EmbeddedInstaller {
     param(
@@ -134,7 +185,7 @@ if ($resolvedSource) {
         Remove-Item -LiteralPath $payloadDestination -Recurse -Force
     }
     Write-Host "Copying plugin payload from '$resolvedSource' to '$payloadDestination'."
-    Copy-PayloadTree -Source $resolvedSource -Destination $payloadDestination -DirectoryExcludes $ExcludeDirectories -FileExcludes $ExcludeFiles -PatternExcludes $ExcludePatterns
+    Copy-PayloadTree -Source $resolvedSource -Destination $payloadDestination -DirectoryExcludes $excludeDirs -RootDirectoryExcludes $excludeRootDirs -FileExcludes $excludeFiles -PatternExcludes $excludePatterns -SubstringExcludes $excludeSubstrings -BaseRoot $resolvedSource
 
     $sourceInstall = Join-Path $resolvedSource 'scripts/install_windows.ps1'
     if (-not (Test-Path -LiteralPath $sourceInstall)) {

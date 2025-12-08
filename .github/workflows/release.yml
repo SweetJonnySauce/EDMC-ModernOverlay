@@ -32,30 +32,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          EXCLUDE_MANIFEST="scripts/release_excludes.json"
+          if [[ ! -f "$EXCLUDE_MANIFEST" ]]; then
+            echo "Exclude manifest not found at $EXCLUDE_MANIFEST" >&2
+            exit 1
+          fi
+          mapfile -t EXCLUDES < <(python3 - <<'PY'
+import json
+from pathlib import Path
+manifest = json.loads(Path("scripts/release_excludes.json").read_text())
+out = []
+for d in manifest.get("directories", []):
+    out.append(f"--exclude={d}/")
+for d in manifest.get("root_directories", []):
+    out.append(f"--exclude=/{d}/")
+for f in manifest.get("files", []):
+    out.append(f"--exclude={f}")
+for p in manifest.get("patterns", []):
+    out.append(f"--exclude={p}")
+print("\n".join(out))
+PY
+)
+          printf 'Release excludes:\\n%s\\n' "${EXCLUDES[@]}"
+
           mkdir -p dist/windows_powershell dist/windows_powershell/EDMCModernOverlay
           mkdir -p dist/linux dist/linux/EDMCModernOverlay
-
-          EXCLUDES=(
-            '--exclude=.git/'
-            '--exclude=.gitignore'
-            '--exclude=.github/'
-            '--exclude=scripts/'
-            '--exclude=dist/'
-            '--exclude=docs/'
-            # Skip root-level dev requirements but keep overlay_client/requirements in the bundle.
-            '--exclude=/requirements/'
-            '--exclude=tests/'
-            '--exclude=schemas/'
-            '--exclude=.codex/'
-            '--exclude=.vscode/'
-            '--exclude=pyproject.toml'
-            '--exclude=debug.json'
-            '--exclude=conftest.py'
-            '--exclude=EDMCModernOverlay.code-workspace'
-            '--exclude=Makefile'
-            '--exclude=*.md'
-            '--exclude=overlay_groupings.user.json'
-          )
 
           # Copy plugin code into EDMCModernOverlay directory for both bundles,
           # excluding CI config and the scripts folder (scripts is included separately).
@@ -72,7 +73,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/generate_checksums.py --target-dir dist/linux/EDMCModernOverlay --output checksums.txt
+          python3 scripts/generate_checksums.py --target-dir dist/linux/EDMCModernOverlay --output checksums.txt --excludes scripts/release_excludes.json
           cp checksums.txt dist/linux/
           cp checksums.txt dist/windows_powershell/
 

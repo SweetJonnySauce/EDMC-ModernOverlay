@@ -69,6 +69,7 @@
 - Null path during `BeforeAll` when resolving `scripts/install_windows.ps1` (`ParameterBindingValidationException`).
 - `Prompt-YesNo` not found when installer functions were not loaded before mocks.
 - Legacy Pester parameter set usage (`-CI` with `-OutputFormat`) caused incompatible invocation.
+- Release EXE integrity check failed because `checksums.txt` expected `.gitignore`, which is omitted from the packaged payload.
 
 ## Actions Taken So Far
 - Added `MODERN_OVERLAY_INSTALLER_SKIP_PIP` to skip pip installs during tests.
@@ -76,6 +77,9 @@
 - CI: added `windows-installer-tests` job to install/import Pester 5.5+, emit version, run tests with NUnit output.
 - Adjusted test harness: explicit env flags, robust path resolution, loader in `BeforeAll`, explicit `-CommandName` mocks.
 - Updated workflow to use Pester 5 configuration object (no legacy params) and to trust PSGallery for module install.
+- Updated `scripts/generate_checksums.py` to exclude `.gitignore` from manifests so EXE integrity checks ignore git metadata files that aren't packaged.
+- Tests seed the global `PythonSpec` variable before invoking installer functions to avoid null `-Python` bindings.
+- Introduced single-source exclude manifest at `scripts/release_excludes.json`; release packaging, checksum generation, and EXE builds are being aligned to consume it.
 
 ## Plan to Resolve Outstanding Issues
 

@@ -9,7 +9,9 @@ default and writes a checksums.txt compatible with `sha256sum -c`.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
+import json
 import pathlib
 import sys
 from typing import Iterable
@@ -18,26 +20,7 @@ from typing import Iterable
 DEFAULT_MANIFEST = "checksums.txt"
 DEFAULT_TARGET_DIR = "EDMCModernOverlay"
 
-EXCLUDE_DIR_NAMES = {
-    ".git",
-    ".github",
-    ".mypy_cache",
-    ".pytest_cache",
-    "__pycache__",
-    ".idea",
-    ".vscode",
-    ".venv",
-    "logs",
-}
-
-EXCLUDE_FILE_NAMES = {
-    DEFAULT_MANIFEST,
-    ".DS_Store",
-}
-
-EXCLUDE_SUBSTRINGS = {
-    "overlay_client/.venv",
-}
+DEFAULT_EXCLUDE_SUBSTRINGS = {"overlay_client/.venv"}
 
 
 def hash_file(path: pathlib.Path) -> str:
@@ -48,25 +31,69 @@ def hash_file(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
-def should_skip(relative_path: pathlib.Path) -> bool:
-    if relative_path.name in EXCLUDE_FILE_NAMES:
+def should_skip(
+    relative_path: pathlib.Path,
+    exclude_dirs: set[str],
+    exclude_root_dirs: set[str],
+    exclude_files: set[str],
+    exclude_patterns: list[str],
+    exclude_substrings: set[str],
+) -> bool:
+    if relative_path.name in exclude_files:
         return True
-    for part in relative_path.parts:
-        if part in EXCLUDE_DIR_NAMES:
+
+    parts = relative_path.parts
+    if parts:
+        first = parts[0]
+        if first in exclude_root_dirs:
             return True
+
+    for part in parts:
+        if part in exclude_dirs:
+            return True
+
+    name = relative_path.name
+    for pattern in exclude_patterns:
+        if fnmatch.fnmatch(name, pattern):
+            return True
+
     rel_str = relative_path.as_posix()
-    for needle in EXCLUDE_SUBSTRINGS:
+    for needle in exclude_substrings:
         if needle in rel_str:
             return True
     return False
 
 
-def build_manifest(root: pathlib.Path, target_dir: pathlib.Path) -> Iterable[str]:
+def load_excludes(manifest_path: pathlib.Path) -> dict:
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return {
+        "directories": set(data.get("directories", [])),
+        "root_directories": set(data.get("root_directories", [])),
+        "files": set(data.get("files", []) | {DEFAULT_MANIFEST, ".DS_Store"}),
+        "patterns": list(data.get("patterns", [])),
+        "substrings": set(data.get("substrings", [])) | DEFAULT_EXCLUDE_SUBSTRINGS,
+    }
+
+
+def build_manifest(root: pathlib.Path, target_dir: pathlib.Path, excludes: dict) -> Iterable[str]:
+    exclude_dirs = excludes["directories"]
+    exclude_root_dirs = excludes["root_directories"]
+    exclude_files = excludes["files"]
+    exclude_patterns = excludes["patterns"]
+    exclude_substrings = excludes["substrings"]
+
     for path in sorted(target_dir.rglob("*")):
         if not path.is_file():
             continue
         relative_path = path.relative_to(root)
-        if should_skip(relative_path):
+        if should_skip(
+            relative_path,
+            exclude_dirs,
+            exclude_root_dirs,
+            exclude_files,
+            exclude_patterns,
+            exclude_substrings,
+        ):
             continue
         yield f"{hash_file(path)}  {relative_path.as_posix()}"
 
@@ -92,6 +119,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=f"Manifest output path (default: <root>/{DEFAULT_MANIFEST}).",
     )
+    parser.add_argument(
+        "--excludes",
+        type=pathlib.Path,
+        default=pathlib.Path(__file__).resolve().parent / "release_excludes.json",
+        help="Path to JSON manifest listing files/directories/patterns to exclude from hashing.",
+    )
     return parser.parse_args()
 
 
@@ -105,7 +138,14 @@ def main() -> int:
         return 1
 
     output_path = args.output or root / DEFAULT_MANIFEST
-    lines = list(build_manifest(root, target_dir))
+
+    excludes_path = args.excludes.resolve()
+    if not excludes_path.is_file():
+        print(f"Exclude manifest '{excludes_path}' not found.", file=sys.stderr)
+        return 1
+    excludes = load_excludes(excludes_path)
+
+    lines = list(build_manifest(root, target_dir, excludes))
     if not lines:
         print(f"No files hashed under '{target_dir}'. Check exclusions.", file=sys.stderr)
         return 1
