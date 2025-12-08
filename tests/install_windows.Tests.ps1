@@ -6,7 +6,8 @@ if (-not $pester) {
 
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repoRoot = Resolve-Path (Join-Path $here '..')
 $env:MODERN_OVERLAY_INSTALLER_IMPORT = '1'
 $env:MODERN_OVERLAY_INSTALLER_SKIP_PIP = '1'
 
@@ -14,7 +15,11 @@ Describe 'Create-VenvAndInstall' {
     BeforeAll {
         $env:MODERN_OVERLAY_INSTALLER_IMPORT = '1'
         $env:MODERN_OVERLAY_INSTALLER_SKIP_PIP = '1'
-        . (Join-Path $repoRoot 'scripts/install_windows.ps1')
+        $installerPath = Join-Path $repoRoot 'scripts/install_windows.ps1'
+        if (-not (Test-Path -LiteralPath $installerPath)) {
+            throw "Installer not found at '$installerPath'."
+        }
+        . $installerPath
     }
 
     BeforeEach {
