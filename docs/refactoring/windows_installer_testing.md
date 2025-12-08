@@ -84,6 +84,7 @@
 - Add fallbacks: use `git rev-parse --show-toplevel` or `$env:GITHUB_WORKSPACE` when `PSCommandPath`/`MyInvocation` are unavailable.
 - Ensure dot-sourcing completes before any `Mock` calls; skip the suite with a clear message if loader fails.
 - **Done:** Added verbose path resolution and fallbacks in `tests/install_windows.Tests.ps1` (logging test path and repo root, using git/GITHUB_WORKSPACE fallback).
+- **Done:** Store resolved paths in script-scoped variables and reuse them in `BeforeAll` to avoid null installer paths; added additional repo-root fallbacks inside `BeforeAll` plus logging of installer path.
 
 ### Phase 2: Eliminate Pester 3 Influence
 - In workflow, run under `pwsh -NoLogo -NoProfile`, `Remove-Module Pester -ErrorAction SilentlyContinue`, then import Pester 5.5+.

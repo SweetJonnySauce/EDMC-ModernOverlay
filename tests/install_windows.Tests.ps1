@@ -43,10 +43,24 @@ Describe 'Create-VenvAndInstall' {
     BeforeAll {
         $env:MODERN_OVERLAY_INSTALLER_IMPORT = '1'
         $env:MODERN_OVERLAY_INSTALLER_SKIP_PIP = '1'
-        $installerPath = Join-Path $script:ResolvedRepoRoot 'scripts/install_windows.ps1'
+        $repoRootLocal = $script:ResolvedRepoRoot
+        if (-not $repoRootLocal -and $env:TEST_RESOLVED_ROOT) {
+            $repoRootLocal = $env:TEST_RESOLVED_ROOT
+        }
+        if (-not $repoRootLocal -and (git rev-parse --show-toplevel 2>$null)) {
+            $repoRootLocal = (git rev-parse --show-toplevel 2>$null)
+        }
+        if (-not $repoRootLocal -and $env:GITHUB_WORKSPACE) {
+            $repoRootLocal = $env:GITHUB_WORKSPACE
+        }
+        if (-not $repoRootLocal) {
+            throw "Unable to resolve repo root in BeforeAll."
+        }
+        $installerPath = Join-Path $repoRootLocal 'scripts/install_windows.ps1'
         if (-not (Test-Path -LiteralPath $installerPath)) {
             throw "Installer not found at '$installerPath'."
         }
+        Write-Host "Installer path: $installerPath"
         . $installerPath
     }
 
