@@ -6,11 +6,12 @@ if (-not $pester) {
 
 $ErrorActionPreference = 'Stop'
 
-$here = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
-if (-not $here) {
-    throw "Unable to determine test directory (both PSScriptRoot and MyInvocation.MyCommand.Path are empty)."
+$testPath = if ($PSCommandPath) { $PSCommandPath } elseif ($MyInvocation.MyCommand.Path) { $MyInvocation.MyCommand.Path } elseif ($PSScriptRoot) { Join-Path $PSScriptRoot (Split-Path -Leaf $MyInvocation.MyCommand.Path) } else { $null }
+if (-not $testPath) {
+    throw "Unable to determine test file path (PSCommandPath/MyInvocation/PSScriptRoot unavailable)."
 }
-$repoRoot = Resolve-Path (Join-Path $here '..')
+$here = Split-Path -Parent $testPath
+$repoRoot = Split-Path -Parent $here
 $env:MODERN_OVERLAY_INSTALLER_IMPORT = '1'
 $env:MODERN_OVERLAY_INSTALLER_SKIP_PIP = '1'
 
