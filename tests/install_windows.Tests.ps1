@@ -1,3 +1,9 @@
+$pester = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [version]'5.5.0' } | Select-Object -First 1
+if (-not $pester) {
+    throw "Pester 5.5.0+ is required to run these tests. Install with: Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser"
+}
+Import-Module $pester -Force
+
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
@@ -20,6 +26,7 @@ Describe 'Create-VenvAndInstall' {
         $venvPath = Join-Path $target 'overlay_client\.venv'
         $scriptsDir = Join-Path $venvPath 'Scripts'
         New-Item -ItemType Directory -Path (Join-Path $target 'overlay_client\requirements') -Force | Out-Null
+        New-Item -ItemType File -Path (Join-Path $target 'overlay_client\requirements\base.txt') -Force | Out-Null
         New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
         New-Item -ItemType File -Path (Join-Path $scriptsDir 'python.exe') -Force | Out-Null
 
