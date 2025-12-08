@@ -57,9 +57,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/generate_checksums.py --target-dir dist/linux/EDMCModernOverlay --output checksums.txt --excludes scripts/release_excludes.json
-          cp checksums.txt dist/linux/
-          cp checksums.txt dist/windows_powershell/
+          python3 scripts/generate_checksums.py --root dist/linux --target-dir dist/linux/EDMCModernOverlay --output dist/linux/checksums.txt --excludes scripts/release_excludes.json
+          cp dist/linux/checksums.txt dist/windows_powershell/
 
       - name: Create archives
         shell: bash
