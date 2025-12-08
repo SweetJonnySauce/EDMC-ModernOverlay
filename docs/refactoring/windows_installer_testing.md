@@ -94,6 +94,7 @@
 ### Phase 3: Strengthen Mocks and Fixtures
 - Use `InModuleScope` or module-qualified `Mock` for installer functions (`Prompt-YesNo`, `Invoke-Python`, `Write-Info`) to guarantee visibility.
 - Add a small fixture helper to create expected folders/files (overlay_client, requirements/base.txt, .venv/Scripts/python.exe) to avoid missed prerequisites.
+- **In progress:** Tests now seed the global `PythonSpec` variable before invoking installer functions to avoid null `-Python` bindings.
 
 ### Phase 4: Diagnostics and Artifacts
 - Log resolved paths and Pester version in CI output; keep NUnit XML artifact for debugging.

@@ -65,7 +65,9 @@ Describe 'Create-VenvAndInstall' {
     }
 
     BeforeEach {
-        $script:PythonSpec = [pscustomobject]@{ Command = 'python'; PrefixArgs = @() }
+        $pythonSpecValue = [pscustomobject]@{ Command = 'python'; PrefixArgs = @() }
+        $PythonSpec = $pythonSpecValue
+        $global:PythonSpec = $pythonSpecValue
     }
 
     AfterEach {
