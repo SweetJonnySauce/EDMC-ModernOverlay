@@ -83,10 +83,12 @@
 - Echo resolved paths (test file, repo root, installer) in `BeforeAll`; fail fast if any are empty.
 - Add fallbacks: use `git rev-parse --show-toplevel` or `$env:GITHUB_WORKSPACE` when `PSCommandPath`/`MyInvocation` are unavailable.
 - Ensure dot-sourcing completes before any `Mock` calls; skip the suite with a clear message if loader fails.
+- **Done:** Added verbose path resolution and fallbacks in `tests/install_windows.Tests.ps1` (logging test path and repo root, using git/GITHUB_WORKSPACE fallback).
 
 ### Phase 2: Eliminate Pester 3 Influence
 - In workflow, run under `pwsh -NoLogo -NoProfile`, `Remove-Module Pester -ErrorAction SilentlyContinue`, then import Pester 5.5+.
 - Add an early version assertion in tests that aborts once with a clear error when Pester <5.5 is present.
+- **Done:** Workflow now removes Pester 3 and imports 5.5+ with logging; test script prints Pester version on start.
 
 ### Phase 3: Strengthen Mocks and Fixtures
 - Use `InModuleScope` or module-qualified `Mock` for installer functions (`Prompt-YesNo`, `Invoke-Python`, `Write-Info`) to guarantee visibility.

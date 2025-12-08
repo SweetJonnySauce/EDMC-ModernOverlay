@@ -30,6 +30,8 @@ if (-not $testPath) {
 }
 $here = Split-Path -Parent $testPath
 $repoRoot = Split-Path -Parent $here
+$script:ResolvedTestPath = $testPath
+$script:ResolvedRepoRoot = $repoRoot
 $env:TEST_RESOLVED_PATH = $testPath
 $env:TEST_RESOLVED_ROOT = $repoRoot
 Write-Host "Test path: $testPath"
@@ -41,7 +43,7 @@ Describe 'Create-VenvAndInstall' {
     BeforeAll {
         $env:MODERN_OVERLAY_INSTALLER_IMPORT = '1'
         $env:MODERN_OVERLAY_INSTALLER_SKIP_PIP = '1'
-        $installerPath = Join-Path $repoRoot 'scripts/install_windows.ps1'
+        $installerPath = Join-Path $script:ResolvedRepoRoot 'scripts/install_windows.ps1'
         if (-not (Test-Path -LiteralPath $installerPath)) {
             throw "Installer not found at '$installerPath'."
         }
