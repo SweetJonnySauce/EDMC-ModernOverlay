@@ -90,9 +90,10 @@ jobs:
       - name: Install Pester 5
         shell: pwsh
         run: |
-          if (-not (Get-Module -ListAvailable -Name Pester -MinimumVersion 5.5.0)) {
-              Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
-              Install-Module -Name Pester -MinimumVersion 5.5.0 -Force -Scope CurrentUser
+          $pester = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [version]'5.5.0' } | Select-Object -First 1
+          if (-not $pester) {
+            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+            Install-Module -Name Pester -MinimumVersion 5.5.0 -Force -Scope CurrentUser
           }
 
       - name: Run Windows installer tests
