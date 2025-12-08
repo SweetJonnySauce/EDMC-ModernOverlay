@@ -9,12 +9,9 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 $env:MODERN_OVERLAY_INSTALLER_IMPORT = '1'
 $env:MODERN_OVERLAY_INSTALLER_SKIP_PIP = '1'
+. (Join-Path $repoRoot 'scripts/install_windows.ps1')
 
 Describe 'Create-VenvAndInstall' {
-    BeforeAll {
-        . (Join-Path $repoRoot 'scripts/install_windows.ps1')
-    }
-
     BeforeEach {
         $script:PythonSpec = [pscustomobject]@{ Command = 'python'; PrefixArgs = @() }
     }
