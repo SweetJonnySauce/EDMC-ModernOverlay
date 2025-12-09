@@ -188,7 +188,7 @@ class FocusManager:
 
         if idx == 0:
             primary = "Pick an ID prefix group to adjust."
-            secondary = "Select the overlay group you want to adjust."
+            secondary = "Select the overlay group you want to adjust. The Controller needs to see an overlay at least once to manage it. Launch the game with the overlay running and do some activities that would trigger in-game overlays."
             if select_mode:
                 secondary = "Select the overlay group you want to adjust; arrows move the selection."
                 focus_hint = "Press Space to edit."
