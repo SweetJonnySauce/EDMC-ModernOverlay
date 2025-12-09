@@ -761,7 +761,10 @@ apply_compositor_overrides() {
     if [[ -z "$target_dir" ]]; then
         return
     fi
-    local overrides_json="${COMPOSITOR_ENV_OVERRIDES_JSON:-{}}"
+    local overrides_json="$COMPOSITOR_ENV_OVERRIDES_JSON"
+    if [[ -z "$overrides_json" ]]; then
+        overrides_json="{}"
+    fi
     if [[ "${overrides_json// /}" == "{}" && "${COMPOSITOR_REQUIRES_FORCE_XWAYLAND:-0}" -eq 0 ]]; then
         log_verbose "Compositor overrides empty and no force_xwayland requirement; skipping write."
         return
@@ -786,6 +789,7 @@ apply_compositor_overrides() {
     fi
     local result
     result="$(
+        TARGET_FILE="$target_file" \
         OVERRIDES="$overrides_json" \
         REQUIRES_FX="$COMPOSITOR_REQUIRES_FORCE_XWAYLAND" \
         COMPOSITOR_ID="$COMPOSITOR_ID" \
@@ -797,7 +801,11 @@ apply_compositor_overrides() {
 import json, os, sys, tempfile
 from pathlib import Path
 
-path = Path(sys.argv[1])
+target = os.environ.get("TARGET_FILE")
+if not target:
+    print("ERR=missing_target")
+    sys.exit(1)
+path = Path(target)
 overrides = json.loads(os.environ.get("OVERRIDES") or "{}")
 requires_fx = os.environ.get("REQUIRES_FX") == "1"
 if requires_fx:
@@ -854,15 +862,20 @@ tmp.replace(path)
 print("APPLIED=" + ",".join(applied))
 print("SKIPPED_ENV=" + ",".join(skipped_env))
 PY
-"$target_file" 2>/dev/null | tr -d '\r'
+    2>/dev/null | tr -d '\r'
     )"
-    local applied skipped_env
+    local applied="" skipped_env="" err=""
     while IFS='=' read -r key value; do
         case "$key" in
             APPLIED) applied="$value" ;;
             SKIPPED_ENV) skipped_env="$value" ;;
+            ERR) err="$value" ;;
         esac
     done <<<"$result"
+    if [[ "$err" == "missing_target" ]]; then
+        echo "❌ Internal error: missing target file for compositor overrides." >&2
+        return
+    fi
     if [[ -n "$applied" ]]; then
         echo "✅ Applied compositor overrides to '$target_file': ${applied}"
     else
@@ -879,6 +892,21 @@ handle_compositor_overrides() {
         log_verbose "No compositor overrides to apply."
         return
     fi
+    local overrides_json="$COMPOSITOR_ENV_OVERRIDES_JSON"
+    if [[ -z "$overrides_json" ]]; then
+        overrides_json="{}"
+    fi
+    local overrides_present
+    overrides_present="$(OVERRIDES="$overrides_json" python3 - <<'PY'
+import json, os
+raw = os.environ.get("OVERRIDES") or "{}"
+try:
+    data = json.loads(raw)
+except Exception:
+    data = {}
+print("1" if isinstance(data, dict) and bool(data) else "0")
+PY
+)"
     echo "ℹ️  Detected compositor: ${COMPOSITOR_LABEL:-unknown} (${COMPOSITOR_ID:-unknown})"
     if [[ -n "${COMPOSITOR_PROVENANCE:-}" ]]; then
         echo "    Reason: ${COMPOSITOR_PROVENANCE}"
@@ -890,9 +918,13 @@ handle_compositor_overrides() {
         done
     fi
     echo "    Recommended overrides:"
-    summarise_overrides "${COMPOSITOR_ENV_OVERRIDES_JSON:-{}}"
+    summarise_overrides "$overrides_json"
     if [[ "$COMPOSITOR_REQUIRES_FORCE_XWAYLAND" -eq 1 ]]; then
         echo "    Will also set EDMC_OVERLAY_FORCE_XWAYLAND=1"
+    fi
+    if [[ "${overrides_present}" != "1" && "${COMPOSITOR_REQUIRES_FORCE_XWAYLAND:-0}" -eq 0 ]]; then
+        echo "ℹ️  No compositor overrides to apply."
+        return
     fi
     if [[ "$ASSUME_YES" == true ]]; then
         echo "ℹ️  --yes provided; applying compositor overrides without prompting."
