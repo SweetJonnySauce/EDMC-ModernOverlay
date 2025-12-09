@@ -796,6 +796,7 @@ apply_compositor_overrides() {
         COMPOSITOR_LABEL="$COMPOSITOR_LABEL" \
         COMPOSITOR_SESSION="$COMPOSITOR_SESSION" \
         COMPOSITOR_DESKTOPS="$COMPOSITOR_DESKTOPS" \
+        COMPOSITOR_MATCH_JSON="$COMPOSITOR_MATCH_JSON" \
         COMPOSITOR_PROVENANCE="$COMPOSITOR_PROVENANCE" \
         python3 - <<'PY'
 import json, os, sys, tempfile
@@ -844,9 +845,23 @@ if "requires_force_xwayland" not in meta:
     meta["requires_force_xwayland"] = requires_fx
 if "session" not in meta and os.environ.get("COMPOSITOR_SESSION"):
     meta["session"] = os.environ["COMPOSITOR_SESSION"]
+match_desktops = []
+match_raw = os.environ.get("COMPOSITOR_MATCH_JSON")
+if match_raw:
+    try:
+        match_data = json.loads(match_raw)
+        if isinstance(match_data, dict):
+            desktops_val = match_data.get("desktops")
+            if isinstance(desktops_val, list):
+                match_desktops = [str(token) for token in desktops_val if token]
+    except Exception:
+        match_desktops = []
 desktops = os.environ.get("COMPOSITOR_DESKTOPS")
-if desktops and "desktops" not in meta:
-    meta["desktops"] = [token for token in desktops.split(",") if token]
+if "desktops" not in meta:
+    if match_desktops:
+        meta["desktops"] = match_desktops
+    elif desktops:
+        meta["desktops"] = [token for token in desktops.split(",") if token]
 provenance = os.environ.get("COMPOSITOR_PROVENANCE")
 if provenance and "provenance" not in meta:
     meta["provenance"] = provenance
