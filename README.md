@@ -65,6 +65,8 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
   - openSUSE / SLE: `python3`, `python3-pip`, `python3-virtualenv`, `rsync`, `curl`, `wmctrl`, plus Qt helpers `libxcb-cursor0`, `libxkbcommon-x11-0`, and Wayland helpers `xprop`, `xwininfo`
   - Arch / Manjaro / SteamOS: `python`, `python-pip`, `rsync`, `curl`, `wmctrl`, plus Qt helpers `libxcb`, `xcb-util-cursor`, `libxkbcommon`, and Wayland helpers `xorg-xprop`, `xorg-xwininfo`
   - Wayland-only Python dependency `pydbus` is installed inside `overlay_client/.venv` from `overlay_client/requirements/wayland.txt` when a Wayland session is detected; no system package is required.
+  
+- **Compositor-aware overrides (Linux):** `install_linux.sh` detects your compositor (via `install_matrix.json`) and can offer compositor-specific env overrides (e.g., Qt scaling tweaks on KDE/Wayland). Use `--compositor auto|<id>|none` to control this and `--yes` to auto-apply. Accepted overrides are stored in `overlay_client/env_overrides.json` with provenance; user-set env vars always win at runtime. Force Xwayland is only set when the manifest entry requests it.
 
 - **Installation dependency for x11 tools isn't found** If you do a Linux install and you get an error that the x11 dependency can't be found or installed, you may be hitting this [bug](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/issues/15). There isn't a fix for this yet but you may be able to work around this. You specifically need `xwininfo` and `xprop`. If you have those installed, or can install them manually, then you should be able to install without the needed dependency.
 

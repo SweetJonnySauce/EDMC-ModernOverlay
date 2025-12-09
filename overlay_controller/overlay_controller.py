@@ -22,11 +22,16 @@ import tempfile
 from typing import Any, Dict, Optional, Tuple
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+PACKAGE_DIR = Path(__file__).resolve().parent
+# Allow submodule imports when this file is loaded as a standalone module in test harnesses.
+if __name__ == "overlay_controller":
+    __path__ = [str(PACKAGE_DIR)]
 _CONTROLLER_LOGGER: Optional[logging.Logger] = None
 
 from overlay_client.controller_mode import ControllerModeProfile, ModeProfile  # noqa: F401
 from overlay_client.debug_config import DEBUG_CONFIG_ENABLED
 from overlay_client.logging_utils import build_rotating_file_handler, resolve_log_level, resolve_logs_dir
+from overlay_client.window_tracking import create_elite_window_tracker
 try:  # When run as a package (`python -m overlay_controller.overlay_controller`)
     from overlay_controller.input_bindings import BindingConfig, BindingManager
     from overlay_controller.gamepad import GamepadBridge
@@ -49,10 +54,10 @@ except ImportError:  # Fallback for spec-from-file/test harness
     from input_bindings import BindingConfig, BindingManager  # type: ignore
     from gamepad import GamepadBridge  # type: ignore
     from services import ModeTimers, PluginBridge  # type: ignore
-    from overlay_controller.services.plugin_bridge import ForceRenderOverrideManager  # type: ignore
-    from overlay_controller.services.group_state import GroupSnapshot  # type: ignore
-    import overlay_controller.preview.snapshot_math as snapshot_math  # type: ignore
-    from overlay_controller.controller import (  # type: ignore
+    from services.plugin_bridge import ForceRenderOverrideManager  # type: ignore
+    from services.group_state import GroupSnapshot  # type: ignore
+    import preview.snapshot_math as snapshot_math  # type: ignore
+    from controller import (  # type: ignore
         AppContext,
         EditController,
         FocusManager,
@@ -63,6 +68,7 @@ except ImportError:  # Fallback for spec-from-file/test harness
         build_app_context,
     )
     from overlay_controller.widgets import AnchorSelectorWidget, alt_modifier_active  # type: ignore  # noqa: F401
+    from overlay_client.window_tracking import create_elite_window_tracker  # type: ignore
 
 ABS_BASE_WIDTH = 1280
 ABS_BASE_HEIGHT = 960
@@ -2123,16 +2129,53 @@ class OverlayConfigApp(tk.Tk):
         except Exception:
             pass
 
+    def _get_elite_window_bounds(self) -> tuple[int, int, int, int] | None:
+        """Best-effort probe for the Elite Dangerous window for centering."""
+
+        logger = _ensure_controller_logger(PLUGIN_ROOT) or logging.getLogger("overlay_controller.window_probe")
+        try:
+            tracker = create_elite_window_tracker(logger)
+        except Exception as exc:
+            _controller_debug("Elite window tracker unavailable: %s", exc)
+            return None
+        if tracker is None:
+            return None
+        try:
+            state = tracker.poll()
+        except Exception as exc:
+            _controller_debug("Elite window probe failed: %s", exc)
+            return None
+        if state is None or state.width <= 0 or state.height <= 0:
+            return None
+
+        x = state.global_x if state.global_x is not None else state.x
+        y = state.global_y if state.global_y is not None else state.y
+        if x is None or y is None:
+            return None
+
+        _controller_debug(
+            "Centering controller on Elite window at %dx%d+%d+%d",
+            state.width,
+            state.height,
+            x,
+            y,
+        )
+        return int(x), int(y), int(state.width), int(state.height)
+
     def _center_on_screen(self) -> None:
         """Position the window at the center of the available screen."""
 
         self.update_idletasks()
         width = max(1, self.winfo_width() or self.winfo_reqwidth())
         height = max(1, self.winfo_height() or self.winfo_reqheight())
-        origin_x, origin_y, screen_width, screen_height = self._get_primary_screen_bounds()
+        target_bounds = self._get_elite_window_bounds()
+        if target_bounds is None:
+            origin_x, origin_y, screen_width, screen_height = self._get_primary_screen_bounds()
+        else:
+            origin_x, origin_y, screen_width, screen_height = target_bounds
 
-        x = max(0, int(origin_x + (screen_width - width) / 2))
-        y = max(0, int(origin_y + (screen_height - height) / 2))
+        x = int(origin_x + (screen_width - width) / 2)
+        y = int(origin_y + (screen_height - height) / 2)
         self.geometry(f"{width}x{height}+{x}+{y}")
 
     def _get_primary_screen_bounds(self) -> tuple[int, int, int, int]:

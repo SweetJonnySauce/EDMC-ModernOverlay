@@ -66,6 +66,7 @@ if __package__:
     )
     from .overlay_plugin.journal_commands import build_command_helper
     from .EDMCOverlay.edmcoverlay import normalise_legacy_payload
+    from .overlay_client import env_overrides as env_overrides_helper
 else:  # pragma: no cover - EDMC loads as top-level module
     from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR, is_dev_build
     from overlay_plugin.lifecycle import LifecycleTracker
@@ -107,6 +108,7 @@ else:  # pragma: no cover - EDMC loads as top-level module
     )
     from overlay_plugin.journal_commands import build_command_helper
     from EDMCOverlay.edmcoverlay import normalise_legacy_payload
+    import overlay_client.env_overrides as env_overrides_helper
 
 PLUGIN_NAME = "EDMCModernOverlay"
 PLUGIN_VERSION = MODERN_OVERLAY_VERSION
@@ -2624,6 +2626,25 @@ class _PluginRuntime:
             else:
                 env["QT_QPA_PLATFORM"] = env.get("QT_QPA_PLATFORM", "xcb")
                 env.setdefault("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1")
+        try:
+            overrides_path = self.plugin_dir / "overlay_client" / "env_overrides.json"
+            overrides_payload = env_overrides_helper.load_overrides(overrides_path)
+            merge_result = env_overrides_helper.apply_overrides(env, overrides_payload, logger=LOGGER)
+            if merge_result.applied:
+                LOGGER.info(
+                    "Applied overlay env overrides (%s): %s",
+                    overrides_path,
+                    ", ".join(merge_result.applied),
+                )
+            if merge_result.skipped_env or merge_result.skipped_existing:
+                LOGGER.debug(
+                    "Skipped env overrides from %s; env=%s existing=%s",
+                    overrides_path,
+                    ", ".join(merge_result.skipped_env) if merge_result.skipped_env else "none",
+                    ", ".join(merge_result.skipped_existing) if merge_result.skipped_existing else "none",
+                )
+        except Exception as exc:
+            LOGGER.debug("Failed to apply env overrides: %s", exc)
         return env
 
     def _overlay_controller_active(self) -> bool:

@@ -75,5 +75,54 @@
         "wayland": ["xorg-xprop", "xorg-xwininfo"]
       }
     }
+  ],
+  "compositors": [
+    {
+      "id": "kwin-wayland",
+      "label": "KDE Plasma (KWin/Wayland)",
+      "match": {
+        "session_types": ["wayland"],
+        "desktops": ["kde", "plasma"],
+        "requires_force_xwayland": false
+      },
+      "env_overrides": {
+        "QT_AUTO_SCREEN_SCALE_FACTOR": "0",
+        "QT_ENABLE_HIGHDPI_SCALING": "0",
+        "QT_SCALE_FACTOR": "1"
+      },
+      "notes": [
+        "KDE/Wayland with Xwayland can double-scale Qt windows; disabling Qt HiDPI scaling avoids oversized UI.",
+        "Applied only when compositor detection matches and user opts in."
+      ],
+      "provenance": "Detected KDE/KWin on Wayland; Xwayland path recommended to avoid double scaling."
+    },
+    {
+      "id": "gnome-shell",
+      "label": "GNOME Shell (Wayland)",
+      "match": {
+        "session_types": ["wayland"],
+        "desktops": ["gnome", "ubuntu"],
+        "requires_force_xwayland": false
+      },
+      "env_overrides": {},
+      "notes": [
+        "No Qt scaling override by default; GNOME Shell requires the overlay GNOME extension for follow mode."
+      ],
+      "provenance": "Detected GNOME Shell on Wayland."
+    },
+    {
+      "id": "wlroots",
+      "label": "wlroots (Sway/Wayfire/Hyprland)",
+      "match": {
+        "session_types": ["wayland"],
+        "desktops": ["sway", "wayfire", "hyprland", "wlroots"],
+        "requires_force_xwayland": false
+      },
+      "env_overrides": {},
+      "notes": [
+        "No Qt scaling override by default; ensure pywayland and compositor CLIs (swaymsg/hyprctl) are installed for follow mode."
+      ],
+      "provenance": "Detected wlroots-based compositor on Wayland."
+    }
   ]
 }

@@ -13,6 +13,7 @@ readonly EUROCAPS_FONT_NAME="Eurocaps.ttf"
 readonly MODERN_PLUGIN_DIR_NAME="EDMCModernOverlay"
 readonly LEGACY_PLUGIN_DIR_NAME="EDMC-ModernOverlay"
 readonly CHECKSUM_MANIFEST_BASENAME="checksums.txt"
+COMPOSITOR_OVERRIDE="auto"
 
 ASSUME_YES=false
 DRY_RUN=false
@@ -46,6 +47,16 @@ declare -a PACKAGES_TO_INSTALL=()
 declare -a PACKAGES_TO_UPGRADE=()
 declare -a PACKAGES_ALREADY_OK=()
 declare -A PACKAGE_STATUS_DETAILS=()
+COMPOSITOR_SELECTED=0
+COMPOSITOR_ID=""
+COMPOSITOR_LABEL=""
+COMPOSITOR_MATCH_JSON=""
+COMPOSITOR_ENV_OVERRIDES_JSON=""
+COMPOSITOR_PROVENANCE=""
+COMPOSITOR_REQUIRES_FORCE_XWAYLAND=0
+COMPOSITOR_SESSION=""
+COMPOSITOR_DESKTOPS=""
+declare -a COMPOSITOR_NOTES=()
 
 print_usage() {
     cat <<'EOF'
@@ -55,6 +66,8 @@ Options:
   -y, --yes, --assume-yes   Automatically answer "yes" to prompts.
       --dry-run             Show the actions that would be taken without making changes.
       --profile <id>        Force a distro profile from scripts/install_matrix.json (e.g. debian, fedora).
+      --compositor <id|none|auto>
+                             Force compositor profile (default: auto). Use 'none' to skip compositor overrides.
       --log[=<path>]        Write verbose installer output to a log file (default path if omitted).
       --log-file <path>     Alternate way to specify the log file path.
       --help                Show this message.
@@ -76,6 +89,14 @@ parse_args() {
             --profile)
                 shift || { echo "❌ --profile requires an argument." >&2; exit 1; }
                 PROFILE_OVERRIDE="${1,,}"
+                ;;
+            --compositor)
+                shift || { echo "❌ --compositor requires an argument." >&2; exit 1; }
+                COMPOSITOR_OVERRIDE="${1,,}"
+                ;;
+            --compositor=*)
+                COMPOSITOR_OVERRIDE="${1#*=}"
+                COMPOSITOR_OVERRIDE="${COMPOSITOR_OVERRIDE,,}"
                 ;;
             --log)
                 LOG_ENABLED=true
@@ -192,9 +213,25 @@ def emit_profile(profile):
     emit_array("PROFILE_PACKAGES_QT", packages.get("qt") or [])
     emit_array("PROFILE_PACKAGES_WAYLAND", packages.get("wayland") or [])
 
+
+def emit_compositor(entry):
+    label = entry.get("label") or entry.get("id") or "Unknown"
+    print("COMPOSITOR_FOUND=1")
+    print(f"COMPOSITOR_ID={shlex.quote(entry.get('id', 'unknown'))}")
+    print(f"COMPOSITOR_LABEL={shlex.quote(label)}")
+    match_payload = entry.get("match") or {}
+    overrides = entry.get("env_overrides") or {}
+    notes = entry.get("notes") or []
+    provenance = entry.get("provenance") or ""
+    print(f"COMPOSITOR_MATCH_JSON={shlex.quote(json.dumps(match_payload, separators=(',', ':')))}")
+    print(f"COMPOSITOR_ENV_OVERRIDES_JSON={shlex.quote(json.dumps(overrides, separators=(',', ':')))}")
+    emit_array("COMPOSITOR_NOTES", notes)
+    print(f"COMPOSITOR_PROVENANCE={shlex.quote(provenance)}")
+
 with open(sys.argv[1], encoding="utf-8") as handle:
     data = json.load(handle)
 distros = data.get("distros", [])
+compositors = data.get("compositors", [])
 mode = sys.argv[2]
 
 def normalise(values):
@@ -236,6 +273,35 @@ elif mode == "by-id":
         if pid == target:
             emit_profile(profile)
             break
+elif mode == "compositor-list":
+    for index, entry in enumerate(compositors, start=1):
+        cid = entry.get("id") or f"compositor-{index}"
+        label = entry.get("label") or cid
+        print(f"{index}|{cid}|{label}")
+elif mode == "compositor-by-id":
+    target = sys.argv[3].lower()
+    for entry in compositors:
+        cid = (entry.get("id") or "").lower()
+        if cid == target:
+            emit_compositor(entry)
+            break
+elif mode == "compositor-match":
+    session = sys.argv[3].lower() if len(sys.argv) > 3 else ""
+    desktops_raw = sys.argv[4] if len(sys.argv) > 4 else ""
+    desktops = [chunk.lower() for chunk in desktops_raw.split(",") if chunk]
+    for entry in compositors:
+        match = entry.get("match") or {}
+        session_types = normalise(match.get("session_types") or [])
+        desktops_cfg = normalise(match.get("desktops") or [])
+        if session_types and session not in session_types:
+            continue
+        if desktops_cfg:
+            if not desktops:
+                continue
+            if not any(val in desktops_cfg for val in desktops):
+                continue
+        emit_compositor(entry)
+        break
 else:
     raise SystemExit(f"Unknown matrix helper mode: {mode}")
 PY
@@ -587,6 +653,257 @@ detect_display_stack() {
     fi
     DISPLAY_STACK_DETECTED="$detected"
     printf '%s' "$DISPLAY_STACK_DETECTED"
+}
+
+reset_compositor_selection() {
+    COMPOSITOR_SELECTED=0
+    COMPOSITOR_FOUND=0
+    COMPOSITOR_ID=""
+    COMPOSITOR_LABEL=""
+    COMPOSITOR_MATCH_JSON=""
+    COMPOSITOR_ENV_OVERRIDES_JSON=""
+    COMPOSITOR_PROVENANCE=""
+    COMPOSITOR_REQUIRES_FORCE_XWAYLAND=0
+    COMPOSITOR_SESSION=""
+    COMPOSITOR_DESKTOPS=""
+    COMPOSITOR_NOTES=()
+}
+
+parse_requires_force_xwayland() {
+    local match_json="$1"
+    if [[ -z "$match_json" ]]; then
+        COMPOSITOR_REQUIRES_FORCE_XWAYLAND=0
+        return
+    fi
+    local flag
+    flag="$(
+        MATCH="$match_json" python3 - <<'PY'
+import json, os
+raw = os.environ.get("MATCH") or ""
+try:
+    data = json.loads(raw)
+    val = data.get("requires_force_xwayland")
+    print("1" if val else "0")
+except Exception:
+    print("0")
+PY
+    )"
+    if [[ "$flag" == "1" ]]; then
+        COMPOSITOR_REQUIRES_FORCE_XWAYLAND=1
+    else
+        COMPOSITOR_REQUIRES_FORCE_XWAYLAND=0
+    fi
+}
+
+select_compositor_profile() {
+    reset_compositor_selection
+    if [[ "${COMPOSITOR_OVERRIDE,,}" == "none" ]]; then
+        log_verbose "Compositor override set to 'none'; skipping compositor match."
+        return
+    fi
+    local session="${XDG_SESSION_TYPE:-}"
+    session="${session,,}"
+    COMPOSITOR_SESSION="$session"
+    local desktops_raw="${XDG_CURRENT_DESKTOP:-}"
+    desktops_raw="${desktops_raw//:/,}"
+    desktops_raw="${desktops_raw//;/,}"
+    desktops_raw="${desktops_raw// /,}"
+    desktops_raw="${desktops_raw,,}"
+    COMPOSITOR_DESKTOPS="$desktops_raw"
+
+    local output=""
+    if [[ "${COMPOSITOR_OVERRIDE,,}" != "auto" && -n "${COMPOSITOR_OVERRIDE:-}" ]]; then
+        output="$(matrix_helper compositor-by-id "${COMPOSITOR_OVERRIDE,,}")"
+        if [[ -z "$output" ]]; then
+            echo "⚠️  Unknown compositor profile '${COMPOSITOR_OVERRIDE}'. Skipping compositor-specific overrides." >&2
+            return
+        fi
+        COMPOSITOR_SELECTED=1
+        COMPOSITOR_SOURCE="manual"
+    else
+        output="$(matrix_helper compositor-match "$session" "$desktops_raw")"
+        if [[ -z "$output" ]]; then
+            log_verbose "No compositor match found for session='${session:-unknown}' desktops='${desktops_raw:-unknown}'."
+            return
+        fi
+        COMPOSITOR_SOURCE="auto"
+    fi
+
+    eval "$output"
+    if [[ "${COMPOSITOR_FOUND:-0}" -ne 1 ]]; then
+        COMPOSITOR_SELECTED=0
+        return
+    fi
+    COMPOSITOR_SELECTED=1
+    parse_requires_force_xwayland "${COMPOSITOR_MATCH_JSON:-}"
+    log_verbose "Compositor detected: id='${COMPOSITOR_ID}' label='${COMPOSITOR_LABEL}' requires_force_xwayland=${COMPOSITOR_REQUIRES_FORCE_XWAYLAND}"
+}
+
+summarise_overrides() {
+    local overrides_json="$1"
+    OVERRIDES="$overrides_json" python3 - <<'PY'
+import json, os
+raw = os.environ.get("OVERRIDES") or "{}"
+try:
+    data = json.loads(raw)
+except Exception:
+    data = {}
+if not isinstance(data, dict) or not data:
+    print("    (none)")
+else:
+    for key, value in data.items():
+        print(f"    {key}={value}")
+PY
+}
+
+apply_compositor_overrides() {
+    local target_dir="$1"
+    if [[ -z "$target_dir" ]]; then
+        return
+    fi
+    local overrides_json="${COMPOSITOR_ENV_OVERRIDES_JSON:-{}}"
+    if [[ "${overrides_json// /}" == "{}" && "${COMPOSITOR_REQUIRES_FORCE_XWAYLAND:-0}" -eq 0 ]]; then
+        log_verbose "Compositor overrides empty and no force_xwayland requirement; skipping write."
+        return
+    fi
+    local target_file="${target_dir}/overlay_client/env_overrides.json"
+    local target_dirname
+    target_dirname="$(dirname "$target_file")"
+    if [[ ! -d "$target_dirname" ]]; then
+        if [[ "$DRY_RUN" == true ]]; then
+            echo "📝 [dry-run] Would create directory '$target_dirname' for compositor overrides."
+        else
+            mkdir -p "$target_dirname"
+        fi
+    fi
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "📝 [dry-run] Would write compositor overrides to '$target_file'."
+        summarise_overrides "$overrides_json"
+        if [[ "$COMPOSITOR_REQUIRES_FORCE_XWAYLAND" -eq 1 ]]; then
+            echo "    (would also set EDMC_OVERLAY_FORCE_XWAYLAND=1)"
+        fi
+        return
+    fi
+    local result
+    result="$(
+        OVERRIDES="$overrides_json" \
+        REQUIRES_FX="$COMPOSITOR_REQUIRES_FORCE_XWAYLAND" \
+        COMPOSITOR_ID="$COMPOSITOR_ID" \
+        COMPOSITOR_LABEL="$COMPOSITOR_LABEL" \
+        COMPOSITOR_SESSION="$COMPOSITOR_SESSION" \
+        COMPOSITOR_DESKTOPS="$COMPOSITOR_DESKTOPS" \
+        COMPOSITOR_PROVENANCE="$COMPOSITOR_PROVENANCE" \
+        python3 - <<'PY'
+import json, os, sys, tempfile
+from pathlib import Path
+
+path = Path(sys.argv[1])
+overrides = json.loads(os.environ.get("OVERRIDES") or "{}")
+requires_fx = os.environ.get("REQUIRES_FX") == "1"
+if requires_fx:
+    overrides.setdefault("EDMC_OVERLAY_FORCE_XWAYLAND", "1")
+
+existing: dict = {}
+if path.exists():
+    try:
+        existing = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        existing = {}
+
+env_block = existing.get("env") if isinstance(existing, dict) else {}
+if not isinstance(env_block, dict):
+    env_block = {}
+meta = existing.get("provenance") if isinstance(existing, dict) else {}
+if not isinstance(meta, dict):
+    meta = {}
+
+applied = []
+skipped_env = []
+for key, value in overrides.items():
+    if os.environ.get(key):
+        skipped_env.append(key)
+        continue
+    if key in env_block:
+        continue
+    env_block[key] = str(value)
+    applied.append(key)
+
+if "compositor_id" not in meta:
+    meta["compositor_id"] = os.environ.get("COMPOSITOR_ID", "")
+if "compositor_label" not in meta:
+    meta["compositor_label"] = os.environ.get("COMPOSITOR_LABEL", "")
+if "requires_force_xwayland" not in meta:
+    meta["requires_force_xwayland"] = requires_fx
+if "session" not in meta and os.environ.get("COMPOSITOR_SESSION"):
+    meta["session"] = os.environ["COMPOSITOR_SESSION"]
+desktops = os.environ.get("COMPOSITOR_DESKTOPS")
+if desktops and "desktops" not in meta:
+    meta["desktops"] = [token for token in desktops.split(",") if token]
+provenance = os.environ.get("COMPOSITOR_PROVENANCE")
+if provenance and "provenance" not in meta:
+    meta["provenance"] = provenance
+
+out = {"env": env_block}
+if meta:
+    out["provenance"] = meta
+
+tmp = path.with_suffix(path.suffix + ".tmp")
+tmp.write_text(json.dumps(out, indent=2, sort_keys=True), encoding="utf-8")
+tmp.replace(path)
+
+print("APPLIED=" + ",".join(applied))
+print("SKIPPED_ENV=" + ",".join(skipped_env))
+PY
+"$target_file" 2>/dev/null | tr -d '\r'
+    )"
+    local applied skipped_env
+    while IFS='=' read -r key value; do
+        case "$key" in
+            APPLIED) applied="$value" ;;
+            SKIPPED_ENV) skipped_env="$value" ;;
+        esac
+    done <<<"$result"
+    if [[ -n "$applied" ]]; then
+        echo "✅ Applied compositor overrides to '$target_file': ${applied}"
+    else
+        echo "ℹ️  No new compositor overrides were written (all already present or skipped)."
+    fi
+    if [[ -n "$skipped_env" ]]; then
+        echo "ℹ️  Skipped overrides already set in environment: ${skipped_env}"
+    fi
+}
+
+handle_compositor_overrides() {
+    local dest_dir="$1"
+    if [[ "${COMPOSITOR_SELECTED:-0}" -ne 1 || "${COMPOSITOR_FOUND:-0}" -ne 1 ]]; then
+        log_verbose "No compositor overrides to apply."
+        return
+    fi
+    echo "ℹ️  Detected compositor: ${COMPOSITOR_LABEL:-unknown} (${COMPOSITOR_ID:-unknown})"
+    if [[ -n "${COMPOSITOR_PROVENANCE:-}" ]]; then
+        echo "    Reason: ${COMPOSITOR_PROVENANCE}"
+    fi
+    if [[ ${#COMPOSITOR_NOTES[@]} -gt 0 ]]; then
+        local note
+        for note in "${COMPOSITOR_NOTES[@]}"; do
+            echo "    Note: $note"
+        done
+    fi
+    echo "    Recommended overrides:"
+    summarise_overrides "${COMPOSITOR_ENV_OVERRIDES_JSON:-{}}"
+    if [[ "$COMPOSITOR_REQUIRES_FORCE_XWAYLAND" -eq 1 ]]; then
+        echo "    Will also set EDMC_OVERLAY_FORCE_XWAYLAND=1"
+    fi
+    if [[ "$ASSUME_YES" == true ]]; then
+        echo "ℹ️  --yes provided; applying compositor overrides without prompting."
+        apply_compositor_overrides "$dest_dir"
+        return
+    fi
+    if prompt_yes_no "Apply these compositor-specific overrides now?"; then
+        apply_compositor_overrides "$dest_dir"
+    else
+        echo "ℹ️  Skipped compositor overrides at user request."
+    fi
 }
 
 expand_path_template() {
@@ -1532,6 +1849,7 @@ PY
     ensure_edmc_not_running
     log_verbose "Confirmed EDMarketConnector is not running."
     ensure_system_packages
+    select_compositor_profile
     disable_conflicting_plugins
     normalize_disabled_suffixes "${PLUGIN_DIR}/${LEGACY_PLUGIN_DIR_NAME}" "${LEGACY_PLUGIN_DIR_NAME}"
     normalize_disabled_suffixes "${PLUGIN_DIR}/${MODERN_PLUGIN_DIR_NAME}" "${MODERN_PLUGIN_DIR_NAME}"
@@ -1562,6 +1880,7 @@ PY
     fi
 
     maybe_install_eurocaps "$dest_dir"
+    handle_compositor_overrides "$dest_dir"
     final_notes
     if [[ "$DRY_RUN" != true && "$ASSUME_YES" != true && -t 0 ]]; then
         read -r -p $'Install finished, hit Enter to continue...'
