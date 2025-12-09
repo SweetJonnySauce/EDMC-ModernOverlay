@@ -23,6 +23,7 @@ LOG_FILE=""
 CHECKSUM_MANIFEST_PATH=""
 CHECKSUM_MANIFEST_EFFECTIVE=""
 CHECKSUM_MANIFEST_TEMP=""
+PLUGIN_DIR_KIND=""
 
 declare -a POSITIONAL_ARGS=()
 declare -a MATRIX_STANDARD_PATHS=()
@@ -1507,6 +1508,33 @@ detect_plugins_dir() {
     prompt_for_manual_plugin_dir
 }
 
+classify_plugin_directory() {
+    PLUGIN_DIR_KIND=""
+    if [[ -z "${PLUGIN_DIR:-}" ]]; then
+        return
+    fi
+    local canonical_plugin
+    canonical_plugin="$(canonicalize_path "$PLUGIN_DIR")"
+    load_plugin_path_templates
+    local template expanded candidate
+    for template in "${MATRIX_FLATPAK_PATHS[@]}"; do
+        expanded="$(expand_path_template "$template")"
+        if [[ -z "$expanded" ]]; then
+            continue
+        fi
+        candidate="$(canonicalize_path "$expanded")"
+        if [[ "$canonical_plugin" == "$candidate" ]]; then
+            PLUGIN_DIR_KIND="flatpak"
+            return
+        fi
+    done
+    if [[ "$canonical_plugin" == *"/.var/app/io.edcd.EDMarketConnector/"* ]]; then
+        PLUGIN_DIR_KIND="flatpak"
+        return
+    fi
+    PLUGIN_DIR_KIND="standard"
+}
+
 ensure_edmc_not_running() {
     if command -v pgrep >/dev/null 2>&1 && pgrep -f "EDMarketConnector" >/dev/null 2>&1; then
         echo "⚠️  EDMarketConnector appears to be running."
@@ -1859,6 +1887,46 @@ EOF
     fi
 }
 
+check_flatpak_permission() {
+    if [[ "${PLUGIN_DIR_KIND:-}" != "flatpak" ]]; then
+        return
+    fi
+    local app_id="io.edcd.EDMarketConnector"
+    if ! command -v flatpak >/dev/null 2>&1; then
+        echo "⚠️  Flatpak EDMC install detected but the 'flatpak' CLI is not available; cannot verify host-launch permission."
+        echo "    Modern Overlay launches the overlay client via flatpak-spawn --host, which requires D-Bus access to org.freedesktop.Flatpak."
+        echo "    Grant it before starting EDMC: flatpak override --user ${app_id} --talk-name=org.freedesktop.Flatpak"
+        return
+    fi
+
+    local scope_flag=""
+    local scope_label="system"
+    if flatpak info --user "$app_id" >/dev/null 2>&1; then
+        scope_flag="--user"
+        scope_label="user"
+    elif ! flatpak info "$app_id" >/dev/null 2>&1; then
+        echo "⚠️  Flatpak EDMC install not found; skipping Flatpak permission check."
+        return
+    fi
+
+    local permission_line
+    permission_line="$(
+        flatpak info ${scope_flag:+$scope_flag} --show-permissions "$app_id" 2>/dev/null \
+        | awk '/^\[Session Bus Policy\]/{flag=1;next}/^\[/{flag=0}flag && /org\.freedesktop\.Flatpak/ {print; exit}'
+    )"
+    if [[ -n "$permission_line" ]]; then
+        echo "✅ Flatpak permission present (${scope_label} scope): ${permission_line}"
+        return
+    fi
+
+    echo "⚠️  Flatpak EDMC (${scope_label}) is missing host D-Bus access to org.freedesktop.Flatpak."
+    echo "    The overlay client is launched outside the sandbox via flatpak-spawn --host and needs this permission."
+    local cmd="flatpak override ${scope_flag} ${app_id} --talk-name=org.freedesktop.Flatpak"
+    cmd="${cmd//  / }"
+    echo "    Grant it before starting EDMC:"
+    echo "      ${cmd}"
+}
+
 main() {
     trap cleanup_checksum_manifest_temp EXIT
     local -a ORIGINAL_ARGS=("$@")
@@ -1892,10 +1960,12 @@ PY
         exit 1
     fi
     detect_plugins_dir
+    classify_plugin_directory
     log_verbose "Plugin directory resolved to: ${PLUGIN_DIR:-unset}"
     ensure_edmc_not_running
     log_verbose "Confirmed EDMarketConnector is not running."
     ensure_system_packages
+    check_flatpak_permission
     select_compositor_profile
     disable_conflicting_plugins
     normalize_disabled_suffixes "${PLUGIN_DIR}/${LEGACY_PLUGIN_DIR_NAME}" "${LEGACY_PLUGIN_DIR_NAME}"
