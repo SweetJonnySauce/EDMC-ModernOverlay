@@ -114,6 +114,19 @@ def _convert_native_rect_to_qt(
         float(scale_y),
         float(device_ratio),
     )
+    if _CLIENT_LOGGER.isEnabledFor(logging.DEBUG):
+        _CLIENT_LOGGER.debug(
+            "Geometry normalisation: screen='%s' native=%s logical=%s native_geom=%s dpr=%.3f scale=%.3fx%.3f match=%s -> qt=%s",
+            screen_info.name,
+            rect,
+            logical_geometry,
+            native_geometry,
+            float(device_ratio),
+            float(scale_x),
+            float(scale_y),
+            geometries_match,
+            converted,
+        )
     return converted, normalisation_info
 
 
@@ -222,6 +235,15 @@ def _apply_aspect_guard(
             adjusted,
         )
         return adjusted, aspect_guard_skip_logged
+    if _CLIENT_LOGGER.isEnabledFor(logging.DEBUG):
+        _CLIENT_LOGGER.debug(
+            "Aspect guard passed without trim: width=%d height=%d expected=%d tolerance=%d offset=%d",
+            width,
+            height,
+            expected_height,
+            tolerance,
+            int(applied_title_offset),
+        )
     return geometry, aspect_guard_skip_logged
 
 
@@ -243,4 +265,15 @@ def _resolve_wm_override(
             clear_reason = "override timeout"
         else:
             target_tuple = override_rect
+    if _CLIENT_LOGGER.isEnabledFor(logging.DEBUG):
+        _CLIENT_LOGGER.debug(
+            "WM override decision: tracker=%s desired=%s override_rect=%s override_tracker=%s expired=%s -> target=%s clear_reason=%s",
+            tracker_qt_tuple,
+            desired_tuple,
+            override_rect,
+            override_tracker,
+            override_expired,
+            target_tuple,
+            clear_reason or "none",
+        )
     return target_tuple, clear_reason
