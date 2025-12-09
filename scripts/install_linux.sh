@@ -1891,11 +1891,19 @@ check_flatpak_permission() {
     if [[ "${PLUGIN_DIR_KIND:-}" != "flatpak" ]]; then
         return
     fi
+    pause_flatpak_warning() {
+        if [[ "$ASSUME_YES" == true ]]; then
+            log_verbose "Assume-yes enabled; skipping Flatpak warning pause."
+            return
+        fi
+        read -r -p "Press Enter to continue (Ctrl+C to abort)... " _
+    }
     local app_id="io.edcd.EDMarketConnector"
     if ! command -v flatpak >/dev/null 2>&1; then
         echo "⚠️  Flatpak EDMC install detected but the 'flatpak' CLI is not available; cannot verify host-launch permission."
         echo "    Modern Overlay launches the overlay client via flatpak-spawn --host, which requires D-Bus access to org.freedesktop.Flatpak."
         echo "    Grant it before starting EDMC: flatpak override --user ${app_id} --talk-name=org.freedesktop.Flatpak"
+        pause_flatpak_warning
         return
     fi
 
@@ -1909,22 +1917,36 @@ check_flatpak_permission() {
         return
     fi
 
-    local permission_line
-    permission_line="$(
-        flatpak info ${scope_flag:+$scope_flag} --show-permissions "$app_id" 2>/dev/null \
-        | awk '/^\[Session Bus Policy\]/{flag=1;next}/^\[/{flag=0}flag && /org\.freedesktop\.Flatpak/ {print; exit}'
-    )"
+    local permissions_output=""
+    if ! permissions_output="$(flatpak info ${scope_flag:+$scope_flag} --show-permissions "$app_id" 2>/dev/null)"; then
+        echo "⚠️  Could not read Flatpak permissions for ${scope_label} ${app_id}; skipping permission check."
+        return
+    fi
+
+    local session_bus_policy
+    session_bus_policy="$(printf '%s\n' "$permissions_output" | awk '/^\[Session Bus Policy\]/{flag=1;next}/^\[/{flag=0}flag')"
+
+    local permission_line=""
+    permission_line="$(printf '%s\n' "$session_bus_policy" | grep 'org\.freedesktop\.Flatpak' | head -n1 || true)"
     if [[ -n "$permission_line" ]]; then
         echo "✅ Flatpak permission present (${scope_label} scope): ${permission_line}"
         return
     fi
 
+    local override_line=""
+    override_line="$(flatpak override --user --show "$app_id" 2>/dev/null | grep -- '--talk-name=org.freedesktop.Flatpak' | head -n1 || true)"
+    if [[ -n "$override_line" ]]; then
+        echo "✅ Flatpak user override present: ${override_line}"
+        return
+    fi
+
     echo "⚠️  Flatpak EDMC (${scope_label}) is missing host D-Bus access to org.freedesktop.Flatpak."
     echo "    The overlay client is launched outside the sandbox via flatpak-spawn --host and needs this permission."
-    local cmd="flatpak override ${scope_flag} ${app_id} --talk-name=org.freedesktop.Flatpak"
+    local cmd="flatpak override --user ${app_id} --talk-name=org.freedesktop.Flatpak"
     cmd="${cmd//  / }"
     echo "    Grant it before starting EDMC:"
     echo "      ${cmd}"
+    pause_flatpak_warning
 }
 
 main() {
