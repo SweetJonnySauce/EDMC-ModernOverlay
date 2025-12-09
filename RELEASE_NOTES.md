@@ -4,9 +4,11 @@
 - Features:
   - Controller⇄client targeting rewrite: controller now pushes merged overrides with an edit nonce, cache entries carry nonce/timestamp metadata, and the client refuses stale transformed blocks so payloads never “jump” when editing offsets.
   - Diagnostics overhaul: EDMC’s DEBUG log level now drives every Modern Overlay logger, auto-creates `debug.json`, and exposes payload logging/stdout capture controls directly in the preferences panel while dev-only helpers live in the new `dev_settings.json`.
+  - Overlay debug metrics now surface environment override inputs (applied, skipped, and values) to make override issues visible from the HUD.
   - Cache + fallback hardening: while the controller is active we shorten cache flush debounces, immediately rewrite transformed bounds from the rendered geometry, and keep HUD fallback aligned even if the HUD momentarily drops payload frames.
   - Controller UI cleanup: preview now renders a single authoritative target box (no more dual “actual vs. target”), the absolute widget always mirrors controller coordinates without warning colors, and group pinning/anchor edits stay responsive.
   - Controller performance & usability: merged-group loader now feeds the controller UI, writes are isolated to the user config file, and reloads poll both shipped/user files with last-good fallback to keep editing responsive.
+  - Linux installer is compositor-aware: detects your compositor, can apply manifest-driven overrides (Qt scaling, force Xwayland when requested) via `--compositor auto|<id>|none`, and records accepted overrides in `overlay_client/env_overrides.json` without clobbering existing env vars.
   - Layered configs: shipped defaults remain in `overlay_groupings.json`; per-user overrides live in `overlay_groupings.user.json` (or an override path) and are preserved across upgrades. No automatic migration runs in this release.
   - Compatibility: tested/updated for EDMC 6.0 RC (overlay API aliasing and prefs widget swaps to avoid deprecated nb.Entry).
 - Maintenance:

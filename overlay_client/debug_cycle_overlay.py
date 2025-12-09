@@ -51,6 +51,7 @@ class DebugOverlayView:
         last_title_bar_offset: int,
         debug_overlay_corner: str,
         legacy_preset_point_size_fn: Callable[[str, ViewportState, LegacyMapper], float],
+        env_override_debug: Optional[Mapping[str, object]] = None,
     ) -> None:
         if not show_debug_overlay:
             return
@@ -165,6 +166,8 @@ class DebugOverlayView:
             "  applied_offset={}".format(last_title_bar_offset),
         ]
 
+        env_override_lines = self._format_env_override_lines(env_override_debug)
+
         info_lines = (
             monitor_lines
             + [""]
@@ -176,6 +179,8 @@ class DebugOverlayView:
             + [""]
             + settings_lines
         )
+        if env_override_lines:
+            info_lines += [""] + env_override_lines
         painter.save()
         debug_font = QFont(font_family or "", 10)
         self._apply_font_fallbacks(debug_font)
@@ -209,6 +214,54 @@ class DebugOverlayView:
                 line,
             )
         painter.restore()
+
+    @staticmethod
+    def _format_env_override_lines(env_override_debug: Optional[Mapping[str, object]]) -> List[str]:
+        if not env_override_debug:
+            return []
+        applied = set()
+        skipped_env = set()
+        skipped_existing = set()
+        values_block: Mapping[str, object] = {}
+        try:
+            applied = set(env_override_debug.get("applied", []) or [])
+            skipped_env = set(env_override_debug.get("skipped_env", []) or [])
+            skipped_existing = set(env_override_debug.get("skipped_existing", []) or [])
+            maybe_values = env_override_debug.get("values")
+            if isinstance(maybe_values, Mapping):
+                values_block = maybe_values
+        except Exception:
+            applied = set()
+            skipped_env = set()
+            skipped_existing = set()
+            values_block = {}
+
+        keys_of_interest = (
+            "QT_AUTO_SCREEN_SCALE_FACTOR",
+            "QT_ENABLE_HIGHDPI_SCALING",
+            "QT_SCALE_FACTOR",
+            "EDMC_OVERLAY_FORCE_XWAYLAND",
+        )
+        lines: List[str] = []
+        for key in keys_of_interest:
+            raw_value = values_block.get(key) if isinstance(values_block, Mapping) else None
+            text = ""
+            try:
+                text = str(raw_value) if raw_value is not None else ""
+            except Exception:
+                text = ""
+            value = "<unset>" if raw_value is None else (text if text else "<empty>")
+            marker = ""
+            if key in applied:
+                marker = " [applied]"
+            elif key in skipped_env:
+                marker = " [preset]"
+            elif key in skipped_existing:
+                marker = " [existing]"
+            lines.append(f"  {key}={value}{marker}")
+        if not lines:
+            return []
+        return ["Env overrides:"] + lines
 
     def paint_overlay_outline(
         self,

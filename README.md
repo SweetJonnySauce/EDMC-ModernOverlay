@@ -74,7 +74,7 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
 
   > **Caution:** Enabling the host launch runs the overlay client outside the Flatpak sandbox, so it inherits the host user’s privileges. Only do this if you trust the plugin code and the system where it runs.
 
-  Flatpak uses the following override when launching the client:
+- **Flatpak D-Bus access:** Running the plugin via Flatpak EDMC requires a user permission to be added to enable D-Bus access to `org.freedesktop.Flatpak`. The Linux installer now detects for this and prompts you to grant permission. It does not automatically grant that permission. This is needed because the plugin client uses the following override when launching the client:
   ```bash
   flatpak override --env=EDMC_OVERLAY_HOST_PYTHON=/path/to/python io.edcd.EDMarketConnector
   ```

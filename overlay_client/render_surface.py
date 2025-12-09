@@ -2115,6 +2115,7 @@ class RenderSurfaceMixin:
             last_title_bar_offset=self._last_title_bar_offset,
             debug_overlay_corner=self._debug_overlay_corner,
             legacy_preset_point_size_fn=self._legacy_preset_point_size,
+            env_override_debug=getattr(self, "_env_override_debug", None),
         )
 
     def _paint_overlay_outline(self, painter: QPainter) -> None:

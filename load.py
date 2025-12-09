@@ -2643,6 +2643,10 @@ class _PluginRuntime:
                     ", ".join(merge_result.skipped_env) if merge_result.skipped_env else "none",
                     ", ".join(merge_result.skipped_existing) if merge_result.skipped_existing else "none",
                 )
+            if merge_result.applied or merge_result.skipped_env or merge_result.skipped_existing:
+                env["EDMC_OVERLAY_ENV_OVERRIDES_APPLIED"] = ",".join(merge_result.applied)
+                env["EDMC_OVERLAY_ENV_OVERRIDES_SKIPPED_ENV"] = ",".join(merge_result.skipped_env)
+                env["EDMC_OVERLAY_ENV_OVERRIDES_SKIPPED_EXISTING"] = ",".join(merge_result.skipped_existing)
         except Exception as exc:
             LOGGER.debug("Failed to apply env overrides: %s", exc)
         return env
