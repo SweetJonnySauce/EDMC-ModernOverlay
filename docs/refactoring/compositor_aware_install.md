@@ -111,7 +111,7 @@
 
 **Stage 2.2 working plan**
 - Helper module: add `overlay_client/env_overrides.py` (or similar) to load/validate `env_overrides.json` and merge into a provided env dict without overwriting keys already set in `os.environ`.
-- API shape: pure helpers like `load_overrides(path: Path) -> dict` and `apply_overrides(env: dict, overrides: dict, logger=None) -> MergeResult(applied, skipped_env, skipped_existing, provenance)`.
+- API shape: pure helpers like `load_overrides(path: Path) -> dict` and `apply_overrides(env: dict, overrides: dict, logger=None) -> MergeResult(applied, applied_values, skipped_env, skipped_existing, provenance)`.
 - Consumption: call helper from `load.py::_build_overlay_environment` and controller env builder so both respect installer overrides; keep user env highest precedence; fall back to legacy `force_xwayland` pref only when no override exists.
 - Logging: emit a concise summary of applied/skipped keys and provenance (guard to DEBUG or a single INFO line).
 - Edge cases: missing/invalid JSON (graceful skip), empty overrides, already-present keys, cross-platform path resolution (guard non-Linux).

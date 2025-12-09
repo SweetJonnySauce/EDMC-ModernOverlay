@@ -10,6 +10,7 @@ from typing import Dict, Mapping
 @dataclass
 class MergeResult:
     applied: list[str] = field(default_factory=list)
+    applied_values: Dict[str, str] = field(default_factory=dict)
     skipped_env: list[str] = field(default_factory=list)
     skipped_existing: list[str] = field(default_factory=list)
     provenance: Mapping[str, object] = field(default_factory=dict)
@@ -61,11 +62,14 @@ def apply_overrides(
         if key in env:
             result.skipped_existing.append(key)
             continue
-        env[key] = str(value)
+        value_str = str(value)
+        env[key] = value_str
         result.applied.append(key)
+        result.applied_values[key] = value_str
     if logger and result.applied:
         try:
-            logger.debug("Applied env overrides: %s", ", ".join(result.applied))
+            applied_pairs = [f"{key}={result.applied_values.get(key, env.get(key, ''))}" for key in result.applied]
+            logger.debug("Applied env overrides: %s", ", ".join(applied_pairs))
         except Exception:
             pass
     if logger and (result.skipped_env or result.skipped_existing):

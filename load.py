@@ -2631,10 +2631,14 @@ class _PluginRuntime:
             overrides_payload = env_overrides_helper.load_overrides(overrides_path)
             merge_result = env_overrides_helper.apply_overrides(env, overrides_payload, logger=LOGGER)
             if merge_result.applied:
+                applied_pairs = [
+                    f"{key}={merge_result.applied_values.get(key, env.get(key, ''))}"
+                    for key in merge_result.applied
+                ]
                 LOGGER.info(
                     "Applied overlay env overrides (%s): %s",
                     overrides_path,
-                    ", ".join(merge_result.applied),
+                    ", ".join(applied_pairs),
                 )
             if merge_result.skipped_env or merge_result.skipped_existing:
                 LOGGER.debug(
