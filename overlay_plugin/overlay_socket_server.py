@@ -168,13 +168,13 @@ class SocketBroadcaster:
                     )
                     response = {"status": "error", "error": str(exc)}
                 if response is not None:
-                    self._clients.discard((reader, writer))
                     try:
                         writer.write(json.dumps(response).encode("utf-8") + b"\n")
                         await writer.drain()
                     except Exception:
                         pass
-                    break
+                    # Keep the connection alive so the client can continue receiving broadcasts.
+                    continue
         except Exception:
             pass
         finally:

@@ -1,7 +1,7 @@
 {
   "overlay_opacity": 0.0,
   "show_connection_status": false,
-  "debug_overlay_corner": "SE",
+  "debug_overlay_corner": "NW",
   "client_log_retention": 5,
   "gridlines_enabled": false,
   "gridline_spacing": 120,

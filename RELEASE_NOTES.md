@@ -8,6 +8,7 @@
   - Controller UI cleanup: preview now renders a single authoritative target box (no more dual “actual vs. target”), the absolute widget always mirrors controller coordinates without warning colors, and group pinning/anchor edits stay responsive.
   - Controller performance & usability: merged-group loader now feeds the controller UI, writes are isolated to the user config file, and reloads poll both shipped/user files with last-good fallback to keep editing responsive.
   - Layered configs: shipped defaults remain in `overlay_groupings.json`; per-user overrides live in `overlay_groupings.user.json` (or an override path) and are preserved across upgrades. No automatic migration runs in this release.
+  - Compatibility: tested/updated for EDMC 6.0 RC (overlay API aliasing and prefs widget swaps to avoid deprecated nb.Entry).
 - Maintenance:
   - Runtime floor: client/controller now require Python 3.10+; packaging, docs, and both installers enforce/announce the new minimum with a continue-anyway prompt if an older interpreter is detected.
   - Integrity: installers now ship a per-file `checksums.txt` manifest. Both Linux and Windows installers validate the extracted bundle and installed plugin files against it; `generate_checksums.py` builds the manifest during release packaging.
