@@ -5,6 +5,11 @@
 |:---------------------------|:----------------------------------------------------|
 | Images aren't shown correctly in center/right justification | Center/Right justification does not support grouped vector images. Keep them left justified |
 
+### Desktop scaling (Cinnamon/GNOME on X11)
+| Issue | Remediation |
+|:---------------------------|:----------------------------------------------------|
+| Overlay appears between monitors or shrunk on secondary display when DPI scaling is >1x | Check desktop scaling: `gsettings get org.cinnamon.desktop.interface text-scaling-factor` (and `org.gnome.desktop.interface` if present) should be 1.0; set to 1.0 and log out/in. Also check `xrdb -query | grep Xft.dpi`; set to 96 via `xrdb -merge <<<"Xft.dpi: 96"` (and update `~/.Xresources` if needed). |
+
 ## BGS-Tally
 | Issue | Remediation | 
 |:---------------------------|:----------------------------------------------------|

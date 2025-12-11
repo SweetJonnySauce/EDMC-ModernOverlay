@@ -11,6 +11,17 @@ _CLIENT_LOGGER = logging.getLogger(_LOGGER_NAME)
 
 Geometry = Tuple[int, int, int, int]
 NormalisationInfo = Tuple[str, float, float, float]
+_last_normalisation_log: Optional[
+    Tuple[
+        str,  # screen name
+        Geometry,  # logical geometry
+        Geometry,  # native geometry
+        float,  # device ratio
+        float,  # scale_x
+        float,  # scale_y
+        bool,  # geometries match
+    ]
+] = None
 
 
 @dataclass(frozen=True)
@@ -38,6 +49,8 @@ def _convert_native_rect_to_qt(
     native_width = native_geometry[2]
     native_height = native_geometry[3]
 
+    global _last_normalisation_log
+
     if device_ratio <= 0.0:
         device_ratio = 1.0
 
@@ -49,6 +62,7 @@ def _convert_native_rect_to_qt(
     )
 
     if geometries_match:
+        scaled_with_dpr = False
         # On X11 some drivers report a DPR>1 while logical/native geometries are identical.
         # Treat that as a 1:1 mapping to avoid double-scaling and shifting origins.
         scale_x = 1.0
@@ -73,16 +87,9 @@ def _convert_native_rect_to_qt(
                     native_origin_x = logical_geometry[0] * device_ratio
                 if math.isclose(native_origin_y, logical_geometry[1], abs_tol=1e-4):
                     native_origin_y = logical_geometry[1] * device_ratio
-                _CLIENT_LOGGER.debug(
-                    "Applying DPR-based scaling with matching geometries: screen='%s' logical=%s native=%s dpr=%.3f scale=%.3fx%.3f",
-                    screen_info.name,
-                    logical_geometry,
-                    native_geometry,
-                    float(device_ratio),
-                    float(scale_x),
-                    float(scale_y),
-                )
+                scaled_with_dpr = True
     else:
+        scaled_with_dpr = False
         scale_x = logical_geometry[2] / native_width if native_width else 1.0
         scale_y = logical_geometry[3] / native_height if native_height else 1.0
 
@@ -115,18 +122,39 @@ def _convert_native_rect_to_qt(
         float(device_ratio),
     )
     if _CLIENT_LOGGER.isEnabledFor(logging.DEBUG):
-        _CLIENT_LOGGER.debug(
-            "Geometry normalisation: screen='%s' native=%s logical=%s native_geom=%s dpr=%.3f scale=%.3fx%.3f match=%s -> qt=%s",
+        snapshot = (
             screen_info.name,
-            rect,
             logical_geometry,
             native_geometry,
-            float(device_ratio),
-            float(scale_x),
-            float(scale_y),
+            round(float(device_ratio), 4),
+            round(float(scale_x), 4),
+            round(float(scale_y), 4),
             geometries_match,
-            converted,
         )
+        if snapshot != _last_normalisation_log:
+            if scaled_with_dpr:
+                _CLIENT_LOGGER.debug(
+                    "Applying DPR-based scaling with matching geometries: screen='%s' logical=%s native=%s dpr=%.3f scale=%.3fx%.3f",
+                    screen_info.name,
+                    logical_geometry,
+                    native_geometry,
+                    float(device_ratio),
+                    float(scale_x),
+                    float(scale_y),
+                )
+            _CLIENT_LOGGER.debug(
+                "Geometry normalisation: screen='%s' native=%s logical=%s native_geom=%s dpr=%.3f scale=%.3fx%.3f match=%s -> qt=%s",
+                screen_info.name,
+                rect,
+                logical_geometry,
+                native_geometry,
+                float(device_ratio),
+                float(scale_x),
+                float(scale_y),
+                geometries_match,
+                converted,
+            )
+            _last_normalisation_log = snapshot
     return converted, normalisation_info
 
 
