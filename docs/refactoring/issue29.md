@@ -1,7 +1,7 @@
 ## Goal: To address Github Issue # 29 without causing regression for other users
 
 ## Overview of Issue
-
+https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/29
 
 ## Refactorer Persona
 - Bias toward carving out modules aggressively while guarding behavior: no feature changes, no silent regressions.
@@ -94,8 +94,8 @@ Recommendation: ship auto clamp (physical-pixel approach) with care, provide per
 | Stage | Description | Status |
 | --- | --- | --- |
 | 1.1 | Add setting flag (User prefs UI) and mirror to overlay_settings.json | Completed |
-| 1.2 | Implement guarded clamp in follow_geometry (geom match, non-integer DPR) | Pending |
-| 1.3 | Unit tests for on/off paths; ensure off-path unchanged | Pending |
+| 1.2 | Implement guarded clamp in follow_geometry (geom match, non-integer DPR) | Implemented (awaiting tests/QA) |
+| 1.3 | Unit tests for on/off paths; ensure off-path unchanged | Implemented (tests added; run pending: clamp log capture) |
 | 1.4 | Manual QA on dual-monitor X11 with fractional DPR | Pending |
 
 #### Stage 1.1 Plan — Setting flag (User prefs UI + overlay_settings.json)
@@ -110,6 +110,79 @@ Recommendation: ship auto clamp (physical-pixel approach) with care, provide per
   - Default false; keep backward-compatible parsing (missing => false).
   - Add a unit test covering prefs round-trip and JSON export/import with/without the new key.
   - Manual smoke: toggle in UI, restart plugin/client, confirm flag reflects in `overlay_settings.json`.
+
+#### Stage 1.2 Plan — Guarded clamp in follow_geometry
+- Tasks:
+  - Trace the current geometry pipeline (`overlay_client/follow_geometry.py`) to capture the existing scaling branches (geom-match DPR path vs. mismatch path) and document expected unchanged behavior when the flag is off.
+  - Introduce a clamp predicate that requires: setting enabled, non-integer DPR (tolerance: e.g., `abs(dpr - round(dpr)) > 0.05`), and effectively matching logical/native geoms (within existing tolerance).
+  - When predicate passes, bypass the DPR shrink: force `scale_x/scale_y` to physical/native mapping (1.0 when geoms match; otherwise derived from native width/height), keep origins consistent, and emit a one-time debug log indicating clamp activation and chosen scales.
+  - Preserve the legacy paths verbatim when the predicate fails (flag off, integer DPR, or mismatched geoms) to keep default behavior unchanged.
+  - Add guard rails: sanity-check scales for >0 and finite values; fall back to legacy math on validation failure; ensure `_last_normalisation_log` only updates when behavior changes to avoid log spam.
+- Risks:
+  - **False positives on real HiDPI**: A legitimate fractional DPR (or driver rounding) could be clamped, misplacing overlays on mixed-DPI/rotated/Xwayland setups.
+  - **Bad inputs from platform**: Incorrect/zero native sizes or origins could yield bogus scales or crashes if not validated.
+  - **Regression with flag off**: Refactor could subtly alter the off-path (e.g., tolerances or defaults), changing placement for all users.
+  - **Noise/instability**: Extra logging or state drift (`_last_normalisation_log`) could mask real changes or spam logs in dev mode.
+- Mitigations:
+  - Keep the flag default-off; gate all new math behind the predicate plus geometry-match + non-integer DPR checks; require validation of scales before use.
+  - Maintain a strict fallback: on any validation failure, bail to the existing path unchanged; include a debug breadcrumb when clamping is skipped or reverted.
+  - Reuse current tolerances for geom matching; avoid touching other branches; add targeted unit coverage in Stage 1.3 to assert the off-path is byte-for-byte equivalent for representative inputs.
+  - Limit logging to first activation per screen and include the flag state in the message to aid QA without flooding logs.
+
+##### Stage 1.2 Implementation (code landed; tests pending)
+- Changes:
+  - `overlay_client/follow_geometry.py`: `_convert_native_rect_to_qt` now accepts `physical_clamp_enabled`; when flag is on and DPR is fractional with matching geoms, we keep a 1:1 mapping (skip DPR shrink), log clamp once, and fall back to legacy math otherwise.
+  - `overlay_client/follow_surface.py`: threads the flag into geometry conversion based on `_physical_clamp_enabled`.
+  - `overlay_client/setup_surface.py`: stores initial `_physical_clamp_enabled` from boot settings.
+  - `overlay_client/control_surface.py`: new setter `set_physical_clamp_enabled` to toggle and refresh follow geometry; clears WM overrides on change.
+  - `overlay_client/developer_helpers.py`: applies the flag at startup and from payloads.
+- Guard rails in code: non-finite DPR coerced to 1.0; clamp only when flag+fractional DPR+geom match; otherwise legacy path unchanged; debug logs emitted once per change.
+- Testing status: `python3 -m pytest overlay_client/tests/test_follow_geometry.py` passes. Stage 1.3 remains to add/execute broader unit coverage for on/off paths and regressions.
+
+#### Stage 1.3 Plan — Unit tests for on/off paths and regressions
+- Tasks:
+  - Add targeted tests in `overlay_client/tests/test_follow_geometry.py` to cover: flag off (fractional DPR + matching geoms stays legacy scaled), flag on (fractional DPR clamps to 1:1), flag on with mismatched geoms (fallback to legacy path), integer DPR with flag on (no clamp), and invalid/zero DPR (coerced to 1.0).
+  - Add a log snapshot/assertion helper to confirm clamp activation emits a single debug log entry (dev mode) while preserving `_last_normalisation_log` deduping.
+  - If needed, add a thin integration test for the flag plumbing in `follow_surface` (ensuring `_physical_clamp_enabled` is passed through) using a stubbed `_screen_info_for_native_rect`.
+  - Keep existing tests intact to verify no behavioral drift on legacy paths; rerun the suite scoped to follow geometry tests.
+- Risks:
+  - **Behavioral drift in legacy path**: tests might encode new expectations that mask regressions or overfit to current tolerances.
+  - **Log assertions brittle**: debug log ordering/deduping could change, causing false negatives.
+  - **Test flakiness on platforms**: Qt availability or environment differences could break integration-style tests.
+- Mitigations:
+  - Anchor off-path expectations to pre-change math (explicit inputs/outputs); avoid altering tolerances in the tests.
+  - Prefer structural assertions (presence of clamp log once) rather than exact log ordering; guard with dev-mode enabling where required.
+  - Keep tests headless/pure where possible; if integration is added, mark it to skip when Qt is unavailable; scope test runs to `overlay_client/tests/test_follow_geometry.py` for quick feedback before broader runs.
+
+##### Stage 1.3 Implementation (tests added)
+- Tests added in `overlay_client/tests/test_follow_geometry.py` covering:
+  - Flag on clamps fractional DPR with matching geoms (1:1).
+  - Flag off retains legacy fractional scaling.
+  - Flag on with mismatched geoms falls back to legacy scaling.
+  - Flag on with integer DPR uses legacy scaling (no clamp).
+  - Non-finite/zero DPR coerced to 1.0.
+  - Clamp log emitted once when re-invoked (forces logger propagation for capture).
+- Test execution: Failing in local CI run: `test_convert_native_rect_logs_clamp_once` is not capturing the clamp log (0 entries vs expected 1) despite forcing logger propagation. Needs rerun and potential log-capture adjustment in an environment with pytest installed.
+
+#### Stage 1.4 Plan — Manual QA on dual-monitor X11 with fractional DPR
+- Environment:
+  - X11 with dual monitors (e.g., 2560x1440 primary + 1920x1080 secondary).
+  - Desktop scaling/text-scaling-factor ~1.4 (or similar fractional DPR); Xft.dpi ≈ 134.
+- Scenarios to cover:
+  - **Flag off (default)**: launch overlay, confirm placement matches pre-change behavior (no clamp). Verify debug logs show normalisation without “Physical clamp applied”.
+  - **Flag on**: enable Physical Clamp in prefs, restart overlay/client, reproduce overlay; confirm it anchors correctly on the target monitor without shrinking/offset. Check logs contain one “Physical clamp applied…” entry per screen.
+  - **Mixed monitors**: move the game window between monitors (primary/secondary) and confirm clamp behavior does not misplace on the other display.
+  - **Integer DPR check**: set scaling to 1.0, confirm flag on/off behaves identically (no regressions).
+- Steps:
+  1) Set scaling to ~1.4 (Cinnamon/GNOME text-scaling-factor 1.4; Xft.dpi 134), log out/in.
+  2) Start EDMC + overlay with flag off; trigger overlay; note placement and logs.
+  3) Toggle Physical Clamp on in prefs; restart overlay/client; trigger overlay; note placement and logs.
+  4) Move game window between monitors and repeat trigger to observe any offsets.
+  5) Return scaling to 1.0; repeat quick smoke with flag on/off to confirm no regression.
+- Observations to capture:
+  - Overlay position/size per monitor and before/after flag toggle.
+  - Presence of “Physical clamp applied” log and normalisation scales.
+  - Any misplacement, clipping, or WM override clearing when toggling the flag.
 
 ### Phase 2: Per-monitor override option
 - Allow per-screen clamp configuration as an escape hatch when auto clamp isn’t enough.

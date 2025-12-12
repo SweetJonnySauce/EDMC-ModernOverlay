@@ -54,6 +54,23 @@ class ControlSurfaceMixin:
             ):
                 self._update_follow_visibility(False)
 
+    def set_physical_clamp_enabled(self, enabled: bool) -> None:
+        flag = bool(enabled)
+        if flag == getattr(self, "_physical_clamp_enabled", False):
+            return
+        self._physical_clamp_enabled = flag
+        _CLIENT_LOGGER.debug("Physical clamp %s", "enabled" if flag else "disabled")
+        if getattr(self, "_follow_controller", None) and self._follow_controller.wm_override is not None:
+            self._clear_wm_override(reason="physical_clamp_updated")
+        if getattr(self, "_follow_controller", None):
+            self._follow_controller.reset_resume_window()
+        if getattr(self, "_follow_enabled", False) and getattr(self, "_window_tracker", None) is not None:
+            self._refresh_follow_geometry()
+        elif getattr(self, "_last_follow_state", None) is not None:
+            self._apply_follow_state(self._last_follow_state)
+        else:
+            self.update()
+
     def set_debug_overlay(self, enabled: bool) -> None:
         flag = bool(enabled)
         if flag == self._show_debug_overlay:

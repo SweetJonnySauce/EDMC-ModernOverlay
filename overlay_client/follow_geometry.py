@@ -35,6 +35,8 @@ class ScreenInfo:
 def _convert_native_rect_to_qt(
     rect: Geometry,
     screen_info: Optional[ScreenInfo],
+    *,
+    physical_clamp_enabled: bool = False,
 ) -> Tuple[Geometry, Optional[NormalisationInfo]]:
     x, y, width, height = rect
     if width <= 0 or height <= 0:
@@ -51,7 +53,7 @@ def _convert_native_rect_to_qt(
 
     global _last_normalisation_log
 
-    if device_ratio <= 0.0:
+    if not math.isfinite(device_ratio) or device_ratio <= 0.0:
         device_ratio = 1.0
 
     geometries_match = (
@@ -61,15 +63,27 @@ def _convert_native_rect_to_qt(
         and math.isclose(logical_geometry[3], native_height, abs_tol=1e-4)
     )
 
+    clamp_applied = False
+    scaled_with_dpr = False
+    rounded_ratio = round(device_ratio)
+    is_fractional_dpr = physical_clamp_enabled and not math.isclose(
+        device_ratio,
+        float(rounded_ratio),
+        abs_tol=0.05,
+    )
+
     if geometries_match:
-        scaled_with_dpr = False
         # On X11 some drivers report a DPR>1 while logical/native geometries are identical.
-        # Treat that as a 1:1 mapping to avoid double-scaling and shifting origins.
+        # Default behaviour: treat that as a 1:1 mapping unless the expected native size
+        # diverges, in which case downscale by 1/dpr. Physical clamp path (flagged) keeps
+        # the 1:1 mapping to avoid the fractional-DPR shrink.
         scale_x = 1.0
         scale_y = 1.0
         native_origin_x = logical_geometry[0]
         native_origin_y = logical_geometry[1]
-        if device_ratio > 1.0:
+        if is_fractional_dpr:
+            clamp_applied = True
+        elif device_ratio > 1.0:
             expected_native_width = logical_geometry[2] * device_ratio
             expected_native_height = logical_geometry[3] * device_ratio
             # If the reported native size is much smaller than the DPR implies, assume the
@@ -139,6 +153,17 @@ def _convert_native_rect_to_qt(
                     logical_geometry,
                     native_geometry,
                     float(device_ratio),
+                    float(scale_x),
+                    float(scale_y),
+                )
+            if clamp_applied:
+                _CLIENT_LOGGER.debug(
+                    "Physical clamp applied: screen='%s' logical=%s native=%s dpr=%.3f (rounded=%s) scale=%.3fx%.3f",
+                    screen_info.name,
+                    logical_geometry,
+                    native_geometry,
+                    float(device_ratio),
+                    rounded_ratio,
                     float(scale_x),
                     float(scale_y),
                 )

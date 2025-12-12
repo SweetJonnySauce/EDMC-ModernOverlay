@@ -37,6 +37,7 @@ class DeveloperHelperController:
     def apply_initial_window_state(self, window: "OverlayWindow", initial: InitialClientSettings) -> None:
         window.set_log_retention(self._current_log_retention)
         window.set_force_render(initial.force_render)
+        window.set_physical_clamp_enabled(getattr(initial, "physical_clamp_enabled", False))
         window.set_follow_enabled(True)
         window.set_debug_overlay(initial.show_debug_overlay)
         window.set_font_bounds(initial.min_font_point, initial.max_font_point)
@@ -70,6 +71,8 @@ class DeveloperHelperController:
             window.set_debug_overlay_corner(config.debug_overlay_corner)
         if config.force_render is not None:
             window.set_force_render(config.force_render)
+        if "physical_clamp_enabled" in payload:
+            window.set_physical_clamp_enabled(payload.get("physical_clamp_enabled"))
         if config.title_bar_enabled is not None or config.title_bar_height is not None:
             window.set_title_bar_compensation(config.title_bar_enabled, config.title_bar_height)
         if config.show_debug_overlay is not None:
