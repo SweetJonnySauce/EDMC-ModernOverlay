@@ -14,66 +14,243 @@
       "id": "debian",
       "label": "Debian / Ubuntu",
       "match": {
-        "ids": ["debian", "ubuntu", "pop", "linuxmint", "neon", "zorin", "kali", "parrot"],
-        "id_like": ["debian", "ubuntu"]
+        "ids": [
+          "debian",
+          "ubuntu",
+          "pop",
+          "linuxmint",
+          "neon",
+          "zorin",
+          "kali",
+          "parrot"
+        ],
+        "id_like": [
+          "debian",
+          "ubuntu"
+        ]
       },
       "pkg_manager": {
-        "update": ["sudo", "apt-get", "update"],
-        "install": ["sudo", "apt-get", "install", "-y"]
+        "update": [
+          "sudo",
+          "apt-get",
+          "update"
+        ],
+        "install": [
+          "sudo",
+          "apt-get",
+          "install",
+          "-y"
+        ]
       },
       "packages": {
-        "core": ["python3", "python3-venv", "python3-pip", "rsync", "curl", "wmctrl"],
-        "qt": ["libxcb-cursor0", "libxkbcommon-x11-0"],
-        "wayland": ["x11-utils", "python3-pydbus"]
+        "core": [
+          "python3",
+          "python3-venv",
+          "python3-pip",
+          "rsync",
+          "curl",
+          "wmctrl"
+        ],
+        "qt": [
+          "libxcb-cursor0",
+          "libxkbcommon-x11-0"
+        ],
+        "wayland": [
+          "x11-utils"
+        ]
       }
     },
     {
       "id": "fedora",
       "label": "Fedora / RHEL / CentOS Stream",
       "match": {
-        "ids": ["fedora", "rhel", "centos", "rocky", "almalinux"],
-        "id_like": ["fedora", "rhel"]
+        "ids": [
+          "fedora",
+          "rhel",
+          "centos",
+          "rocky",
+          "almalinux"
+        ],
+        "id_like": [
+          "fedora",
+          "rhel"
+        ]
       },
       "pkg_manager": {
-        "install": ["sudo", "dnf", "install", "-y"]
+        "install": [
+          "sudo",
+          "dnf",
+          "install",
+          "-y"
+        ]
       },
       "packages": {
-        "core": ["python3", "python3-pip", "python3-virtualenv", "rsync", "curl", "wmctrl"],
-        "qt": ["libxkbcommon", "libxkbcommon-x11", "xcb-util-cursor"],
-        "wayland": ["xwininfo", "xprop", "python3-pydbus"]
+        "core": [
+          "python3",
+          "python3-pip",
+          "python3-virtualenv",
+          "rsync",
+          "curl",
+          "wmctrl"
+        ],
+        "qt": [
+          "libxkbcommon",
+          "libxkbcommon-x11",
+          "xcb-util-cursor"
+        ],
+        "wayland": [
+          "xwininfo",
+          "xprop"
+        ]
       }
     },
     {
       "id": "opensuse",
       "label": "openSUSE / SLE",
       "match": {
-        "ids": ["opensuse", "opensuse-leap", "opensuse-tumbleweed", "sles"],
-        "id_like": ["suse"]
+        "ids": [
+          "opensuse",
+          "opensuse-leap",
+          "opensuse-tumbleweed",
+          "sles"
+        ],
+        "id_like": [
+          "suse"
+        ]
       },
       "pkg_manager": {
-        "install": ["sudo", "zypper", "install", "-y"]
+        "install": [
+          "sudo",
+          "zypper",
+          "install",
+          "-y"
+        ]
       },
       "packages": {
-        "core": ["python3", "python3-pip", "python3-virtualenv", "rsync", "curl", "wmctrl"],
-        "qt": ["libxcb-cursor0", "libxkbcommon-x11-0"],
-        "wayland": ["xprop", "xwininfo", "python3-pydbus"]
+        "core": [
+          "python3",
+          "python3-pip",
+          "python3-virtualenv",
+          "rsync",
+          "curl",
+          "wmctrl"
+        ],
+        "qt": [
+          "libxcb-cursor0",
+          "libxkbcommon-x11-0"
+        ],
+        "wayland": [
+          "xprop",
+          "xwininfo"
+        ]
       }
     },
     {
       "id": "arch",
       "label": "Arch / Manjaro / SteamOS",
       "match": {
-        "ids": ["arch", "manjaro", "endeavouros", "steamos"],
-        "id_like": ["arch"]
+        "ids": [
+          "arch",
+          "manjaro",
+          "endeavouros",
+          "steamos"
+        ],
+        "id_like": [
+          "arch"
+        ]
       },
       "pkg_manager": {
-        "install": ["sudo", "pacman", "-Sy", "--needed"]
+        "install": [
+          "sudo",
+          "pacman",
+          "-Sy",
+          "--needed"
+        ]
       },
       "packages": {
-        "core": ["python", "python-pip", "rsync", "curl", "wmctrl"],
-        "qt": ["libxcb", "xcb-util-cursor", "libxkbcommon"],
-        "wayland": ["xorg-xprop", "xorg-xwininfo", "python-pydbus"]
+        "core": [
+          "python",
+          "python-pip",
+          "rsync",
+          "curl",
+          "wmctrl"
+        ],
+        "qt": [
+          "libxcb",
+          "xcb-util-cursor",
+          "libxkbcommon"
+        ],
+        "wayland": [
+          "xorg-xprop",
+          "xorg-xwininfo"
+        ]
       }
+    }
+  ],
+  "compositors": [
+    {
+      "id": "kwin-wayland",
+      "label": "KDE Plasma (KWin/Wayland)",
+      "match": {
+        "session_types": [
+          "wayland"
+        ],
+        "desktops": [
+          "kde",
+          "plasma"
+        ],
+        "requires_force_xwayland": false
+      },
+      "env_overrides": {
+        "QT_AUTO_SCREEN_SCALE_FACTOR": "0",
+        "QT_ENABLE_HIGHDPI_SCALING": "0",
+        "QT_SCALE_FACTOR": "1"
+      },
+      "notes": [
+        "KDE/Wayland with Xwayland can double-scale Qt windows; disabling Qt HiDPI scaling avoids oversized UI.",
+        "Applied only when compositor detection matches and user opts in."
+      ],
+      "provenance": "Detected KDE/KWin on Wayland; disable Qt HiDPI scaling to avoid double scaling when Qt apps fall back to Xwayland."
+    },
+    {
+      "id": "gnome-shell",
+      "label": "GNOME Shell (Wayland)",
+      "match": {
+        "session_types": [
+          "wayland"
+        ],
+        "desktops": [
+          "gnome",
+          "ubuntu"
+        ],
+        "requires_force_xwayland": false
+      },
+      "env_overrides": {},
+      "notes": [
+        "No Qt scaling override by default."
+      ],
+      "provenance": "Detected GNOME Shell on Wayland."
+    },
+    {
+      "id": "wlroots",
+      "label": "wlroots (Sway/Wayfire/Hyprland)",
+      "match": {
+        "session_types": [
+          "wayland"
+        ],
+        "desktops": [
+          "sway",
+          "wayfire",
+          "hyprland",
+          "wlroots"
+        ],
+        "requires_force_xwayland": false
+      },
+      "env_overrides": {},
+      "notes": [
+        "No Qt scaling override by default; ensure pywayland and compositor CLIs (swaymsg/hyprctl) are installed for follow mode."
+      ],
+      "provenance": "Detected wlroots-based compositor on Wayland."
     }
   ]
 }

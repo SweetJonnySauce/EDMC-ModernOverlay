@@ -80,3 +80,41 @@ jobs:
 
       - name: Run Linux installer tests
         run: bash tests/test_install_linux.sh
+
+  windows-installer-tests:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Pester 5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Module Pester -ErrorAction SilentlyContinue
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          $pester = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [version]'5.5.0' } | Select-Object -First 1
+          if (-not $pester) {
+            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+            Install-Module -Name Pester -MinimumVersion 5.5.0 -Force -Scope CurrentUser
+            $pester = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [version]'5.5.0' } | Select-Object -First 1
+          }
+          Import-Module $pester -Force
+          Get-Module Pester | Select-Object Name,Version | Format-Table -AutoSize
+
+      - name: Run Windows installer tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Module Pester -ErrorAction SilentlyContinue
+          Import-Module Pester -MinimumVersion 5.5.0 -Force
+          Write-Host ("Using Pester {0}" -f (Get-Module Pester).Version)
+          $config = @{
+            Run = @{ Path = 'tests/install_windows.Tests.ps1' }
+            TestResult = @{
+              Enabled     = $true
+              OutputPath  = 'Test-Pester.xml'
+              OutputFormat= 'NUnitXml'
+            }
+          }
+          Invoke-Pester -Configuration $config

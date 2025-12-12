@@ -340,6 +340,7 @@ class SetupSurfaceMixin:
         self._grouping_adapter = GroupingAdapter(self._grouping_helper, self)
         self._debug_overlay_view = DebugOverlayView(self._apply_font_fallbacks, self._line_width)
         self._cycle_overlay_view = CycleOverlayView()
+        self._env_override_debug = self._collect_env_override_debug_info()
         layout = QVBoxLayout()
         layout.addWidget(self.message_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         layout.addStretch(1)
@@ -362,6 +363,31 @@ class SetupSurfaceMixin:
             height_px,
             self.format_scale_debug(),
         )
+
+    @staticmethod
+    def _parse_env_override_list(var_name: str) -> List[str]:
+        raw = os.environ.get(var_name, "")
+        if not raw:
+            return []
+        return [token for token in raw.split(",") if token.strip()]
+
+    def _collect_env_override_debug_info(self) -> Dict[str, Any]:
+        keys_of_interest = (
+            "QT_AUTO_SCREEN_SCALE_FACTOR",
+            "QT_ENABLE_HIGHDPI_SCALING",
+            "QT_SCALE_FACTOR",
+            "EDMC_OVERLAY_FORCE_XWAYLAND",
+        )
+        values: Dict[str, Optional[str]] = {}
+        for key in keys_of_interest:
+            val = os.environ.get(key)
+            values[key] = val if val is not None else None
+        return {
+            "applied": self._parse_env_override_list("EDMC_OVERLAY_ENV_OVERRIDES_APPLIED"),
+            "skipped_env": self._parse_env_override_list("EDMC_OVERLAY_ENV_OVERRIDES_SKIPPED_ENV"),
+            "skipped_existing": self._parse_env_override_list("EDMC_OVERLAY_ENV_OVERRIDES_SKIPPED_EXISTING"),
+            "values": values,
+        }
 
     def _handle_show_event(self) -> None:
         self._apply_legacy_scale()

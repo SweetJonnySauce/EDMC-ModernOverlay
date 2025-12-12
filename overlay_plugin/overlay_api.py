@@ -5,6 +5,7 @@ import json
 import logging
 import math
 from dataclasses import dataclass
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
@@ -19,6 +20,9 @@ _JUSTIFICATION_CHOICES = {"left", "center", "right"}
 
 _publisher: Optional[Callable[[Mapping[str, Any]], bool]] = None
 _grouping_store: Optional["_PluginGroupingStore"] = None
+_publisher_warn_at: float = 0.0
+_publisher_warn_suppressed: int = 0
+_PUBLISHER_WARN_INTERVAL = 30.0  # seconds
 
 
 class PluginGroupingError(ValueError):
@@ -81,7 +85,22 @@ def send_overlay_message(message: Mapping[str, Any]) -> bool:
 
     publisher = _publisher
     if publisher is None:
-        _log_warning("Overlay publisher unavailable (plugin not running?)")
+        # Avoid log spam when other plugins send messages before the overlay is ready.
+        global _publisher_warn_at, _publisher_warn_suppressed
+        now = time.monotonic()
+        if now - _publisher_warn_at >= _PUBLISHER_WARN_INTERVAL:
+            suppressed = _publisher_warn_suppressed
+            _publisher_warn_at = now
+            _publisher_warn_suppressed = 0
+            if suppressed:
+                _log_warning(
+                    "Overlay publisher unavailable (plugin not running?) [%d more messages suppressed]",
+                    suppressed,
+                )
+            else:
+                _log_warning("Overlay publisher unavailable (plugin not running?)")
+        else:
+            _publisher_warn_suppressed += 1
         return False
 
     payload = _normalise_message(message)

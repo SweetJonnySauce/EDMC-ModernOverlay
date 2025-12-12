@@ -32,29 +32,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          EXCLUDE_MANIFEST="scripts/release_excludes.json"
+          if [[ ! -f "$EXCLUDE_MANIFEST" ]]; then
+            echo "Exclude manifest not found at $EXCLUDE_MANIFEST" >&2
+            exit 1
+          fi
+          readarray -t EXCLUDES < <(python3 -c "import json, pathlib; m=json.loads(pathlib.Path('scripts/release_excludes.json').read_text()); out=[]; [out.append(f'--exclude={d}/') for d in m.get('directories', [])]; [out.append(f'--exclude=/{d}/') for d in m.get('root_directories', [])]; [out.append(f'--exclude={f}') for f in m.get('files', [])]; [out.append(f'--exclude={p}') for p in m.get('patterns', [])]; print('\\n'.join(out))")
+          printf 'Release excludes:\n%s\n' "${EXCLUDES[@]}"
+
           mkdir -p dist/windows_powershell dist/windows_powershell/EDMCModernOverlay
           mkdir -p dist/linux dist/linux/EDMCModernOverlay
-
-          EXCLUDES=(
-            '--exclude=.git/'
-            '--exclude=.gitignore'
-            '--exclude=.github/'
-            '--exclude=scripts/'
-            '--exclude=dist/'
-            '--exclude=docs/'
-            '--exclude=requirements/'
-            '--exclude=tests/'
-            '--exclude=schemas/'
-            '--exclude=.codex/'
-            '--exclude=.vscode/'
-            '--exclude=pyproject.toml'
-            '--exclude=debug.json'
-            '--exclude=conftest.py'
-            '--exclude=EDMCModernOverlay.code-workspace'
-            '--exclude=Makefile'
-            '--exclude=*.md'
-            '--exclude=overlay_groupings.user.json'
-          )
 
           # Copy plugin code into EDMCModernOverlay directory for both bundles,
           # excluding CI config and the scripts folder (scripts is included separately).
@@ -66,14 +53,12 @@ jobs:
 
           # Linux helper script + manifest at archive root
           cp scripts/install_linux.sh scripts/install_matrix.json dist/linux/
-
       - name: Generate checksum manifest from staged payload
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/generate_checksums.py --target-dir dist/linux/EDMCModernOverlay --output checksums.txt
-          cp checksums.txt dist/linux/
-          cp checksums.txt dist/windows_powershell/
+          python3 scripts/generate_checksums.py --root dist/linux --target-dir dist/linux/EDMCModernOverlay --output dist/linux/checksums.txt --excludes scripts/release_excludes.json
+          cp dist/linux/checksums.txt dist/windows_powershell/
 
       - name: Create archives
         shell: bash

@@ -231,6 +231,7 @@ plugin_root_is_valid "$ROOT_DIR" || fail "unable to locate a valid EDMC Modern O
 OVERLAY_CLIENT_DIR="${ROOT_DIR}/overlay_client"
 SETTINGS_PATH="${ROOT_DIR}/overlay_settings.json"
 PORT_PATH="${ROOT_DIR}/port.json"
+ENV_OVERRIDES_PATH="${OVERLAY_CLIENT_DIR}/env_overrides.json"
 
 print_header() {
     printf '\n=== %s ===\n' "$1"
@@ -756,6 +757,46 @@ PY
     fi
 }
 
+print_env_overrides() {
+    print_header "Env Overrides (overlay_client/env_overrides.json)"
+    local path="$ENV_OVERRIDES_PATH"
+    echo "Note: overrides are opt-in; keys shown here were applied when accepted during install."
+    echo "Runtime env vars still win; provenance reflects detection context."
+    if [[ ! -f "$path" ]]; then
+        echo "Not present."
+        return
+    fi
+    if ! python3 - "$path" <<'PY'
+import json, sys
+path = sys.argv[1]
+try:
+    with open(path, 'r', encoding='utf-8') as handle:
+        data = json.load(handle)
+except Exception as exc:
+    print(f"Unable to read env_overrides.json: {exc}")
+    sys.exit(0)
+env = data.get("env") if isinstance(data, dict) else {}
+prov = data.get("provenance") if isinstance(data, dict) else {}
+if not isinstance(env, dict):
+    env = {}
+if not isinstance(prov, dict):
+    prov = {}
+if not env:
+    print("env: <empty>")
+else:
+    print("env:")
+    for key in sorted(env):
+        print(f"  {key}={env[key]}")
+if prov:
+    print("provenance:")
+    for key in sorted(prov):
+        print(f"  {key}: {prov[key]}")
+PY
+    then
+        echo "Unable to parse env_overrides.json."
+    fi
+}
+
 print_logs() {
     print_header "Overlay Client Logs"
     local sorted=()
@@ -1140,6 +1181,7 @@ check_python_modules
 check_wayland_helpers
 print_debug_overlay_snapshot
 dump_json "overlay_settings.json" "$SETTINGS_PATH"
+print_env_overrides
 dump_json "port.json" "$PORT_PATH"
 if (( SHOW_LOGS )); then
     print_logs

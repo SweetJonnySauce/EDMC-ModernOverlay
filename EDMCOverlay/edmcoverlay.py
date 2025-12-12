@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import sys
+import time
 from collections.abc import Iterable, Sequence
 from typing import Any, Dict, Mapping, Optional
 
@@ -11,10 +13,18 @@ except Exception:  # pragma: no cover - fallback when running directly from chec
     from version import __version__ as _MODERN_OVERLAY_VERSION
 
 try:
-    from overlay_plugin.overlay_api import send_overlay_message
-except Exception:  # pragma: no cover - EDMC will make this available at runtime
-    def send_overlay_message(_payload: Mapping[str, Any]) -> bool:  # type: ignore
-        return False
+    # Prefer package import so we share the same module instance where the plugin registers the publisher.
+    from ..overlay_plugin import overlay_api as _overlay_api  # type: ignore
+    if "overlay_plugin.overlay_api" not in sys.modules:
+        sys.modules["overlay_plugin.overlay_api"] = _overlay_api
+    send_overlay_message = _overlay_api.send_overlay_message  # type: ignore
+except Exception:  # pragma: no cover - fall back for standalone/legacy contexts
+    try:
+        from overlay_plugin import overlay_api as _overlay_api  # type: ignore
+        send_overlay_message = _overlay_api.send_overlay_message  # type: ignore
+    except Exception:
+        def send_overlay_message(_payload: Mapping[str, Any]) -> bool:  # type: ignore
+            return False
 
 LOGGER = logging.getLogger("EDMC.ModernOverlay.Legacy")
 MODERN_OVERLAY_IDENTITY: Dict[str, str] = {
@@ -22,6 +32,9 @@ MODERN_OVERLAY_IDENTITY: Dict[str, str] = {
     "version": _MODERN_OVERLAY_VERSION,
 }
 """Public marker advertised to other plugins to detect Modern Overlay."""
+
+_UNAVAILABLE_WARN_TS: float = 0.0
+_UNAVAILABLE_SUPPRESSED: int = 0
 
 
 def _legacy_coerce_int(value: Any, default: int = 0) -> int:
@@ -307,8 +320,23 @@ class Overlay:
             "event": "LegacyOverlay",
             **payload,
         }
+        global _UNAVAILABLE_WARN_TS, _UNAVAILABLE_SUPPRESSED
         if not send_overlay_message(message):
-            raise RuntimeError("EDMCModernOverlay is not available to accept messages")
+            now = time.monotonic()
+            if now - _UNAVAILABLE_WARN_TS >= 30.0:
+                suppressed = _UNAVAILABLE_SUPPRESSED
+                _UNAVAILABLE_SUPPRESSED = 0
+                _UNAVAILABLE_WARN_TS = now
+                if suppressed:
+                    LOGGER.warning(
+                        "EDMCModernOverlay is not available to accept messages [%d suppressed]",
+                        suppressed,
+                    )
+                else:
+                    LOGGER.warning("EDMCModernOverlay is not available to accept messages")
+            else:
+                _UNAVAILABLE_SUPPRESSED += 1
+            return
 
     @staticmethod
     def _coerce_int(value: Any, default: int = 0) -> int:

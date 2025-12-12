@@ -26,6 +26,9 @@ def _write_trimmed_installer(tmpdir: str) -> Path:
     path = Path(tmpdir) / "install_linux_trimmed.sh"
     path.write_text(INSTALLER_SOURCE + ("\n" if not INSTALLER_SOURCE.endswith("\n") else ""), encoding="utf-8")
     path.chmod(0o755)
+    matrix_src = REPO_ROOT / "scripts" / "install_matrix.json"
+    matrix_dest = Path(tmpdir) / "install_matrix.json"
+    matrix_dest.write_text(matrix_src.read_text(encoding="utf-8"), encoding="utf-8")
     return path
 
 
@@ -85,3 +88,51 @@ echo "DETAIL_PY=${{PACKAGE_STATUS_DETAILS[python]}}"
     assert lines.get("OK") == ""
     assert lines.get("INSTALL") == "python"
     assert "status check unavailable" in lines.get("DETAIL_PY", "") or "status check unsupported" in lines.get("DETAIL_PY", "")
+
+
+def test_matrix_helper_emits_compositor_match() -> None:
+    env = os.environ.copy()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        installer_path = _write_trimmed_installer(tmpdir)
+        script = f"""
+export MODERN_OVERLAY_INSTALLER_IMPORT=1
+source "{installer_path}"
+output="$(matrix_helper compositor-match wayland kde)"
+eval "$output"
+echo "FOUND=${{COMPOSITOR_FOUND:-0}}"
+echo "ID=${{COMPOSITOR_ID:-}}"
+echo "LABEL=${{COMPOSITOR_LABEL:-}}"
+echo "MATCH=${{COMPOSITOR_MATCH_JSON:-}}"
+echo "OVERRIDES=${{COMPOSITOR_ENV_OVERRIDES_JSON:-}}"
+echo "NOTES=${{COMPOSITOR_NOTES[*]:-}}"
+echo "PROVENANCE=${{COMPOSITOR_PROVENANCE:-}}"
+"""
+        output = _run_bash(script, env)
+    lines = dict(line.split("=", 1) for line in output.strip().splitlines() if "=" in line)
+    assert lines.get("FOUND") == "1"
+    assert lines.get("ID") == "kwin-wayland"
+    assert "KDE Plasma" in lines.get("LABEL", "")
+    assert lines.get("MATCH") == '{"session_types":["wayland"],"desktops":["kde","plasma"],"requires_force_xwayland":false}'
+    assert lines.get("OVERRIDES") == '{"QT_AUTO_SCREEN_SCALE_FACTOR":"0","QT_ENABLE_HIGHDPI_SCALING":"0","QT_SCALE_FACTOR":"1"}'
+    assert "double-scale" in lines.get("NOTES", "")
+    assert "KDE" in lines.get("PROVENANCE", "")
+
+
+def test_compositor_override_none_skips_selection() -> None:
+    env = os.environ.copy()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        installer_path = _write_trimmed_installer(tmpdir)
+        script = f"""
+export MODERN_OVERLAY_INSTALLER_IMPORT=1
+source "{installer_path}"
+COMPOSITOR_OVERRIDE=none
+XDG_SESSION_TYPE=wayland
+XDG_CURRENT_DESKTOP=kde
+select_compositor_profile
+echo "SELECTED=${{COMPOSITOR_SELECTED:-0}}"
+echo "FOUND=${{COMPOSITOR_FOUND:-0}}"
+"""
+        output = _run_bash(script, env)
+    lines = dict(line.split("=", 1) for line in output.strip().splitlines() if "=" in line)
+    assert lines.get("SELECTED") == "0"
+    assert lines.get("FOUND") in {"", "0"}

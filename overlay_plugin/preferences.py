@@ -747,7 +747,7 @@ class PreferencesPanel:
 
         launch_row = ttk.Frame(user_section, style=self._frame_style)
         nb.Label(launch_row, text="Chat command to launch controller:").pack(side="left")
-        launch_entry = nb.Entry(launch_row, width=10, textvariable=self._var_launch_command)
+        launch_entry = nb.EntryMenu(launch_row, width=10, textvariable=self._var_launch_command)
         launch_entry.pack(side="left", padx=(8, 0))
         launch_entry.bind("<FocusOut>", self._on_launch_command_event)
         launch_entry.bind("<Return>", self._on_launch_command_event)
@@ -855,7 +855,7 @@ class PreferencesPanel:
             exclude_row.columnconfigure(0, weight=1)
             exclude_label = nb.Label(exclude_row, text="Skip payload logging for plugin IDs:")
             exclude_label.pack(side="left")
-            exclude_entry = nb.Entry(exclude_row, width=28, textvariable=self._var_payload_exclude)
+            exclude_entry = nb.EntryMenu(exclude_row, width=28, textvariable=self._var_payload_exclude)
             exclude_entry.pack(side="left", padx=(8, 0), fill="x", expand=True)
             exclude_entry.bind("<Return>", self._on_payload_exclude_event)
             self._payload_exclude_entry = exclude_entry

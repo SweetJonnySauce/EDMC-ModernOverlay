@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Protocol, Tuple
+from typing import Any, Callable, List, Optional, Protocol, Tuple
 
 
 @dataclass(slots=True)
@@ -236,9 +236,14 @@ def _create_wayland_tracker(
     return None
 
 
+ctypes: Any
+wintypes: Any
 try:
-    import ctypes
-    from ctypes import wintypes
+    import ctypes as _ctypes
+    from ctypes import wintypes as _wintypes
+
+    ctypes = _ctypes
+    wintypes = _wintypes
 except Exception:  # pragma: no cover - non-Windows platform
     ctypes = None
     wintypes = None
@@ -293,6 +298,10 @@ class _WindowsTracker:
             is_visible=is_visible,
             identifier=identifier,
         )
+
+    def set_monitor_provider(self, provider: Optional[MonitorProvider]) -> None:
+        # Monitor offsets are only used on X11/Wayland; Windows tracker ignores this hook.
+        return None
 
     # Internal helpers -------------------------------------------------
 
@@ -785,7 +794,7 @@ class _HyprlandTracker(_WaylandTrackerBase):
                     best_area = area
                     best = state
 
-        state = target or best
+        state: Optional[WindowState] = target or best
         if state is None:
             return self._complete(None)
 
@@ -891,7 +900,7 @@ class _KWinTracker(_WaylandTrackerBase):
                 best_area = area
                 best = state
 
-        state = target or best
+        state: Optional[WindowState] = target or best
         if state is None:
             return self._complete(None)
 

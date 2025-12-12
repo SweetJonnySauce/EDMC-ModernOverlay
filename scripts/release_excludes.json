@@ -1,0 +1,31 @@
+{
+  "directories": [
+    ".git",
+    ".github",
+    "scripts",
+    "dist",
+    "docs",
+    "tests",
+    "schemas",
+    ".codex",
+    ".vscode"
+  ],
+  "root_directories": [
+    "requirements"
+  ],
+  "files": [
+    ".gitignore",
+    "pyproject.toml",
+    "debug.json",
+    "conftest.py",
+    "EDMCModernOverlay.code-workspace",
+    "Makefile",
+    "overlay_groupings.user.json"
+  ],
+  "patterns": [
+    "*.md"
+  ],
+  "substrings": [
+    "overlay_client/.venv"
+  ]
+}

@@ -5,7 +5,6 @@ import importlib
 import json
 import logging
 import os
-import queue
 import shutil
 import subprocess
 import sys
@@ -38,6 +37,14 @@ if __package__:
         launch_controller,
         terminate_controller_process,
     )
+    from .overlay_plugin.prefs_services import PrefsWorker
+    from .overlay_plugin.config_version_services import (
+        cancel_config_timers,
+        cancel_version_notice_timers,
+        rebroadcast_last_config,
+        schedule_config_rebroadcasts,
+        schedule_version_notice_rebroadcasts,
+    )
     from .overlay_plugin.preferences import (
         CLIENT_LOG_RETENTION_MAX,
         CLIENT_LOG_RETENTION_MIN,
@@ -59,6 +66,7 @@ if __package__:
     )
     from .overlay_plugin.journal_commands import build_command_helper
     from .EDMCOverlay.edmcoverlay import normalise_legacy_payload
+    from .overlay_client import env_overrides as env_overrides_helper
 else:  # pragma: no cover - EDMC loads as top-level module
     from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR, is_dev_build
     from overlay_plugin.lifecycle import LifecycleTracker
@@ -70,6 +78,14 @@ else:  # pragma: no cover - EDMC loads as top-level module
         controller_launch_sequence,
         launch_controller,
         terminate_controller_process,
+    )
+    from overlay_plugin.prefs_services import PrefsWorker
+    from overlay_plugin.config_version_services import (
+        cancel_config_timers,
+        cancel_version_notice_timers,
+        rebroadcast_last_config,
+        schedule_config_rebroadcasts,
+        schedule_version_notice_rebroadcasts,
     )
     from overlay_plugin.preferences import (
         CLIENT_LOG_RETENTION_MAX,
@@ -92,6 +108,7 @@ else:  # pragma: no cover - EDMC loads as top-level module
     )
     from overlay_plugin.journal_commands import build_command_helper
     from EDMCOverlay.edmcoverlay import normalise_legacy_payload
+    import overlay_client.env_overrides as env_overrides_helper
 
 PLUGIN_NAME = "EDMCModernOverlay"
 PLUGIN_VERSION = MODERN_OVERLAY_VERSION
@@ -410,9 +427,6 @@ class _PluginRuntime:
         self._lock = threading.Lock()
         self._lifecycle = LifecycleTracker(LOGGER)
         self._prefs_lock = threading.Lock()
-        self._prefs_queue: "queue.Queue[Optional[Callable[[], Any]]]" = queue.Queue()
-        self._prefs_worker_stop = threading.Event()
-        self._prefs_worker: Optional[threading.Thread] = None
         self._force_monitor_stop = threading.Event()
         self._force_monitor_thread: Optional[threading.Thread] = None
         self._running = False
@@ -467,6 +481,7 @@ class _PluginRuntime:
         self._last_launch_log_time: float = 0.0
         self._command_helper_prefix: Optional[str] = None
         self._controller_active_group: Optional[Tuple[str, str]] = None
+        self._prefs_worker = PrefsWorker(self._lifecycle, LOGGER)
         register_grouping_store(self.plugin_dir / "overlay_groupings.json")
         threading.Thread(
             target=self._evaluate_version_status_once,
@@ -664,45 +679,19 @@ class _PluginRuntime:
         count: int = VERSION_UPDATE_NOTICE_REBROADCASTS,
         interval: float = VERSION_UPDATE_NOTICE_REBROADCAST_INTERVAL,
     ) -> None:
-        if count <= 0 or interval <= 0:
-            return
-
-        self._cancel_version_notice_timers()
-
-        def _schedule(delay: float) -> None:
-            timer_ref: Optional[threading.Timer] = None
-
-            def _callback() -> None:
-                try:
-                    if not self._running or not self._version_update_notice_sent:
-                        return
-                    payload = self._build_version_update_notice_payload()
-                    if send_overlay_message(payload):
-                        LOGGER.debug("Rebroadcasted version update notice to overlay")
-                finally:
-                    if timer_ref is not None:
-                        with self._version_notice_timer_lock:
-                            self._version_notice_timers.discard(timer_ref)
-
-            timer_ref = threading.Timer(delay, _callback)
-            timer_ref.daemon = True
-            with self._version_notice_timer_lock:
-                self._version_notice_timers.add(timer_ref)
-            timer_ref.start()
-
-        for index in range(count):
-            delay = interval * (index + 1)
-            _schedule(delay)
+        schedule_version_notice_rebroadcasts(
+            should_rebroadcast=lambda: self._running and self._version_update_notice_sent,
+            build_payload=self._build_version_update_notice_payload,
+            send_payload=send_overlay_message,
+            timers=self._version_notice_timers,
+            timer_lock=self._version_notice_timer_lock,
+            count=count,
+            interval=interval,
+            logger=LOGGER,
+        )
 
     def _cancel_version_notice_timers(self) -> None:
-        with self._version_notice_timer_lock:
-            timers = tuple(self._version_notice_timers)
-            self._version_notice_timers.clear()
-        for timer in timers:
-            try:
-                timer.cancel()
-            except Exception as exc:
-                LOGGER.warning("Failed to cancel version notice timer: %s", exc)
+        cancel_version_notice_timers(self._version_notice_timers, self._version_notice_timer_lock, LOGGER)
 
     @staticmethod
     def _build_log_level_payload() -> Dict[str, Any]:
@@ -782,63 +771,28 @@ class _PluginRuntime:
         self._lifecycle.untrack_handle(handle)
 
     def _start_prefs_worker(self) -> None:
-        if self._prefs_worker and self._prefs_worker.is_alive():
-            return
-        self._prefs_worker_stop.clear()
-        worker = threading.Thread(target=self._prefs_worker_loop, name="ModernOverlayPrefs", daemon=True)
-        self._prefs_worker = worker
-        self._lifecycle.track_thread(worker)
-        worker.start()
+        if self._prefs_worker is None:
+            self._prefs_worker = PrefsWorker(self._lifecycle, LOGGER)
+        self._prefs_worker.start()
 
     def _stop_prefs_worker(self) -> None:
-        self._prefs_worker_stop.set()
-        try:
-            self._prefs_queue.put_nowait(None)
-        except queue.Full:
-            pass
         worker = self._prefs_worker
-        if worker:
-            worker.join(timeout=2.0)
-            if worker.is_alive():
-                LOGGER.warning("Thread %s did not exit cleanly within %.1fs", worker.name, 2.0)
-        self._lifecycle.untrack_thread(worker)
+        if worker is None:
+            return
+        if isinstance(worker, PrefsWorker):
+            worker.stop()
+        else:
+            try:
+                worker.join(timeout=2.0)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            self._lifecycle.untrack_thread(getattr(worker, "thread", worker))
         self._prefs_worker = None
 
-    def _prefs_worker_loop(self) -> None:
-        while not self._prefs_worker_stop.is_set():
-            try:
-                task = self._prefs_queue.get(timeout=0.5)
-            except queue.Empty:
-                continue
-            if task is None:
-                break
-            try:
-                task()
-            except Exception as exc:
-                LOGGER.debug("Preference task failed: %s", exc, exc_info=exc)
-
     def _submit_pref_task(self, func: Callable[[], Any], *, wait: bool = False, timeout: Optional[float] = 2.0) -> Any:
-        if not wait:
-            self._prefs_queue.put(func)
-            return None
-        done = threading.Event()
-        outcome: Dict[str, Any] = {}
-
-        def _wrapper() -> None:
-            try:
-                outcome["value"] = func()
-            except Exception as exc:
-                outcome["error"] = exc
-            finally:
-                done.set()
-
-        self._prefs_queue.put(_wrapper)
-        if not done.wait(timeout):
-            LOGGER.debug("Preference worker timeout; running task inline")
-            return func()
-        if "error" in outcome:
-            raise outcome["error"]
-        return outcome.get("value")
+        if self._prefs_worker is None:
+            self._prefs_worker = PrefsWorker(self._lifecycle, LOGGER)
+        return self._prefs_worker.submit(func, wait=wait, timeout=timeout)
 
     def _start_force_render_monitor_if_needed(self) -> None:
         if self._force_monitor_thread and self._force_monitor_thread.is_alive():
@@ -2672,6 +2626,33 @@ class _PluginRuntime:
             else:
                 env["QT_QPA_PLATFORM"] = env.get("QT_QPA_PLATFORM", "xcb")
                 env.setdefault("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1")
+        try:
+            overrides_path = self.plugin_dir / "overlay_client" / "env_overrides.json"
+            overrides_payload = env_overrides_helper.load_overrides(overrides_path)
+            merge_result = env_overrides_helper.apply_overrides(env, overrides_payload, logger=LOGGER)
+            if merge_result.applied:
+                applied_pairs = [
+                    f"{key}={merge_result.applied_values.get(key, env.get(key, ''))}"
+                    for key in merge_result.applied
+                ]
+                LOGGER.info(
+                    "Applied overlay env overrides (%s): %s",
+                    overrides_path,
+                    ", ".join(applied_pairs),
+                )
+            if merge_result.skipped_env or merge_result.skipped_existing:
+                LOGGER.debug(
+                    "Skipped env overrides from %s; env=%s existing=%s",
+                    overrides_path,
+                    ", ".join(merge_result.skipped_env) if merge_result.skipped_env else "none",
+                    ", ".join(merge_result.skipped_existing) if merge_result.skipped_existing else "none",
+                )
+            if merge_result.applied or merge_result.skipped_env or merge_result.skipped_existing:
+                env["EDMC_OVERLAY_ENV_OVERRIDES_APPLIED"] = ",".join(merge_result.applied)
+                env["EDMC_OVERLAY_ENV_OVERRIDES_SKIPPED_ENV"] = ",".join(merge_result.skipped_env)
+                env["EDMC_OVERLAY_ENV_OVERRIDES_SKIPPED_EXISTING"] = ",".join(merge_result.skipped_existing)
+        except Exception as exc:
+            LOGGER.debug("Failed to apply env overrides: %s", exc)
         return env
 
     def _overlay_controller_active(self) -> bool:
@@ -2797,48 +2778,24 @@ class _PluginRuntime:
         return True
 
     def _schedule_config_rebroadcasts(self, count: int = 5, interval: float = 1.0) -> None:
-        if count <= 0 or interval <= 0:
-            return
-
-        self._cancel_config_timers()
-
-        def _schedule(delay: float) -> None:
-            timer_ref: Optional[threading.Timer] = None
-
-            def _callback() -> None:
-                try:
-                    self._rebroadcast_last_config()
-                finally:
-                    if timer_ref is not None:
-                        with self._config_timer_lock:
-                            self._config_timers.discard(timer_ref)
-
-            timer_ref = threading.Timer(delay, _callback)
-            timer_ref.daemon = True
-            with self._config_timer_lock:
-                self._config_timers.add(timer_ref)
-            timer_ref.start()
-
-        for index in range(count):
-            delay = interval * (index + 1)
-            _schedule(delay)
+        schedule_config_rebroadcasts(
+            rebroadcast_fn=self._rebroadcast_last_config,
+            timers=self._config_timers,
+            timer_lock=self._config_timer_lock,
+            count=count,
+            interval=interval,
+            logger=LOGGER,
+        )
 
     def _rebroadcast_last_config(self) -> None:
-        if not self._running:
-            return
-        if not self._last_config:
-            return
-        self._publish_payload(dict(self._last_config))
+        rebroadcast_last_config(
+            is_running=lambda: self._running,
+            last_config_provider=lambda: self._last_config,
+            publish_payload=self._publish_payload,
+        )
 
     def _cancel_config_timers(self) -> None:
-        with self._config_timer_lock:
-            timers = list(self._config_timers)
-            self._config_timers.clear()
-        for timer in timers:
-            try:
-                timer.cancel()
-            except Exception as exc:
-                LOGGER.warning("Failed to cancel config rebroadcast timer: %s", exc)
+        cancel_config_timers(self._config_timers, self._config_timer_lock, LOGGER)
 
 
 # EDMC hook functions ------------------------------------------------------

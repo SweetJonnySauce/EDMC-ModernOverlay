@@ -278,8 +278,45 @@ def test_center_on_screen_uses_primary_bounds(monkeypatch):
     dummy.winfo_height = winfo_height
     dummy.winfo_reqwidth = winfo_reqwidth
     dummy.winfo_reqheight = winfo_reqheight
+    dummy._get_elite_window_bounds = lambda: None
     dummy._get_primary_screen_bounds = lambda: (10, 10, 200, 100)
 
     oc.OverlayConfigApp._center_on_screen(dummy)
 
     assert "100x50+60+35" in geometry_calls
+
+
+def test_center_on_screen_prefers_elite_window(monkeypatch):
+    dummy = SimpleNamespace()
+    geometry_calls: list[str] = []
+
+    def update_idletasks():
+        geometry_calls.append("updated")
+
+    def geometry(arg):
+        geometry_calls.append(arg)
+
+    def winfo_width():
+        return 100
+
+    def winfo_height():
+        return 50
+
+    def winfo_reqwidth():
+        return 100
+
+    def winfo_reqheight():
+        return 50
+
+    dummy.update_idletasks = update_idletasks
+    dummy.geometry = geometry
+    dummy.winfo_width = winfo_width
+    dummy.winfo_height = winfo_height
+    dummy.winfo_reqwidth = winfo_reqwidth
+    dummy.winfo_reqheight = winfo_reqheight
+    dummy._get_elite_window_bounds = lambda: (200, 100, 400, 200)
+    dummy._get_primary_screen_bounds = lambda: (0, 0, 800, 600)
+
+    oc.OverlayConfigApp._center_on_screen(dummy)
+
+    assert "100x50+350+175" in geometry_calls

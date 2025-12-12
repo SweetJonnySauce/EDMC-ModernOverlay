@@ -36,7 +36,7 @@ class _ReleaseLogLevelFilter(logging.Filter):
 _LOGGER_NAME = "EDMC.ModernOverlay.Client.DataClient"
 _LOGGER = logging.getLogger(_LOGGER_NAME)
 _LOGGER.setLevel(logging.DEBUG if DEBUG_CONFIG_ENABLED else logging.INFO)
-_LOGGER.propagate = False
+_LOGGER.propagate = True
 _LOGGER.addFilter(_ReleaseLogLevelFilter(release_mode=not DEBUG_CONFIG_ENABLED))
 
 
