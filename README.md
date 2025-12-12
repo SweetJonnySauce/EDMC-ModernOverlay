@@ -70,6 +70,8 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
 
 - **Installation dependency for x11 tools isn't found** If you do a Linux install and you get an error that the x11 dependency can't be found or installed, you may be hitting this [bug](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/issues/15). There isn't a fix for this yet but you may be able to work around this. You specifically need `xwininfo` and `xprop`. If you have those installed, or can install them manually, then you should be able to install without the needed dependency.
 
+- **Clamp fractional desktop scaling (physical clamp):** Opt-in setting in EDMC → File → Settings → EDMCModernOverlay. Fractional scaling means your OS display scale is a non-integer (e.g., 125%, 140%) to make UI elements larger; on some setups that can shrink or offset the overlay. Turn this on to keep a 1:1 mapping in those cases; leave it off for integer scales, true HiDPI, or mixed-DPI displays.
+
 - **Flatpack Sandboxing:** The Flatpak version of EDMC runs in a sandboxed environment. The sandboxed environment does not include the packages needed to run the overlay client. Because of this, the client will be launched outside of the sandboxed environment. You should only run this plugin if you trust the plugin code and the system where it runs.
 
   > **Caution:** Enabling the host launch runs the overlay client outside the Flatpak sandbox, so it inherits the host user’s privileges. Only do this if you trust the plugin code and the system where it runs.
