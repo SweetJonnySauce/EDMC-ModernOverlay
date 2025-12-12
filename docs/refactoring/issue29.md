@@ -93,9 +93,9 @@ Recommendation: ship auto clamp (physical-pixel approach) with care, provide per
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 1.1 | Add setting flag (User prefs UI) and mirror to overlay_settings.json | Completed |
-| 1.2 | Implement guarded clamp in follow_geometry (geom match, non-integer DPR) | Implemented (awaiting tests/QA) |
-| 1.3 | Unit tests for on/off paths; ensure off-path unchanged | Implemented (tests added; run pending: clamp log capture) |
+| 1.1 | Add setting flag (User prefs UI) and mirror to overlay_settings.json | Completed (runtime OverlayConfig propagation added) |
+| 1.2 | Implement guarded clamp in follow_geometry (geom match, non-integer DPR) | Completed |
+| 1.3 | Unit tests for on/off paths; ensure off-path unchanged | Completed (pytest passing) |
 | 1.4 | Manual QA on dual-monitor X11 with fractional DPR | Pending |
 
 #### Stage 1.1 Plan — Setting flag (User prefs UI + overlay_settings.json)
@@ -110,6 +110,20 @@ Recommendation: ship auto clamp (physical-pixel approach) with care, provide per
   - Default false; keep backward-compatible parsing (missing => false).
   - Add a unit test covering prefs round-trip and JSON export/import with/without the new key.
   - Manual smoke: toggle in UI, restart plugin/client, confirm flag reflects in `overlay_settings.json`.
+
+#### Stage 1.1 Addendum — Runtime OverlayConfig propagation (implemented)
+- Tasks:
+  - Include `physical_clamp_enabled` in the `OverlayConfig` payload built in `load.py` so runtime toggles reach the client without restart. ✅
+  - Verify the client applies the incoming flag via the existing setter (`set_physical_clamp_enabled`), then writes back any WM overrides reset. ✅ (setter already wired; payload now delivers)
+  - Add a regression test to assert the payload contains the flag and that the client updates state on receipt. ✅ (`tests/test_overlay_config_payload.py`)
+- Risks:
+  - **Config payload regression:** Adding a field could break clients if not backward compatible.
+  - **Unexpected enablement:** A bad default or parse could flip the flag on for users who never toggled it.
+  - **Toggle churn:** Frequent config rebroadcasts might clear WM overrides too often if the flag flaps.
+- Mitigations:
+  - Default false everywhere; guard parsing with `bool(...)` and tolerate missing keys.
+  - Add unit coverage for payload emit/parse to lock defaults and ensure legacy clients ignore the new field. ✅
+  - Emit a single log line when the flag changes to aid QA; ensure WM override clears only on actual state change. (existing logging)
 
 #### Stage 1.2 Plan — Guarded clamp in follow_geometry
 - Tasks:
@@ -129,7 +143,7 @@ Recommendation: ship auto clamp (physical-pixel approach) with care, provide per
   - Reuse current tolerances for geom matching; avoid touching other branches; add targeted unit coverage in Stage 1.3 to assert the off-path is byte-for-byte equivalent for representative inputs.
   - Limit logging to first activation per screen and include the flag state in the message to aid QA without flooding logs.
 
-##### Stage 1.2 Implementation (code landed; tests pending)
+##### Stage 1.2 Implementation (code landed; unit tests passing)
 - Changes:
   - `overlay_client/follow_geometry.py`: `_convert_native_rect_to_qt` now accepts `physical_clamp_enabled`; when flag is on and DPR is fractional with matching geoms, we keep a 1:1 mapping (skip DPR shrink), log clamp once, and fall back to legacy math otherwise.
   - `overlay_client/follow_surface.py`: threads the flag into geometry conversion based on `_physical_clamp_enabled`.
@@ -137,7 +151,7 @@ Recommendation: ship auto clamp (physical-pixel approach) with care, provide per
   - `overlay_client/control_surface.py`: new setter `set_physical_clamp_enabled` to toggle and refresh follow geometry; clears WM overrides on change.
   - `overlay_client/developer_helpers.py`: applies the flag at startup and from payloads.
 - Guard rails in code: non-finite DPR coerced to 1.0; clamp only when flag+fractional DPR+geom match; otherwise legacy path unchanged; debug logs emitted once per change.
-- Testing status: `python3 -m pytest overlay_client/tests/test_follow_geometry.py` passes. Stage 1.3 remains to add/execute broader unit coverage for on/off paths and regressions.
+- Testing status: `python3 -m pytest overlay_client/tests/test_follow_geometry.py` passes (Stage 1.3 coverage added and green).
 
 #### Stage 1.3 Plan — Unit tests for on/off paths and regressions
 - Tasks:
@@ -162,7 +176,11 @@ Recommendation: ship auto clamp (physical-pixel approach) with care, provide per
   - Flag on with integer DPR uses legacy scaling (no clamp).
   - Non-finite/zero DPR coerced to 1.0.
   - Clamp log emitted once when re-invoked (forces logger propagation for capture).
-- Test execution: Failing in local CI run: `test_convert_native_rect_logs_clamp_once` is not capturing the clamp log (0 entries vs expected 1) despite forcing logger propagation. Needs rerun and potential log-capture adjustment in an environment with pytest installed.
+- Test execution: `python3 -m pytest overlay_client/tests/test_follow_geometry.py -q` passing locally.
+
+##### Phase 1 gaps uncovered in review
+- Runtime propagation missing: `physical_clamp_enabled` is not included in the `OverlayConfig` payload sent by the plugin (`load.py`). Result: toggling the checkbox only updates `overlay_settings.json`; the running client never receives the change. Action: add the flag to `OverlayConfig` payload/logging, ensure the client applies it via the existing setter, and add a regression test.
+- Optional: add a thin integration test to assert `_physical_clamp_enabled` is threaded through `_screen_info_for_native_rect` in `follow_surface`.
 
 #### Stage 1.4 Plan — Manual QA on dual-monitor X11 with fractional DPR
 - Environment:

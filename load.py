@@ -2229,6 +2229,7 @@ class _PluginRuntime:
             "title_bar_enabled": bool(self._preferences.title_bar_enabled),
             "title_bar_height": int(self._preferences.title_bar_height),
             "show_debug_overlay": bool(self._preferences.show_debug_overlay),
+            "physical_clamp_enabled": bool(getattr(self._preferences, "physical_clamp_enabled", False)),
             "min_font_point": float(self._preferences.min_font_point),
             "max_font_point": float(self._preferences.max_font_point),
             "cycle_payload_ids": bool(self._preferences.cycle_payload_ids),
@@ -2243,7 +2244,7 @@ class _PluginRuntime:
         self._publish_payload(payload)
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s debug_overlay_corner=%s status_bottom_margin=%s client_log_retention=%d gridlines_enabled=%s "
-            "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s "
+            "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s physical_clamp=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s "
             "nudge_overflow=%s payload_gutter=%d payload_log_delay=%.2f font_min=%.1f font_max=%.1f platform_context=%s",
             payload["opacity"],
             payload["show_status"],
@@ -2256,6 +2257,7 @@ class _PluginRuntime:
             payload["title_bar_enabled"],
             payload["title_bar_height"],
             payload["show_debug_overlay"],
+            payload["physical_clamp_enabled"],
             payload["cycle_payload_ids"],
             payload["copy_payload_id_on_cycle"],
             payload["nudge_overflow_payloads"],

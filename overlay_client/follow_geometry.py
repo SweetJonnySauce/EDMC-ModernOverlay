@@ -22,6 +22,17 @@ _last_normalisation_log: Optional[
         bool,  # geometries match
     ]
 ] = None
+_last_wm_override_log: Optional[
+    Tuple[
+        Geometry,  # tracker_qt_tuple
+        Geometry,  # desired_tuple
+        Optional[Geometry],  # override_rect
+        Optional[Geometry],  # override_tracker
+        bool,  # override_expired
+        Geometry,  # target_tuple
+        Optional[str],  # clear_reason
+    ]
+] = None
 
 
 @dataclass(frozen=True)
@@ -307,6 +318,7 @@ def _resolve_wm_override(
     override_tracker: Optional[Geometry],
     override_expired: bool,
 ) -> Tuple[Geometry, Optional[str]]:
+    global _last_wm_override_log
     target_tuple = desired_tuple
     clear_reason = None
     if override_rect is not None:
@@ -319,11 +331,22 @@ def _resolve_wm_override(
         else:
             target_tuple = override_rect
     if _CLIENT_LOGGER.isEnabledFor(logging.DEBUG):
-        _CLIENT_LOGGER.debug(
-            "WM override decision: tracker=%s desired=%s override_rect=%s override_tracker=%s expired=%s -> target=%s clear_reason=%s",
+        snapshot = (
             tracker_qt_tuple,
             desired_tuple,
             override_rect,
+            override_tracker,
+            override_expired,
+            target_tuple,
+            clear_reason,
+        )
+        if snapshot != _last_wm_override_log:
+            _last_wm_override_log = snapshot
+            _CLIENT_LOGGER.debug(
+                "WM override decision: tracker=%s desired=%s override_rect=%s override_tracker=%s expired=%s -> target=%s clear_reason=%s",
+                tracker_qt_tuple,
+                desired_tuple,
+                override_rect,
             override_tracker,
             override_expired,
             target_tuple,
