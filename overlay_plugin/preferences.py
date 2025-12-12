@@ -169,6 +169,7 @@ class Preferences:
     force_render: bool = False
     allow_force_render_release: bool = False
     force_xwayland: bool = False
+    physical_clamp_enabled: bool = False
     show_debug_overlay: bool = False
     min_font_point: float = 6.0
     max_font_point: float = 24.0
@@ -251,6 +252,10 @@ class Preferences:
                 self.allow_force_render_release,
             ),
             "force_xwayland": _config_get_raw(_config_key("force_xwayland"), self.force_xwayland),
+            "physical_clamp_enabled": _config_get_raw(
+                _config_key("physical_clamp_enabled"),
+                self.physical_clamp_enabled,
+            ),
             "show_debug_overlay": _config_get_raw(_config_key("show_debug_overlay"), self.show_debug_overlay),
             "min_font_point": _config_get_raw(_config_key("min_font_point"), self.min_font_point),
             "max_font_point": _config_get_raw(_config_key("max_font_point"), self.max_font_point),
@@ -306,6 +311,10 @@ class Preferences:
         )
         self.allow_force_render_release = _coerce_bool(allow_raw, bool(self.dev_mode))
         self.force_xwayland = _coerce_bool(data.get("force_xwayland"), self.force_xwayland)
+        self.physical_clamp_enabled = _coerce_bool(
+            data.get("physical_clamp_enabled"),
+            self.physical_clamp_enabled,
+        )
         self.show_debug_overlay = _coerce_bool(data.get("show_debug_overlay"), self.show_debug_overlay)
         self.min_font_point = _coerce_float(data.get("min_font_point"), self.min_font_point, minimum=1.0, maximum=48.0)
         self.max_font_point = _coerce_float(
@@ -365,6 +374,7 @@ class Preferences:
             "force_render": bool(self.force_render),
             "allow_force_render_release": bool(self.allow_force_render_release),
             "force_xwayland": bool(self.force_xwayland),
+            "physical_clamp_enabled": bool(self.physical_clamp_enabled),
             "show_debug_overlay": bool(self.show_debug_overlay),
             "min_font_point": float(self.min_font_point),
             "max_font_point": float(self.max_font_point),
@@ -398,6 +408,7 @@ class Preferences:
         _config_set_raw(_config_key("force_render"), bool(self.force_render))
         _config_set_raw(_config_key("allow_force_render_release"), bool(self.allow_force_render_release))
         _config_set_raw(_config_key("force_xwayland"), bool(self.force_xwayland))
+        _config_set_raw(_config_key("physical_clamp_enabled"), bool(self.physical_clamp_enabled))
         _config_set_raw(_config_key("show_debug_overlay"), bool(self.show_debug_overlay))
         _config_set_raw(_config_key("min_font_point"), float(self.min_font_point))
         _config_set_raw(_config_key("max_font_point"), float(self.max_font_point))
@@ -500,6 +511,7 @@ class PreferencesPanel:
         self._var_payload_nudge = tk.BooleanVar(value=preferences.nudge_overflow_payloads)
         self._var_payload_gutter = tk.IntVar(value=max(0, int(preferences.payload_nudge_gutter)))
         self._var_force_render = tk.BooleanVar(value=preferences.force_render)
+        self._var_physical_clamp = tk.BooleanVar(value=preferences.physical_clamp_enabled)
         self._var_title_bar_enabled = tk.BooleanVar(value=preferences.title_bar_enabled)
         self._var_title_bar_height = tk.IntVar(value=int(preferences.title_bar_height))
         self._var_debug_overlay = tk.BooleanVar(value=preferences.show_debug_overlay)
@@ -715,6 +727,19 @@ class PreferencesPanel:
             title_bar_height_spin.state(["disabled"])
         self._title_bar_height_spin = title_bar_height_spin
         title_bar_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
+        user_row += 1
+
+        clamp_row = ttk.Frame(user_section, style=self._frame_style)
+        clamp_checkbox = nb.Checkbutton(
+            clamp_row,
+            text="Clamp fractional desktop scaling (physical clamp)",
+            variable=self._var_physical_clamp,
+            onvalue=True,
+            offvalue=False,
+            command=self._on_physical_clamp_toggle,
+        )
+        clamp_checkbox.pack(side="left")
+        clamp_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
         user_row += 1
 
         nudge_row = ttk.Frame(user_section, style=self._frame_style)
@@ -1383,6 +1408,13 @@ class PreferencesPanel:
                 self._status_var.set(f"Failed to update force-render option: {exc}")
                 return
         self._preferences.save()
+
+    def _on_physical_clamp_toggle(self) -> None:
+        self._preferences.physical_clamp_enabled = bool(self._var_physical_clamp.get())
+        try:
+            self._preferences.save()
+        except Exception as exc:
+            LOGGER.debug("Failed to persist physical clamp preference: %s", exc, exc_info=exc)
 
     def _on_title_bar_toggle(self) -> None:
         enabled = bool(self._var_title_bar_enabled.get())

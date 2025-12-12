@@ -15,6 +15,7 @@ class InitialClientSettings:
     force_render: bool = False
     allow_force_render_release: bool = False
     force_xwayland: bool = False
+    physical_clamp_enabled: bool = False
     show_debug_overlay: bool = False
     min_font_point: float = 6.0
     max_font_point: float = 24.0
@@ -156,6 +157,7 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
     if not allow_force_release:
         force_render = False
     force_xwayland = bool(data.get("force_xwayland", defaults.force_xwayland))
+    physical_clamp_enabled = bool(data.get("physical_clamp_enabled", defaults.physical_clamp_enabled))
     show_debug_overlay = bool(data.get("show_debug_overlay", defaults.show_debug_overlay))
     try:
         min_font = float(data.get("min_font_point", defaults.min_font_point))
@@ -216,4 +218,5 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         payload_nudge_gutter=gutter,
         payload_log_delay_seconds=log_delay,
         allow_force_render_release=allow_force_release,
+        physical_clamp_enabled=physical_clamp_enabled,
     )
