@@ -2216,6 +2216,8 @@ class _PluginRuntime:
 
     def _send_overlay_config(self, rebroadcast: bool = False) -> None:
         self._load_payload_debug_config()
+        diagnostics_enabled = _diagnostic_logging_enabled()
+        show_debug_overlay = bool(self._preferences.show_debug_overlay and diagnostics_enabled)
         payload = {
             "event": "OverlayConfig",
             "opacity": float(self._preferences.overlay_opacity),
@@ -2228,7 +2230,7 @@ class _PluginRuntime:
             "force_render": _is_force_render_enabled(self._preferences),
             "title_bar_enabled": bool(self._preferences.title_bar_enabled),
             "title_bar_height": int(self._preferences.title_bar_height),
-            "show_debug_overlay": bool(self._preferences.show_debug_overlay),
+            "show_debug_overlay": show_debug_overlay,
             "physical_clamp_enabled": bool(getattr(self._preferences, "physical_clamp_enabled", False)),
             "physical_clamp_overrides": dict(getattr(self._preferences, "physical_clamp_overrides", {}) or {}),
             "min_font_point": float(self._preferences.min_font_point),

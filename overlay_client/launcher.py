@@ -153,6 +153,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     _record_log_level_hint(initial_settings, port_file)
     apply_log_level_hint(initial_settings.edmc_log_level, source=initial_settings.edmc_log_level_source)
     diagnostics_enabled = _diagnostics_enabled(initial_settings)
+    if not diagnostics_enabled and initial_settings.show_debug_overlay:
+        _CLIENT_LOGGER.debug(
+            "Debug overlay metrics disabled (EDMC log level is %s; enable DEBUG to restore).",
+            initial_settings.edmc_log_level_name or initial_settings.edmc_log_level or "INFO",
+        )
+        initial_settings.show_debug_overlay = False
     debug_config_path = (CLIENT_DIR.parent / "debug.json").resolve()
     troubleshooting_config = load_troubleshooting_config(debug_config_path, enabled=diagnostics_enabled)
     dev_settings_path = (CLIENT_DIR.parent / "dev_settings.json").resolve()
