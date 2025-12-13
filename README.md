@@ -23,7 +23,7 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
 - Code is 100% Python
 - Numerous development features for EDMC Plugin Developers
 
-# Installation
+# Installation & Upgrades
 
 ## Installation
 See the [Wiki for Prerequisites and Installation](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Installation). Refer to the [Installation FAQ](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Installation-FAQs) for more OS and distro specific details.
@@ -32,14 +32,9 @@ See the [Wiki for Prerequisites and Installation](https://github.com/SweetJonnyS
 See the [Wiki for Upgrading](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Upgrading)
 
 # Using EDMC Modern Overlay
+See the [Wiki for Usage](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Usage) for how to run the game with the HUD and configure settings.
+See the [Wiki for Overlay Controller ](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Overlay-Controller) for how to modify where overlays are placed on the game screen.
 
-## Everyday workflow
-1. **Enable the plugin in EDMC.** Install the plugin and restart EDMC. In EDMC, open `File → Settings → Plugins`, and navigate to `EDMCModernOverlay` for user settings.
-2. **Configure the HUD from EDMC.** Go to `File → Settings → EDMCModernOverlay` and adjust:
-   - Whether to show the connection status banner in lower left hand corner plus its gutter/margin in pixels.
-   - Font scaling bounds for payload text. This sets the min/max size of the normal font on different display sizes. 
-   - Elite title-bar compensation toggle + height. Turn this true if running in windowed mode with a title bar.
-   - Nudge overflowing payloads back into view” + gutter. Useful if you find text extending beyond the edges of the screen.
    
 # Support
 
