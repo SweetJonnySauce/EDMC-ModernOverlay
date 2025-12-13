@@ -48,6 +48,7 @@ def _convert_native_rect_to_qt(
     screen_info: Optional[ScreenInfo],
     *,
     physical_clamp_enabled: bool = False,
+    physical_clamp_overrides: Optional[dict[str, float]] = None,
 ) -> Tuple[Geometry, Optional[NormalisationInfo]]:
     x, y, width, height = rect
     if width <= 0 or height <= 0:
@@ -58,6 +59,8 @@ def _convert_native_rect_to_qt(
     logical_geometry = screen_info.logical_geometry
     native_geometry = screen_info.native_geometry
     device_ratio = screen_info.device_ratio
+    clamp_override_applied = False
+    clamp_override_scale: Optional[float] = None
 
     native_width = native_geometry[2]
     native_height = native_geometry[3]
@@ -66,6 +69,31 @@ def _convert_native_rect_to_qt(
 
     if not math.isfinite(device_ratio) or device_ratio <= 0.0:
         device_ratio = 1.0
+
+    if physical_clamp_enabled and physical_clamp_overrides:
+        override_scale = physical_clamp_overrides.get(screen_info.name)
+        if override_scale is not None:
+            try:
+                numeric_scale = float(override_scale)
+            except (TypeError, ValueError):
+                numeric_scale = None
+            if numeric_scale is not None and math.isfinite(numeric_scale) and numeric_scale > 0.0:
+                clamped_scale = max(0.5, min(3.0, numeric_scale))
+                clamp_override_applied = True
+                clamp_override_scale = clamped_scale
+                if not math.isclose(clamped_scale, numeric_scale, rel_tol=1e-9, abs_tol=1e-9):
+                    _CLIENT_LOGGER.debug(
+                        "Per-monitor clamp override clamped: screen='%s' requested=%.4f applied=%.4f",
+                        screen_info.name,
+                        numeric_scale,
+                        clamped_scale,
+                    )
+            else:
+                _CLIENT_LOGGER.debug(
+                    "Ignoring per-monitor clamp override for screen '%s': invalid scale %r",
+                    screen_info.name,
+                    override_scale,
+                )
 
     geometries_match = (
         math.isclose(logical_geometry[0], native_geometry[0], abs_tol=1e-4)
@@ -83,7 +111,13 @@ def _convert_native_rect_to_qt(
         abs_tol=0.05,
     )
 
-    if geometries_match:
+    if clamp_override_applied and clamp_override_scale is not None:
+        scale_x = clamp_override_scale
+        scale_y = clamp_override_scale
+        native_origin_x = logical_geometry[0]
+        native_origin_y = logical_geometry[1]
+        clamp_applied = True
+    elif geometries_match:
         # On X11 some drivers report a DPR>1 while logical/native geometries are identical.
         # Default behaviour: treat that as a 1:1 mapping unless the expected native size
         # diverges, in which case downscale by 1/dpr. Physical clamp path (flagged) keeps
@@ -177,6 +211,14 @@ def _convert_native_rect_to_qt(
                     rounded_ratio,
                     float(scale_x),
                     float(scale_y),
+                )
+            if clamp_override_applied:
+                _CLIENT_LOGGER.debug(
+                    "Per-monitor clamp override applied: screen='%s' logical=%s native=%s override_scale=%.3f",
+                    screen_info.name,
+                    logical_geometry,
+                    native_geometry,
+                    float(scale_x),
                 )
             _CLIENT_LOGGER.debug(
                 "Geometry normalisation: screen='%s' native=%s logical=%s native_geom=%s dpr=%.3f scale=%.3fx%.3f match=%s -> qt=%s",

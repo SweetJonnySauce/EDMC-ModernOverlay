@@ -131,6 +131,7 @@ class FollowSurfaceMixin:
             rect,
             screen_info,
             physical_clamp_enabled=getattr(self, "_physical_clamp_enabled", False),
+            physical_clamp_overrides=getattr(self, "_physical_clamp_overrides", None),
         )
 
     def _apply_title_bar_offset(

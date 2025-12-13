@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -16,6 +17,7 @@ class InitialClientSettings:
     allow_force_render_release: bool = False
     force_xwayland: bool = False
     physical_clamp_enabled: bool = False
+    physical_clamp_overrides: Dict[str, float] = field(default_factory=dict)
     show_debug_overlay: bool = False
     min_font_point: float = 6.0
     max_font_point: float = 24.0
@@ -137,6 +139,8 @@ class DeveloperHelperConfig:
 def load_initial_settings(settings_path: Path) -> InitialClientSettings:
     """Read bootstrap defaults from overlay_settings.json if it exists."""
     defaults = InitialClientSettings()
+    min_override_scale = 0.5
+    max_override_scale = 3.0
     try:
         raw = settings_path.read_text(encoding="utf-8")
     except (FileNotFoundError, OSError):
@@ -199,6 +203,27 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
     except (TypeError, ValueError):
         log_delay = defaults.payload_log_delay_seconds
     log_delay = max(0.0, log_delay)
+    overrides_raw = data.get("physical_clamp_overrides", defaults.physical_clamp_overrides)
+    overrides: Dict[str, float] = {}
+    if isinstance(overrides_raw, dict):
+        candidates = overrides_raw
+    else:
+        candidates = {}
+    for name, raw_scale in candidates.items():
+        try:
+            screen_name = str(name).strip()
+        except Exception:
+            continue
+        if not screen_name:
+            continue
+        try:
+            scale = float(raw_scale)
+        except (TypeError, ValueError):
+            continue
+        if not (scale > 0.0) or not math.isfinite(scale):
+            continue
+        clamped = max(min_override_scale, min(max_override_scale, scale))
+        overrides[screen_name] = clamped
 
     return InitialClientSettings(
         client_log_retention=max(1, retention),
@@ -219,4 +244,5 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         payload_log_delay_seconds=log_delay,
         allow_force_render_release=allow_force_release,
         physical_clamp_enabled=physical_clamp_enabled,
+        physical_clamp_overrides=overrides,
     )

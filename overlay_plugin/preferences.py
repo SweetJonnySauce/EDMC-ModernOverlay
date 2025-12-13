@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import webbrowser
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Tuple
 
@@ -27,6 +28,8 @@ CONFIG_VERSION_KEY = f"{CONFIG_PREFIX}state_version"
 CLIENT_LOG_RETENTION_MIN = 1
 CLIENT_LOG_RETENTION_MAX = 20
 DEFAULT_CLIENT_LOG_RETENTION = 5
+PHYSICAL_CLAMP_SCALE_MIN = 0.5
+PHYSICAL_CLAMP_SCALE_MAX = 3.0
 
 LOGGER = logging.getLogger(__name__)
 
@@ -145,6 +148,98 @@ def _coerce_str(
     return text or default
 
 
+def _format_physical_clamp_overrides(overrides: Mapping[str, float]) -> str:
+    """Convert the override map into a stable, user-friendly string."""
+    if not overrides:
+        return ""
+    tokens: list[str] = []
+    for name in sorted(overrides.keys()):
+        try:
+            tokens.append(f"{name}={float(overrides[name]):g}")
+        except Exception:
+            continue
+    return ", ".join(tokens)
+
+
+def _coerce_physical_clamp_overrides(
+    value: Any,
+    default: Optional[Mapping[str, float]],
+    *,
+    allow_empty: bool = False,
+    errors: Optional[list[str]] = None,
+) -> Dict[str, float]:
+    """Parse per-monitor clamp overrides from mappings or strings.
+
+    Accepts a mapping (preferred) or a comma-separated string of name=scale entries.
+    Scales are clamped to a safe range to avoid destructive values.
+    """
+
+    def _record(message: str) -> None:
+        if errors is not None:
+            errors.append(message)
+
+    def _normalise_map(raw_map: Mapping[str, Any]) -> Dict[str, float]:
+        overrides: Dict[str, float] = {}
+        for raw_name, raw_scale in raw_map.items():
+            try:
+                name = str(raw_name).strip()
+            except Exception:
+                _record(f"Skipping override with invalid screen name {raw_name!r}")
+                continue
+            if not name:
+                _record("Skipping override with empty screen name")
+                continue
+            try:
+                scale = float(raw_scale)
+            except (TypeError, ValueError):
+                _record(f"Skipping override for {name}: invalid scale {raw_scale!r}")
+                continue
+            if not math.isfinite(scale) or scale <= 0:
+                _record(f"Skipping override for {name}: non-finite or non-positive scale {raw_scale!r}")
+                continue
+            clamped = max(PHYSICAL_CLAMP_SCALE_MIN, min(PHYSICAL_CLAMP_SCALE_MAX, scale))
+            if not math.isclose(clamped, scale):
+                _record(f"Clamped override for {name} to {clamped:g}")
+            overrides[name] = clamped
+        return overrides
+
+    def _parse_string(text: str) -> Dict[str, Any]:
+        try:
+            parsed_json = json.loads(text)
+        except Exception:
+            parsed_json = None
+        if isinstance(parsed_json, Mapping):
+            return dict(parsed_json)
+        raw_map: Dict[str, Any] = {}
+        for token in text.split(","):
+            if not token:
+                continue
+            if "=" not in token:
+                if token.strip():
+                    _record(f"Skipping override '{token.strip()}': expected name=scale")
+                continue
+            name, _, raw_scale = token.partition("=")
+            raw_map[name] = raw_scale
+        return raw_map
+
+    base_default: Dict[str, float] = dict(default or {})
+    if value is None:
+        return base_default
+    if isinstance(value, Mapping):
+        overrides = _normalise_map(value)
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return {} if allow_empty else base_default
+        overrides = _normalise_map(_parse_string(text))
+    else:
+        return base_default
+
+    if overrides:
+        return overrides
+    return {} if allow_empty else base_default
+
+
 def _normalise_launch_command(value: str) -> str:
     text = (value or "").strip()
     if not text:
@@ -170,6 +265,7 @@ class Preferences:
     allow_force_render_release: bool = False
     force_xwayland: bool = False
     physical_clamp_enabled: bool = False
+    physical_clamp_overrides: Dict[str, float] = field(default_factory=dict)
     show_debug_overlay: bool = False
     min_font_point: float = 6.0
     max_font_point: float = 24.0
@@ -256,6 +352,10 @@ class Preferences:
                 _config_key("physical_clamp_enabled"),
                 self.physical_clamp_enabled,
             ),
+            "physical_clamp_overrides": _config_get_raw(
+                _config_key("physical_clamp_overrides"),
+                self.physical_clamp_overrides,
+            ),
             "show_debug_overlay": _config_get_raw(_config_key("show_debug_overlay"), self.show_debug_overlay),
             "min_font_point": _config_get_raw(_config_key("min_font_point"), self.min_font_point),
             "max_font_point": _config_get_raw(_config_key("max_font_point"), self.max_font_point),
@@ -314,6 +414,11 @@ class Preferences:
         self.physical_clamp_enabled = _coerce_bool(
             data.get("physical_clamp_enabled"),
             self.physical_clamp_enabled,
+        )
+        self.physical_clamp_overrides = _coerce_physical_clamp_overrides(
+            data.get("physical_clamp_overrides"),
+            self.physical_clamp_overrides,
+            allow_empty=True,
         )
         self.show_debug_overlay = _coerce_bool(data.get("show_debug_overlay"), self.show_debug_overlay)
         self.min_font_point = _coerce_float(data.get("min_font_point"), self.min_font_point, minimum=1.0, maximum=48.0)
@@ -375,6 +480,7 @@ class Preferences:
             "allow_force_render_release": bool(self.allow_force_render_release),
             "force_xwayland": bool(self.force_xwayland),
             "physical_clamp_enabled": bool(self.physical_clamp_enabled),
+            "physical_clamp_overrides": dict(self.physical_clamp_overrides or {}),
             "show_debug_overlay": bool(self.show_debug_overlay),
             "min_font_point": float(self.min_font_point),
             "max_font_point": float(self.max_font_point),
@@ -409,6 +515,11 @@ class Preferences:
         _config_set_raw(_config_key("allow_force_render_release"), bool(self.allow_force_render_release))
         _config_set_raw(_config_key("force_xwayland"), bool(self.force_xwayland))
         _config_set_raw(_config_key("physical_clamp_enabled"), bool(self.physical_clamp_enabled))
+        try:
+            overrides_payload = json.dumps(self.physical_clamp_overrides)
+        except Exception:
+            overrides_payload = "{}"
+        _config_set_raw(_config_key("physical_clamp_overrides"), overrides_payload)
         _config_set_raw(_config_key("show_debug_overlay"), bool(self.show_debug_overlay))
         _config_set_raw(_config_key("min_font_point"), float(self.min_font_point))
         _config_set_raw(_config_key("max_font_point"), float(self.max_font_point))
@@ -512,6 +623,9 @@ class PreferencesPanel:
         self._var_payload_gutter = tk.IntVar(value=max(0, int(preferences.payload_nudge_gutter)))
         self._var_force_render = tk.BooleanVar(value=preferences.force_render)
         self._var_physical_clamp = tk.BooleanVar(value=preferences.physical_clamp_enabled)
+        self._var_physical_clamp_overrides = tk.StringVar(
+            value=_format_physical_clamp_overrides(preferences.physical_clamp_overrides)
+        )
         self._var_title_bar_enabled = tk.BooleanVar(value=preferences.title_bar_enabled)
         self._var_title_bar_height = tk.IntVar(value=int(preferences.title_bar_height))
         self._var_debug_overlay = tk.BooleanVar(value=preferences.show_debug_overlay)
@@ -729,19 +843,6 @@ class PreferencesPanel:
         title_bar_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
         user_row += 1
 
-        clamp_row = ttk.Frame(user_section, style=self._frame_style)
-        clamp_checkbox = nb.Checkbutton(
-            clamp_row,
-            text="Clamp fractional desktop scaling (physical clamp)",
-            variable=self._var_physical_clamp,
-            onvalue=True,
-            offvalue=False,
-            command=self._on_physical_clamp_toggle,
-        )
-        clamp_checkbox.pack(side="left")
-        clamp_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
-        user_row += 1
-
         nudge_row = ttk.Frame(user_section, style=self._frame_style)
         nudge_checkbox = nb.Checkbutton(
             nudge_row,
@@ -777,6 +878,47 @@ class PreferencesPanel:
         launch_entry.bind("<FocusOut>", self._on_launch_command_event)
         launch_entry.bind("<Return>", self._on_launch_command_event)
         launch_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
+        user_row += 1
+
+        clamp_row = ttk.Frame(user_section, style=self._frame_style)
+        clamp_checkbox = nb.Checkbutton(
+            clamp_row,
+            text="Clamp fractional desktop scaling (physical clamp)",
+            variable=self._var_physical_clamp,
+            onvalue=True,
+            offvalue=False,
+            command=self._on_physical_clamp_toggle,
+        )
+        clamp_checkbox.pack(side="left")
+        clamp_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
+        user_row += 1
+
+        clamp_override_row = ttk.Frame(user_section, style=self._frame_style)
+        clamp_override_row.columnconfigure(1, weight=1)
+        nb.Label(
+            clamp_override_row,
+            text="Per-monitor clamp overrides (name=scale, comma-separated):",
+        ).grid(row=0, column=0, sticky="w")
+        clamp_override_entry = nb.EntryMenu(
+            clamp_override_row,
+            width=40,
+            textvariable=self._var_physical_clamp_overrides,
+        )
+        clamp_override_entry.grid(row=0, column=1, padx=(8, 0), sticky="we")
+        clamp_override_entry.bind("<Return>", self._on_physical_clamp_overrides_event)
+        clamp_override_entry.bind("<FocusOut>", self._on_physical_clamp_overrides_event)
+        clamp_override_apply = nb.Button(
+            clamp_override_row,
+            text="Apply",
+            command=self._on_physical_clamp_overrides_apply,
+        )
+        clamp_override_apply.grid(row=0, column=2, padx=(8, 0), sticky="e")
+        helper_label = nb.Label(
+            clamp_override_row,
+            text="Example: DisplayPort-2=1.0, HDMI-0=1.25 (empty to clear)",
+        )
+        helper_label.grid(row=1, column=0, columnspan=3, sticky="w", pady=(ROW_PAD[0], 0))
+        clamp_override_row.grid(row=user_row, column=0, sticky="we", pady=ROW_PAD)
         user_row += 1
 
         if self._diagnostics_enabled:
@@ -1415,6 +1557,30 @@ class PreferencesPanel:
             self._preferences.save()
         except Exception as exc:
             LOGGER.debug("Failed to persist physical clamp preference: %s", exc, exc_info=exc)
+
+    def _on_physical_clamp_overrides_event(self, _event) -> None:  # pragma: no cover - Tk event
+        self._on_physical_clamp_overrides_apply()
+
+    def _on_physical_clamp_overrides_apply(self) -> None:
+        errors: list[str] = []
+        overrides = _coerce_physical_clamp_overrides(
+            self._var_physical_clamp_overrides.get(),
+            {},
+            allow_empty=True,
+            errors=errors,
+        )
+        self._preferences.physical_clamp_overrides = overrides
+        try:
+            self._preferences.save()
+        except Exception as exc:
+            LOGGER.debug("Failed to persist physical clamp overrides: %s", exc, exc_info=exc)
+            self._status_var.set(f"Failed to save per-monitor clamp overrides: {exc}")
+            return
+        self._var_physical_clamp_overrides.set(_format_physical_clamp_overrides(overrides))
+        if errors:
+            self._status_var.set(f"Applied {len(overrides)} override(s); " + "; ".join(errors))
+        else:
+            self._status_var.set(f"Applied {len(overrides)} per-monitor override(s).")
 
     def _on_title_bar_toggle(self) -> None:
         enabled = bool(self._var_title_bar_enabled.get())

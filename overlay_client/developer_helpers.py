@@ -38,6 +38,8 @@ class DeveloperHelperController:
         window.set_log_retention(self._current_log_retention)
         window.set_force_render(initial.force_render)
         window.set_physical_clamp_enabled(getattr(initial, "physical_clamp_enabled", False))
+        if getattr(initial, "physical_clamp_overrides", None):
+            window.set_physical_clamp_overrides(getattr(initial, "physical_clamp_overrides"))
         window.set_follow_enabled(True)
         window.set_debug_overlay(initial.show_debug_overlay)
         window.set_font_bounds(initial.min_font_point, initial.max_font_point)
@@ -73,6 +75,8 @@ class DeveloperHelperController:
             window.set_force_render(config.force_render)
         if "physical_clamp_enabled" in payload:
             window.set_physical_clamp_enabled(payload.get("physical_clamp_enabled"))
+        if "physical_clamp_overrides" in payload:
+            window.set_physical_clamp_overrides(payload.get("physical_clamp_overrides"))
         if config.title_bar_enabled is not None or config.title_bar_height is not None:
             window.set_title_bar_compensation(config.title_bar_enabled, config.title_bar_height)
         if config.show_debug_overlay is not None:

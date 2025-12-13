@@ -105,6 +105,9 @@ class SetupSurfaceMixin:
         self._log_retention: int = max(1, int(initial.client_log_retention))
         self._force_render: bool = bool(getattr(initial, "force_render", False))
         self._physical_clamp_enabled: bool = bool(getattr(initial, "physical_clamp_enabled", False))
+        self._physical_clamp_overrides: Dict[str, float] = dict(
+            getattr(initial, "physical_clamp_overrides", {}) or {}
+        )
         self._window_tracker: Optional[WindowTracker] = None
         self._data_client: Optional[OverlayDataClient] = None
         self._last_follow_state: Optional[WindowState] = None

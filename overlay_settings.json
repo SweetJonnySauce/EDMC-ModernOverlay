@@ -1,6 +1,6 @@
 {
   "overlay_opacity": 0.0,
-  "show_connection_status": false,
+  "show_connection_status": true,
   "debug_overlay_corner": "SE",
   "client_log_retention": 5,
   "gridlines_enabled": false,
@@ -9,6 +9,7 @@
   "allow_force_render_release": false,
   "force_xwayland": true,
   "physical_clamp_enabled": false,
+  "physical_clamp_overrides": {},
   "show_debug_overlay": false,
   "min_font_point": 6.0,
   "max_font_point": 14.0,

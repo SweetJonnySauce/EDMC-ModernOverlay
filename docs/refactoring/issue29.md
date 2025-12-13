@@ -207,9 +207,65 @@ Recommendation: ship auto clamp (physical-pixel approach) with care, provide per
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 2.1 | Add per-monitor map setting (UI + overlay_settings.json) | Pending |
-| 2.2 | Apply per-monitor clamp in follow_geometry when present | Pending |
+| 2.1 | Add per-monitor map setting (UI + overlay_settings.json) | Completed |
+| 2.2 | Apply per-monitor clamp in follow_geometry when present | Completed |
 | 2.3 | Tests/QA for override application and fallback behavior | Pending |
+
+##### Stage 2.1 Implementation (per-monitor map setting)
+- Changes:
+  - Added `physical_clamp_overrides` preference with validation/clamping (0.5–3.0) and stable formatting helpers; persisted to both EDMC config and `overlay_settings.json` (default `{}`).
+  - User prefs UI now exposes a comma-separated per-monitor override field under the clamp toggle; helper text clarifies expected `name=scale` format; invalid entries are skipped with inline status.
+  - OverlayConfig payload now carries `physical_clamp_overrides` so runtime clients can consume overrides without restart.
+  - Default settings file includes the empty overrides map for discoverability.
+- Tests:
+  - `tests/test_preferences_persistence.py` covers persistence/merge of `physical_clamp_overrides` across config and shadow JSON.
+  - `tests/test_overlay_config_payload.py` asserts `OverlayConfig` includes both `physical_clamp_enabled` and the overrides map.
+- Notes:
+  - Overrides accept JSON/object or `name=scale` strings; invalid/non-finite/non-positive scales are rejected, and out-of-range values are clamped with a warning.
+  - Stage 2.2 will apply these per-monitor scales inside `follow_geometry`; current change is storage + payload only.
+
+#### Stage 2.2 Plan — apply per-monitor clamp in follow_geometry
+- Tasks:
+  - Thread `physical_clamp_overrides` into the client (bootstrap and runtime payload) and surface it to `follow_geometry._convert_native_rect_to_qt`.
+  - Add override lookup: when the map contains the current screen name, use the override scale instead of the physical clamp heuristic; keep flag off/empty map as no-op.
+  - Validate and log: ignore non-finite/zero/negative scales from the map at runtime; emit a debug breadcrumb when an override is applied or skipped due to a missing screen name.
+  - Ensure overrides do not clear WM overrides unless the scale changes; reuse existing clamp logging to avoid extra spam.
+  - Keep backward compatibility: legacy clients that don’t understand overrides should continue using the existing clamp flag path.
+- Risks:
+  - **Misapplied overrides**: wrong/mismatched screen IDs could lead to silent no-op or applying the wrong scale.
+  - **Runtime instability**: bad values (NaN/inf/zero) could crash or distort geometry if not revalidated client-side.
+  - **Regression on default path**: injecting override handling could perturb the flag-off or no-override behavior.
+  - **Logging noise**: per-frame logs when overrides are present could spam dev logs.
+- Mitigations:
+  - Validate override scales again in the client (finite, >0, clamp to safe range) and bail to existing clamp/legacy path on failure.
+  - Match screen names exactly; log a single debug once per screen when applying/skipping an override to aid QA; avoid per-frame spam by caching last log.
+  - Keep predicate ordering: only consult overrides when the map is non-empty; when absent, leave existing clamp logic untouched; add targeted unit tests for override hit/miss/default-off.
+  - Maintain fallback to legacy clamp behavior when overrides are absent or invalid; ensure runtime payload parsing tolerates missing keys.
+
+##### Stage 2.2 Implementation (apply overrides in client)
+- Changes:
+  - Client bootstrap and runtime config now carry `physical_clamp_overrides`; developer helpers pass them to the window, and a new setter normalises/clamps scales (0.5–3.0) before applying.
+  - `follow_geometry._convert_native_rect_to_qt` consumes overrides (when the clamp flag is on), applying the per-monitor scale in place of the fractional-DPR heuristic and logging once per screen; invalid overrides are ignored with a debug breadcrumb.
+  - Follow surface threads the override map into geometry conversion; overrides are stored on the window at setup and refreshed on updates without disturbing default paths.
+- Tests:
+  - `overlay_client/tests/test_follow_geometry.py` now covers override hit, override ignored when the flag is off, and invalid override fallback.
+  - Existing config/persistence tests still pass, verifying payload includes overrides and preferences persist them.
+
+#### Stage 2.1 Plan — per-monitor map setting (UI + overlay_settings.json)
+- Tasks:
+  - Add a User-pref input for per-monitor clamp overrides (e.g., `DisplayPort-2=1.0, HDMI-0=1.25`), default empty, with helper text showing the screen name format the client reports.
+  - Persist overrides as a dict in `overlay_settings.json` (and include in the runtime `OverlayConfig` payload) so the client can read them without a restart once Stage 2.2 lands.
+  - Validate scales (finite, >0, bounded to a safe range like 0.5–3.0) and normalise keys (strip whitespace, case-stable) before writing; drop invalid entries with a user-facing warning/log.
+  - Keep backward compatibility: missing/empty map must preserve current behavior; older clients should ignore the new key gracefully.
+  - Add unit tests for prefs round-trip and JSON export/import covering valid/invalid entries and default-empty behavior.
+- Risks:
+  - **Invalid input crashes or silently flips on overrides**: malformed map entries or extreme scales could break parsing or clamp unexpectedly.
+  - **Wrong screen identifiers**: users may enter names that do not match Qt/xrandr labels, leading to “override does nothing” confusion.
+  - **Backward-compat regression**: adding the key could disturb existing settings consumers or older clients if defaults are wrong.
+- Mitigations:
+  - Harden parsing with strict validation, bounded scales, and safe defaults (empty map). Reject/skip bad entries and emit a clear warning instead of applying them.
+  - Surface helper text/examples (and optionally last-seen screen names from the client) so users target the right identifiers; log when an override is ignored due to a name miss.
+  - Default to empty map, tolerate missing key on load, and cover the serializer/deserializer path with tests to lock the default-off behavior.
 
 ### Phase 3: QA and rollout
 - Validate stability with default-off, document opt-in, and plan release.

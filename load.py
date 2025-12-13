@@ -2230,6 +2230,7 @@ class _PluginRuntime:
             "title_bar_height": int(self._preferences.title_bar_height),
             "show_debug_overlay": bool(self._preferences.show_debug_overlay),
             "physical_clamp_enabled": bool(getattr(self._preferences, "physical_clamp_enabled", False)),
+            "physical_clamp_overrides": dict(getattr(self._preferences, "physical_clamp_overrides", {}) or {}),
             "min_font_point": float(self._preferences.min_font_point),
             "max_font_point": float(self._preferences.max_font_point),
             "cycle_payload_ids": bool(self._preferences.cycle_payload_ids),
@@ -2245,7 +2246,7 @@ class _PluginRuntime:
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s debug_overlay_corner=%s status_bottom_margin=%s client_log_retention=%d gridlines_enabled=%s "
             "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s physical_clamp=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s "
-            "nudge_overflow=%s payload_gutter=%d payload_log_delay=%.2f font_min=%.1f font_max=%.1f platform_context=%s",
+            "nudge_overflow=%s payload_gutter=%d payload_log_delay=%.2f font_min=%.1f font_max=%.1f platform_context=%s clamp_overrides=%s",
             payload["opacity"],
             payload["show_status"],
             payload["debug_overlay_corner"],
@@ -2266,6 +2267,7 @@ class _PluginRuntime:
             payload["min_font_point"],
             payload["max_font_point"],
             payload["platform_context"],
+            payload["physical_clamp_overrides"],
         )
         if rebroadcast:
             self._schedule_config_rebroadcasts()

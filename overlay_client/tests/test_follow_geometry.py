@@ -171,3 +171,69 @@ def test_convert_native_rect_logs_clamp_once(caplog: pytest.LogCaptureFixture) -
     finally:
         logger.propagate = previous_propagate
     assert len(clamp_logs) == 1
+
+
+def test_convert_native_rect_uses_override_when_available() -> None:
+    screen = ScreenInfo(
+        name="override",
+        logical_geometry=(0, 0, 100, 100),
+        native_geometry=(0, 0, 100, 100),
+        device_ratio=1.4,
+    )
+    rect = (0, 0, 100, 100)
+
+    converted, info = _convert_native_rect_to_qt(
+        rect,
+        screen,
+        physical_clamp_enabled=True,
+        physical_clamp_overrides={"override": 1.25},
+    )
+
+    assert converted == (0, 0, 125, 125)
+    assert info is not None
+    assert info[1] == pytest.approx(1.25)
+    assert info[2] == pytest.approx(1.25)
+
+
+def test_convert_native_rect_ignores_override_when_disabled() -> None:
+    screen = ScreenInfo(
+        name="disabled",
+        logical_geometry=(0, 0, 1000, 800),
+        native_geometry=(0, 0, 1000, 800),
+        device_ratio=1.4,
+    )
+    rect = (0, 0, 1000, 800)
+
+    converted, info = _convert_native_rect_to_qt(
+        rect,
+        screen,
+        physical_clamp_enabled=False,
+        physical_clamp_overrides={"disabled": 1.25},
+    )
+
+    assert converted == (0, 0, int(round(1000 / 1.4)), int(round(800 / 1.4)))
+    assert info is not None
+    assert info[1] == pytest.approx(1 / 1.4)
+    assert info[2] == pytest.approx(1 / 1.4)
+
+
+def test_convert_native_rect_skips_invalid_override_scale() -> None:
+    screen = ScreenInfo(
+        name="bad-override",
+        logical_geometry=(0, 0, 2560, 1440),
+        native_geometry=(0, 0, 2560, 1440),
+        device_ratio=1.4,
+    )
+    rect = (0, 0, 2560, 1440)
+
+    converted, info = _convert_native_rect_to_qt(
+        rect,
+        screen,
+        physical_clamp_enabled=True,
+        physical_clamp_overrides={"bad-override": 0.0},
+    )
+
+    assert converted == rect
+    assert info is not None
+    assert info[1] == pytest.approx(1.0)
+    assert info[2] == pytest.approx(1.0)

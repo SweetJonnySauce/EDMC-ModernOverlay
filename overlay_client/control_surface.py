@@ -71,6 +71,37 @@ class ControlSurfaceMixin:
         else:
             self.update()
 
+    def set_physical_clamp_overrides(self, overrides: Optional[Mapping[str, Any]]) -> None:
+        raw_overrides = overrides or {}
+        normalised: Dict[str, float] = {}
+        for name, raw_scale in raw_overrides.items():
+            try:
+                screen_name = str(name).strip()
+            except Exception:
+                continue
+            if not screen_name:
+                continue
+            try:
+                scale = float(raw_scale)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(scale) or scale <= 0.0:
+                continue
+            clamped = max(0.5, min(3.0, scale))
+            normalised[screen_name] = clamped
+        if normalised == getattr(self, "_physical_clamp_overrides", {}):
+            return
+        self._physical_clamp_overrides = normalised
+        _CLIENT_LOGGER.debug("Per-monitor clamp overrides updated: %s", normalised)
+        if getattr(self, "_follow_controller", None):
+            self._follow_controller.reset_resume_window()
+        if getattr(self, "_follow_enabled", False) and getattr(self, "_window_tracker", None) is not None:
+            self._refresh_follow_geometry()
+        elif getattr(self, "_last_follow_state", None) is not None:
+            self._apply_follow_state(self._last_follow_state)
+        else:
+            self.update()
+
     def set_debug_overlay(self, enabled: bool) -> None:
         flag = bool(enabled)
         if flag == self._show_debug_overlay:
