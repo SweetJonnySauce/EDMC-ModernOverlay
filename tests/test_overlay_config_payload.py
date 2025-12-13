@@ -55,3 +55,26 @@ def test_overlay_config_includes_physical_clamp_flag(monkeypatch):
     assert runtime._last_config.get("physical_clamp_enabled") is True
     assert payload["physical_clamp_overrides"] == {"DisplayPort-2": 1.0}
     assert runtime._last_config.get("physical_clamp_overrides") == {"DisplayPort-2": 1.0}
+
+
+def test_overlay_config_defaults_keep_clamp_off(monkeypatch):
+    runtime = object.__new__(load._PluginRuntime)
+    runtime._preferences = _StubPrefs()
+    runtime._preferences.physical_clamp_enabled = False
+    runtime._preferences.physical_clamp_overrides = {}
+    runtime._log_retention_override = None
+    runtime._last_config = {}
+    runtime._platform_context_payload = lambda: {"platform": "stub"}
+    runtime._load_payload_debug_config = lambda: None
+    runtime._schedule_config_rebroadcasts = lambda: None
+
+    published = []
+    runtime._publish_payload = lambda payload: published.append(payload)
+
+    runtime._send_overlay_config()
+
+    payload = published[0]
+    assert payload["physical_clamp_enabled"] is False
+    assert payload["physical_clamp_overrides"] == {}
+    assert runtime._last_config.get("physical_clamp_enabled") is False
+    assert runtime._last_config.get("physical_clamp_overrides") == {}

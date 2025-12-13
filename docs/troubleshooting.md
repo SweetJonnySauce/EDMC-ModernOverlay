@@ -19,6 +19,7 @@ Use these steps to gather diagnostics when the overlay misbehaves. EDMC’s own 
 - Enable the **Override overlay log retention** switch to clamp the rotating client logs (1–20 files), or clear it to fall back to the normal preference.
 - Enter a comma-separated list of plugin IDs in the exclusion field to keep noisy payload sources out of `overlay-payloads.log`.
 - Gridlines, grid spacing, and payload ID cycling are now regular user controls instead of dev-only toggles, so release builds can use them while troubleshooting layout problems.
+- Per-monitor clamp overrides: when physical clamp is enabled, you can set `DisplayPort-2=1.0, HDMI-0=1.25` in the per-monitor field to force a scale on specific screens. Screen names match the ones printed in the overlay client log (`Geometry normalisation: screen='...'`). Leave blank to clear overrides.
 
 ## Where to find logs
 - EDMC log (core):  

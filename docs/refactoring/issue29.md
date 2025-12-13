@@ -209,7 +209,7 @@ Recommendation: ship auto clamp (physical-pixel approach) with care, provide per
 | --- | --- | --- |
 | 2.1 | Add per-monitor map setting (UI + overlay_settings.json) | Completed |
 | 2.2 | Apply per-monitor clamp in follow_geometry when present | Completed |
-| 2.3 | Tests/QA for override application and fallback behavior | Pending |
+| 2.3 | Tests/QA for override application and fallback behavior | Completed |
 
 ##### Stage 2.1 Implementation (per-monitor map setting)
 - Changes:
@@ -247,9 +247,43 @@ Recommendation: ship auto clamp (physical-pixel approach) with care, provide per
   - Client bootstrap and runtime config now carry `physical_clamp_overrides`; developer helpers pass them to the window, and a new setter normalises/clamps scales (0.5–3.0) before applying.
   - `follow_geometry._convert_native_rect_to_qt` consumes overrides (when the clamp flag is on), applying the per-monitor scale in place of the fractional-DPR heuristic and logging once per screen; invalid overrides are ignored with a debug breadcrumb.
   - Follow surface threads the override map into geometry conversion; overrides are stored on the window at setup and refreshed on updates without disturbing default paths.
+  - Default behaviour unchanged when the map is empty or the clamp flag is off; override application does not clear WM overrides unless the map actually changes.
+  - Debug breadcrumbs: “Per-monitor clamp override applied…” on first use per screen, “ignored…” when values are invalid, and clamping logs when values exceed bounds.
 - Tests:
   - `overlay_client/tests/test_follow_geometry.py` now covers override hit, override ignored when the flag is off, and invalid override fallback.
   - Existing config/persistence tests still pass, verifying payload includes overrides and preferences persist them.
+
+##### Stage 2.3 Implementation (override QA and fallback behavior)
+- Changes:
+  - Added window-level setter coverage to ensure runtime `physical_clamp_overrides` updates normalise/clamp values, trigger a follow refresh when tracking is active, and avoid extra work when unchanged (`overlay_client/tests/test_control_surface_overrides.py`).
+  - Docs update in `docs/troubleshooting.md` to guide users on entering per-monitor overrides and finding screen names via client logs.
+- QA/Tests:
+  - Unit tests: `overlay_client/tests/test_control_surface_overrides.py`, `overlay_client/tests/test_follow_geometry.py`, `tests/test_overlay_config_payload.py`, `tests/test_preferences_persistence.py` (headless subset passing).
+  - Manual QA checklist (pending execution): default-off baseline; override hit/miss on dual monitors with fractional DPR; invalid override ignored; logs remain sparse (apply/ignore/clamp once per screen).
+
+#### Stage 3.1 Implementation — Default-off regression check
+- Changes:
+  - Added config payload regression test to lock default clamp settings off and overrides empty (`tests/test_overlay_config_payload.py::test_overlay_config_defaults_keep_clamp_off`).
+  - Added control-surface no-op test to ensure empty override maps do not trigger follow refreshes or state changes (`overlay_client/tests/test_control_surface_overrides.py::test_set_physical_clamp_overrides_empty_map_noops`).
+- Tests:
+  - Headless subset: `python3 -m pytest overlay_client/tests/test_control_surface_overrides.py tests/test_overlay_config_payload.py` (passing).
+- Notes:
+  - Manual smoke still recommended on a default profile to confirm no WM override churn or geometry/logging changes when clamp remains disabled and overrides are empty.
+
+#### Stage 2.3 Plan — Tests/QA for overrides and fallback behavior
+- Tasks:
+  - Add targeted unit/integration coverage for runtime updates: ensure sending an `OverlayConfig` payload with overrides updates the window and re-applies follow geometry without touching WM overrides unless scales change.
+  - Add UI/docs note for users describing how to fetch valid screen names (from logs or Qt screen labels) and how overrides interact with the physical clamp flag.
+  - Manual QA matrix on dual-monitor setups (fractional DPR + integer DPR): verify default-off path unchanged, override hit applies expected scale, override miss leaves legacy clamp logic intact, and invalid values are ignored without crashes.
+  - Confirm logging is sparse: first-use apply, ignore, or clamped messages only; no per-frame spam when overrides persist.
+- Risks:
+  - **Coverage gaps**: missing a runtime update path could leave regressions (e.g., override updates not applied until restart).
+  - **User confusion**: unclear screen-name guidance could lead to silent no-ops in QA/release.
+  - **False positives in QA**: manual testing might miss default-off regressions or logging noise on noisy setups.
+- Mitigations:
+  - Add a focused test that stubs the window and asserts `set_physical_clamp_overrides` is called on config payloads, and that follow refresh occurs once when overrides change.
+  - Document screen-name discovery steps in troubleshooting/user docs and ensure helper text remains visible in prefs.
+  - Use a simple QA checklist (default-off, override hit, override miss, invalid override) and capture logs for each case to confirm sparse logging; rerun a quick pytest subset after changes to guard defaults.
 
 #### Stage 2.1 Plan — per-monitor map setting (UI + overlay_settings.json)
 - Tasks:
@@ -272,6 +306,6 @@ Recommendation: ship auto clamp (physical-pixel approach) with care, provide per
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 3.1 | Default-off regression check (unit + manual smoke) | Pending |
-| 3.2 | Document opt-in/escape-hatch usage | Pending |
-| 3.3 | Decide rollout (keep opt-in or enable for affected profiles) | Pending |
+| 3.1 | Default-off regression check (unit + manual smoke) | Completed |
+| 3.2 | Document opt-in/escape-hatch usage | Completed |
+| 3.3 | Decide rollout (keep opt-in or enable for affected profiles) | Completed — remain opt-in |
