@@ -11,13 +11,11 @@ EDMC Modern Overlay (packaged as `EDMCModernOverlay`) is a drop-in replacement f
 
 Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping system to precisely control where their overlays appear. By specifying properties like `anchor`, `justify`, and explicit `x`/`y` coordinates in their group definitions, authors can define the placement, alignment, and justification of HUD elements relative to any corner, side, or the center of the screen. The overlay interprets these fields to allow left, right, and center justification, vertical/horizontal anchoring, as well as pixel or percentage-based coordinates for fine-grained positioning—enabling complex, fully-customized HUD layouts for different use cases.
 
-> ⚠️ **Breaking upgrade notice:** Modern Overlay as of 0.7.4 now installs into the `EDMCModernOverlay/` directory. Running the installer will disable any existing `EDMC-ModernOverlay/` folder by renaming it to `EDMC-ModernOverlay.disabled`, `EDMC-ModernOverlay.1.disabled`, etc. Settings are **not** migrated automatically; keep the disabled folder if you need to roll back.
-
 <img width="1957" height="1260" alt="image" src="https://github.com/user-attachments/assets/f17a2a83-1e5c-4556-af65-1053dba38cff" />
 
 # Key Features
 - Backwards compatibility with [EDMCOverlay](https://github.com/inorton/EDMCOverlay)
-- Custom placement of Plugin overlays using the Overlay Controller (see below)
+- Custom placement of Plugin overlays using the Overlay Controller (see the [Wiki for Overlay Controller]([url](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Overlay_Controller)))
 - Works in borderless or windowed mode on any display size
 - Cross platform for Windows and Linux
 - Support 4 distributions for Linux (Debian, Fedora, OpenSUSE, Arch)
@@ -25,32 +23,13 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
 - Code is 100% Python
 - Numerous development features for EDMC Plugin Developers
 
-## Overlay Controller
-- Type `!ovr` in the in-game Comms panel on any channel to launch
-- Change X/Y position via selectors on the screen with "pinning" capabilities (i.e. hug an edge of the screen)
-- Change absolute X/Y values using px or % values
-- Change the anchor point on the group to define where and how it's placed. Anchor points include nw, top, ne, right, se, bottom, sw, left, center.
-- Change justification within the payload (doesn't work on vector based images)
-- A preview window can be expanded with the right arrow (when a widget is not in focus) to see original placement, actual placement, and target.
-
-<img width="1147" height="677" alt="image" src="https://github.com/user-attachments/assets/618f06c2-18da-4bdc-b148-035921f7dcdb" />
-
 # Installation
 
-## Prerequisites
-
-- Python 3.10+
-- Elite Dangerous Market Connector installed
-- On Windows, Powershell 3 or greater is required for the installation (both exe or ps1 installations)
-
 ## Installation
-- Grab the latest OS-specific release asset from [GitHub Releases](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest):
-  - Windows (PowerShell script bundle): `EDMCModernOverlay-windows_powershell-<version>.zip` – includes `EDMCModernOverlay/` plus `install_windows.ps1` so you can inspect and run the script directly. Extract the files and run `install_windows.ps1` in PowerShell.
-  - Windows (standalone EXE): `EDMCModernOverlay-windows-<version>.exe`. Download the EXE and run it. You will need to accept the "Microsoft Defender SmartScreen prevented an unrecognized app from starting." warning when installing by clicking on "More info..."
-  - Linux (distro aware): `EDMCModernOverlay-linux-<version>.tar.gz` – includes `EDMCModernOverlay/`, `install_linux.sh`, and the distro manifest `install_matrix.json`. Extract the archive and run `install_linux.sh` from the terminal.
+See the [Wiki for Prerequisites and Installation]([url](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Installation)). Refer to the [Installation FAQ](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Installation-FAQs) for more OS and distro specific details.
 
 ## Upgrades
-- Grab the latest OS-specific release asset from [GitHub Releases](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest) and re-run the install script (or double click on the EXE file). The installer disables the old `EDMC-ModernOverlay` directory and deploys a fresh `EDMCModernOverlay` folder with no automatic settings migration.
+See the [Wiki for Upgrading](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Upgrading)
 
 ## Installation Notes
 - **Python Environment:** All installations require the overlay client to have its own python environment. This is required for PyQt support. The installations will automatically build the environment for you. In the case of upgrades, you can chose rebuild the python environment or skip it.
