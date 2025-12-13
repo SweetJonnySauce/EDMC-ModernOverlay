@@ -15,7 +15,7 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
 
 # Key Features
 - Backwards compatibility with [EDMCOverlay](https://github.com/inorton/EDMCOverlay)
-- Custom placement of Plugin overlays using the Overlay Controller (see the [Wiki for Overlay Controller]([url](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Overlay_Controller)))
+- Custom placement of Plugin overlays using the Overlay Controller (see the [Wiki for Overlay Controller](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Overlay_Controller))
 - Works in borderless or windowed mode on any display size
 - Cross platform for Windows and Linux
 - Support 4 distributions for Linux (Debian, Fedora, OpenSUSE, Arch)
@@ -26,7 +26,7 @@ Plugin authors can leverage EDMC Modern Overlay's flexible payload grouping syst
 # Installation
 
 ## Installation
-See the [Wiki for Prerequisites and Installation]([url](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Installation)). Refer to the [Installation FAQ](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Installation-FAQs) for more OS and distro specific details.
+See the [Wiki for Prerequisites and Installation](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Installation). Refer to the [Installation FAQ](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Installation-FAQs) for more OS and distro specific details.
 
 ## Upgrades
 See the [Wiki for Upgrading](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Upgrading)
