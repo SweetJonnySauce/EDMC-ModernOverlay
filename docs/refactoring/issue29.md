@@ -49,7 +49,7 @@ https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/29
 
 | Phase | Description | Status |
 | --- | --- | --- |
-| 1 | Implement gated physical clamp (default off; setting surfaced in User prefs and mirrored to overlay_settings.json) | Pending |
+| 1 | Implement gated physical clamp (default off; setting surfaced in User prefs and mirrored to overlay_settings.json) | Completed |
 | 2 | Add per-monitor override option (escape hatch when auto clamp is insufficient) | Pending |
 | 3 | QA and rollout (flag default-off verification; optional opt-in release) | Pending |
 
@@ -96,7 +96,7 @@ Recommendation: ship auto clamp (physical-pixel approach) with care, provide per
 | 1.1 | Add setting flag (User prefs UI) and mirror to overlay_settings.json | Completed (runtime OverlayConfig propagation added) |
 | 1.2 | Implement guarded clamp in follow_geometry (geom match, non-integer DPR) | Completed |
 | 1.3 | Unit tests for on/off paths; ensure off-path unchanged | Completed (pytest passing) |
-| 1.4 | Manual QA on dual-monitor X11 with fractional DPR | Pending |
+| 1.4 | Manual QA on dual-monitor X11 with fractional DPR | Completed |
 
 #### Stage 1.1 Plan — Setting flag (User prefs UI + overlay_settings.json)
 - Tasks:
