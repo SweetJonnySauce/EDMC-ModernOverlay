@@ -19,6 +19,7 @@
   - Runtime delegation: moved broadcaster/watchdog orchestration and controller launch/termination into dedicated helpers, added hook-level smoke tests, and reran full `make check` to confirm behavior parity.
   - Linux install: added Arch/pacman support alongside existing installers.
   - Fix #26. Give focus back to game after closing the controller on Windows
+  - Fix #29 where fractional scaling caused overlay to span two monitors. See [Physical Clamping](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Physical_Clamping)
   - Center justification now uses origin-aware baselines (ignoring non-justified frames) to keep centered text inside its containing box; right justification is unchanged.
 
 ## 0.7.4-dev
