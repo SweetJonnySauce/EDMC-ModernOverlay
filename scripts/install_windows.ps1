@@ -1112,6 +1112,9 @@ if (-not $env:MODERN_OVERLAY_INSTALLER_IMPORT) {
     } catch {
         $script:InstallerHadError = $true
         Write-ErrorLine $_.Exception.Message
+        if (-not $AssumeYes) {
+            Wait-ForExitConfirmation -Prompt 'An error occurred. Hit Enter to continue.'
+        }
     } finally {
         Cleanup-EmbeddedPayload
         if ($InstallerHadError) {
