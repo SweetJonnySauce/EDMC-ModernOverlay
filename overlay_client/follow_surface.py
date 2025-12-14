@@ -127,11 +127,13 @@ class FollowSurfaceMixin:
         rect: Tuple[int, int, int, int],
     ) -> Tuple[Tuple[int, int, int, int], Optional[Tuple[str, float, float, float]]]:
         screen_info = self._screen_info_for_native_rect(rect)
+        clamp_enabled = bool(getattr(self, "_physical_clamp_enabled", False))
+        overrides = getattr(self, "_physical_clamp_overrides", None) if clamp_enabled else None
         return _convert_native_rect_to_qt(
             rect,
             screen_info,
-            physical_clamp_enabled=getattr(self, "_physical_clamp_enabled", False),
-            physical_clamp_overrides=getattr(self, "_physical_clamp_overrides", None),
+            physical_clamp_enabled=clamp_enabled,
+            physical_clamp_overrides=overrides,
         )
 
     def _apply_title_bar_offset(
