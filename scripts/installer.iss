@@ -35,8 +35,7 @@ Name: "font"; Description: "Install Eurocaps font"; Flags: unchecked
 [Files]
 ; Plugin payload
 Source: "{#PayloadRoot}\EDMCModernOverlay\*"; DestDir: "{app}\EDMCModernOverlay"; Flags: ignoreversion recursesubdirs
-; Bundled tools/runtime staged to temp
-Source: "{#PayloadRoot}\python\*"; DestDir: "{tmp}\python"; Flags: ignoreversion recursesubdirs deleteafterinstall
+; Bundled assets staged to temp
 Source: "{#PayloadRoot}\wheels\*"; DestDir: "{tmp}\wheels"; Flags: ignoreversion recursesubdirs deleteafterinstall
 Source: "{#PayloadRoot}\tools\generate_checksums.py"; DestDir: "{tmp}\tools"; Flags: ignoreversion deleteafterinstall
 Source: "{#PayloadRoot}\tools\release_excludes.json"; DestDir: "{tmp}\tools"; Flags: ignoreversion deleteafterinstall
@@ -45,7 +44,6 @@ Source: "{#PayloadRoot}\extras\font\Eurocaps.ttf"; DestDir: "{tmp}\extras\font";
 
 [Code]
 const
-  PythonExe = '\python.exe';
   ChecksumScript = '\tools\generate_checksums.py';
   ExcludesFile = '\tools\release_excludes.json';
   WheelsDir = '\wheels';
@@ -141,11 +139,6 @@ end;
 
 function GetPythonPath(): string;
 begin
-  Result := ExpandConstant('{tmp}') + '\python' + PythonExe;
-end;
-
-function GetWheelsPath(): string;
-begin
   Result := ExpandConstant('{tmp}') + WheelsDir;
 end;
 
@@ -198,34 +191,31 @@ end;
 
 procedure PerformPostInstallTasks;
 var
-  py, wheels, checksumScriptPath, manifest, appRoot, venvPython, reqFile, fontPath: string;
+  wheels, checksumScriptPath, manifest, appRoot, venvPython, reqFile, fontPath: string;
   excludesPath, payloadManifest: string;
   pipWheel: string;
+  venvCreated: Boolean;
 begin
-  py := GetPythonPath();
   wheels := GetWheelsPath();
   checksumScriptPath := GetChecksumScriptPath();
   excludesPath := GetExcludesPath();
   payloadManifest := GetPayloadManifestPath();
   manifest := GetChecksumManifest();
   appRoot := ExpandConstant('{app}');
-
-  if not FileExists(py) then
-  begin
-    MsgBox('Bundled Python runtime not found; cannot continue setup.', mbError, MB_OK);
+  if not RunAndCheck('python', '-c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)"', '', 'Python 3.10+ check (system)') then
     exit;
-  end;
 
   if FileExists(payloadManifest) then
   begin
-    if not RunAndCheck(py, Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s" --skip "EDMCModernOverlay"', [checksumScriptPath, ExpandConstant('{tmp}'), payloadManifest, excludesPath]), '', 'Payload checksum validation') then
+    if not RunAndCheck('python', Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s" --skip "EDMCModernOverlay"', [checksumScriptPath, ExpandConstant('{tmp}'), payloadManifest, excludesPath]), '', 'Payload checksum validation') then
       exit;
   end;
 
-  if not RunAndCheck(py, Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s"', [checksumScriptPath, appRoot, manifest, excludesPath]), '', 'Checksum validation') then
+  if not RunAndCheck('python', Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s"', [checksumScriptPath, appRoot, manifest, excludesPath]), '', 'Checksum validation') then
     exit;
 
-  if not RunAndCheck(py, Format('-m venv --without-pip "%s"', [appRoot + '\EDMCModernOverlay\overlay_client\.venv']), '', 'Virtual environment creation') then
+  venvCreated := RunAndCheck('python', Format('-m venv "%s"', [appRoot + '\EDMCModernOverlay\overlay_client\.venv']), '', 'Virtual environment creation (system Python)');
+  if not venvCreated then
     exit;
 
   venvPython := GetVenvPython();
@@ -237,17 +227,12 @@ begin
   end;
 
   pipWheel := FindPipWheel();
-  if (pipWheel <> '') then
+  if pipWheel <> '' then
   begin
     if not RunAndCheck(venvPython,
-      Format('-c "import sysconfig, zipfile; zipfile.ZipFile(r\"%s\").extractall(sysconfig.get_path(''purelib''))"', [pipWheel]),
+      Format('-m pip install --no-index --find-links "%s" "%s"', [wheels, pipWheel]),
       '', 'Pip bootstrap') then
       exit;
-  end
-  else
-  begin
-    MsgBox('Pip wheel not found in bundled wheels; cannot install dependencies.', mbError, MB_OK);
-    exit;
   end;
 
   if not RunAndCheck(venvPython,
