@@ -169,6 +169,18 @@ begin
   Result := ExpandConstant('{tmp}') + '\checksums_payload.txt';
 end;
 
+function FindPipWheel(): string;
+var
+  rec: TFindRec;
+begin
+  Result := '';
+  if FindFirst(ExpandConstant('{tmp}') + '\wheels\pip*.whl', rec) then
+  begin
+    Result := ExpandConstant('{tmp}') + '\wheels\' + rec.Name;
+    FindClose(rec);
+  end;
+end;
+
 function GetVenvPython(): string;
 begin
   Result := ExpandConstant('{app}') + '\EDMCModernOverlay\overlay_client\.venv\Scripts\python.exe';
@@ -188,6 +200,7 @@ procedure PerformPostInstallTasks;
 var
   py, wheels, checksumScriptPath, manifest, appRoot, venvPython, reqFile, fontPath: string;
   excludesPath, payloadManifest: string;
+  pipWheel: string;
 begin
   py := GetPythonPath();
   wheels := GetWheelsPath();
@@ -212,7 +225,7 @@ begin
   if not RunAndCheck(py, Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s"', [checksumScriptPath, appRoot, manifest, excludesPath]), '', 'Checksum validation') then
     exit;
 
-  if not RunAndCheck(py, Format('-m venv "%s"', [appRoot + '\EDMCModernOverlay\overlay_client\.venv']), '', 'Virtual environment creation') then
+  if not RunAndCheck(py, Format('-m venv --without-pip "%s"', [appRoot + '\EDMCModernOverlay\overlay_client\.venv']), '', 'Virtual environment creation') then
     exit;
 
   venvPython := GetVenvPython();
@@ -220,6 +233,20 @@ begin
   if not FileExists(venvPython) then
   begin
     MsgBox('Virtual environment python.exe not found after creation.', mbError, MB_OK);
+    exit;
+  end;
+
+  pipWheel := FindPipWheel();
+  if (pipWheel <> '') then
+  begin
+    if not RunAndCheck(venvPython,
+      Format('-c "import sysconfig, zipfile; zipfile.ZipFile(r\"%s\").extractall(sysconfig.get_path(''purelib''))"', [pipWheel]),
+      '', 'Pip bootstrap') then
+      exit;
+  end
+  else
+  begin
+    MsgBox('Pip wheel not found in bundled wheels; cannot install dependencies.', mbError, MB_OK);
     exit;
   end;
 
