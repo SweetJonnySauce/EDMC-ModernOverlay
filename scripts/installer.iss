@@ -36,17 +36,20 @@ Name: "font"; Description: "Install Eurocaps font"; Flags: unchecked
 ; Plugin payload
 Source: "{#PayloadRoot}\EDMCModernOverlay\*"; DestDir: "{app}\EDMCModernOverlay"; Flags: ignoreversion recursesubdirs
 ; Bundled tools/runtime staged to temp
-Source: "{#PayloadRoot}\python\*"; DestDir: "{tmp}\payload_python"; Flags: ignoreversion recursesubdirs deleteafterinstall
-Source: "{#PayloadRoot}\wheels\*"; DestDir: "{tmp}\payload_wheels"; Flags: ignoreversion recursesubdirs deleteafterinstall
+Source: "{#PayloadRoot}\python\*"; DestDir: "{tmp}\python"; Flags: ignoreversion recursesubdirs deleteafterinstall
+Source: "{#PayloadRoot}\wheels\*"; DestDir: "{tmp}\wheels"; Flags: ignoreversion recursesubdirs deleteafterinstall
 Source: "{#PayloadRoot}\tools\generate_checksums.py"; DestDir: "{tmp}\tools"; Flags: ignoreversion deleteafterinstall
-Source: "{#PayloadRoot}\extras\font\Eurocaps.ttf"; DestDir: "{tmp}\font"; Flags: ignoreversion deleteafterinstall; Tasks: font
+Source: "{#PayloadRoot}\tools\release_excludes.json"; DestDir: "{tmp}\tools"; Flags: ignoreversion deleteafterinstall
+Source: "{#PayloadRoot}\checksums_payload.txt"; DestDir: "{tmp}"; Flags: ignoreversion deleteafterinstall
+Source: "{#PayloadRoot}\extras\font\Eurocaps.ttf"; DestDir: "{tmp}\extras\font"; Flags: ignoreversion deleteafterinstall; Tasks: font
 
 [Code]
 const
   PythonExe = '\python.exe';
   ChecksumScript = '\tools\generate_checksums.py';
-  WheelsDir = '\payload_wheels';
-  FontFile = '\font\Eurocaps.ttf';
+  ExcludesFile = '\tools\release_excludes.json';
+  WheelsDir = '\wheels';
+  FontFile = '\extras\font\Eurocaps.ttf';
 
 procedure PerformPostInstallTasks; forward;
 
@@ -138,7 +141,7 @@ end;
 
 function GetPythonPath(): string;
 begin
-  Result := ExpandConstant('{tmp}') + '\payload_python' + PythonExe;
+  Result := ExpandConstant('{tmp}') + '\python' + PythonExe;
 end;
 
 function GetWheelsPath(): string;
@@ -151,9 +154,19 @@ begin
   Result := ExpandConstant('{tmp}') + ChecksumScript;
 end;
 
+function GetExcludesPath(): string;
+begin
+  Result := ExpandConstant('{tmp}') + ExcludesFile;
+end;
+
 function GetFontTempPath(): string;
 begin
   Result := ExpandConstant('{tmp}') + FontFile;
+end;
+
+function GetPayloadManifestPath(): string;
+begin
+  Result := ExpandConstant('{tmp}') + '\checksums_payload.txt';
 end;
 
 function GetVenvPython(): string;
@@ -174,10 +187,13 @@ end;
 procedure PerformPostInstallTasks;
 var
   py, wheels, checksumScriptPath, manifest, appRoot, venvPython, reqFile, fontPath: string;
+  excludesPath, payloadManifest: string;
 begin
   py := GetPythonPath();
   wheels := GetWheelsPath();
   checksumScriptPath := GetChecksumScriptPath();
+  excludesPath := GetExcludesPath();
+  payloadManifest := GetPayloadManifestPath();
   manifest := GetChecksumManifest();
   appRoot := ExpandConstant('{app}');
 
@@ -187,7 +203,13 @@ begin
     exit;
   end;
 
-  if not RunAndCheck(py, Format('"%s" --verify --root "%s" --manifest "%s"', [checksumScriptPath, appRoot, manifest]), '', 'Checksum validation') then
+  if FileExists(payloadManifest) then
+  begin
+    if not RunAndCheck(py, Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s" --skip "EDMCModernOverlay"', [checksumScriptPath, ExpandConstant('{tmp}'), payloadManifest, excludesPath]), '', 'Payload checksum validation') then
+      exit;
+  end;
+
+  if not RunAndCheck(py, Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s"', [checksumScriptPath, appRoot, manifest, excludesPath]), '', 'Checksum validation') then
     exit;
 
   if not RunAndCheck(py, Format('-m venv "%s"', [appRoot + '\EDMCModernOverlay\overlay_client\.venv']), '', 'Virtual environment creation') then

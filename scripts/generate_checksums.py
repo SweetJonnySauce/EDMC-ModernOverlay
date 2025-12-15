@@ -80,12 +80,14 @@ def build_manifest(
     target_dir: pathlib.Path,
     excludes: dict,
     includes: Iterable[pathlib.Path] | None = None,
+    skip_prefixes: Iterable[str] | None = None,
 ) -> Iterable[str]:
     exclude_dirs = excludes["directories"]
     exclude_root_dirs = excludes["root_directories"]
     exclude_files = excludes["files"]
     exclude_patterns = excludes["patterns"]
     exclude_substrings = excludes["substrings"]
+    skip_prefixes = set(skip_prefixes or [])
 
     seen: set[pathlib.Path] = set()
 
@@ -93,6 +95,9 @@ def build_manifest(
         if not path.is_file():
             continue
         relative_path = path.relative_to(root)
+        rel_posix = relative_path.as_posix()
+        if any(rel_posix.startswith(prefix) for prefix in skip_prefixes):
+            continue
         if should_skip(
             relative_path,
             exclude_dirs,
@@ -158,6 +163,13 @@ def parse_args() -> argparse.Namespace:
         help="Additional file path (relative to --root) to include in the manifest; repeatable.",
     )
     parser.add_argument(
+        "--skip",
+        action="append",
+        type=str,
+        default=[],
+        help="Relative path prefix to skip when hashing (e.g., EDMCModernOverlay to exclude the plugin tree); repeatable.",
+    )
+    parser.add_argument(
         "--verify",
         action="store_true",
         help="Verify an existing manifest instead of generating a new one.",
@@ -177,6 +189,7 @@ def main() -> int:
     manifest_path = (args.manifest or root / DEFAULT_MANIFEST).resolve()
     target_dir = args.target_dir or root / DEFAULT_TARGET_DIR
     target_dir = target_dir.resolve()
+    skip_prefixes = [s.replace("\\", "/") for s in args.skip]
 
     if args.verify:
         excludes_path = args.excludes.resolve()
@@ -252,7 +265,7 @@ def main() -> int:
     excludes = load_excludes(excludes_path)
     includes = args.include or []
 
-    lines = list(build_manifest(root, target_dir, excludes, includes))
+    lines = list(build_manifest(root, target_dir, excludes, includes, skip_prefixes))
     if not lines:
         print(f"No files hashed under '{target_dir}'. Check exclusions.", file=sys.stderr)
         return 1

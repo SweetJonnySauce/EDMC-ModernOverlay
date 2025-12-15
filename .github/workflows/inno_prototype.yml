@@ -95,13 +95,25 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          python scripts/generate_checksums.py --root dist/inno_payload --target-dir dist/inno_payload/EDMCModernOverlay --output dist/inno_payload/EDMCModernOverlay/checksums.txt --excludes scripts/release_excludes.json --include tools/generate_checksums.py
+          python scripts/generate_checksums.py --root dist/inno_payload --target-dir dist/inno_payload/EDMCModernOverlay --output dist/inno_payload/EDMCModernOverlay/checksums.txt --excludes scripts/release_excludes.json
+
+      - name: Generate payload checksum manifest (non-plugin assets)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python scripts/generate_checksums.py --root dist/inno_payload --target-dir dist/inno_payload --output dist/inno_payload/checksums_payload.txt --excludes scripts/release_excludes.json --skip EDMCModernOverlay
 
       - name: Smoke-verify checksum manifest
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           python scripts/generate_checksums.py --verify --root dist/inno_payload --manifest dist/inno_payload/EDMCModernOverlay/checksums.txt
+
+      - name: Smoke-verify payload manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python scripts/generate_checksums.py --verify --root dist/inno_payload --manifest dist/inno_payload/checksums_payload.txt --excludes scripts/release_excludes.json --skip EDMCModernOverlay
 
       - name: Download embeddable Python
         shell: pwsh
