@@ -31,7 +31,7 @@ RestartApplications=no
 Uninstallable=no
 
 [Tasks]
-Name: "font"; Description: "Install Eurocaps font"; Flags: unchecked
+Name: "font"; Description: "Install Eurocaps font (you confirm you have a license to use this font)"; Flags: unchecked
 
 [Files]
 ; Plugin payload
