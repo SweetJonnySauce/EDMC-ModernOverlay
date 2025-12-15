@@ -48,7 +48,7 @@ const
   WheelsDir = '\payload_wheels';
   FontFile = '\font\Eurocaps.ttf';
 
-procedure PerformPostInstallTasks;
+procedure PerformPostInstallTasks; forward;
 
 function GetDefaultPluginDir(Param: string): string;
 begin
