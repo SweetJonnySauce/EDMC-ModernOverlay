@@ -36,6 +36,10 @@ Name: "font"; Description: "Install Eurocaps font"; Flags: unchecked
 [Files]
 ; Plugin payload
 Source: "{#PayloadRoot}\EDMCModernOverlay\*"; DestDir: "{app}\EDMCModernOverlay"; Flags: ignoreversion recursesubdirs
+; Preserve user settings and fonts if they already exist
+Source: "{#PayloadRoot}\EDMCModernOverlay\overlay_groupings.user.json"; DestDir: "{app}\EDMCModernOverlay"; Flags: ignoreversion external skipifsourcedoesntexist
+Source: "{#PayloadRoot}\EDMCModernOverlay\overlay_settings.json"; DestDir: "{app}\EDMCModernOverlay"; Flags: ignoreversion external skipifsourcedoesntexist
+Source: "{#PayloadRoot}\EDMCModernOverlay\overlay_client\fonts\*"; DestDir: "{app}\EDMCModernOverlay\overlay_client\fonts"; Flags: ignoreversion recursesubdirs external skipifsourcedoesntexist
 ; Bundled assets staged to temp
 Source: "{#PayloadRoot}\tools\generate_checksums.py"; DestDir: "{tmp}\tools"; Flags: ignoreversion deleteafterinstall
 Source: "{#PayloadRoot}\tools\release_excludes.json"; DestDir: "{tmp}\tools"; Flags: ignoreversion deleteafterinstall
@@ -134,7 +138,7 @@ begin
   begin
     pluginRoot := ExpandConstant('{app}');
     legacy1 := pluginRoot + '\EDMC-ModernOverlay';
-    legacy2 := pluginRoot + '\EDMCModernOverlay';
+    legacy2 := pluginRoot + '\EDMCOverlay';
     if not DisableDirIfExists(legacy1) then
       WizardForm.Close;
     if not DisableDirIfExists(legacy2) then
