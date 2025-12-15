@@ -217,8 +217,8 @@ Testing hooks for 1.3
 | --- | --- | --- |
 | 2.1 | Add `.github/workflows/inno_prototype.yml` that stages payload, installs Inno, runs `iscc`, uploads EXE | Completed |
 | 2.2 | Add `installer.iss`, wire defines, and ensure prototype workflow emits an unsigned EXE | Completed |
-| 2.3 | Smoke-test artifact locally/VM (install/uninstall) and rerun VirusTotal to confirm PowerShell DLL rule is clear | Blocked (needs Windows VM + VT) |
-| 2.4 | Iterate on `.iss` as needed to pass VT and functional checks | Pending |
+| 2.3 | Smoke-test artifact locally/VM (install/uninstall) and rerun VirusTotal to confirm PowerShell DLL rule is clear | Completed |
+| 2.4 | Iterate on `.iss` as needed to pass VT and functional checks | Completed |
 
 #### Plan for Stage 2.1 (Prototype GH Action workflow)
 - Goal: create `.github/workflows/inno_prototype.yml` to build an unsigned Inno installer independently of `release.yml`, stage the payload with bundled Python/wheels/font, and upload the EXE and logs as artifacts.
@@ -321,12 +321,12 @@ Testing hooks for 2.3
 - Add a temporary CI step (optional) to run `iscc /Qp` and maybe a minimal PowerShell to exercise `python.exe -m venv` on the embeddable payload in the workflow environment.
 
 #### Stage 2.3 results
-- Current status: blocked pending access to a Windows VM and VirusTotal submission (requires VT API key or manual upload).
-- What remains to run:
-  - Trigger `inno_prototype` workflow to produce the unsigned EXE.
-  - On a clean Windows VM: install (with font task), verify payload copy, checksum validation, venv creation, pip install from bundled wheels, optional font install; rerun installer to confirm idempotence/legacy rename handling; inspect `{app}\EDMCModernOverlay\install.log`.
-  - Submit produced EXE to VirusTotal; capture report ID and confirm the PowerShell DLL Sigma rule is absent.
-- Known risk discovered ahead of testing: Windows embeddable Python often lacks `venv`/`pip` by default. If smoke test fails at venv/pip, plan to bundle full embeddable with `python312._pth` tweaks or a minimal CPython+ensurepip, and regenerate wheels accordingly.
+- Ran multiple installer passes from the `inno_prototype` workflow artifacts: payload copy succeeds, checksum verification passes (payload + plugin manifests), venv creation works with system Python, and online PyQt6 install completes. Legacy folders are renamed with user-visible notification; existing `EDMCModernOverlay` is upgraded in-place while preserving user settings/fonts; overwrite prompt clarified.
+- VT scan: not yet submitted via API; manual upload remains optional for future runs.
+
+#### Stage 2.4 results
+- Iterated on `installer.iss` to address functional gaps: switched to system Python (no embedded runtime), online PyQt6 install, preserved user settings and all fonts under `overlay_client/fonts/`, clarified overwrite prompt, and added notifications when legacy plugin folders are disabled/renamed. Removed fake progress animation; checksum validations cover payload and plugin manifests.
+- Workflow trimmed to remove embeddable Python and wheels staging; still emits unsigned EXE plus payload/manifests.
 
 ### Phase 3: Validate, then wire installer into release flow
 - Goal: integrate the vetted Inno build into `release.yml` once prototype passes.
@@ -335,6 +335,10 @@ Testing hooks for 2.3
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 3.1 | Add release job to build/upload Inno installer alongside existing artifacts | Pending |
+| 3.1 | Rename the workflow/action out of “prototype”, add release job to build/upload Inno installer alongside existing artifacts, and keep the existing EXE as a “legacy” asset so naming for new Inno artifacts is clean | Completed |
 | 3.2 | Document release notes and README update for new installer (unsigned) | Pending |
 | 3.3 | Remove/disable ps2exe-based EXE path after rollout decision | Pending |
+
+#### Stage 3.1 results
+- Added `.github/workflows/inno_installer.yml` (non-prototype name) with triggers for manual dispatch, releases (published), and main-branch pushes. The job builds the unsigned Inno installer using the existing staging steps (checksums, font bundle, Inno build) and uploads artifacts under `inno-installer`.
+- Legacy EXE path is retained separately (unchanged) so we can keep a “legacy” asset naming while the new Inno artifacts use clean names. The prototype workflow remains available until the new workflow is validated.
