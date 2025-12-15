@@ -341,6 +341,7 @@ jobs:
           badge_path.write_text(json.dumps(badge), encoding="utf-8")
 
           target_url = first_file_url or "https://www.virustotal.com/"
+          print(f"VirusTotal result URL: {target_url}", flush=True)
           (badge_dir / "virustotal_url.txt").write_text(target_url + "\n", encoding="utf-8")
           redirect_html = textwrap.dedent(
               f"""\
