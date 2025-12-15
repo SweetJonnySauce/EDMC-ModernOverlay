@@ -1,13 +1,13 @@
-#ifnset PayloadRoot
-#define PayloadRoot "dist\\inno_payload"
+#ifndef PayloadRoot
+  #define PayloadRoot "dist\\inno_payload"
 #endif
 
-#ifnset OutputDir
-#define OutputDir "dist\\inno_output"
+#ifndef OutputDir
+  #define OutputDir "dist\\inno_output"
 #endif
 
-#ifnset AppVersion
-#define AppVersion "dev"
+#ifndef AppVersion
+  #define AppVersion "dev"
 #endif
 
 [Setup]
