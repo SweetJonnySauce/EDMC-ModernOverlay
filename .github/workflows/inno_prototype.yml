@@ -139,14 +139,14 @@ jobs:
           choco install innosetup --no-progress -y
 
       - name: Build installer with Inno Setup
-        if: ${{ hashFiles('installer.iss') != '' }}
+        if: ${{ hashFiles('scripts/installer.iss') != '' }}
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $env:Path += ";C:\\Program Files (x86)\\Inno Setup 6"
           $outputDir = "dist\\inno_output"
           New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
-          iscc installer.iss /DAppVersion="${env:VERSION}" /DOutputDir="$outputDir" /DPayloadRoot="dist\\inno_payload"
+          iscc scripts\\installer.iss /DAppVersion="${env:VERSION}" /DOutputDir="$outputDir" /DPayloadRoot="dist\\inno_payload"
 
       - name: Upload prototype artifacts
         uses: actions/upload-artifact@v4
@@ -155,4 +155,5 @@ jobs:
           path: |
             dist/inno_output/*.exe
             dist/inno_payload/**
+            scripts/installer.iss
           if-no-files-found: warn
