@@ -89,6 +89,7 @@ jobs:
           tools = root / "dist" / "inno_payload" / "tools"
           tools.mkdir(parents=True, exist_ok=True)
           shutil.copy2(root / "scripts" / "generate_checksums.py", tools / "generate_checksums.py")
+          shutil.copy2(root / "scripts" / "release_excludes.json", tools / "release_excludes.json")
           PY
 
       - name: Generate checksum manifest
