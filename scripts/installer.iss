@@ -270,17 +270,6 @@ begin
      '', 'Dependency installation (online)') then
     exit;
 
-  WizardForm.StatusLabel.Caption := 'Finishing installation...';
-  WizardForm.ProgressGauge.Max := 100;
-  if WizardForm.ProgressGauge.Position < 67 then
-    WizardForm.ProgressGauge.Position := 67;
-  while WizardForm.ProgressGauge.Position < WizardForm.ProgressGauge.Max do
-  begin
-    WizardForm.ProgressGauge.Position := WizardForm.ProgressGauge.Position + 1;
-    WizardForm.ProgressGauge.Update;
-    Sleep(10);
-  end;
-
   if WizardIsTaskSelected('font') then
   begin
     fontPath := GetFontTempPath();
