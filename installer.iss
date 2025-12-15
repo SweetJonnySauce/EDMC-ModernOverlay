@@ -34,10 +34,10 @@ Name: "font"; Description: "Install Eurocaps font"; Flags: unchecked
 
 [Files]
 ; Plugin payload
-Source: "{#PayloadRoot}\EDMCModernOverlay\*"; DestDir: "{app}\EDMCModernOverlay"; Flags: ignoreversion recurses
+Source: "{#PayloadRoot}\EDMCModernOverlay\*"; DestDir: "{app}\EDMCModernOverlay"; Flags: ignoreversion recursesubdirs
 ; Bundled tools/runtime staged to temp
-Source: "{#PayloadRoot}\python\*"; DestDir: "{tmp}\payload_python"; Flags: ignoreversion recurses deleteafterinstall
-Source: "{#PayloadRoot}\wheels\*"; DestDir: "{tmp}\payload_wheels"; Flags: ignoreversion recurses deleteafterinstall
+Source: "{#PayloadRoot}\python\*"; DestDir: "{tmp}\payload_python"; Flags: ignoreversion recursesubdirs deleteafterinstall
+Source: "{#PayloadRoot}\wheels\*"; DestDir: "{tmp}\payload_wheels"; Flags: ignoreversion recursesubdirs deleteafterinstall
 Source: "{#PayloadRoot}\tools\generate_checksums.py"; DestDir: "{tmp}\tools"; Flags: ignoreversion deleteafterinstall
 Source: "{#PayloadRoot}\extras\font\Eurocaps.ttf"; DestDir: "{tmp}\font"; Flags: ignoreversion deleteafterinstall; Tasks: font
 
