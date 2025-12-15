@@ -43,68 +43,68 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-            import glob
-            import os
-            import sys
-            import time
-            import hashlib
-            import requests
+          import glob
+          import os
+          import sys
+          import time
+          import hashlib
+          import requests
 
-            api_key = os.environ.get("VT_API_KEY")
-            if not api_key:
-                print("VIRUSTOTAL_API_KEY not set; skipping scan.")
-                sys.exit(0)
+          api_key = os.environ.get("VT_API_KEY")
+          if not api_key:
+              print("VIRUSTOTAL_API_KEY not set; skipping scan.")
+              sys.exit(0)
 
-            session = requests.Session()
-            session.headers["x-apikey"] = api_key
+          session = requests.Session()
+          session.headers["x-apikey"] = api_key
 
-            pattern = "${{ inputs.pattern }}"
-            targets = [p for p in glob.glob(pattern, recursive=True) if os.path.isfile(p)]
-            if not targets:
-                sys.exit(f"No files matched pattern: {pattern}")
-            target = targets[0]
+          pattern = "${{ inputs.pattern }}"
+          targets = [p for p in glob.glob(pattern, recursive=True) if os.path.isfile(p)]
+          if not targets:
+              sys.exit(f"No files matched pattern: {pattern}")
+          target = targets[0]
 
-            def sha256sum(path: str) -> str:
-                h = hashlib.sha256()
-                with open(path, "rb") as handle:
-                    for chunk in iter(lambda: handle.read(8192), b""):
-                        h.update(chunk)
-                return h.hexdigest()
+          def sha256sum(path: str) -> str:
+              h = hashlib.sha256()
+              with open(path, "rb") as handle:
+                  for chunk in iter(lambda: handle.read(8192), b""):
+                      h.update(chunk)
+              return h.hexdigest()
 
-            sha = sha256sum(target)
-            print(f"Scanning {target} ({sha})")
+          sha = sha256sum(target)
+          print(f"Scanning {target} ({sha})")
 
-            resp = session.get(f"https://www.virustotal.com/api/v3/files/{sha}", timeout=30)
-            if resp.status_code == 200:
-                data = resp.json().get("data", {})
-                stats = data.get("attributes", {}).get("last_analysis_stats")
-                if stats:
-                    print(f"Existing VT stats: {stats}")
-                    if stats.get("malicious", 0) or stats.get("suspicious", 0):
-                        sys.exit("VirusTotal flagged the file.")
-                    sys.exit(0)
+          resp = session.get(f"https://www.virustotal.com/api/v3/files/{sha}", timeout=30)
+          if resp.status_code == 200:
+              data = resp.json().get("data", {})
+              stats = data.get("attributes", {}).get("last_analysis_stats")
+              if stats:
+                  print(f"Existing VT stats: {stats}")
+                  if stats.get("malicious", 0) or stats.get("suspicious", 0):
+                      sys.exit("VirusTotal flagged the file.")
+                  sys.exit(0)
 
-            with open(target, "rb") as handle:
-                upload = session.post(
-                    "https://www.virustotal.com/api/v3/files",
-                    files={"file": (os.path.basename(target), handle)},
-                    timeout=120,
-                )
-            upload.raise_for_status()
-            analysis_id = upload.json()["data"]["id"]
-            print(f"Uploaded; analysis id {analysis_id}")
+          with open(target, "rb") as handle:
+              upload = session.post(
+                  "https://www.virustotal.com/api/v3/files",
+                  files={"file": (os.path.basename(target), handle)},
+                  timeout=120,
+              )
+          upload.raise_for_status()
+          analysis_id = upload.json()["data"]["id"]
+          print(f"Uploaded; analysis id {analysis_id}")
 
-            while True:
-                r = session.get(f"https://www.virustotal.com/api/v3/analyses/{analysis_id}", timeout=30)
-                r.raise_for_status()
-                data = r.json()["data"]
-                status = data["attributes"]["status"]
-                if status == "completed":
-                    stats = data["attributes"]["stats"]
-                    print(f"VT stats: {stats}")
-                    if stats.get("malicious", 0) or stats.get("suspicious", 0):
-                        sys.exit("VirusTotal flagged the file.")
-                    sys.exit(0)
-                print(f"VT status: {status}, waiting...")
-                time.sleep(30)
+          while True:
+              r = session.get(f"https://www.virustotal.com/api/v3/analyses/{analysis_id}", timeout=30)
+              r.raise_for_status()
+              data = r.json()["data"]
+              status = data["attributes"]["status"]
+              if status == "completed":
+                  stats = data["attributes"]["stats"]
+                  print(f"VT stats: {stats}")
+                  if stats.get("malicious", 0) or stats.get("suspicious", 0):
+                      sys.exit("VirusTotal flagged the file.")
+                  sys.exit(0)
+              print(f"VT status: {status}, waiting...")
+              time.sleep(30)
           PY
