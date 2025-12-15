@@ -9,21 +9,6 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  trigger_inno_installer:
-    name: Trigger Inno installer workflow
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      workflows: write
-    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
-    steps:
-      - name: Trigger inno_installer.yml
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh workflow run inno_installer.yml --ref "${GITHUB_REF}"
-
   bundle:
     name: Build OS-specific archives
     runs-on: ubuntu-latest
@@ -171,14 +156,25 @@ jobs:
           path: dist/EDMCModernOverlay-windows-legacy-*.exe
           if-no-files-found: error
 
-      - name: Attach EXE to GitHub Release
-        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
-          files: |
-            dist/EDMCModernOverlay-windows-legacy-*.exe
+    - name: Attach EXE to GitHub Release
+      if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ github.event.release.tag_name || github.ref_name }}
+        files: |
+          dist/EDMCModernOverlay-windows-legacy-*.exe
 
+  virustotal_scan:
+    needs:
+      - bundle
+      - windows_installer
+    uses: ./.github/workflows/virustotal_scan.yml
+    if: github.event_name == 'release' && secrets.VIRUSTOTAL_API_KEY != ''
+    secrets:
+      VT_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+    with:
+      artifact: release-bundles
+      pattern: dist/EDMCModernOverlay-windows-legacy-*.exe
   virustotal_scan:
     name: VirusTotal scan
     runs-on: ubuntu-latest
