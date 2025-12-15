@@ -125,12 +125,94 @@ def parse_args() -> argparse.Namespace:
         default=pathlib.Path(__file__).resolve().parent / "release_excludes.json",
         help="Path to JSON manifest listing files/directories/patterns to exclude from hashing.",
     )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Verify an existing manifest instead of generating a new one.",
+    )
+    parser.add_argument(
+        "--manifest",
+        type=pathlib.Path,
+        default=None,
+        help=f"Path to an existing manifest to verify (default: <root>/{DEFAULT_MANIFEST}).",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     root = args.root.resolve()
+    manifest_path = (args.manifest or root / DEFAULT_MANIFEST).resolve()
+
+    if args.verify:
+        if not manifest_path.is_file():
+            print(f"Manifest '{manifest_path}' not found; cannot verify.", file=sys.stderr)
+            return 1
+        try:
+            manifest_lines = manifest_path.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            print(f"Failed to read manifest '{manifest_path}': {exc}", file=sys.stderr)
+            return 1
+
+        expected = {}
+        ok = True
+        for line in manifest_lines:
+            line = line.strip()
+            if not line:
+                continue
+            if "  " not in line:
+                print(f"Skipping malformed manifest line: {line}", file=sys.stderr)
+                ok = False
+                continue
+            digest, rel = line.split("  ", 1)
+            expected[pathlib.Path(rel)] = digest
+
+        mismatches = []
+        missing = []
+        extras = []
+
+        for rel_path, digest in expected.items():
+            candidate = root / rel_path
+            if not candidate.is_file():
+                missing.append(rel_path.as_posix())
+                ok = False
+                continue
+            actual = hash_file(candidate)
+            if actual != digest:
+                mismatches.append((rel_path.as_posix(), digest, actual))
+                ok = False
+
+        for extra in root.rglob("*"):
+            if not extra.is_file():
+                continue
+            rel_extra = extra.relative_to(root)
+            if rel_extra not in expected and DEFAULT_MANIFEST not in rel_extra.parts:
+                extras.append(rel_extra.as_posix())
+
+        if not ok or missing or mismatches or extras:
+            if missing:
+                print("Missing files:", file=sys.stderr)
+                for item in missing[:10]:
+                    print(f"  {item}", file=sys.stderr)
+                if len(missing) > 10:
+                    print(f"  ... and {len(missing) - 10} more", file=sys.stderr)
+            if mismatches:
+                print("Hash mismatches:", file=sys.stderr)
+                for rel, exp, act in mismatches[:10]:
+                    print(f"  {rel}: expected {exp}, got {act}", file=sys.stderr)
+                if len(mismatches) > 10:
+                    print(f"  ... and {len(mismatches) - 10} more", file=sys.stderr)
+            if extras:
+                print("Extra files not in manifest:", file=sys.stderr)
+                for item in extras[:10]:
+                    print(f"  {item}", file=sys.stderr)
+                if len(extras) > 10:
+                    print(f"  ... and {len(extras) - 10} more", file=sys.stderr)
+            return 1
+
+        print(f"Manifest verified against root '{root}'.")
+        return 0
+
     target_dir = args.target_dir or root / DEFAULT_TARGET_DIR
     target_dir = target_dir.resolve()
     if not target_dir.exists() or not target_dir.is_dir():

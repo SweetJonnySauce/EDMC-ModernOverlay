@@ -97,6 +97,12 @@ jobs:
           $ErrorActionPreference = "Stop"
           python scripts/generate_checksums.py --root dist/inno_payload --target-dir dist/inno_payload/EDMCModernOverlay --output dist/inno_payload/EDMCModernOverlay/checksums.txt --excludes scripts/release_excludes.json
 
+      - name: Smoke-verify checksum manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python scripts/generate_checksums.py --verify --root dist/inno_payload --manifest dist/inno_payload/EDMCModernOverlay/checksums.txt
+
       - name: Download embeddable Python
         shell: pwsh
         run: |
