@@ -206,10 +206,10 @@ begin
      '', 'Dependency installation') then
     exit;
 
-  if IsTaskSelected('font') then
+  if WizardIsTaskSelected('font') then
   begin
     fontPath := GetFontTempPath();
     if FileExists(fontPath) then
-      FileCopy(fontPath, ExpandConstant('{autofonts}') + '\Eurocaps.ttf', False);
+      CopyFile(fontPath, ExpandConstant('{autofonts}') + '\Eurocaps.ttf', False);
   end;
 end;
