@@ -129,8 +129,7 @@ jobs:
     # Avoid PRs (no secrets) and limit to tags or manual runs to manage VT quota.
     if: >
       github.event_name != 'pull_request' &&
-      (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) &&
-      secrets.VIRUSTOTAL_API_KEY != ''
+      (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/'))
     steps:
       - name: Checkout
         uses: actions/checkout@v4
