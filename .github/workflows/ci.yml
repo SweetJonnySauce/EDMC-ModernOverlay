@@ -168,6 +168,7 @@ jobs:
           import textwrap
 
           import requests
+          from requests import HTTPError
 
           api_key = os.environ.get("VT_API_KEY")
           if not api_key:
@@ -198,6 +199,26 @@ jobs:
               response.raise_for_status()
               return response.json()["data"]["id"]
 
+          def get_existing(sha: str):
+              resp = session.get(
+                  f"https://www.virustotal.com/api/v3/files/{sha}",
+                  timeout=30,
+              )
+              if resp.status_code == 404:
+                  return None
+              resp.raise_for_status()
+              return resp.json()["data"]
+
+          def request_rescan(sha: str):
+              resp = session.post(
+                  f"https://www.virustotal.com/api/v3/files/{sha}/analyse",
+                  timeout=30,
+              )
+              if resp.status_code == 404:
+                  return None
+              resp.raise_for_status()
+              return resp.json()["data"]["id"]
+
           def wait_for_result(analysis_id: str) -> dict:
               while True:
                   resp = session.get(
@@ -220,12 +241,34 @@ jobs:
           first_file_url = None
 
           for path in targets:
-              print(f"Uploading {path}")
-              analysis_id = upload(path)
-              stats = wait_for_result(analysis_id)
+              sha = sha256sum(path)
               if not first_file_url:
-                  sha = sha256sum(path)
                   first_file_url = f"https://www.virustotal.com/gui/file/{sha}"
+
+              stats = None
+              existing = get_existing(sha)
+              if existing:
+                  print(f"Found existing VT entry for {path} ({sha}); requesting rescan.")
+                  analysis_id = request_rescan(sha)
+                  if analysis_id:
+                      stats = wait_for_result(analysis_id)
+                  else:
+                      stats = existing.get("attributes", {}).get("last_analysis_stats")
+              if stats is None:
+                  print(f"Uploading {path}")
+                  try:
+                      analysis_id = upload(path)
+                  except HTTPError as exc:
+                      # If VT reports conflict (already seen), fall back to existing stats
+                      if exc.response is not None and exc.response.status_code == 409:
+                          existing = existing or get_existing(sha)
+                          stats = existing.get("attributes", {}).get("last_analysis_stats") if existing else None
+                          if stats is None:
+                              raise
+                      else:
+                          raise
+                  else:
+                      stats = wait_for_result(analysis_id)
               malicious = stats.get("malicious", 0)
               suspicious_count = stats.get("suspicious", 0)
               if malicious:
