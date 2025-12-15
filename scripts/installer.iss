@@ -270,9 +270,10 @@ begin
      '', 'Dependency installation (online)') then
     exit;
 
+  WizardForm.StatusLabel.Caption := 'Finising installation';
   WizardForm.ProgressGauge.Position := 3;
   WizardForm.ProgressGauge.Update;
-  Sleep(1000);
+  Sleep(2000);
 
   if WizardIsTaskSelected('font') then
   begin
