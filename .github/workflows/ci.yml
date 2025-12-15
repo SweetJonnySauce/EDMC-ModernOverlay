@@ -158,55 +158,55 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-import glob
-import os
-import pathlib
-import sys
-import time
+          import glob
+          import os
+          import pathlib
+          import sys
+          import time
 
-import requests
+          import requests
 
-api_key = os.environ.get("VT_API_KEY")
-if not api_key:
-    sys.exit("VIRUSTOTAL_API_KEY secret is not configured")
+          api_key = os.environ.get("VT_API_KEY")
+          if not api_key:
+              sys.exit("VIRUSTOTAL_API_KEY secret is not configured")
 
-session = requests.Session()
-session.headers["x-apikey"] = api_key
+          session = requests.Session()
+          session.headers["x-apikey"] = api_key
 
-targets = [p for p in glob.glob("dist/**/*", recursive=True) if pathlib.Path(p).is_file()]
-if not targets:
-    sys.exit("No files in dist/ to scan")
+          targets = [p for p in glob.glob("dist/**/*", recursive=True) if pathlib.Path(p).is_file()]
+          if not targets:
+              sys.exit("No files in dist/ to scan")
 
-def upload(path: str) -> str:
-    with open(path, "rb") as handle:
-        response = session.post(
-            "https://www.virustotal.com/api/v3/files",
-            files={"file": (os.path.basename(path), handle)},
-            timeout=60,
-        )
-    response.raise_for_status()
-    return response.json()["data"]["id"]
+          def upload(path: str) -> str:
+              with open(path, "rb") as handle:
+                  response = session.post(
+                      "https://www.virustotal.com/api/v3/files",
+                      files={"file": (os.path.basename(path), handle)},
+                      timeout=60,
+                  )
+              response.raise_for_status()
+              return response.json()["data"]["id"]
 
-def wait_for_result(analysis_id: str) -> dict:
-    while True:
-        resp = session.get(
-            f"https://www.virustotal.com/api/v3/analyses/{analysis_id}",
-            timeout=30,
-        )
-        resp.raise_for_status()
-        data = resp.json()["data"]
-        status = data["attributes"]["status"]
-        if status == "completed":
-            return data["attributes"]["stats"]
-        time.sleep(15)
+          def wait_for_result(analysis_id: str) -> dict:
+              while True:
+                  resp = session.get(
+                      f"https://www.virustotal.com/api/v3/analyses/{analysis_id}",
+                      timeout=30,
+                  )
+                  resp.raise_for_status()
+                  data = resp.json()["data"]
+                  status = data["attributes"]["status"]
+                  if status == "completed":
+                      return data["attributes"]["stats"]
+                  time.sleep(15)
 
-for path in targets:
-    print(f"Uploading {path}")
-    analysis_id = upload(path)
-    stats = wait_for_result(analysis_id)
-    malicious = stats.get("malicious", 0)
-    suspicious = stats.get("suspicious", 0)
-    if malicious or suspicious:
-        raise SystemExit(f"VirusTotal flagged {path}: {stats}")
-    print(f"{path} clean: {stats}")
-PY
+          for path in targets:
+              print(f"Uploading {path}")
+              analysis_id = upload(path)
+              stats = wait_for_result(analysis_id)
+              malicious = stats.get("malicious", 0)
+              suspicious = stats.get("suspicious", 0)
+              if malicious or suspicious:
+                  raise SystemExit(f"VirusTotal flagged {path}: {stats}")
+              print(f"{path} clean: {stats}")
+          PY
