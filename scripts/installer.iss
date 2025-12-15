@@ -20,6 +20,7 @@ DisableDirPage=no
 UsePreviousAppDir=yes
 DisableReadyMemo=yes
 DisableProgramGroupPage=yes
+DirExistsWarning=no
 OutputDir={#OutputDir}
 OutputBaseFilename=EDMCModernOverlay-setup
 Compression=lzma2
@@ -73,11 +74,24 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): string;
+var
+  pluginTarget: string;
+  response: Integer;
 begin
   if IsProcessRunning('EDMarketConnector.exe') then
   begin
     Result := 'Please close EDMarketConnector before installing the overlay.';
     exit;
+  end;
+  pluginTarget := ExpandConstant('{app}') + '\EDMCModernOverlay';
+  if DirExists(pluginTarget) then
+  begin
+    response := MsgBox(Format('An existing EDMCModernOverlay installation was found at:%n%s%n%nContinue and overwrite it?', [pluginTarget]), mbConfirmation, MB_YESNO or MB_DEFBUTTON2);
+    if response <> IDYES then
+    begin
+      Result := 'Installation cancelled because the target plugin folder already exists.';
+      exit;
+    end;
   end;
   Result := '';
 end;
