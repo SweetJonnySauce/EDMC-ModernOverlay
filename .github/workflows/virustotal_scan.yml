@@ -54,7 +54,8 @@ import requests
 
 api_key = os.environ.get("VT_API_KEY")
 if not api_key:
-    sys.exit("VIRUSTOTAL_API_KEY not set")
+    print("VIRUSTOTAL_API_KEY not set; skipping scan.")
+    sys.exit(0)
 
 session = requests.Session()
 session.headers["x-apikey"] = api_key
