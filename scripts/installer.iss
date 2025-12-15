@@ -113,6 +113,7 @@ function DisableDirIfExists(const DirPath: string): Boolean;
 var
   target: string;
   idx: Integer;
+  renamed: Boolean;
 begin
   Result := True;
   if DirExists(DirPath) then
@@ -124,9 +125,14 @@ begin
       target := DirPath + '.' + IntToStr(idx) + '.disabled';
       idx := idx + 1;
     end;
-    Result := RenameFile(DirPath, target);
-    if not Result then
+    renamed := RenameFile(DirPath, target);
+    if renamed then
+      MsgBox(Format('Legacy plugin folder "%s" was renamed to "%s" to avoid conflicts.', [DirPath, target]), mbInformation, MB_OK)
+    else
+    begin
+      Result := False;
       MsgBox(Format('Failed to rename "%s". Please close any programs using it.', [DirPath]), mbError, MB_OK);
+    end;
   end;
 end;
 
