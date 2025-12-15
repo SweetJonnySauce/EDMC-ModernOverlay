@@ -1,4 +1,6 @@
 name: Inno Installer Prototype
+permissions:
+  contents: read
 
 on:
   workflow_dispatch: {}
