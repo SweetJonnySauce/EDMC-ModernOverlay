@@ -50,9 +50,9 @@ jobs:
           import hashlib
           import requests
 
-          api_key = os.environ.get("VT_API_KEY")
+          api_key = os.environ.get("VT_API_KEY") or os.environ.get("VIRUSTOTAL_API_KEY")
           if not api_key:
-              print("VIRUSTOTAL_API_KEY not set; skipping scan.")
+              print("VT_API_KEY not set; skipping scan (expected VT_API_KEY or VIRUSTOTAL_API_KEY).")
               sys.exit(0)
 
           session = requests.Session()
