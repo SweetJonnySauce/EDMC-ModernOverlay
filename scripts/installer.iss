@@ -135,11 +135,6 @@ begin
   end;
 end;
 
-function GetPythonPath(): string;
-begin
-  Result := ExpandConstant('{tmp}') + WheelsDir;
-end;
-
 function GetChecksumScriptPath(): string;
 begin
   Result := ExpandConstant('{tmp}') + ChecksumScript;
