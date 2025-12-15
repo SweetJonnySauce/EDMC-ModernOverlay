@@ -121,6 +121,8 @@ jobs:
 
   virustotal-scan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     needs:
       - plugin-tests-310
       - tests
@@ -158,6 +160,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import glob
+          import json
           import os
           import pathlib
           import sys
@@ -199,13 +202,59 @@ jobs:
                       return data["attributes"]["stats"]
                   time.sleep(15)
 
+          badge_dir = pathlib.Path("badge_out")
+          badge_dir.mkdir(parents=True, exist_ok=True)
+          badge_path = badge_dir / "virustotal.json"
+
+          flagged = []
+          suspicious_hits = []
+
           for path in targets:
               print(f"Uploading {path}")
               analysis_id = upload(path)
               stats = wait_for_result(analysis_id)
               malicious = stats.get("malicious", 0)
-              suspicious = stats.get("suspicious", 0)
-              if malicious or suspicious:
-                  raise SystemExit(f"VirusTotal flagged {path}: {stats}")
-              print(f"{path} clean: {stats}")
+              suspicious_count = stats.get("suspicious", 0)
+              if malicious:
+                  flagged.append((path, stats))
+              elif suspicious_count:
+                  suspicious_hits.append((path, stats))
+              else:
+                  print(f"{path} clean: {stats}")
+
+          if flagged:
+              message = f"flagged ({len(flagged)})"
+              color = "red"
+          elif suspicious_hits:
+              message = f"suspicious ({len(suspicious_hits)})"
+              color = "orange"
+          else:
+              message = "clean"
+              color = "brightgreen"
+
+          badge = {
+              "schemaVersion": 1,
+              "label": "VirusTotal",
+              "message": message,
+              "color": color,
+              "cacheSeconds": 300,
+          }
+          badge_path.write_text(json.dumps(badge), encoding="utf-8")
+
+          if flagged or suspicious_hits:
+              details = [f"{p} -> {s}" for p, s in flagged + suspicious_hits]
+              raise SystemExit("VirusTotal issues:\n" + "\n".join(details))
+          PY
+
+      - name: Publish VirusTotal badge (vt-badges branch)
+        if: always() && hashFiles('badge_out/virustotal.json') != ''
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: vt-badges
+          publish_dir: badge_out
+          keep_files: true
+          commit_message: "Update VirusTotal badge (CI)"
+          user_name: github-actions[bot]
+          user_email: github-actions[bot]@users.noreply.github.com
           PY
