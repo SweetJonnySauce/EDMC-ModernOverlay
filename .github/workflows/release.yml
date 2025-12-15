@@ -267,16 +267,16 @@ jobs:
 
           def wait_for_result(analysis_id: str) -> dict:
               while True:
-                  resp = session.get(
-                      f"https://www.virustotal.com/api/v3/analyses/{analysis_id}",
-                      timeout=30,
-                  )
-                  resp.raise_for_status()
-                  data = resp.json()["data"]
-                  status = data["attributes"]["status"]
+              resp = session.get(
+                  f"https://www.virustotal.com/api/v3/analyses/{analysis_id}",
+                  timeout=30,
+              )
+              resp.raise_for_status()
+              data = resp.json()["data"]
+              status = data["attributes"]["status"]
               if status == "completed":
                   return data["attributes"]["stats"]
-              time.sleep(15)
+              time.sleep(30)
 
           flagged = []
           suspicious_hits = []
