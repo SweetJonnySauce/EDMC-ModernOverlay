@@ -7,7 +7,7 @@
 [build-badge]: https://github.com/SweetJonnySauce/EDMCModernOverlay/actions/workflows/ci.yml/badge.svg?branch=main
 [build-url]: https://github.com/SweetJonnySauce/EDMCModernOverlay/actions/workflows/ci.yml
 
-> ⚠️ 0.7.5 is almost here and is compatible with [EDMC 6.0.0](https://github.com/EDCD/EDMarketConnector/releases/latest)! Get [0.7.5 Release Candidate here](https://github.com/SweetJonnySauce/EDMCModernOverlay/releases/tag/0.7.5-rc-1).
+> ⚠️ 0.7.5 is almost here and is compatible with [EDMC 6.0.0](https://github.com/EDCD/EDMarketConnector/releases/latest)! Get [0.7.5 Release Candidate here](https://github.com/SweetJonnySauce/EDMCModernOverlay/releases/tag/0.7.5-release-candidate-2).
 
 EDMC Modern Overlay (packaged as `EDMCModernOverlay`) is a drop-in replacement for [EDMCOverlay](https://github.com/inorton/EDMCOverlay) and [edmcoverlay2](https://github.com/pan-mroku/edmcoverlay2). It is a cross-platform (Windows and Linux), two-part implementation (plugin and overlay client) for Elite Dangerous Market Connector ([EDMC](https://github.com/EDCD/EDMarketConnector)). It streams data from EDMC plugins over a lightweight TCP socket and displays a transparent, click-through PyQt6 heads-up display on the Elite Dangerous game. It runs in both fullscreen borderless and windowed mode on any display size. The [plugin releases](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest) ship with both Windows and Linux installers.
 
