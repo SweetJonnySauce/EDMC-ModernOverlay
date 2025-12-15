@@ -83,11 +83,12 @@ begin
   Result := '';
 end;
 
-procedure NextButtonClick(CurPageID: Integer; var Cancel: Boolean);
+function NextButtonClick(CurPageID: Integer): Boolean;
 var
   pluginTarget: string;
   response: Integer;
 begin
+  Result := True;
   if CurPageID = wpSelectDir then
   begin
     pluginTarget := ExpandConstant('{app}') + '\EDMCModernOverlay';
@@ -99,7 +100,7 @@ begin
         'Continue and overwrite it?',
         mbConfirmation, MB_YESNO or MB_DEFBUTTON2);
       if response <> IDYES then
-        Cancel := True;
+        Result := False;
     end;
   end;
 end;
