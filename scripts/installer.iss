@@ -74,26 +74,34 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): string;
-var
-  pluginTarget: string;
-  response: Integer;
 begin
   if IsProcessRunning('EDMarketConnector.exe') then
   begin
     Result := 'Please close EDMarketConnector before installing the overlay.';
     exit;
   end;
-  pluginTarget := ExpandConstant('{app}') + '\EDMCModernOverlay';
-  if DirExists(pluginTarget) then
+  Result := '';
+end;
+
+procedure NextButtonClick(CurPageID: Integer; var Cancel: Boolean);
+var
+  pluginTarget: string;
+  response: Integer;
+begin
+  if CurPageID = wpSelectDir then
   begin
-    response := MsgBox(Format('An existing EDMCModernOverlay installation was found at:%n%s%n%nContinue and overwrite it?', [pluginTarget]), mbConfirmation, MB_YESNO or MB_DEFBUTTON2);
-    if response <> IDYES then
+    pluginTarget := ExpandConstant('{app}') + '\EDMCModernOverlay';
+    if DirExists(pluginTarget) then
     begin
-      Result := 'Installation cancelled because the target plugin folder already exists.';
-      exit;
+      response := MsgBox(
+        'An existing EDMCModernOverlay installation was found at:' + #13#10 +
+        pluginTarget + #13#10#13#10 +
+        'Continue and overwrite it?',
+        mbConfirmation, MB_YESNO or MB_DEFBUTTON2);
+      if response <> IDYES then
+        Cancel := True;
     end;
   end;
-  Result := '';
 end;
 
 function DisableDirIfExists(const DirPath: string): Boolean;
