@@ -33,61 +33,61 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-import json
-import shutil
-from fnmatch import fnmatch
-from pathlib import Path
+            import json
+            import shutil
+            from fnmatch import fnmatch
+            from pathlib import Path
 
-root = Path.cwd()
-manifest = json.loads((root / "scripts" / "release_excludes.json").read_text())
-exclude_dirs = set(manifest.get("directories", []))
-exclude_root_dirs = set(manifest.get("root_directories", []))
-exclude_files = set(manifest.get("files", []))
-exclude_patterns = manifest.get("patterns", [])
-exclude_substrings = manifest.get("substrings", [])
+            root = Path.cwd()
+            manifest = json.loads((root / "scripts" / "release_excludes.json").read_text())
+            exclude_dirs = set(manifest.get("directories", []))
+            exclude_root_dirs = set(manifest.get("root_directories", []))
+            exclude_files = set(manifest.get("files", []))
+            exclude_patterns = manifest.get("patterns", [])
+            exclude_substrings = manifest.get("substrings", [])
 
-payload_root = root / "dist" / "inno_payload" / "EDMCModernOverlay"
-if payload_root.exists():
-    shutil.rmtree(payload_root)
-payload_root.mkdir(parents=True, exist_ok=True)
+            payload_root = root / "dist" / "inno_payload" / "EDMCModernOverlay"
+            if payload_root.exists():
+                shutil.rmtree(payload_root)
+            payload_root.mkdir(parents=True, exist_ok=True)
 
-def should_exclude(path: Path) -> bool:
-    rel = path.relative_to(root).as_posix()
-    name = path.name
-    if path.is_dir() and name in exclude_dirs:
-        return True
-    if path.is_dir() and name in exclude_root_dirs and rel.split("/")[0] == name:
-        return True
-    if path.is_file() and name in exclude_files:
-        return True
-    if any(fnmatch(name, pat) for pat in exclude_patterns):
-        return True
-    if any(sub in rel for sub in exclude_substrings):
-        return True
-    if rel.startswith("dist/inno_payload"):
-        return True
-    return False
+            def should_exclude(path: Path) -> bool:
+                rel = path.relative_to(root).as_posix()
+                name = path.name
+                if path.is_dir() and name in exclude_dirs:
+                    return True
+                if path.is_dir() and name in exclude_root_dirs and rel.split("/")[0] == name:
+                    return True
+                if path.is_file() and name in exclude_files:
+                    return True
+                if any(fnmatch(name, pat) for pat in exclude_patterns):
+                    return True
+                if any(sub in rel for sub in exclude_substrings):
+                    return True
+                if rel.startswith("dist/inno_payload"):
+                    return True
+                return False
 
-def copy_tree(src: Path, dst: Path):
-    if should_exclude(src):
-        return
-    if src.is_dir():
-        dst.mkdir(parents=True, exist_ok=True)
-        for child in src.iterdir():
-            copy_tree(child, dst / child.name)
-    else:
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
+            def copy_tree(src: Path, dst: Path):
+                if should_exclude(src):
+                    return
+                if src.is_dir():
+                    dst.mkdir(parents=True, exist_ok=True)
+                    for child in src.iterdir():
+                        copy_tree(child, dst / child.name)
+                else:
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dst)
 
-for child in root.iterdir():
-    if child.name in {".git", "dist"}:
-        continue
-    copy_tree(child, payload_root / child.name)
+            for child in root.iterdir():
+                if child.name in {".git", "dist"}:
+                    continue
+                copy_tree(child, payload_root / child.name)
 
-tools = root / "dist" / "inno_payload" / "tools"
-tools.mkdir(parents=True, exist_ok=True)
-shutil.copy2(root / "scripts" / "generate_checksums.py", tools / "generate_checksums.py")
-PY
+            tools = root / "dist" / "inno_payload" / "tools"
+            tools.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(root / "scripts" / "generate_checksums.py", tools / "generate_checksums.py")
+          PY
 
       - name: Generate checksum manifest
         shell: pwsh
