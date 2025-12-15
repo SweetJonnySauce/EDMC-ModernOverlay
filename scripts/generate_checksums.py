@@ -143,8 +143,16 @@ def main() -> int:
     args = parse_args()
     root = args.root.resolve()
     manifest_path = (args.manifest or root / DEFAULT_MANIFEST).resolve()
+    target_dir = args.target_dir or root / DEFAULT_TARGET_DIR
+    target_dir = target_dir.resolve()
 
     if args.verify:
+        excludes_path = args.excludes.resolve()
+        if not excludes_path.is_file():
+            print(f"Exclude manifest '{excludes_path}' not found.", file=sys.stderr)
+            return 1
+        excludes = load_excludes(excludes_path)
+
         if not manifest_path.is_file():
             print(f"Manifest '{manifest_path}' not found; cannot verify.", file=sys.stderr)
             return 1
@@ -182,11 +190,20 @@ def main() -> int:
                 mismatches.append((rel_path.as_posix(), digest, actual))
                 ok = False
 
-        for extra in root.rglob("*"):
+        for extra in target_dir.rglob("*"):
             if not extra.is_file():
                 continue
             rel_extra = extra.relative_to(root)
-            if rel_extra not in expected and DEFAULT_MANIFEST not in rel_extra.parts:
+            if should_skip(
+                rel_extra,
+                excludes["directories"],
+                excludes["root_directories"],
+                excludes["files"],
+                excludes["patterns"],
+                excludes["substrings"],
+            ):
+                continue
+            if rel_extra not in expected:
                 extras.append(rel_extra.as_posix())
 
         if not ok or missing or mismatches or extras:
@@ -213,8 +230,6 @@ def main() -> int:
         print(f"Manifest verified against root '{root}'.")
         return 0
 
-    target_dir = args.target_dir or root / DEFAULT_TARGET_DIR
-    target_dir = target_dir.resolve()
     if not target_dir.exists() or not target_dir.is_dir():
         print(f"Target directory '{target_dir}' not found. Pass --target-dir to override.", file=sys.stderr)
         return 1
