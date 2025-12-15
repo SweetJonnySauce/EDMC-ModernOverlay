@@ -272,8 +272,7 @@ begin
 
   WizardForm.ProgressGauge.Position := 3;
   WizardForm.ProgressGauge.Update;
-  WizardForm.ProgressGauge.Refresh;
-  WizardForm.ProcessMessages;
+  Application.ProcessMessages;
   Sleep(1000);
 
   if WizardIsTaskSelected('font') then
