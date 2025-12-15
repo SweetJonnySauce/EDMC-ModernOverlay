@@ -189,7 +189,7 @@ jobs:
               response.raise_for_status()
               return response.json()["data"]["id"]
 
-          def wait_for_result(analysis_id: str) -> dict:
+          def wait_for_result(analysis_id: str) -> tuple[dict, dict]:
               while True:
                   resp = session.get(
                       f"https://www.virustotal.com/api/v3/analyses/{analysis_id}",
@@ -199,7 +199,7 @@ jobs:
                   data = resp.json()["data"]
                   status = data["attributes"]["status"]
                   if status == "completed":
-                      return data["attributes"]["stats"]
+                      return data["attributes"]["stats"], data.get("meta", {}).get("file_info", {})
                   time.sleep(15)
 
           badge_dir = pathlib.Path("badge_out")
@@ -208,11 +208,15 @@ jobs:
 
           flagged = []
           suspicious_hits = []
+          first_file_url = None
 
           for path in targets:
               print(f"Uploading {path}")
               analysis_id = upload(path)
-              stats = wait_for_result(analysis_id)
+              stats, file_info = wait_for_result(analysis_id)
+              sha256 = file_info.get("sha256")
+              if not first_file_url and sha256:
+                  first_file_url = f"https://www.virustotal.com/gui/file/{sha256}"
               malicious = stats.get("malicious", 0)
               suspicious_count = stats.get("suspicious", 0)
               if malicious:
@@ -239,6 +243,8 @@ jobs:
               "color": color,
               "cacheSeconds": 300,
           }
+          if first_file_url:
+              badge["link"] = [first_file_url]
           badge_path.write_text(json.dumps(badge), encoding="utf-8")
 
           if flagged or suspicious_hits:
