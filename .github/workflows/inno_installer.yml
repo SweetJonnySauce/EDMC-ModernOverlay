@@ -1,6 +1,6 @@
 name: Inno Installer
 permissions:
-  contents: read
+  contents: write
 
 on:
   workflow_dispatch: {}
