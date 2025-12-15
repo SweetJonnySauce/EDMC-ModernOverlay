@@ -168,7 +168,7 @@ jobs:
     name: VirusTotal scan
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     needs:
       - bundle
       - windows_installer
@@ -178,17 +178,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download release bundles
-        uses: actions/download-artifact@v4
-        with:
-          name: release-bundles
-          path: dist
-
-      - name: Download Windows installer
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-installer-exe
-          path: dist
+      - name: Create source archive for scan
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          git archive --format=zip -o dist/EDMCModernOverlay-source.zip HEAD
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -208,10 +202,12 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import glob
+          import json
           import os
           import pathlib
           import sys
           import time
+          import textwrap
 
           import requests
           from requests import HTTPError
@@ -223,9 +219,13 @@ jobs:
           session = requests.Session()
           session.headers["x-apikey"] = api_key
 
-          targets = [p for p in glob.glob("dist/**/*", recursive=True) if pathlib.Path(p).is_file()]
+          targets = [p for p in glob.glob("dist/EDMCModernOverlay-source*.zip") if pathlib.Path(p).is_file()]
           if not targets:
-              sys.exit("No files in dist/ to scan")
+              sys.exit("No source archive in dist/ to scan")
+
+          badge_dir = pathlib.Path("badge_out")
+          badge_dir.mkdir(parents=True, exist_ok=True)
+          badge_path = badge_dir / "virustotal.json"
 
           def sha256sum(path: str) -> str:
               import hashlib
@@ -274,15 +274,18 @@ jobs:
                   resp.raise_for_status()
                   data = resp.json()["data"]
                   status = data["attributes"]["status"]
-                  if status == "completed":
-                      return data["attributes"]["stats"]
-                  time.sleep(15)
+              if status == "completed":
+                  return data["attributes"]["stats"]
+              time.sleep(15)
 
           flagged = []
           suspicious_hits = []
+          first_file_url = None
 
           for path in targets:
               sha = sha256sum(path)
+              if not first_file_url:
+                  first_file_url = f"https://www.virustotal.com/gui/file/{sha}"
 
               stats = None
               existing = get_existing(sha)
@@ -317,7 +320,57 @@ jobs:
               else:
                   print(f"{path} clean: {stats}")
 
+          if flagged:
+              message = f"flagged ({len(flagged)})"
+              color = "red"
+          elif suspicious_hits:
+              message = f"suspicious ({len(suspicious_hits)})"
+              color = "orange"
+          else:
+              message = "clean"
+              color = "brightgreen"
+
+          badge = {
+              "schemaVersion": 1,
+              "label": "VirusTotal",
+              "message": message,
+              "color": color,
+              "cacheSeconds": 300,
+          }
+          badge_path.write_text(json.dumps(badge), encoding="utf-8")
+
+          target_url = first_file_url or "https://www.virustotal.com/"
+          (badge_dir / "virustotal_url.txt").write_text(target_url + "\n", encoding="utf-8")
+          redirect_html = textwrap.dedent(
+              f"""\
+              <!doctype html>
+              <html lang="en">
+                <head>
+                  <meta charset="utf-8">
+                  <meta http-equiv="refresh" content="0; url={target_url}">
+                  <title>VirusTotal latest result</title>
+                </head>
+                <body>
+                  <p>Redirecting to latest VirusTotal result: <a href="{target_url}">{target_url}</a></p>
+                </body>
+              </html>
+              """
+          )
+          (badge_dir / "virustotal_latest.html").write_text(redirect_html, encoding="utf-8")
+
           if flagged or suspicious_hits:
               details = [f"{p} -> {s}" for p, s in flagged + suspicious_hits]
               raise SystemExit("VirusTotal issues:\n" + "\n".join(details))
           PY
+
+      - name: Publish VirusTotal badge (vt-badges branch)
+        if: always() && hashFiles('badge_out/virustotal.json') != ''
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: vt-badges
+          publish_dir: badge_out
+          keep_files: true
+          commit_message: "Update VirusTotal badge (release)"
+          user_name: github-actions[bot]
+          user_email: github-actions[bot]@users.noreply.github.com
