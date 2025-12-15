@@ -101,7 +101,8 @@ begin
       response := MsgBox(
         'An existing EDMCModernOverlay installation was found at:' + #13#10 +
         pluginTarget + #13#10#13#10 +
-        'Continue and overwrite it?',
+        'The installer will perform an upgrade. User settings and fonts will be preserved.' + #13#10 +
+        'Continue?',
         mbConfirmation, MB_YESNO or MB_DEFBUTTON2);
       if response <> IDYES then
         Result := False;
@@ -271,7 +272,9 @@ begin
 
   WizardForm.ProgressGauge.Position := 3;
   WizardForm.ProgressGauge.Update;
-  Sleep(500);
+  WizardForm.ProgressGauge.Refresh;
+  WizardForm.ProcessMessages;
+  Sleep(1000);
 
   if WizardIsTaskSelected('font') then
   begin
