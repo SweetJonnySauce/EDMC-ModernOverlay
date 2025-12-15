@@ -173,11 +173,11 @@ end;
 
 procedure PerformPostInstallTasks;
 var
-  py, wheels, checksumScript, manifest, appRoot, venvPython, reqFile, fontPath: string;
+  py, wheels, checksumScriptPath, manifest, appRoot, venvPython, reqFile, fontPath: string;
 begin
   py := GetPythonPath();
   wheels := GetWheelsPath();
-  checksumScript := GetChecksumScriptPath();
+  checksumScriptPath := GetChecksumScriptPath();
   manifest := GetChecksumManifest();
   appRoot := ExpandConstant('{app}');
 
@@ -187,7 +187,7 @@ begin
     exit;
   end;
 
-  if not RunAndCheck(py, Format('"%s" --verify --root "%s" --manifest "%s"', [checksumScript, appRoot, manifest]), '', 'Checksum validation') then
+  if not RunAndCheck(py, Format('"%s" --verify --root "%s" --manifest "%s"', [checksumScriptPath, appRoot, manifest]), '', 'Checksum validation') then
     exit;
 
   if not RunAndCheck(py, Format('-m venv "%s"', [appRoot + '\EDMCModernOverlay\overlay_client\.venv']), '', 'Virtual environment creation') then
