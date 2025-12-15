@@ -274,6 +274,7 @@ jobs:
                   resp.raise_for_status()
                   data = resp.json()["data"]
                   status = data["attributes"]["status"]
+                  print(f"VT analysis {analysis_id} status: {status}", flush=True)
                   if status == "completed":
                       return data["attributes"]["stats"]
                   time.sleep(30)
