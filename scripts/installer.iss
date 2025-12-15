@@ -152,6 +152,11 @@ begin
   Result := ExpandConstant('{tmp}') + ExcludesFile;
 end;
 
+function GetWheelsPath(): string;
+begin
+  Result := ExpandConstant('{tmp}') + WheelsDir;
+end;
+
 function GetFontTempPath(): string;
 begin
   Result := ExpandConstant('{tmp}') + FontFile;
