@@ -170,7 +170,8 @@ jobs:
     needs: build
     uses: ./.github/workflows/virustotal_scan.yml
     if: github.event_name == 'release'
-    secrets: inherit
+    secrets:
+      VT_API_KEY: ${{ secrets.VT_API_KEY }}
     with:
       artifact: inno-installer
       pattern: dist/inno_output/*.exe
