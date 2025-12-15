@@ -48,6 +48,8 @@ const
   WheelsDir = '\payload_wheels';
   FontFile = '\font\Eurocaps.ttf';
 
+procedure PerformPostInstallTasks;
+
 function GetDefaultPluginDir(Param: string): string;
 begin
   if DirExists(ExpandConstant('{localappdata}\EDMarketConnector\plugins')) then
