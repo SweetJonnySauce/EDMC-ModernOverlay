@@ -271,6 +271,7 @@ begin
 
   WizardForm.ProgressGauge.Position := 3;
   WizardForm.ProgressGauge.Update;
+  Sleep(500);
 
   if WizardIsTaskSelected('font') then
   begin
