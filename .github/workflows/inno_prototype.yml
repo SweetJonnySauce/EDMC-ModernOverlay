@@ -95,7 +95,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          python scripts/generate_checksums.py --root dist/inno_payload --target-dir dist/inno_payload/EDMCModernOverlay --output dist/inno_payload/EDMCModernOverlay/checksums.txt --excludes scripts/release_excludes.json
+          python scripts/generate_checksums.py --root dist/inno_payload --target-dir dist/inno_payload/EDMCModernOverlay --output dist/inno_payload/EDMCModernOverlay/checksums.txt --excludes scripts/release_excludes.json --include tools/generate_checksums.py
 
       - name: Smoke-verify checksum manifest
         shell: pwsh

@@ -75,12 +75,19 @@ def load_excludes(manifest_path: pathlib.Path) -> dict:
     }
 
 
-def build_manifest(root: pathlib.Path, target_dir: pathlib.Path, excludes: dict) -> Iterable[str]:
+def build_manifest(
+    root: pathlib.Path,
+    target_dir: pathlib.Path,
+    excludes: dict,
+    includes: Iterable[pathlib.Path] | None = None,
+) -> Iterable[str]:
     exclude_dirs = excludes["directories"]
     exclude_root_dirs = excludes["root_directories"]
     exclude_files = excludes["files"]
     exclude_patterns = excludes["patterns"]
     exclude_substrings = excludes["substrings"]
+
+    seen: set[pathlib.Path] = set()
 
     for path in sorted(target_dir.rglob("*")):
         if not path.is_file():
@@ -95,7 +102,25 @@ def build_manifest(root: pathlib.Path, target_dir: pathlib.Path, excludes: dict)
             exclude_substrings,
         ):
             continue
+        seen.add(relative_path)
         yield f"{hash_file(path)}  {relative_path.as_posix()}"
+
+    # Optional extra paths (explicit includes)
+    if includes:
+        for extra in sorted(includes):
+            if extra.is_absolute():
+                try:
+                    rel_path = extra.relative_to(root)
+                except ValueError:
+                    continue
+                abs_path = extra
+            else:
+                rel_path = extra
+                abs_path = root / rel_path
+            if rel_path in seen or not abs_path.is_file():
+                continue
+            seen.add(rel_path)
+            yield f"{hash_file(abs_path)}  {rel_path.as_posix()}"
 
 
 def parse_args() -> argparse.Namespace:
@@ -124,6 +149,13 @@ def parse_args() -> argparse.Namespace:
         type=pathlib.Path,
         default=pathlib.Path(__file__).resolve().parent / "release_excludes.json",
         help="Path to JSON manifest listing files/directories/patterns to exclude from hashing.",
+    )
+    parser.add_argument(
+        "--include",
+        action="append",
+        type=pathlib.Path,
+        default=[],
+        help="Additional file path (relative to --root) to include in the manifest; repeatable.",
     )
     parser.add_argument(
         "--verify",
@@ -177,7 +209,6 @@ def main() -> int:
 
         mismatches = []
         missing = []
-        extras = []
 
         for rel_path, digest in expected.items():
             candidate = root / rel_path
@@ -190,23 +221,7 @@ def main() -> int:
                 mismatches.append((rel_path.as_posix(), digest, actual))
                 ok = False
 
-        for extra in target_dir.rglob("*"):
-            if not extra.is_file():
-                continue
-            rel_extra = extra.relative_to(root)
-            if should_skip(
-                rel_extra,
-                excludes["directories"],
-                excludes["root_directories"],
-                excludes["files"],
-                excludes["patterns"],
-                excludes["substrings"],
-            ):
-                continue
-            if rel_extra not in expected:
-                extras.append(rel_extra.as_posix())
-
-        if not ok or missing or mismatches or extras:
+        if not ok or missing or mismatches:
             if missing:
                 print("Missing files:", file=sys.stderr)
                 for item in missing[:10]:
@@ -219,12 +234,6 @@ def main() -> int:
                     print(f"  {rel}: expected {exp}, got {act}", file=sys.stderr)
                 if len(mismatches) > 10:
                     print(f"  ... and {len(mismatches) - 10} more", file=sys.stderr)
-            if extras:
-                print("Extra files not in manifest:", file=sys.stderr)
-                for item in extras[:10]:
-                    print(f"  {item}", file=sys.stderr)
-                if len(extras) > 10:
-                    print(f"  ... and {len(extras) - 10} more", file=sys.stderr)
             return 1
 
         print(f"Manifest verified against root '{root}'.")
@@ -241,8 +250,9 @@ def main() -> int:
         print(f"Exclude manifest '{excludes_path}' not found.", file=sys.stderr)
         return 1
     excludes = load_excludes(excludes_path)
+    includes = args.include or []
 
-    lines = list(build_manifest(root, target_dir, excludes))
+    lines = list(build_manifest(root, target_dir, excludes, includes))
     if not lines:
         print(f"No files hashed under '{target_dir}'. Check exclusions.", file=sys.stderr)
         return 1
