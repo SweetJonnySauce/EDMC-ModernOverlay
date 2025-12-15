@@ -26,13 +26,11 @@ jobs:
         with:
           name: ${{ inputs.artifact }}
           path: dist
-          if-no-files-found: error
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
 
       - name: Install VirusTotal client deps
         run: |
