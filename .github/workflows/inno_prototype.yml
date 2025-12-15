@@ -116,16 +116,6 @@ jobs:
           $ErrorActionPreference = "Stop"
           python scripts/generate_checksums.py --verify --root dist/inno_payload --manifest dist/inno_payload/checksums_payload.txt --excludes scripts/release_excludes.json --skip EDMCModernOverlay
 
-      - name: Build dependency wheels
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $wheelDir = "dist\\inno_payload\\wheels"
-          New-Item -ItemType Directory -Path $wheelDir -Force | Out-Null
-          python -m pip install --upgrade pip
-          python -m pip download pip -d $wheelDir --only-binary=:all:
-          python -m pip wheel -r overlay_client/requirements/base.txt -w $wheelDir
-
       - name: Bundle Eurocaps font
         shell: pwsh
         run: |

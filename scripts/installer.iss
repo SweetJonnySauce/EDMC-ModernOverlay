@@ -36,7 +36,6 @@ Name: "font"; Description: "Install Eurocaps font"; Flags: unchecked
 ; Plugin payload
 Source: "{#PayloadRoot}\EDMCModernOverlay\*"; DestDir: "{app}\EDMCModernOverlay"; Flags: ignoreversion recursesubdirs
 ; Bundled assets staged to temp
-Source: "{#PayloadRoot}\wheels\*"; DestDir: "{tmp}\wheels"; Flags: ignoreversion recursesubdirs deleteafterinstall
 Source: "{#PayloadRoot}\tools\generate_checksums.py"; DestDir: "{tmp}\tools"; Flags: ignoreversion deleteafterinstall
 Source: "{#PayloadRoot}\tools\release_excludes.json"; DestDir: "{tmp}\tools"; Flags: ignoreversion deleteafterinstall
 Source: "{#PayloadRoot}\checksums_payload.txt"; DestDir: "{tmp}"; Flags: ignoreversion deleteafterinstall
@@ -46,7 +45,6 @@ Source: "{#PayloadRoot}\extras\font\Eurocaps.ttf"; DestDir: "{tmp}\extras\font";
 const
   ChecksumScript = '\tools\generate_checksums.py';
   ExcludesFile = '\tools\release_excludes.json';
-  WheelsDir = '\wheels';
   FontFile = '\extras\font\Eurocaps.ttf';
 
 procedure PerformPostInstallTasks; forward;
@@ -152,11 +150,6 @@ begin
   Result := ExpandConstant('{tmp}') + ExcludesFile;
 end;
 
-function GetWheelsPath(): string;
-begin
-  Result := ExpandConstant('{tmp}') + WheelsDir;
-end;
-
 function GetFontTempPath(): string;
 begin
   Result := ExpandConstant('{tmp}') + FontFile;
@@ -172,9 +165,9 @@ var
   rec: TFindRec;
 begin
   Result := '';
-  if FindFirst(ExpandConstant('{tmp}') + '\wheels\pip*.whl', rec) then
+  if FindFirst(ExpandConstant('{app}') + '\EDMCModernOverlay\overlay_client\.venv\Scripts\pip*.whl', rec) then
   begin
-    Result := ExpandConstant('{tmp}') + '\wheels\' + rec.Name;
+    Result := ExpandConstant('{app}') + '\EDMCModernOverlay\overlay_client\.venv\Scripts\' + rec.Name;
     FindClose(rec);
   end;
 end;
@@ -196,12 +189,10 @@ end;
 
 procedure PerformPostInstallTasks;
 var
-  wheels, checksumScriptPath, manifest, appRoot, venvPython, reqFile, fontPath: string;
+  checksumScriptPath, manifest, appRoot, venvPython, reqFile, fontPath: string;
   excludesPath, payloadManifest: string;
-  pipWheel: string;
   venvCreated: Boolean;
 begin
-  wheels := GetWheelsPath();
   checksumScriptPath := GetChecksumScriptPath();
   excludesPath := GetExcludesPath();
   payloadManifest := GetPayloadManifestPath();
@@ -219,6 +210,11 @@ begin
   if not RunAndCheck('python', Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s"', [checksumScriptPath, appRoot, manifest, excludesPath]), '', 'Checksum validation') then
     exit;
 
+  WizardForm.StatusLabel.Caption := 'Creating virtual environment...';
+  WizardForm.ProgressGauge.Max := 3;
+  WizardForm.ProgressGauge.Position := 1;
+  WizardForm.ProgressGauge.Update;
+
   venvCreated := RunAndCheck('python', Format('-m venv "%s"', [appRoot + '\EDMCModernOverlay\overlay_client\.venv']), '', 'Virtual environment creation (system Python)');
   if not venvCreated then
     exit;
@@ -231,19 +227,22 @@ begin
     exit;
   end;
 
-  pipWheel := FindPipWheel();
-  if pipWheel <> '' then
-  begin
-    if not RunAndCheck(venvPython,
-      Format('-m pip install --no-index --find-links "%s" "%s"', [wheels, pipWheel]),
-      '', 'Pip bootstrap') then
-      exit;
-  end;
+  WizardForm.StatusLabel.Caption := 'Installing dependencies (online)...';
+  WizardForm.ProgressGauge.Position := 2;
+  WizardForm.ProgressGauge.Update;
 
   if not RunAndCheck(venvPython,
-     Format('-m pip install --no-index --find-links "%s" -r "%s"', [wheels, reqFile]),
-     '', 'Dependency installation') then
+     '-m pip install --upgrade pip',
+     '', 'Dependency installation (online)') then
     exit;
+
+  if not RunAndCheck(venvPython,
+     '-m pip install PyQt6>=6.5',
+     '', 'Dependency installation (online)') then
+    exit;
+
+  WizardForm.ProgressGauge.Position := 3;
+  WizardForm.ProgressGauge.Update;
 
   if WizardIsTaskSelected('font') then
   begin
