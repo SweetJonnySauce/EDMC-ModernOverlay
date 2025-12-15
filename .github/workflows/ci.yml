@@ -165,6 +165,7 @@ jobs:
           import pathlib
           import sys
           import time
+          import textwrap
 
           import requests
 
@@ -256,18 +257,21 @@ jobs:
           # Write a redirect page + raw URL for consumers that want a clickthrough target.
           target_url = first_file_url or "https://www.virustotal.com/"
           (badge_dir / "virustotal_url.txt").write_text(target_url + "\n", encoding="utf-8")
-          redirect_html = f"""<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta http-equiv="refresh" content="0; url={target_url}">
-    <title>VirusTotal latest result</title>
-  </head>
-  <body>
-    <p>Redirecting to latest VirusTotal result: <a href="{target_url}">{target_url}</a></p>
-  </body>
-</html>
-"""
+          redirect_html = textwrap.dedent(
+              f"""\
+              <!doctype html>
+              <html lang="en">
+                <head>
+                  <meta charset="utf-8">
+                  <meta http-equiv="refresh" content="0; url={target_url}">
+                  <title>VirusTotal latest result</title>
+                </head>
+                <body>
+                  <p>Redirecting to latest VirusTotal result: <a href="{target_url}">{target_url}</a></p>
+                </body>
+              </html>
+              """
+          )
           (badge_dir / "virustotal_latest.html").write_text(redirect_html, encoding="utf-8")
 
           if flagged or suspicious_hits:
