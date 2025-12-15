@@ -145,7 +145,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $outputDir)) {
               New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
           }
-          $finalExe = Join-Path $outputDir ("EDMCModernOverlay-windows-{0}.exe" -f $version)
+          $finalExe = Join-Path $outputDir ("EDMCModernOverlay-windows-legacy-{0}.exe" -f $version)
           Copy-Item -LiteralPath $exePath -Destination $finalExe -Force
           Write-Host "Installer copied to '$finalExe'."
 
@@ -153,7 +153,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer-exe
-          path: dist/EDMCModernOverlay-windows-*.exe
+          path: dist/EDMCModernOverlay-windows-legacy-*.exe
           if-no-files-found: error
 
       - name: Attach EXE to GitHub Release
@@ -162,7 +162,7 @@ jobs:
         with:
           tag_name: ${{ github.event.release.tag_name || github.ref_name }}
           files: |
-            dist/EDMCModernOverlay-windows-*.exe
+            dist/EDMCModernOverlay-windows-legacy-*.exe
 
   virustotal_scan:
     name: VirusTotal scan
