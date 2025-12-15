@@ -9,6 +9,21 @@ on:
   workflow_dispatch: {}
 
 jobs:
+  trigger_inno_installer:
+    name: Trigger Inno installer workflow
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      workflows: write
+    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Trigger inno_installer.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh workflow run inno_installer.yml --ref "${GITHUB_REF}"
+
   bundle:
     name: Build OS-specific archives
     runs-on: ubuntu-latest
