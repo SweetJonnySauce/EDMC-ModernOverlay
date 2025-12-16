@@ -339,8 +339,11 @@ begin
   end
   else if IsBuildMode() then
   begin
+    Log(Format('Build mode selected. Existing venv: %s (exists=%s)', [venvPython, BoolToStr(hasExistingVenv, True)]));
+
     if hasExistingVenv then
     begin
+      Log('Checking existing venv for reuse...');
       venvMatches := VenvMeetsRequirements(venvPython);
       if venvMatches then
       begin
@@ -353,16 +356,24 @@ begin
           skipRebuild := True;
           pythonForChecks := venvPython;
         end;
+        Log(Format('Existing venv check passed; user chose reuse=%s', [BoolToStr(skipRebuild, True)]));
       end;
 
       if (not venvMatches) or (not skipRebuild) then
+      begin
+        Log('Existing venv check failed or user chose rebuild; scheduling rebuild.');
         needsRebuild := True;
+      end;
     end
     else
+    begin
+      Log('No existing venv found; scheduling rebuild.');
       needsRebuild := True;
+    end;
 
     if needsRebuild then
     begin
+      Log('Starting venv rebuild using system Python (requires 3.10+)...');
       pythonCheckCmd := '-c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)"';
       if not RunAndCheck('python', pythonCheckCmd, '', 'System Python 3.10+ check') then
         exit;
@@ -387,11 +398,15 @@ begin
       WizardForm.ProgressGauge.Position := 2;
       WizardForm.ProgressGauge.Update;
 
+      Log('Upgrading pip in rebuilt venv...');
       if not RunAndCheck(venvPython, '-m pip install --upgrade pip', '', 'Dependency installation (online)') then
         exit;
 
+      Log('Installing PyQt6>=6.5 in rebuilt venv...');
       if not RunAndCheck(venvPython, '-m pip install PyQt6>=6.5', '', 'Dependency installation (online)') then
         exit;
+
+      Log('Venv rebuild completed.');
     end
     else
       pythonForChecks := venvPython;
