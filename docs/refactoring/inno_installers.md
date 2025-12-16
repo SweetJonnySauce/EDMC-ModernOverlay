@@ -95,7 +95,7 @@
 | 1 | Requirements and refactor plan for new `win_inno_*` installers | Completed |
 | 2 | Add `installer.iss` flagging for venv mode and keep shared behavior intact | In Progress |
 | 3 | Implement `win_inno_embed` workflow (prebuilt venv) | In Progress |
-| 4 | Implement `win_inno_build` workflow (install-time venv) | Pending |
+| 4 | Implement `win_inno_build` workflow (install-time venv) | In Progress |
 | 5 | Clean-up/remove legacy `inno_*` workflows and align docs/tests | Pending |
 
 ## Execution plan expectations
@@ -166,17 +166,23 @@
 - Mitigations: mirror prior embedded workflow structure; explicitly copy DLLs into venv and Scripts; pass `InstallVenvMode=embedded`; artifact name matches spec; include manifest smoke-verification steps.
 - Results: `win_inno_embed.yml` added with full build steps and VirusTotal invocation; size trimmed via `--no-cache-dir/--no-compile`, cache cleanup, and single-copy DLL placement; awaiting CI run for validation. No tests run locally.
 
-#### Stage 3.2 plan / risks / results (Pending)
+#### Stage 3.2 plan / risks / results (Completed)
 - Plan: run the new workflow in CI (release tag or manual dispatch) to confirm payload staging, bundled venv contents (including DLLs), and checksum generation/verification succeed.
 - Risks: CI failures due to path/syntax errors, missing DLL copy, or checksum mismatch.
 - Mitigations: inspect artifact contents and logs from first run; rerun if needed after fixes.
-- Results: Pending first CI run.
+- Results: Manual workflow dispatch completed; artifacts/logs reviewed to confirm payload staging and checksum steps succeeded. No code changes needed; no local tests run.
 
-#### Stage 3.3 plan / risks / results (Pending)
+#### Stage 3.3 plan / risks / results (Completed)
 - Plan: confirm artifact upload names (`win-inno-embed`, `win-inno-embed-exe`), release attachment, and VirusTotal workflow invocation using the new workflow; ensure VT uses `dist/inno_output/*.exe`.
 - Risks: incorrect artifact names/path pattern causing VT or release attachment to fail.
 - Mitigations: validate artifact list in CI run; check VT job logs for pattern/attachment success.
-- Results: Pending first CI run.
+- Results: Manual run confirmed artifacts (`win-inno-embed`, `win-inno-embed-exe`), release attachment wiring, and VT invocation with `dist/inno_output/*.exe`; VT failed due to size limit (413) but wiring is correct.
+
+#### Stage 4.1 plan / risks / results (Completed)
+- Plan: create `win_inno_build.yml` workflow to build installer without embedded venv; stage payload with release excludes and ensure `.venv` is excluded; generate and verify checksum manifests without `--include-venv`; bundle font; build via `iscc` with `/DInstallVenvMode=build`; upload artifacts as `win-inno-build`; invoke VirusTotal.
+- Risks: accidentally including the venv; checksum mismatch due to include/exclude differences; wrong `InstallVenvMode`; artifact naming mismatch.
+- Mitigations: explicitly exclude `.venv` in staging; use manifest generation without `--include-venv`; pass `InstallVenvMode=build`; align artifact names with VT.
+- Results: `win_inno_build.yml` added with staging that excludes `.venv`, checksum generation/verification without venv, build-mode `iscc` call, artifacts `win-inno-build`/`win-inno-build-exe`, and VT invocation. Awaiting CI run for validation. No tests run locally.
 
 ### Phase 3: `win_inno_embed` workflow
 - Build payload with bundled venv and DLLs; generate/verify manifests with venv included.
@@ -186,8 +192,8 @@
 | Stage | Description | Status |
 | --- | --- | --- |
 | 3.1 | Author `win_inno_embed.yml` workflow from scratch | Completed |
-| 3.2 | Verify payload staging + checksum generation in CI | Pending |
-| 3.3 | Wire artifact upload/release attachment + VirusTotal call | Pending |
+| 3.2 | Verify payload staging + checksum generation in CI | Completed |
+| 3.3 | Wire artifact upload/release attachment + VirusTotal call | Completed |
 
 ### Phase 4: `win_inno_build` workflow
 - Build payload without venv; rely on installer to create venv during setup.
@@ -196,7 +202,7 @@
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 4.1 | Author `win_inno_build.yml` workflow from scratch | Pending |
+| 4.1 | Author `win_inno_build.yml` workflow from scratch | Completed |
 | 4.2 | Verify checksum generation/verification without venv | Pending |
 | 4.3 | Wire artifact upload/release attachment + VirusTotal call | Pending |
 
