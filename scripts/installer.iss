@@ -10,6 +10,10 @@
   #define AppVersion "dev"
 #endif
 
+#ifndef OutputBaseFilename
+  #define OutputBaseFilename "EDMCModernOverlay-setup"
+#endif
+
 [Setup]
 AppId=EDMCModernOverlay
 AppName=EDMC Modern Overlay
@@ -22,7 +26,7 @@ DisableReadyMemo=yes
 DisableProgramGroupPage=yes
 DirExistsWarning=no
 OutputDir={#OutputDir}
-OutputBaseFilename=EDMCModernOverlay-setup
+OutputBaseFilename={#OutputBaseFilename}
 Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=lowest

@@ -142,8 +142,8 @@ jobs:
           $outputDir = Join-Path $workspace "dist\\inno_output"
           $payloadRoot = Join-Path $workspace "dist\\inno_payload"
           New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
-          $finalExeName = "EDMCModernOverlay-windows-${env:VERSION}.exe"
-          iscc scripts\\installer.iss /DAppVersion="${env:VERSION}" /DOutputDir="$outputDir" /DOutputBaseFilename="$finalExeName" /DPayloadRoot="$payloadRoot"
+          $finalExeBase = "EDMCModernOverlay-windows-${env:VERSION}"
+          iscc scripts\\installer.iss /DAppVersion="${env:VERSION}" /DOutputDir="$outputDir" /DOutputBaseFilename="$finalExeBase" /DPayloadRoot="$payloadRoot"
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
@@ -161,7 +161,7 @@ jobs:
         with:
           tag_name: ${{ github.event.release.tag_name || github.ref_name }}
           files: |
-            dist/inno_output/*.exe
+            dist/inno_output/EDMCModernOverlay-windows-${{ env.VERSION }}.exe
 
   virustotal_scan:
     permissions:
