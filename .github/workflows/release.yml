@@ -178,3 +178,4 @@ jobs:
       artifact: release-bundles
       pattern: "EDMCModernOverlay-*.*"
       release_id: ${{ github.event.release.id }}
+      publish_release_notes: true
