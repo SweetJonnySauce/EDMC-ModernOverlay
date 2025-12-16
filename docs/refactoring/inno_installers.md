@@ -176,7 +176,7 @@
 - Plan: confirm artifact upload names (`win-inno-embed`, `win-inno-embed-exe`), release attachment, and VirusTotal workflow invocation using the new workflow; ensure VT uses `dist/inno_output/*.exe`.
 - Risks: incorrect artifact names/path pattern causing VT or release attachment to fail.
 - Mitigations: validate artifact list in CI run; check VT job logs for pattern/attachment success.
-- Results: Manual run confirmed artifacts (`win-inno-embed`, `win-inno-embed-exe`), release attachment wiring, and VT invocation with `dist/inno_output/*.exe`; VT failed due to size limit (413) but wiring is correct.
+- Results: Manual run confirmed artifacts (`win-inno-embed`, `win-inno-embed-exe`), release attachment wiring (via separate `attach_release` job with artifact download), and VT invocation with `dist/inno_output/*.exe`; VT failed due to size limit (413) but wiring is correct.
 
 #### Stage 4.1 plan / risks / results (Completed)
 - Plan: create `win_inno_build.yml` workflow to build installer without embedded venv; stage payload with release excludes and ensure `.venv` is excluded; generate and verify checksum manifests without `--include-venv`; bundle font; build via `iscc` with `/DInstallVenvMode=build`; upload artifacts as `win-inno-build`; invoke VirusTotal.
@@ -194,7 +194,7 @@
 - Plan: confirm artifact upload names (`win-inno-build`, `win-inno-build-exe`), release attachment, and VirusTotal workflow invocation using the new workflow; ensure VT uses `dist/inno_output/*.exe`.
 - Risks: incorrect artifact names/path pattern causing VT or release attachment to fail.
 - Mitigations: validate artifact list in CI run; check VT job logs for pattern/attachment success.
-- Results: Manual run confirmed artifacts (`win-inno-build`, `win-inno-build-exe`), release attachment wiring, and VT invocation with `dist/inno_output/*.exe`; VT behavior depends on file size vs VT limits. No code changes needed.
+- Results: Manual run confirmed artifacts (`win-inno-build`, `win-inno-build-exe`), release attachment wiring (now via separate `attach_release` job with artifact download), and VT invocation with `dist/inno_output/*.exe`; VT behavior depends on file size vs VT limits. No code changes needed.
 
 ### Phase 3: `win_inno_embed` workflow
 - Build payload with bundled venv and DLLs; generate/verify manifests with venv included.
