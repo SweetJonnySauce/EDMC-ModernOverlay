@@ -63,6 +63,14 @@ const
 
 procedure PerformPostInstallTasks; forward;
 
+function BoolToStr(const Value: Boolean; const UseBoolStrs: Boolean): string;
+begin
+  if Value then
+    Result := 'True'
+  else
+    Result := 'False';
+end;
+
 function GetDefaultPluginDir(Param: string): string;
 begin
   if DirExists(ExpandConstant('{localappdata}\EDMarketConnector\plugins')) then
