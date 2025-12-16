@@ -174,7 +174,6 @@ jobs:
     if: github.event_name == 'release'
     secrets:
       VT_API_KEY: ${{ secrets.VT_API_KEY || secrets.VIRUSTOTAL_API_KEY }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     with:
       artifact: release-bundles
       pattern: "EDMCModernOverlay-*.*"

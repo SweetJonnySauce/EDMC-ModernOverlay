@@ -17,8 +17,6 @@ on:
     secrets:
       VT_API_KEY:
         required: true
-      GITHUB_TOKEN:
-        required: false
 permissions:
   contents: write
 
@@ -45,7 +43,7 @@ jobs:
       - name: Scan with VirusTotal
         env:
           VT_API_KEY: ${{ secrets.VT_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           RELEASE_ID: ${{ inputs.release_id }}
         run: |
           set -euo pipefail

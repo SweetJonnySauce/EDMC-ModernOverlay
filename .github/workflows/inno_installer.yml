@@ -171,7 +171,6 @@ jobs:
     if: github.event_name == 'release' && github.event.release.target_commitish == 'main'
     secrets:
       VT_API_KEY: ${{ secrets.VT_API_KEY || secrets.VIRUSTOTAL_API_KEY }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     with:
       artifact: inno-installer
       pattern: dist/inno_output/*.exe
