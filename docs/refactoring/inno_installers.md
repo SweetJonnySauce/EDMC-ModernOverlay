@@ -94,7 +94,7 @@
 | --- | --- | --- |
 | 1 | Requirements and refactor plan for new `win_inno_*` installers | Completed |
 | 2 | Add `installer.iss` flagging for venv mode and keep shared behavior intact | In Progress |
-| 3 | Implement `win_inno_embed` workflow (prebuilt venv) | Pending |
+| 3 | Implement `win_inno_embed` workflow (prebuilt venv) | In Progress |
 | 4 | Implement `win_inno_build` workflow (install-time venv) | Pending |
 | 5 | Clean-up/remove legacy `inno_*` workflows and align docs/tests | Pending |
 
@@ -140,7 +140,7 @@
 | --- | --- | --- |
 | 2.1 | Add install-mode define and thread through venv detection/creation paths | Completed |
 | 2.2 | Update checksum verification logic for embedded vs build modes | Completed |
-| 2.3 | Smoke-test both modes locally (manual installer runs) | Pending |
+| 2.3 | Smoke-test both modes locally (manual installer runs) | Skipped (awaiting workflow-built installers) |
 
 #### Stage 2.1 plan / risks / results (Completed)
 - Plan: update `installer.iss` to accept `/DInstallVenvMode=embedded|build` (default embedded), branch venv handling accordingly: embedded uses bundled venv; build uses system Python 3.10+ to create venv, install deps, show progress, and honor upgrade-check prompt (reuse vs rebuild). Keep legacy folder rename and existing prompts intact.
@@ -154,11 +154,29 @@
 - Mitigations: mirror CLI flags used during manifest generation; manual verification runs in both modes; keep excludes/includes aligned with workflows.
 - Results: Checksum verification now includes `--include-venv` only in embedded mode and keeps payload manifest checks intact. No tests run yet.
 
-#### Stage 2.3 plan / risks / results (Pending)
+#### Stage 2.3 plan / risks / results (Skipped; awaiting workflow-built installers)
 - Plan: run manual installer smoke-tests in both modes covering fresh install and upgrade with existing venv (matching vs stale) to confirm rebuild-or-skip prompts, checksum validation, and dependency installation behavior.
 - Risks: untested branches leading to runtime failures; missed upgrade prompt edge cases.
 - Mitigations: explicit test matrix (embedded fresh/upgrade-ok/upgrade-stale; build fresh/upgrade-ok/upgrade-stale); capture logs/screenshots if issues arise.
-- Results: Pending; to execute after 2.1/2.2 changes land.
+- Results: Skipped for now; will execute once `win_inno_*` workflows produce installers to test.
+
+#### Stage 3.1 plan / risks / results (Completed)
+- Plan: create `win_inno_embed.yml` workflow to build embedded-venv installer on Windows; stages payload with release excludes, builds bundled venv with DLLs, generates/verifies manifests with `--include-venv`, bundles font, builds installer via `iscc` with `/DInstallVenvMode=embedded`, uploads artifacts as `win-inno-embed`, and calls VirusTotal scan workflow.
+- Risks: workflow syntax errors; missing DLLs in venv; misaligned artifact naming with VirusTotal; forgetting to pass `InstallVenvMode`.
+- Mitigations: mirror prior embedded workflow structure; explicitly copy DLLs into venv and Scripts; pass `InstallVenvMode=embedded`; artifact name matches spec; include manifest smoke-verification steps.
+- Results: `win_inno_embed.yml` added with full build steps and VirusTotal invocation; awaiting CI run for validation. No tests run locally.
+
+#### Stage 3.2 plan / risks / results (Pending)
+- Plan: run the new workflow in CI (release tag or manual dispatch) to confirm payload staging, bundled venv contents (including DLLs), and checksum generation/verification succeed.
+- Risks: CI failures due to path/syntax errors, missing DLL copy, or checksum mismatch.
+- Mitigations: inspect artifact contents and logs from first run; rerun if needed after fixes.
+- Results: Pending first CI run.
+
+#### Stage 3.3 plan / risks / results (Pending)
+- Plan: confirm artifact upload names (`win-inno-embed`, `win-inno-embed-exe`), release attachment, and VirusTotal workflow invocation using the new workflow; ensure VT uses `dist/inno_output/*.exe`.
+- Risks: incorrect artifact names/path pattern causing VT or release attachment to fail.
+- Mitigations: validate artifact list in CI run; check VT job logs for pattern/attachment success.
+- Results: Pending first CI run.
 
 ### Phase 3: `win_inno_embed` workflow
 - Build payload with bundled venv and DLLs; generate/verify manifests with venv included.
@@ -167,7 +185,7 @@
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 3.1 | Author `win_inno_embed.yml` workflow from scratch | Pending |
+| 3.1 | Author `win_inno_embed.yml` workflow from scratch | Completed |
 | 3.2 | Verify payload staging + checksum generation in CI | Pending |
 | 3.3 | Wire artifact upload/release attachment + VirusTotal call | Pending |
 

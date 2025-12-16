@@ -1,0 +1,211 @@
+name: Win Inno Embed Installer
+permissions:
+  contents: write
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch: {}
+
+env:
+  VERSION: ${{ github.event.release.tag_name || github.ref_name || format('run-{0}', github.run_number) }}
+
+jobs:
+  build:
+    name: Build unsigned Inno installer (embedded venv)
+    runs-on: windows-latest
+    if: (github.event_name == 'release' && github.event.release.target_commitish == 'main') || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Verify release build is not in dev mode
+        shell: pwsh
+        run: |
+          python scripts/verify_release_not_dev.py
+
+      - name: Stage payload (apply release excludes)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import shutil
+          from fnmatch import fnmatch
+          from pathlib import Path
+
+          root = Path.cwd()
+          manifest = json.loads((root / "scripts" / "release_excludes.json").read_text())
+          exclude_dirs = set(manifest.get("directories", []))
+          exclude_root_dirs = set(manifest.get("root_directories", []))
+          exclude_files = set(manifest.get("files", []))
+          exclude_patterns = manifest.get("patterns", [])
+          exclude_substrings = manifest.get("substrings", [])
+
+          payload_root = root / "dist" / "inno_payload" / "EDMCModernOverlay"
+          if payload_root.exists():
+              shutil.rmtree(payload_root)
+          payload_root.mkdir(parents=True, exist_ok=True)
+
+          def should_exclude(path: Path) -> bool:
+              rel = path.relative_to(root).as_posix()
+              name = path.name
+              if path.is_dir() and name in exclude_dirs:
+                  return True
+              if path.is_dir() and name in exclude_root_dirs and rel.split("/")[0] == name:
+                  return True
+              if path.is_file() and name in exclude_files:
+                  return True
+              if any(fnmatch(name, pat) for pat in exclude_patterns):
+                  return True
+              if any(sub in rel for sub in exclude_substrings):
+                  return True
+              if rel.startswith("dist/inno_payload"):
+                  return True
+              return False
+
+          def copy_tree(src: Path, dst: Path):
+              if should_exclude(src):
+                  return
+              if src.is_dir():
+                  dst.mkdir(parents=True, exist_ok=True)
+                  for child in src.iterdir():
+                      copy_tree(child, dst / child.name)
+              else:
+                  dst.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(src, dst)
+
+          for child in root.iterdir():
+              if child.name in {".git", "dist"}:
+                  continue
+              copy_tree(child, payload_root / child.name)
+
+          tools = root / "dist" / "inno_payload" / "tools"
+          tools.mkdir(parents=True, exist_ok=True)
+          shutil.copy2(root / "scripts" / "generate_checksums.py", tools / "generate_checksums.py")
+          shutil.copy2(root / "scripts" / "release_excludes.json", tools / "release_excludes.json")
+          PY
+
+      - name: Build bundled virtual environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Get-Location
+          $venvPath = Join-Path $root "dist\inno_payload\EDMCModernOverlay\overlay_client\.venv"
+          if (Test-Path -LiteralPath $venvPath) {
+            Remove-Item -Recurse -Force $venvPath
+          }
+          python -m venv $venvPath
+          $venvPython = Join-Path $venvPath "Scripts\python.exe"
+          if (-not (Test-Path -LiteralPath $venvPython)) {
+            throw "Venv python.exe not found at $venvPython"
+          }
+          & $venvPython -m pip install --upgrade pip
+          & $venvPython -m pip install PyQt6>=6.5
+          $pyBase = (python -c "import sys, pathlib; print(pathlib.Path(sys.base_prefix))").Trim()
+          $dllPatterns = @("python3*.dll", "vcruntime*.dll")
+          foreach ($pat in $dllPatterns) {
+            Get-ChildItem -Path $pyBase -Filter $pat -File | ForEach-Object {
+              Copy-Item -LiteralPath $_.FullName -Destination $venvPath -Force
+              Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $venvPath "Scripts") -Force
+            }
+          }
+
+      - name: Generate checksum manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python scripts/generate_checksums.py --root dist/inno_payload --target-dir dist/inno_payload/EDMCModernOverlay --output dist/inno_payload/EDMCModernOverlay/checksums.txt --excludes scripts/release_excludes.json --include-venv
+
+      - name: Generate payload checksum manifest (non-plugin assets)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python scripts/generate_checksums.py --root dist/inno_payload --target-dir dist/inno_payload --output dist/inno_payload/checksums_payload.txt --excludes scripts/release_excludes.json --skip EDMCModernOverlay
+
+      - name: Smoke-verify checksum manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python scripts/generate_checksums.py --verify --root dist/inno_payload --manifest dist/inno_payload/EDMCModernOverlay/checksums.txt --include-venv
+
+      - name: Smoke-verify payload manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python scripts/generate_checksums.py --verify --root dist/inno_payload --manifest dist/inno_payload/checksums_payload.txt --excludes scripts/release_excludes.json --skip EDMCModernOverlay
+
+      - name: Bundle Eurocaps font
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $fontDir = "dist\\inno_payload\\extras\\font"
+          New-Item -ItemType Directory -Path $fontDir -Force | Out-Null
+          $fontUrl = "https://raw.githubusercontent.com/inorton/EDMCOverlay/master/EDMCOverlay/EDMCOverlay/EUROCAPS.TTF"
+          $fontPath = Join-Path $fontDir "Eurocaps.ttf"
+          Invoke-WebRequest -Uri $fontUrl -OutFile $fontPath
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          choco install innosetup --no-progress -y
+
+      - name: Build installer with Inno Setup
+        if: ${{ hashFiles('scripts/installer.iss') != '' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:Path += ";C:\\Program Files (x86)\\Inno Setup 6"
+          $workspace = (Get-Location).ProviderPath
+          $outputDir = Join-Path $workspace "dist\\inno_output"
+          $payloadRoot = Join-Path $workspace "dist\\inno_payload"
+          New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+          $finalExeBase = "EDMCModernOverlay-windows-${env:VERSION}"
+          iscc scripts\\installer.iss /DAppVersion="${env:VERSION}" /DOutputDir="$outputDir" /DOutputBaseFilename="$finalExeBase" /DPayloadRoot="$payloadRoot" /DInstallVenvMode="embedded"
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-inno-embed
+          path: |
+            dist/inno_output/*.exe
+            dist/inno_payload/**
+            scripts/installer.iss
+          if-no-files-found: warn
+
+      - name: Upload installer EXE (manual run)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-inno-embed-exe
+          path: dist/inno_output/*.exe
+          if-no-files-found: error
+
+      - name: Attach installer to GitHub Release
+        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
+          files: |
+            dist/inno_output/EDMCModernOverlay-windows-${{ env.VERSION }}.exe
+
+  virustotal_scan:
+    permissions:
+      contents: write
+    needs: build
+    uses: ./.github/workflows/virustotal_scan.yml
+    if: (github.event_name == 'release' && github.event.release.target_commitish == 'main') || github.event_name == 'workflow_dispatch'
+    secrets:
+      VT_API_KEY: ${{ secrets.VT_API_KEY || secrets.VIRUSTOTAL_API_KEY }}
+    with:
+      artifact: win-inno-embed
+      pattern: dist/inno_output/*.exe
+      release_id: ${{ github.event.release.id }}
