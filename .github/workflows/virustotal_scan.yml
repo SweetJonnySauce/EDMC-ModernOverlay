@@ -14,6 +14,10 @@ on:
       release_id:
         required: false
         type: string
+      publish_release_notes:
+        required: false
+        type: boolean
+        default: false
     secrets:
       VT_API_KEY:
         required: true
@@ -45,6 +49,7 @@ jobs:
           VT_API_KEY: ${{ secrets.VT_API_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_ID: ${{ inputs.release_id }}
+          PUBLISH_RELEASE_NOTES: ${{ inputs.publish_release_notes }}
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -58,6 +63,7 @@ jobs:
           repo = os.environ.get("GITHUB_REPOSITORY")
           release_id = os.environ.get("RELEASE_ID")
           gh_token = os.environ.get("GITHUB_TOKEN")
+          publish_notes = (os.environ.get("PUBLISH_RELEASE_NOTES") or "").lower() in ("1", "true", "yes", "on")
 
           api_key = os.environ.get("VT_API_KEY") or os.environ.get("VIRUSTOTAL_API_KEY")
           if not api_key:
@@ -130,6 +136,8 @@ jobs:
                   print(f"VirusTotal flagged: {target}", flush=True)
 
           def append_release_notes(summary: str) -> None:
+              if not publish_notes:
+                  return
               if not (release_id and repo and gh_token):
                   return
               api = f"https://api.github.com/repos/{repo}/releases/{release_id}"
