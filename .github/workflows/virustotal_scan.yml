@@ -62,7 +62,6 @@ jobs:
           targets = [p for p in glob.glob(pattern, recursive=True) if os.path.isfile(p)]
           if not targets:
               sys.exit(f"No files matched pattern: {pattern}")
-          target = targets[0]
 
           def sha256sum(path: str) -> str:
               h = hashlib.sha256()
@@ -71,44 +70,49 @@ jobs:
                       h.update(chunk)
               return h.hexdigest()
 
-          sha = sha256sum(target)
-          vt_url = f"https://www.virustotal.com/gui/file/{sha}"
-          print(f"Scanning {target} ({sha})")
-          print(f"VT report URL: {vt_url}")
+          def scan_one(target: str) -> bool:
+              sha = sha256sum(target)
+              vt_url = f"https://www.virustotal.com/gui/file/{sha}"
+              print(f"Scanning {target} ({sha})")
+              print(f"VT report URL: {vt_url}")
 
-          resp = session.get(f"https://www.virustotal.com/api/v3/files/{sha}", timeout=30)
-          if resp.status_code == 200:
-              data = resp.json().get("data", {})
-              stats = data.get("attributes", {}).get("last_analysis_stats")
-              if stats:
-                  print(f"Existing VT stats: {stats}")
-                  print(f"VT report URL: {vt_url}")
-                  if stats.get("malicious", 0) or stats.get("suspicious", 0):
-                      sys.exit("VirusTotal flagged the file.")
-                  sys.exit(0)
+              resp = session.get(f"https://www.virustotal.com/api/v3/files/{sha}", timeout=30)
+              if resp.status_code == 200:
+                  data = resp.json().get("data", {})
+                  stats = data.get("attributes", {}).get("last_analysis_stats")
+                  if stats:
+                      print(f"Existing VT stats: {stats}")
+                      print(f"VT report URL: {vt_url}")
+                      return not (stats.get("malicious", 0) or stats.get("suspicious", 0))
 
-          with open(target, "rb") as handle:
-              upload = session.post(
-                  "https://www.virustotal.com/api/v3/files",
-                  files={"file": (os.path.basename(target), handle)},
-                  timeout=120,
-              )
-          upload.raise_for_status()
-          analysis_id = upload.json()["data"]["id"]
-          print(f"Uploaded; analysis id {analysis_id}")
+              with open(target, "rb") as handle:
+                  upload = session.post(
+                      "https://www.virustotal.com/api/v3/files",
+                      files={"file": (os.path.basename(target), handle)},
+                      timeout=120,
+                  )
+              upload.raise_for_status()
+              analysis_id = upload.json()["data"]["id"]
+              print(f"Uploaded; analysis id {analysis_id}")
 
-          while True:
-              r = session.get(f"https://www.virustotal.com/api/v3/analyses/{analysis_id}", timeout=30)
-              r.raise_for_status()
-              data = r.json()["data"]
-              status = data["attributes"]["status"]
-              if status == "completed":
-                  stats = data["attributes"]["stats"]
-                  print(f"VT stats: {stats}")
-                  print(f"VT report URL: {vt_url}")
-                  if stats.get("malicious", 0) or stats.get("suspicious", 0):
-                      sys.exit("VirusTotal flagged the file.")
-                  sys.exit(0)
-              print(f"VT status: {status}, waiting...")
-              time.sleep(30)
+              while True:
+                  r = session.get(f"https://www.virustotal.com/api/v3/analyses/{analysis_id}", timeout=30)
+                  r.raise_for_status()
+                  data = r.json()["data"]
+                  status = data["attributes"]["status"]
+                  if status == "completed":
+                      stats = data["attributes"]["stats"]
+                      print(f"VT stats: {stats}")
+                      print(f"VT report URL: {vt_url}")
+                      return not (stats.get("malicious", 0) or stats.get("suspicious", 0))
+                  print(f"VT status: {status}, waiting...")
+                  time.sleep(30)
+
+          all_clean = True
+          for target in targets:
+              if not scan_one(target):
+                  all_clean = False
+                  print(f"VirusTotal flagged: {target}")
+          if not all_clean:
+              sys.exit("VirusTotal flagged one or more files.")
           PY
