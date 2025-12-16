@@ -82,21 +82,21 @@
 - Maintain `Tasks` toggle for optional Eurocaps font install; ensure the font still comes from the staged payload.
 - Continue to use temp-staged `tools/generate_checksums.py`, `release_excludes.json`, and `checksums_payload.txt` for verification.
 
-### Open questions / decisions to confirm
-- Exact define name/value to pass into `installer.iss` (proposal: `/DInstallVenvMode=embedded` default, `/DInstallVenvMode=build` for install-time). Confirmed.
-- Naming: workflow files will be `win_inno_embed.yml` and `win_inno_build.yml`; VirusTotal artifact names remain `win-inno-embed` and `win-inno-build`.
-- Whether install-time venv creation must be offline-capable (e.g., ship wheels) or is allowed to fetch from PyPI. Install-time can fetch from PyPI.
-- Minimum supported Python version (assumed 3.10+ based on current scripts). This is the min supported version but we can use latest for the .venv (install-time or embed).
+### Decisions (confirmed)
+- Define: `/DInstallVenvMode=embedded` (default) and `/DInstallVenvMode=build` for install-time venv creation.
+- Workflow filenames: `win_inno_embed.yml` and `win_inno_build.yml`; VirusTotal artifact names: `win-inno-embed` and `win-inno-build`.
+- Install-time venv creation may fetch from PyPI (no offline wheel requirement).
+- Minimum supported Python version remains 3.10+; builds may use the latest available 3.10+ for the venv (embedded or install-time).
 
 ## Phase Overview
 
 | Phase | Description | Status |
 | --- | --- | --- |
-| 1 | Requirements and refactor plan for new `win_inno_*` installers | In Progress |
-| 2 | Add `installer.iss` flagging for venv mode and keep shared behavior intact | Pending |
+| 1 | Requirements and refactor plan for new `win_inno_*` installers | Completed |
+| 2 | Add `installer.iss` flagging for venv mode and keep shared behavior intact | In Progress |
 | 3 | Implement `win_inno_embed` workflow (prebuilt venv) | Pending |
 | 4 | Implement `win_inno_build` workflow (install-time venv) | Pending |
-| 5 | Clean-up/remove legacy `inno_*` assets and align docs/tests | Pending |
+| 5 | Clean-up/remove legacy `inno_*` workflows and align docs/tests | Pending |
 
 ## Execution plan expectations
 - Before planning/implementation, set up your environment using `tests/configure_pytest_environment.py`.
@@ -117,19 +117,19 @@
 | Stage | Description | Status |
 | --- | --- | --- |
 | 1.1 | Document requirements, shared constraints, and open questions | Completed |
-| 1.2 | Confirm naming/define choices with maintainers | Pending |
+| 1.2 | Confirm naming/define choices with maintainers | Completed |
 
 #### Stage 1.1 plan / risks / results (Completed)
 - Plan: inventory current `inno_*` behaviors, define the two `win_inno_*` modes, capture installer expectations, VirusTotal wiring, and upgrade prompts; no code changes.
 - Risks: omitting legacy behaviors or naming conventions; mixing workflow vs artifact names.
 - Mitigations: cross-check existing `inno_*` workflows and `installer.iss`; document naming for workflows (`win_inno_*.yml`) vs artifacts (`win-inno-*`).
-- Results: requirements recorded above; open items captured in “Open questions”; no tests run (docs only).
+- Results: requirements recorded above; decisions documented in “Decisions (confirmed)”; no tests run (docs only).
 
-#### Stage 1.2 plan / risks / results (Pending)
+#### Stage 1.2 plan / risks / results (Completed)
 - Plan: confirm `/DInstallVenvMode` values, workflow file names (`win_inno_embed.yml`, `win_inno_build.yml`), and artifact names (`win-inno-embed`, `win-inno-build`) with maintainers; update docs/tables once confirmed.
 - Risks: proceeding with mismatched names/defines would break CI or installer behavior; unclear expectations would block later phases.
-- Mitigations: pause before Phase 2 until maintainer confirmation; propose defaults above for quick sign-off; no code changes until confirmed.
-- Results: Pending maintainer confirmation; do not advance to Phase 2 until resolved.
+- Mitigations: paused before Phase 2 until confirmation; proposed defaults for quick sign-off.
+- Results: Confirmed define values and naming as noted in “Decisions (confirmed)”; no open questions remain for Phase 1. No tests run (docs only).
 
 ### Phase 2: `installer.iss` supports both modes
 - Introduce a single define-driven switch for venv mode while preserving current upgrade/validation behavior.
@@ -138,9 +138,27 @@
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 2.1 | Add install-mode define and thread through venv detection/creation paths | Pending |
-| 2.2 | Update checksum verification logic for embedded vs build modes | Pending |
+| 2.1 | Add install-mode define and thread through venv detection/creation paths | Completed |
+| 2.2 | Update checksum verification logic for embedded vs build modes | Completed |
 | 2.3 | Smoke-test both modes locally (manual installer runs) | Pending |
+
+#### Stage 2.1 plan / risks / results (Completed)
+- Plan: update `installer.iss` to accept `/DInstallVenvMode=embedded|build` (default embedded), branch venv handling accordingly: embedded uses bundled venv; build uses system Python 3.10+ to create venv, install deps, show progress, and honor upgrade-check prompt (reuse vs rebuild). Keep legacy folder rename and existing prompts intact.
+- Risks: breaking installer flow in either mode; mis-detecting Python version; regressions in upgrade prompt logic; Inno script compile errors.
+- Mitigations: implement minimal branching to avoid duplication; guard version check; keep existing helper calls; manual smoke runs for both modes after change.
+- Results: Implemented mode-aware branching, reuse/rebuild prompts for existing venvs, system-Python venv creation for build mode, and embedded-mode validation. No tests run yet (Inno/manual only).
+
+#### Stage 2.2 plan / risks / results (Completed)
+- Plan: adjust checksum verification in `installer.iss` to include venv files only in embedded mode; exclude venv during build-mode verification; ensure payload manifest checks remain unchanged.
+- Risks: checksum mismatches causing install failures; accidentally skipping verification of non-venv files.
+- Mitigations: mirror CLI flags used during manifest generation; manual verification runs in both modes; keep excludes/includes aligned with workflows.
+- Results: Checksum verification now includes `--include-venv` only in embedded mode and keeps payload manifest checks intact. No tests run yet.
+
+#### Stage 2.3 plan / risks / results (Pending)
+- Plan: run manual installer smoke-tests in both modes covering fresh install and upgrade with existing venv (matching vs stale) to confirm rebuild-or-skip prompts, checksum validation, and dependency installation behavior.
+- Risks: untested branches leading to runtime failures; missed upgrade prompt edge cases.
+- Mitigations: explicit test matrix (embedded fresh/upgrade-ok/upgrade-stale; build fresh/upgrade-ok/upgrade-stale); capture logs/screenshots if issues arise.
+- Results: Pending; to execute after 2.1/2.2 changes land.
 
 ### Phase 3: `win_inno_embed` workflow
 - Build payload with bundled venv and DLLs; generate/verify manifests with venv included.

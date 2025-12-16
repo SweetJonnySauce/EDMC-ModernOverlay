@@ -14,6 +14,10 @@
   #define OutputBaseFilename "EDMCModernOverlay-setup"
 #endif
 
+#ifndef InstallVenvMode
+  #define InstallVenvMode "embedded"
+#endif
+
 [Setup]
 AppId=EDMCModernOverlay
 AppName=EDMC Modern Overlay
@@ -55,6 +59,7 @@ const
   ChecksumScript = '\tools\generate_checksums.py';
   ExcludesFile = '\tools\release_excludes.json';
   FontFile = '\extras\font\Eurocaps.ttf';
+  InstallVenvMode = '{#InstallVenvMode}';
 
 procedure PerformPostInstallTasks; forward;
 
@@ -198,6 +203,24 @@ begin
   Result := ExpandConstant('{app}') + '\EDMCModernOverlay\overlay_client\.venv\Scripts\python.exe';
 end;
 
+function IsEmbeddedMode(): Boolean;
+begin
+  Result := CompareText(InstallVenvMode, 'embedded') = 0;
+end;
+
+function IsBuildMode(): Boolean;
+begin
+  Result := CompareText(InstallVenvMode, 'build') = 0;
+end;
+
+function VenvMeetsRequirements(const PythonExe: string): Boolean;
+var
+  checkCmd: string;
+begin
+  checkCmd := '-c "import sys; import PyQt6; ver = tuple(map(int, PyQt6.__version__.split(''.'')[0:2])); sys.exit(0 if (sys.version_info >= (3,10) and ver >= (6,5)) else 1)"';
+  Result := RunAndCheck(PythonExe, checkCmd, '', 'Existing venv Python/deps check');
+end;
+
 function GetChecksumManifest(): string;
 begin
   Result := ExpandConstant('{app}') + '\EDMCModernOverlay\checksums.txt';
@@ -208,7 +231,8 @@ var
   checksumScriptPath, manifest, appRoot, venvPython, fontPath: string;
   excludesPath, payloadManifest: string;
   pythonCheckCmd, includeArg, pythonForChecks: string;
-  hasBundledVenv: Boolean;
+  hasExistingVenv, skipRebuild, needsRebuild, venvMatches: Boolean;
+  response: Integer;
 begin
   checksumScriptPath := GetChecksumScriptPath();
   excludesPath := GetExcludesPath();
@@ -216,49 +240,112 @@ begin
   manifest := GetChecksumManifest();
   appRoot := ExpandConstant('{app}');
   venvPython := GetVenvPython();
-  hasBundledVenv := FileExists(venvPython);
   includeArg := '';
   pythonForChecks := 'python';
+  hasExistingVenv := FileExists(venvPython);
+  skipRebuild := False;
+  needsRebuild := False;
 
-  if hasBundledVenv then
+  if IsEmbeddedMode() then
   begin
-    pythonForChecks := venvPython;
     includeArg := ' --include-venv';
+    if not hasExistingVenv then
+    begin
+      MsgBox('Bundled virtual environment was not found. Cannot continue in embedded mode.', mbError, MB_OK);
+      exit;
+    end;
+
+    venvMatches := VenvMeetsRequirements(venvPython);
+    if venvMatches then
+    begin
+      response := MsgBox(
+        'An existing virtual environment was found and appears to meet requirements.' + #13#10 +
+        'Skip rebuilding it and reuse as-is?',
+        mbConfirmation, MB_YESNO or MB_DEFBUTTON2);
+      if response = IDYES then
+        skipRebuild := True;
+    end
+    else
+    begin
+      response := MsgBox(
+        'The bundled virtual environment appears outdated or missing dependencies.' + #13#10 +
+        'Rebuild it now using the bundled environment?',
+        mbConfirmation, MB_YESNO or MB_DEFBUTTON1);
+      if response <> IDYES then
+      begin
+        MsgBox('Installation cannot continue without a valid virtual environment.', mbError, MB_OK);
+        exit;
+      end;
+    end;
+
+    pythonForChecks := venvPython;
     pythonCheckCmd := '-c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)"';
     if not RunAndCheck(venvPython, pythonCheckCmd, '', 'Bundled Python 3.10+ check') then
       exit;
   end
+  else if IsBuildMode() then
+  begin
+    if hasExistingVenv then
+    begin
+      venvMatches := VenvMeetsRequirements(venvPython);
+      if venvMatches then
+      begin
+        response := MsgBox(
+          'An existing virtual environment was found and appears to meet requirements.' + #13#10 +
+          'Skip rebuilding it and reuse as-is?',
+          mbConfirmation, MB_YESNO or MB_DEFBUTTON2);
+        if response = IDYES then
+        begin
+          skipRebuild := True;
+          pythonForChecks := venvPython;
+        end;
+      end;
+
+      if (not venvMatches) or (not skipRebuild) then
+        needsRebuild := True;
+    end
+    else
+      needsRebuild := True;
+
+    if needsRebuild then
+    begin
+      pythonCheckCmd := '-c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)"';
+      if not RunAndCheck('python', pythonCheckCmd, '', 'System Python 3.10+ check') then
+        exit;
+
+      WizardForm.StatusLabel.Caption := 'Creating virtual environment...';
+      WizardForm.ProgressGauge.Max := 3;
+      WizardForm.ProgressGauge.Position := 1;
+      WizardForm.ProgressGauge.Update;
+
+      if not RunAndCheck('python', Format('-m venv "%s"', [appRoot + '\EDMCModernOverlay\overlay_client\.venv']), '', 'Virtual environment creation (system Python)') then
+        exit;
+
+      if not FileExists(venvPython) then
+      begin
+        MsgBox('Virtual environment python.exe not found after creation.', mbError, MB_OK);
+        exit;
+      end;
+
+      pythonForChecks := venvPython;
+
+      WizardForm.StatusLabel.Caption := 'Installing dependencies (online)...';
+      WizardForm.ProgressGauge.Position := 2;
+      WizardForm.ProgressGauge.Update;
+
+      if not RunAndCheck(venvPython, '-m pip install --upgrade pip', '', 'Dependency installation (online)') then
+        exit;
+
+      if not RunAndCheck(venvPython, '-m pip install PyQt6>=6.5', '', 'Dependency installation (online)') then
+        exit;
+    end
+    else
+      pythonForChecks := venvPython;
+  end
   else
   begin
-    pythonCheckCmd := '-c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)"';
-    if not RunAndCheck('python', pythonCheckCmd, '', 'System Python 3.10+ check') then
-      exit;
-
-    WizardForm.StatusLabel.Caption := 'Creating virtual environment...';
-    WizardForm.ProgressGauge.Max := 3;
-    WizardForm.ProgressGauge.Position := 1;
-    WizardForm.ProgressGauge.Update;
-
-    if not RunAndCheck('python', Format('-m venv "%s"', [appRoot + '\EDMCModernOverlay\overlay_client\.venv']), '', 'Virtual environment creation (system Python)') then
-      exit;
-
-    if not FileExists(venvPython) then
-    begin
-      MsgBox('Virtual environment python.exe not found after creation.', mbError, MB_OK);
-      exit;
-    end;
-
-    pythonForChecks := venvPython;
-
-    WizardForm.StatusLabel.Caption := 'Installing dependencies (online)...';
-    WizardForm.ProgressGauge.Position := 2;
-    WizardForm.ProgressGauge.Update;
-
-    if not RunAndCheck(venvPython, '-m pip install --upgrade pip', '', 'Dependency installation (online)') then
-      exit;
-
-    if not RunAndCheck(venvPython, '-m pip install PyQt6>=6.5', '', 'Dependency installation (online)') then
-      exit;
+    MsgBox(Format('Unknown InstallVenvMode: %s', [InstallVenvMode]), mbError, MB_OK);
+    exit;
   end;
 
   if FileExists(payloadManifest) then
