@@ -216,6 +216,7 @@ end;
 function VenvMeetsRequirements(const PythonExe: string): Boolean;
 var
   checkScript, logPath, scriptContent, logContent: string;
+  logContentAnsi: AnsiString;
   resultCode: Integer;
 begin
   checkScript := ExpandConstant('{tmp}') + '\venv_check.py';
@@ -261,8 +262,11 @@ begin
     exit;
   end;
 
-  if LoadStringFromFile(logPath, logContent) then
+  if LoadStringFromFile(logPath, logContentAnsi) then
+  begin
+    logContent := logContentAnsi;
     Log('Existing venv check details:'#13#10 + logContent)
+  end
   else
     Log('Existing venv check produced no log output.');
 
