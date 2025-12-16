@@ -180,6 +180,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=f"Path to an existing manifest to verify (default: <root>/{DEFAULT_MANIFEST}).",
     )
+    parser.add_argument(
+        "--include-venv",
+        action="store_true",
+        help="Include the overlay_client/.venv directory (excluded by default).",
+    )
     return parser.parse_args()
 
 
@@ -197,6 +202,8 @@ def main() -> int:
             print(f"Exclude manifest '{excludes_path}' not found.", file=sys.stderr)
             return 1
         excludes = load_excludes(excludes_path)
+        if args.include_venv:
+            excludes["substrings"].discard("overlay_client/.venv")
 
         if not manifest_path.is_file():
             print(f"Manifest '{manifest_path}' not found; cannot verify.", file=sys.stderr)
@@ -263,6 +270,8 @@ def main() -> int:
         print(f"Exclude manifest '{excludes_path}' not found.", file=sys.stderr)
         return 1
     excludes = load_excludes(excludes_path)
+    if args.include_venv:
+        excludes["substrings"].discard("overlay_client/.venv")
     includes = args.include or []
 
     lines = list(build_manifest(root, target_dir, excludes, includes, skip_prefixes))

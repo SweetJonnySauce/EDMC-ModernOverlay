@@ -193,26 +193,9 @@ begin
   Result := ExpandConstant('{tmp}') + '\checksums_payload.txt';
 end;
 
-function FindPipWheel(): string;
-var
-  rec: TFindRec;
-begin
-  Result := '';
-  if FindFirst(ExpandConstant('{app}') + '\EDMCModernOverlay\overlay_client\.venv\Scripts\pip*.whl', rec) then
-  begin
-    Result := ExpandConstant('{app}') + '\EDMCModernOverlay\overlay_client\.venv\Scripts\' + rec.Name;
-    FindClose(rec);
-  end;
-end;
-
 function GetVenvPython(): string;
 begin
   Result := ExpandConstant('{app}') + '\EDMCModernOverlay\overlay_client\.venv\Scripts\python.exe';
-end;
-
-function GetRequirementsFile(): string;
-begin
-  Result := ExpandConstant('{app}') + '\EDMCModernOverlay\overlay_client\requirements\base.txt';
 end;
 
 function GetChecksumManifest(): string;
@@ -220,59 +203,54 @@ begin
   Result := ExpandConstant('{app}') + '\EDMCModernOverlay\checksums.txt';
 end;
 
+function GetBundledPython(): string;
+begin
+  Result := ExpandConstant('{tmp}') + '\python\python.exe';
+end;
+
+function GetBundledWheels(): string;
+begin
+  Result := ExpandConstant('{tmp}') + '\wheels';
+end;
+
 procedure PerformPostInstallTasks;
 var
-  checksumScriptPath, manifest, appRoot, venvPython, reqFile, fontPath: string;
-  excludesPath, payloadManifest: string;
-  venvCreated: Boolean;
+  checksumScriptPath, manifest, appRoot, venvPython, fontPath: string;
+  excludesPath, payloadManifest, bundledPython: string;
+  pythonCheckCmd: string;
 begin
   checksumScriptPath := GetChecksumScriptPath();
   excludesPath := GetExcludesPath();
   payloadManifest := GetPayloadManifestPath();
   manifest := GetChecksumManifest();
   appRoot := ExpandConstant('{app}');
-  if not RunAndCheck('python', '-c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)"', '', 'Python 3.10+ check (system)') then
+  bundledPython := GetBundledPython();
+
+  if not FileExists(bundledPython) then
+  begin
+    MsgBox('Bundled Python runtime is missing.', mbError, MB_OK);
+    exit;
+  end;
+
+  pythonCheckCmd := '-c "import sys; sys.exit(0 if sys.version_info >= (3,12) else 1)"';
+  if not RunAndCheck(bundledPython, pythonCheckCmd, '', 'Bundled Python 3.12+ check') then
     exit;
 
   if FileExists(payloadManifest) then
   begin
-    if not RunAndCheck('python', Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s" --skip "EDMCModernOverlay"', [checksumScriptPath, ExpandConstant('{tmp}'), payloadManifest, excludesPath]), '', 'Payload checksum validation') then
+    if not RunAndCheck(bundledPython, Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s" --skip "EDMCModernOverlay"', [checksumScriptPath, ExpandConstant('{tmp}'), payloadManifest, excludesPath]), '', 'Payload checksum validation') then
       exit;
   end;
 
-  if not RunAndCheck('python', Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s"', [checksumScriptPath, appRoot, manifest, excludesPath]), '', 'Checksum validation') then
-    exit;
-
-  WizardForm.StatusLabel.Caption := 'Creating virtual environment...';
-  WizardForm.ProgressGauge.Max := 3;
-  WizardForm.ProgressGauge.Position := 1;
-  WizardForm.ProgressGauge.Update;
-
-  venvCreated := RunAndCheck('python', Format('-m venv "%s"', [appRoot + '\EDMCModernOverlay\overlay_client\.venv']), '', 'Virtual environment creation (system Python)');
-  if not venvCreated then
+  if not RunAndCheck(bundledPython, Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s" --include-venv', [checksumScriptPath, appRoot, manifest, excludesPath]), '', 'Checksum validation') then
     exit;
 
   venvPython := GetVenvPython();
-  reqFile := GetRequirementsFile();
   if not FileExists(venvPython) then
   begin
-    MsgBox('Virtual environment python.exe not found after creation.', mbError, MB_OK);
+    MsgBox('Bundled virtual environment python.exe not found.', mbError, MB_OK);
     exit;
   end;
-
-  WizardForm.StatusLabel.Caption := 'Installing dependencies (online)...';
-  WizardForm.ProgressGauge.Position := 2;
-  WizardForm.ProgressGauge.Update;
-
-  if not RunAndCheck(venvPython,
-     '-m pip install --upgrade pip',
-     '', 'Dependency installation (online)') then
-    exit;
-
-  if not RunAndCheck(venvPython,
-     '-m pip install PyQt6>=6.5',
-     '', 'Dependency installation (online)') then
-    exit;
 
   if WizardIsTaskSelected('font') then
   begin

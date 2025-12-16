@@ -120,11 +120,33 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip download --only-binary=:all: --dest $wheelDir PyQt6>=6.5
 
+      - name: Build bundled virtual environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Get-Location
+          $bundledPython = Join-Path $root "dist\inno_payload\python\python.exe"
+          if (-not (Test-Path -LiteralPath $bundledPython)) {
+            throw "Bundled python.exe not found at $bundledPython"
+          }
+          $venvPath = Join-Path $root "dist\inno_payload\EDMCModernOverlay\overlay_client\.venv"
+          if (Test-Path -LiteralPath $venvPath) {
+            Remove-Item -Recurse -Force $venvPath
+          }
+          & $bundledPython -m venv $venvPath
+          $venvPython = Join-Path $venvPath "Scripts\python.exe"
+          if (-not (Test-Path -LiteralPath $venvPython)) {
+            throw "Venv python.exe not found at $venvPython"
+          }
+          & $venvPython -m ensurepip --upgrade
+          $wheelDir = Join-Path $root "dist\inno_payload\wheels"
+          & $venvPython -m pip install --no-index --find-links "$wheelDir" PyQt6>=6.5
+
       - name: Generate checksum manifest
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          python scripts/generate_checksums.py --root dist/inno_payload --target-dir dist/inno_payload/EDMCModernOverlay --output dist/inno_payload/EDMCModernOverlay/checksums.txt --excludes scripts/release_excludes.json
+          python scripts/generate_checksums.py --root dist/inno_payload --target-dir dist/inno_payload/EDMCModernOverlay --output dist/inno_payload/EDMCModernOverlay/checksums.txt --excludes scripts/release_excludes.json --include-venv
 
       - name: Generate payload checksum manifest (non-plugin assets)
         shell: pwsh
@@ -136,7 +158,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          python scripts/generate_checksums.py --verify --root dist/inno_payload --manifest dist/inno_payload/EDMCModernOverlay/checksums.txt
+          python scripts/generate_checksums.py --verify --root dist/inno_payload --manifest dist/inno_payload/EDMCModernOverlay/checksums.txt --include-venv
 
       - name: Smoke-verify payload manifest
         shell: pwsh
