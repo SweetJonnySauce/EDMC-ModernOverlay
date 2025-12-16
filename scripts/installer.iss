@@ -52,7 +52,7 @@ Source: "{#PayloadRoot}\EDMCModernOverlay\overlay_client\fonts\*"; DestDir: "{ap
 Source: "{#PayloadRoot}\tools\generate_checksums.py"; DestDir: "{tmp}\tools"; Flags: ignoreversion deleteafterinstall
 Source: "{#PayloadRoot}\tools\release_excludes.json"; DestDir: "{tmp}\tools"; Flags: ignoreversion deleteafterinstall
 Source: "{#PayloadRoot}\checksums_payload.txt"; DestDir: "{tmp}"; Flags: ignoreversion deleteafterinstall
-Source: "{#PayloadRoot}\extras\EUROCAPS.ttf"; DestDir: "{autofonts}"; FontInstall: "Eurocaps"; Flags: ignoreversion; Tasks: font
+Source: "{#PayloadRoot}\extras\EUROCAPS.ttf"; DestDir: "{app}\EDMCModernOverlay\overlay_client\fonts"; DestName: "Eurocaps.ttf"; Flags: ignoreversion; Tasks: font
 
 [Code]
 const
