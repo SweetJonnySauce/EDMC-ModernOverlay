@@ -1,4 +1,4 @@
-## Goal: rebuild the Windows Inno installers as `win_inno_*` workflows
+## Goal: standardize on a build-mode Windows Inno installer (`win_inno_build`) and retire the embedded bundle
 
 ## Refactorer Persona
 - Bias toward carving out modules aggressively while guarding behavior: no feature changes, no silent regressions.
@@ -43,60 +43,43 @@
 - Performance awareness: efficient enough without premature micro-optimizations; measure before tuning.
 
 ## Drivers and scope notes
-- Current `inno_*` workflows/scripts are tangled; we will replace them with clean `win_inno_*` workflows and supporting assets.
-- Two installer modes are required: (1) prebuilt/embedded Python + dependencies under `overlay_client/.venv`; (2) installer-time venv creation + dependency install.
-- `installer.iss` remains the single installer entry point and must accept a switch to choose embedded vs build-at-install-time behavior.
-- Both `win_inno_*` workflows must emit artifacts for releases/manual runs and feed those artifacts into `.github/workflows/virustotal_scan.yml`.
+- Current `inno_*` workflows/scripts are tangled; we will replace them with a clean, build-only `win_inno_build` workflow and supporting assets.
+- The embedded/bundled Python installer is being abandoned; installs will create the venv at install time using system Python 3.10+ with internet access for deps.
+- `installer.iss` remains the single installer entry point and should default to `/DInstallVenvMode=build` while we remove embedded branches.
+- `win_inno_build` must emit artifacts for releases/manual runs and feed those artifacts into `.github/workflows/virustotal_scan.yml`.
 - We should assume the existing payload staging, checksum verification, and user-settings preservation remain intact (no silent behavior regressions).
 
 ## Requirements to capture
 
-### Shared between both `win_inno_*` workflows
-- Start fresh files named `win_inno_*.yml` (do not reuse the old `inno_*` workflows), keeping triggers for releases on `main` and manual dispatch.
-- Reuse `scripts/installer.iss` with an explicit define/argument to pick the Python strategy (`embedded` vs `install-time`), and thread that define through `iscc`.
-- Keep staging logic that applies `scripts/release_excludes.json`, bundles checksum tooling, preserves user config/fonts, and writes payload + payload manifest artifacts.
-- Artifact upload: persist both the installer exe and the staged payload (including `installer.iss`) with deterministic artifact names consumed by VirusTotal.
-- VirusTotal integration: call `.github/workflows/virustotal_scan.yml` with the correct artifact name and `dist/inno_output/*.exe` pattern; pass through release id when available.
+### Build-only installer/workflow (`win_inno_build`)
+- Maintain `win_inno_build.yml` as the single installer workflow with release triggers on `main` and manual dispatch.
+- Build via `scripts/installer.iss` with `/DInstallVenvMode=build` (default); embedded mode is retired.
+- Keep staging logic that applies `scripts/release_excludes.json`, bundles checksum tooling, preserves user config/fonts, and uploads payload + installer artifacts with deterministic names consumed by VirusTotal.
+- Exclude any prebuilt `.venv` from the payload; installer must create `overlay_client/.venv` using system Python 3.10+ with internet access to install deps and surface progress.
 - Release publishing: attach the generated exe to tagged releases (same naming convention as today) and allow download when run manually.
 
-### `win_inno_embed` (ship bundled Python)
-- Build a fresh venv at `dist/inno_payload/EDMCModernOverlay/overlay_client/.venv`.
-- Install dependencies into that venv (PyQt6 >= 6.5 plus current pip upgrade); ensure required Python DLLs are copied alongside `python.exe` and into `Scripts`.
-- Generate plugin and payload checksum manifests with `--include-venv`, and smoke-verify them prior to running `iscc`.
-- Include the venv in the payload; installer should treat bundled Python as authoritative and skip online installs when present.
-
-### `win_inno_build` (build venv during installation)
-- Payload must exclude any prebuilt `.venv` so the installer creates it on the target machine.
-- Installer must:
-  - Validate available Python 3.10+ (or fail with a clear message) before creating the venv under `overlay_client/.venv`.
-  - Create the venv, upgrade pip, and install runtime deps (at least PyQt6 >= 6.5) during install; surface progress in the wizard status/progress controls.
-  - Fall back/exit gracefully if Python is missing or dependency installation fails.
-- Checksum generation/verification should omit the venv (no `--include-venv` when building manifests) but still validate the rest of the payload.
-
 ### `installer.iss` expectations
-- Accept a define/flag (e.g., `/DInstallVenvMode=embedded|build`) that selects:
-  - Embedded mode: verify bundled Python 3.10+ under `overlay_client/.venv`, skip online installs, and include venv files in checksum verification.
-  - Build mode: require system Python 3.10+, create venv, install deps, and run checksum verification excluding the newly built venv.
-- Keep existing safeguards: prompt when upgrading an existing install, rename legacy plugin folders, preserve user settings/fonts, and run checksum validation using staged manifests.
-- Upgrade path requirement: if an existing `overlay_client\.venv` is detected, check Python version + required deps (expectations sourced from a manifest captured during build, e.g., python version + `pip freeze` of the bundled venv; fallback to `overlay_client/requirements/base.txt` and Py 3.10+). Run this check in both modes. If they match expectations, prompt the user to skip rebuilding; otherwise prompt to rebuild the venv (using the selected mode: reuse bundled or recreate via system Python).
-- Maintain `Tasks` toggle for optional Eurocaps font install; ensure the font still comes from the staged payload.
-- Continue to use temp-staged `tools/generate_checksums.py`, `release_excludes.json`, and `checksums_payload.txt` for verification.
+- Default to build mode; embedded/bundled Python flow is retired.
+- Validate available Python 3.10+ (clear failure messaging) before creating the venv under `overlay_client/.venv`.
+- Create the venv, upgrade pip, and install runtime deps (PyQt6 >= 6.5) during install; surface progress in wizard status/progress controls and fail clearly on dependency errors.
+- Upgrade path: if an existing `overlay_client/.venv` matches expected Python/deps (manifest or `requirements/base.txt`), prompt to skip rebuild; otherwise rebuild using system Python 3.10+.
+- Maintain safeguards: prompt when upgrading existing installs, rename legacy plugin folders, preserve user settings/fonts, and run checksum validation excluding the venv files.
 
 ### Decisions (confirmed)
-- Define: `/DInstallVenvMode=embedded` (default) and `/DInstallVenvMode=build` for install-time venv creation.
-- Workflow filenames: `win_inno_embed.yml` and `win_inno_build.yml`; VirusTotal artifact names: `win-inno-embed` and `win-inno-build`.
-- Install-time venv creation may fetch from PyPI (no offline wheel requirement).
-- Minimum supported Python version remains 3.10+; builds may use the latest available 3.10+ for the venv (embedded or install-time).
+- Standardize on build-mode installers and drop the embedded bundle path.
+- Keep `win_inno_build.yml` and retire `win_inno_embed.yml`; VirusTotal artifact name remains `win-inno-build`.
+- Installer define defaults to `/DInstallVenvMode=build`; internet access and system Python 3.10+ are assumed.
+- Minimum supported Python version remains 3.10+; builds/installs may use the latest available 3.10+.
 
 ## Phase Overview
 
 | Phase | Description | Status |
 | --- | --- | --- |
-| 1 | Requirements and refactor plan for new `win_inno_*` installers | Completed |
-| 2 | Add `installer.iss` flagging for venv mode and keep shared behavior intact | In Progress |
-| 3 | Implement `win_inno_embed` workflow (prebuilt venv) | In Progress |
-| 4 | Implement `win_inno_build` workflow (install-time venv) | In Progress |
-| 5 | Clean-up/remove legacy `inno_*` workflows and align docs/tests | Pending |
+| 1 | Requirements and refactor plan for build-only installer | Completed |
+| 2 | Add `installer.iss` flagging for venv mode (default build) and keep shared behavior intact | Completed |
+| 3 | Retire embedded workflow and references | Completed |
+| 4 | Implement/verify `win_inno_build` workflow (install-time venv) | Completed |
+| 5 | Clean-up/remove legacy `inno_*` workflows and align docs/tests for build-only | Pending |
 
 ## Execution plan expectations
 - Before planning/implementation, set up your environment using `tests/configure_pytest_environment.py`.
@@ -123,16 +106,16 @@
 - Plan: inventory current `inno_*` behaviors, define the two `win_inno_*` modes, capture installer expectations, VirusTotal wiring, and upgrade prompts; no code changes.
 - Risks: omitting legacy behaviors or naming conventions; mixing workflow vs artifact names.
 - Mitigations: cross-check existing `inno_*` workflows and `installer.iss`; document naming for workflows (`win_inno_*.yml`) vs artifacts (`win-inno-*`).
-- Results: requirements recorded above; decisions documented in “Decisions (confirmed)”; no tests run (docs only).
+- Results: requirements recorded above (later narrowed to build-only; see Phase 3); decisions documented in "Decisions (confirmed)"; no tests run (docs only).
 
 #### Stage 1.2 plan / risks / results (Completed)
-- Plan: confirm `/DInstallVenvMode` values, workflow file names (`win_inno_embed.yml`, `win_inno_build.yml`), and artifact names (`win-inno-embed`, `win-inno-build`) with maintainers; update docs/tables once confirmed.
+- Plan: confirm `/DInstallVenvMode` values and initial workflow/artifact naming (embedded + build) with maintainers; update docs/tables once confirmed (embedded path later removed).
 - Risks: proceeding with mismatched names/defines would break CI or installer behavior; unclear expectations would block later phases.
 - Mitigations: paused before Phase 2 until confirmation; proposed defaults for quick sign-off.
-- Results: Confirmed define values and naming as noted in “Decisions (confirmed)”; no open questions remain for Phase 1. No tests run (docs only).
+- Results: Confirmed define values and naming as noted in "Decisions (confirmed)"; embedded path later retired in Phase 3. No open questions remain for Phase 1. No tests run (docs only).
 
-### Phase 2: `installer.iss` supports both modes
-- Introduce a single define-driven switch for venv mode while preserving current upgrade/validation behavior.
+### Phase 2: `installer.iss` supports build mode (legacy embedded branch)
+- Introduce a single define-driven switch for venv mode while preserving current upgrade/validation behavior; default to build and flag embedded handling for retirement.
 - Keep checksum verification flow intact and ensure font handling still works.
 - Add manual/automated upgrade-path checks (existing venv matching vs outdated) to validate the rebuild-or-skip prompt logic.
 
@@ -156,10 +139,10 @@
 - Results: Checksum verification now includes `--include-venv` only in embedded mode and keeps payload manifest checks intact. No tests run yet.
 
 #### Stage 2.3 plan / risks / results (Skipped; awaiting workflow-built installers)
-- Plan: run manual installer smoke-tests in both modes covering fresh install and upgrade with existing venv (matching vs stale) to confirm rebuild-or-skip prompts, checksum validation, and dependency installation behavior.
-- Risks: untested branches leading to runtime failures; missed upgrade prompt edge cases.
-- Mitigations: explicit test matrix (embedded fresh/upgrade-ok/upgrade-stale; build fresh/upgrade-ok/upgrade-stale); capture logs/screenshots if issues arise.
-- Results: Skipped for now; will execute once `win_inno_*` workflows produce installers to test.
+- Plan: focus manual smoke-tests on build mode (fresh install and upgrade with existing venv matching vs stale) to confirm rebuild-or-skip prompts, checksum validation, and dependency installation behavior.
+- Risks: untested build-mode branches leading to runtime failures; missed upgrade prompt edge cases.
+- Mitigations: explicit build-only matrix (fresh/upgrade-ok/upgrade-stale); capture logs/screenshots if issues arise.
+- Results: Skipped for now; will execute once the build-only installer artifacts are available.
 
 #### Stage 2.4 plan / risks / results (Completed)
 - Plan:
@@ -182,23 +165,36 @@
   - Added shared helper for system-Python venv creation (reuse in both modes) and excluded `pyvenv.cfg` from manifests to avoid checksum drift after rehome. Current guidance: set `pyvenv.cfg` `home` to the venv `Scripts` directory (not the exe path) to avoid `python.exe\python.exe` resolution failures.
   - Tests: not run (no installer smoke pass available in this environment); needs manual installer run covering embedded fresh/upgrade + rebuild prompt flow.
 
+### Phase 3: Retire embedded workflow
+- Drop the bundled-Python installer path so build-mode is the only supported flow.
+
+| Stage | Description | Status |
+| --- | --- | --- |
+| 3.1 | Remove/disable `win_inno_embed.yml` and embedded artifacts from CI/release wiring | Completed |
+| 3.2 | Strip embedded-venv references from docs/release notes and align defaults to build-only | Completed |
+
 #### Stage 3.1 plan / risks / results (Completed)
-- Plan: create `win_inno_embed.yml` workflow to build embedded-venv installer on Windows; stages payload with release excludes, builds bundled venv with DLLs, generates/verifies manifests with `--include-venv`, bundles font, builds installer via `iscc` with `/DInstallVenvMode=embedded`, uploads artifacts as `win-inno-embed`, and calls VirusTotal scan workflow.
-- Risks: workflow syntax errors; missing DLLs in venv; misaligned artifact naming with VirusTotal; forgetting to pass `InstallVenvMode`.
-- Mitigations: mirror prior embedded workflow structure; explicitly copy DLLs into venv and Scripts; pass `InstallVenvMode=embedded`; artifact name matches spec; include manifest smoke-verification steps.
-- Results: `win_inno_embed.yml` added with full build steps and VirusTotal invocation; size trimmed via `--no-cache-dir/--no-compile`, cache cleanup, and single-copy DLL placement; awaiting CI run for validation. No tests run locally.
+- Plan: delete the embedded workflow and stop producing/uploading embedded artifacts; keep build-mode workflow intact.
+- Risks: lingering CI references to the removed workflow/artifacts causing failures; accidental removal of shared build steps needed by `win_inno_build`.
+- Mitigations: remove only the embedded workflow file; retain build workflow unchanged; follow-up sweep in Stage 3.2 for docs/links.
+- Results: `.github/workflows/win_inno_embed.yml` removed; no other CI references remained. No tests run (workflow removal only).
 
 #### Stage 3.2 plan / risks / results (Completed)
-- Plan: run the new workflow in CI (release tag or manual dispatch) to confirm payload staging, bundled venv contents (including DLLs), and checksum generation/verification succeed.
-- Risks: CI failures due to path/syntax errors, missing DLL copy, or checksum mismatch.
-- Mitigations: inspect artifact contents and logs from first run; rerun if needed after fixes.
-- Results: Manual workflow dispatch completed; artifacts/logs reviewed to confirm payload staging and checksum steps succeeded. No code changes needed; no local tests run.
+- Plan: update documentation to reflect build-only strategy and note embedded retirement.
+- Risks: lingering references causing confusion for reviewers; mismatched artifact names in docs.
+- Mitigations: sweep docs for embedded-workflow mentions; update phase tables; align decisions with build-only assumption.
+- Results: Doc sweep completed for this refactoring plan; embedded workflow references are now noted only historically, defaults point to build-only, and phase tables updated. No tests run (docs only).
 
-#### Stage 3.3 plan / risks / results (Completed)
-- Plan: confirm artifact upload names (`win-inno-embed`, `win-inno-embed-exe`), release attachment, and VirusTotal workflow invocation using the new workflow; ensure VT uses `dist/inno_output/*.exe`.
-- Risks: incorrect artifact names/path pattern causing VT or release attachment to fail.
-- Mitigations: validate artifact list in CI run; check VT job logs for pattern/attachment success.
-- Results: Manual run confirmed artifacts (`win-inno-embed`, `win-inno-embed-exe`), release attachment wiring (via separate `attach_release` job with artifact download), and VT invocation with `dist/inno_output/*.exe`; VT failed due to size limit (413) but wiring is correct.
+### Phase 4: `win_inno_build` workflow
+- Build payload without venv; rely on installer to create venv during setup.
+- Generate/verify manifests excluding venv; produce installer and hook VirusTotal.
+- Include upgrade-path validation: run installer over existing venvs (matching vs outdated) to confirm rebuild-or-skip behavior and online dep install flow.
+
+| Stage | Description | Status |
+| --- | --- | --- |
+| 4.1 | Author `win_inno_build.yml` workflow from scratch | Completed |
+| 4.2 | Verify checksum generation/verification without venv | Completed |
+| 4.3 | Wire artifact upload/release attachment + VirusTotal call | Completed |
 
 #### Stage 4.1 plan / risks / results (Completed)
 - Plan: create `win_inno_build.yml` workflow to build installer without embedded venv; stage payload with release excludes and ensure `.venv` is excluded; generate and verify checksum manifests without `--include-venv`; bundle font; build via `iscc` with `/DInstallVenvMode=build`; upload artifacts as `win-inno-build`; invoke VirusTotal.
@@ -218,34 +214,11 @@
 - Mitigations: validate artifact list in CI run; check VT job logs for pattern/attachment success.
 - Results: Manual run confirmed artifacts (`win-inno-build`, `win-inno-build-exe`), release attachment wiring (now via separate `attach_release` job with artifact download), and VT invocation with `dist/inno_output/*.exe`; VT behavior depends on file size vs VT limits. No code changes needed.
 
-### Phase 3: `win_inno_embed` workflow
-- Build payload with bundled venv and DLLs; generate/verify manifests with venv included.
-- Produce installer exe, upload artifacts, attach to releases, and trigger VirusTotal scan.
-- Include upgrade-path validation: simulate installing over an existing venv (up-to-date vs stale) and ensure prompts behave as expected.
-
-| Stage | Description | Status |
-| --- | --- | --- |
-| 3.1 | Author `win_inno_embed.yml` workflow from scratch | Completed |
-| 3.2 | Verify payload staging + checksum generation in CI | Completed |
-| 3.3 | Wire artifact upload/release attachment + VirusTotal call | Completed |
-
-### Phase 4: `win_inno_build` workflow
-- Build payload without venv; rely on installer to create venv during setup.
-- Generate/verify manifests excluding venv; produce installer and hook VirusTotal.
-- Include upgrade-path validation: run installer over existing venvs (matching vs outdated) to confirm rebuild-or-skip behavior and online dep install flow.
-
-| Stage | Description | Status |
-| --- | --- | --- |
-| 4.1 | Author `win_inno_build.yml` workflow from scratch | Completed |
-| 4.2 | Verify checksum generation/verification without venv | Completed |
-| 4.3 | Wire artifact upload/release attachment + VirusTotal call | Completed |
-
 ### Phase 5: Clean-up and hardening
-- Remove/rename legacy `inno_*` workflows and references; update docs/readme as needed.
-- Ensure CI badges/links point to new workflows; add regression coverage if available.
+- Remove/rename legacy `inno_*` workflows and references; align remaining docs/CI to the build-only path; add regression coverage if available.
 
 | Stage | Description | Status |
 | --- | --- | --- |
 | 5.1 | Remove/retire old `inno_*` workflows and helper scripts | Pending |
-| 5.2 | Update docs/release notes/test plans for the new installers | Pending |
-| 5.3 | Final verification run of both workflows and installers | Pending |
+| 5.2 | Update CI badges/links and release notes to point at `win_inno_build` | Pending |
+| 5.3 | Final verification run of the build-only installer (manual smoke + VT wiring) | Pending |
