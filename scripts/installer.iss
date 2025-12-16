@@ -215,10 +215,60 @@ end;
 
 function VenvMeetsRequirements(const PythonExe: string): Boolean;
 var
-  checkCmd: string;
+  checkScript, logPath, scriptContent, logContent: string;
+  resultCode: Integer;
 begin
-  checkCmd := '-c "import sys; import PyQt6; ver = tuple(map(int, PyQt6.__version__.split(''.'')[0:2])); sys.exit(0 if (sys.version_info >= (3,10) and ver >= (6,5)) else 1)"';
-  Result := RunAndCheck(PythonExe, checkCmd, '', 'Existing venv Python/deps check');
+  checkScript := ExpandConstant('{tmp}') + '\venv_check.py';
+  logPath := ExpandConstant('{tmp}') + '\venv_check_output.txt';
+  scriptContent :=
+    'import sys, traceback' + #13#10 +
+    'log_path = sys.argv[1]' + #13#10 +
+    'lines = []' + #13#10 +
+    'lines.append("sys_executable=" + sys.executable)' + #13#10 +
+    'lines.append("sys_version=" + sys.version.replace("\\n", " "))' + #13#10 +
+    'ok = True' + #13#10 +
+    'try:' + #13#10 +
+    '    import PyQt6' + #13#10 +
+    '    ver = getattr(PyQt6, "__version__", "0.0")' + #13#10 +
+    '    lines.append("pyqt6_version=" + ver)' + #13#10 +
+    '    try:' + #13#10 +
+    '        ver_t = tuple(int(x) for x in ver.split(".")[0:2])' + #13#10 +
+    '    except Exception:' + #13#10 +
+    '        ver_t = (0, 0)' + #13#10 +
+    '    ok = ok and sys.version_info >= (3, 10) and ver_t >= (6, 5)' + #13#10 +
+    'except Exception:' + #13#10 +
+    '    ok = False' + #13#10 +
+    '    lines.append("pyqt6_import_error=" + traceback.format_exc())' + #13#10 +
+    'with open(log_path, "w", encoding="utf-8") as fh:' + #13#10 +
+    '    fh.write("\\n".join(lines))' + #13#10 +
+    'sys.exit(0 if ok else 1)';
+
+  if not SaveStringToFile(checkScript, scriptContent, False) then
+  begin
+    MsgBox('Failed to write venv check script.', mbError, MB_OK);
+    Result := False;
+    exit;
+  end;
+
+  DeleteFile(logPath);
+  Log(Format('Checking existing venv using: %s %s %s', [PythonExe, checkScript, logPath]));
+
+  if not Exec(PythonExe, Format('"%s" "%s"', [checkScript, logPath]), '', SW_HIDE, ewWaitUntilTerminated, resultCode) then
+  begin
+    Log('Exec failed launching venv check script.');
+    MsgBox('Existing venv Python/deps check could not be launched (see log).', mbError, MB_OK);
+    Result := False;
+    exit;
+  end;
+
+  if LoadStringFromFile(logPath, logContent) then
+    Log('Existing venv check details:'#13#10 + logContent)
+  else
+    Log('Existing venv check produced no log output.');
+
+  Result := (resultCode = 0);
+  if not Result then
+    MsgBox(Format('Existing venv Python/deps check failed (code %d). See log for details.', [resultCode]), mbError, MB_OK);
 end;
 
 function GetChecksumManifest(): string;
