@@ -231,20 +231,20 @@ begin
   logPath := ExpandConstant('{tmp}') + '\venv_check_output.txt';
   scriptContent :=
     'import sys, traceback' + #13#10 +
+    'from importlib import metadata' + #13#10 +
     'log_path = sys.argv[1]' + #13#10 +
     'lines = []' + #13#10 +
     'lines.append("sys_executable=" + sys.executable)' + #13#10 +
     'lines.append("sys_version=" + sys.version.replace("\\n", " "))' + #13#10 +
-    'ok = True' + #13#10 +
+    'ok = sys.version_info >= (3, 10)' + #13#10 +
     'try:' + #13#10 +
-    '    import PyQt6' + #13#10 +
-    '    ver = getattr(PyQt6, "__version__", "0.0")' + #13#10 +
+    '    ver = metadata.version("PyQt6")' + #13#10 +
     '    lines.append("pyqt6_version=" + ver)' + #13#10 +
     '    try:' + #13#10 +
     '        ver_t = tuple(int(x) for x in ver.split(".")[0:2])' + #13#10 +
     '    except Exception:' + #13#10 +
     '        ver_t = (0, 0)' + #13#10 +
-    '    ok = ok and sys.version_info >= (3, 10) and ver_t >= (6, 5)' + #13#10 +
+    '    ok = ok and ver_t >= (6, 5)' + #13#10 +
     'except Exception:' + #13#10 +
     '    ok = False' + #13#10 +
     '    lines.append("pyqt6_import_error=" + traceback.format_exc())' + #13#10 +
