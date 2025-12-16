@@ -179,7 +179,7 @@
   - Cover spaces/non-default paths in the manual test matrix; keep upgrade prompts unchanged except for the added rehome/rebuild step.
 - Results:
   - Added installer rehome step for the bundled venv (`pyvenv.cfg` rewritten to installed paths) before dependency checks; if validation still fails, prompt to rebuild using system Python 3.10+ with online installs, then re-validate.
-  - Added shared helper for system-Python venv creation (reuse in both modes) and excluded `pyvenv.cfg` from manifests to avoid checksum drift after rehome.
+  - Added shared helper for system-Python venv creation (reuse in both modes) and excluded `pyvenv.cfg` from manifests to avoid checksum drift after rehome. Current guidance: set `pyvenv.cfg` `home` to the venv `Scripts` directory (not the exe path) to avoid `python.exe\python.exe` resolution failures.
   - Tests: not run (no installer smoke pass available in this environment); needs manual installer run covering embedded fresh/upgrade + rebuild prompt flow.
 
 #### Stage 3.1 plan / risks / results (Completed)

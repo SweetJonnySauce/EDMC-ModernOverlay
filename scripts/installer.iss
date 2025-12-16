@@ -228,12 +228,13 @@ end;
 
 function RehomeVenvConfig(const VenvRoot: string): Boolean;
 var
-  cfgPath, pythonExe, pythonCmd, includeVal, versionVal, lineValue, newContent: string;
+  cfgPath, pythonExe, pythonCmd, includeVal, versionVal, lineValue, newContent, homeDir: string;
   lines: TArrayOfString;
   i, eqPos: Integer;
 begin
   cfgPath := VenvRoot + '\pyvenv.cfg';
-  pythonExe := VenvRoot + '\Scripts\python.exe';
+  homeDir := VenvRoot + '\Scripts';
+  pythonExe := homeDir + '\python.exe';
   pythonCmd := pythonExe + ' -m venv ' + VenvRoot;
   includeVal := 'false';
   versionVal := '';
@@ -258,7 +259,7 @@ begin
   end;
 
   newContent :=
-    'home = ' + pythonExe + #13#10 +
+    'home = ' + homeDir + #13#10 +
     'include-system-site-packages = ' + includeVal + #13#10;
 
   if versionVal <> '' then
