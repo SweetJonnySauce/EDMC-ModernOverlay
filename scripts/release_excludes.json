@@ -5,6 +5,7 @@
     "scripts",
     "dist",
     "docs",
+    "extras",
     "tests",
     "schemas",
     ".codex",

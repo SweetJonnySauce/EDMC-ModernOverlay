@@ -124,11 +124,14 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $fontDir = "dist\\inno_payload\\extras\\font"
+          $sourceFont = "extras\\EUROCAPS.ttf"
+          if (-not (Test-Path -LiteralPath $sourceFont)) {
+            throw "Expected Eurocaps font at '$sourceFont' but it was not found. Please place EUROCAPS.ttf in the extras folder."
+          }
+          $fontDir = "dist\\inno_payload\\extras"
           New-Item -ItemType Directory -Path $fontDir -Force | Out-Null
-          $fontUrl = "https://raw.githubusercontent.com/inorton/EDMCOverlay/master/EDMCOverlay/EDMCOverlay/EUROCAPS.TTF"
-          $fontPath = Join-Path $fontDir "Eurocaps.ttf"
-          Invoke-WebRequest -Uri $fontUrl -OutFile $fontPath
+          $destFont = Join-Path $fontDir "EUROCAPS.ttf"
+          Copy-Item -LiteralPath $sourceFont -Destination $destFont -Force
 
       - name: Build bundled virtual environment
         shell: pwsh

@@ -52,13 +52,13 @@ Source: "{#PayloadRoot}\EDMCModernOverlay\overlay_client\fonts\*"; DestDir: "{ap
 Source: "{#PayloadRoot}\tools\generate_checksums.py"; DestDir: "{tmp}\tools"; Flags: ignoreversion deleteafterinstall
 Source: "{#PayloadRoot}\tools\release_excludes.json"; DestDir: "{tmp}\tools"; Flags: ignoreversion deleteafterinstall
 Source: "{#PayloadRoot}\checksums_payload.txt"; DestDir: "{tmp}"; Flags: ignoreversion deleteafterinstall
-Source: "{#PayloadRoot}\extras\font\Eurocaps.ttf"; DestDir: "{tmp}\extras\font"; Flags: ignoreversion deleteafterinstall; Tasks: font
+Source: "{#PayloadRoot}\extras\EUROCAPS.ttf"; DestDir: "{tmp}\extras"; Flags: ignoreversion deleteafterinstall; Tasks: font
 
 [Code]
 const
   ChecksumScript = '\tools\generate_checksums.py';
   ExcludesFile = '\tools\release_excludes.json';
-  FontFile = '\extras\font\Eurocaps.ttf';
+  FontFile = '\extras\EUROCAPS.ttf';
   InstallVenvMode = '{#InstallVenvMode}';
 
 procedure PerformPostInstallTasks; forward;

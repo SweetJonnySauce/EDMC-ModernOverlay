@@ -9,7 +9,6 @@ overlay_group_cache.json
 overlay_group_cache.json.tmp
 overlay_groupings.user.json
 #*.code-workspace
-[Ee][Uu][Rr][Oo][Cc][Aa][Pp][Ss].[Tt][Tt][Ff]
 overlay_client/env_overrides.json
 _external/
 _external/**    
