@@ -52,7 +52,7 @@ jobs:
 
           api_key = os.environ.get("VT_API_KEY") or os.environ.get("VIRUSTOTAL_API_KEY")
           if not api_key:
-              print("VT_API_KEY not set; skipping scan (expected VT_API_KEY or VIRUSTOTAL_API_KEY).")
+              print("VT_API_KEY not set; skipping scan (expected VT_API_KEY or VIRUSTOTAL_API_KEY).", flush=True)
               sys.exit(0)
 
           session = requests.Session()
@@ -73,16 +73,16 @@ jobs:
           def scan_one(target: str) -> bool:
               sha = sha256sum(target)
               vt_url = f"https://www.virustotal.com/gui/file/{sha}"
-              print(f"Scanning {target} ({sha})")
-              print(f"VT report URL: {vt_url}")
+              print(f"Scanning {target} ({sha})", flush=True)
+
 
               resp = session.get(f"https://www.virustotal.com/api/v3/files/{sha}", timeout=30)
               if resp.status_code == 200:
                   data = resp.json().get("data", {})
                   stats = data.get("attributes", {}).get("last_analysis_stats")
                   if stats:
-                      print(f"Existing VT stats: {stats}")
-                      print(f"VT report URL: {vt_url}")
+                      print(f"Existing VT stats: {stats}", flush=True)
+                      print(f"VT report URL: {vt_url}", flush=True)
                       return not (stats.get("malicious", 0) or stats.get("suspicious", 0))
 
               with open(target, "rb") as handle:
@@ -93,7 +93,7 @@ jobs:
                   )
               upload.raise_for_status()
               analysis_id = upload.json()["data"]["id"]
-              print(f"Uploaded; analysis id {analysis_id}")
+              print(f"Uploaded; analysis id {analysis_id}", flush=True)
 
               while True:
                   r = session.get(f"https://www.virustotal.com/api/v3/analyses/{analysis_id}", timeout=30)
@@ -102,17 +102,17 @@ jobs:
                   status = data["attributes"]["status"]
                   if status == "completed":
                       stats = data["attributes"]["stats"]
-                      print(f"VT stats: {stats}")
-                      print(f"VT report URL: {vt_url}")
+                      print(f"VT stats: {stats}", flush=True)
+                      print(f"VT report URL: {vt_url}", flush=True)
                       return not (stats.get("malicious", 0) or stats.get("suspicious", 0))
-                  print(f"VT status: {status}, waiting...")
+                  print(f"VT status: {status}, waiting...", flush=True)
                   time.sleep(30)
 
           all_clean = True
           for target in targets:
               if not scan_one(target):
                   all_clean = False
-                  print(f"VirusTotal flagged: {target}")
+                  print(f"VirusTotal flagged: {target}", flush=True)
           if not all_clean:
               sys.exit("VirusTotal flagged one or more files.")
           PY
