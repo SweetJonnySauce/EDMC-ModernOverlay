@@ -52,13 +52,12 @@ Source: "{#PayloadRoot}\EDMCModernOverlay\overlay_client\fonts\*"; DestDir: "{ap
 Source: "{#PayloadRoot}\tools\generate_checksums.py"; DestDir: "{tmp}\tools"; Flags: ignoreversion deleteafterinstall
 Source: "{#PayloadRoot}\tools\release_excludes.json"; DestDir: "{tmp}\tools"; Flags: ignoreversion deleteafterinstall
 Source: "{#PayloadRoot}\checksums_payload.txt"; DestDir: "{tmp}"; Flags: ignoreversion deleteafterinstall
-Source: "{#PayloadRoot}\extras\EUROCAPS.ttf"; DestDir: "{tmp}\extras"; Flags: ignoreversion deleteafterinstall; Tasks: font
+Source: "{#PayloadRoot}\extras\EUROCAPS.ttf"; DestDir: "{autofonts}"; FontInstall: "Eurocaps"; Flags: ignoreversion; Tasks: font
 
 [Code]
 const
   ChecksumScript = '\tools\generate_checksums.py';
   ExcludesFile = '\tools\release_excludes.json';
-  FontFile = '\extras\EUROCAPS.ttf';
   InstallVenvMode = '{#InstallVenvMode}';
 
 procedure PerformPostInstallTasks; forward;
@@ -196,11 +195,6 @@ begin
   Result := ExpandConstant('{tmp}') + ExcludesFile;
 end;
 
-function GetFontTempPath(): string;
-begin
-  Result := ExpandConstant('{tmp}') + FontFile;
-end;
-
 function GetPayloadManifestPath(): string;
 begin
   Result := ExpandConstant('{tmp}') + '\checksums_payload.txt';
@@ -290,7 +284,7 @@ end;
 
 procedure PerformPostInstallTasks;
 var
-  checksumScriptPath, manifest, appRoot, venvPython, fontPath: string;
+  checksumScriptPath, manifest, appRoot, venvPython: string;
   excludesPath, payloadManifest: string;
   pythonCheckCmd, includeArg, pythonForChecks: string;
   hasExistingVenv, skipRebuild, needsRebuild, venvMatches: Boolean;
@@ -433,11 +427,4 @@ begin
 
   if not RunAndCheck(pythonForChecks, Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s"%s', [checksumScriptPath, appRoot, manifest, excludesPath, includeArg]), '', 'Checksum validation') then
     exit;
-
-  if WizardIsTaskSelected('font') then
-  begin
-    fontPath := GetFontTempPath();
-    if FileExists(fontPath) then
-      CopyFile(fontPath, ExpandConstant('{autofonts}') + '\Eurocaps.ttf', False);
-  end;
 end;
