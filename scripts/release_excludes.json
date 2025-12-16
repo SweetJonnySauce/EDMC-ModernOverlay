@@ -20,7 +20,8 @@
     "conftest.py",
     "EDMCModernOverlay.code-workspace",
     "Makefile",
-    "overlay_groupings.user.json"
+    "overlay_groupings.user.json",
+    "pyvenv.cfg"
   ],
   "patterns": [
     "*.md"

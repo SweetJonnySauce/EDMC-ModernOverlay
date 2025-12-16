@@ -141,6 +141,7 @@
 | 2.1 | Add install-mode define and thread through venv detection/creation paths | Completed |
 | 2.2 | Update checksum verification logic for embedded vs build modes | Completed |
 | 2.3 | Smoke-test both modes locally (manual installer runs) | Skipped (awaiting workflow-built installers) |
+| 2.4 | Fix embedded venv relocation (rehoming `pyvenv.cfg` + safe fallback) | Completed |
 
 #### Stage 2.1 plan / risks / results (Completed)
 - Plan: update `installer.iss` to accept `/DInstallVenvMode=embedded|build` (default embedded), branch venv handling accordingly: embedded uses bundled venv; build uses system Python 3.10+ to create venv, install deps, show progress, and honor upgrade-check prompt (reuse vs rebuild). Keep legacy folder rename and existing prompts intact.
@@ -159,6 +160,27 @@
 - Risks: untested branches leading to runtime failures; missed upgrade prompt edge cases.
 - Mitigations: explicit test matrix (embedded fresh/upgrade-ok/upgrade-stale; build fresh/upgrade-ok/upgrade-stale); capture logs/screenshots if issues arise.
 - Results: Skipped for now; will execute once `win_inno_*` workflows produce installers to test.
+
+#### Stage 2.4 plan / risks / results (Completed)
+- Plan:
+  - Before any embedded-mode venv checks run, rewrite `overlay_client/.venv/pyvenv.cfg` so `home`, `executable`, and `command` point to the installed path (compute from `{app}`), then re-run venv checks against that path.
+  - Exclude `overlay_client/.venv/pyvenv.cfg` from checksum validation (or regenerate the manifest to omit it) to avoid hash mismatches after rewriting.
+  - If the rehomed venv still fails to start (non-zero exit), fall back to a rebuild path: prompt the user and, if accepted, create a fresh venv with system Python 3.10+ and reinstall PyQt6>=6.5 (using the build-mode flow), otherwise abort with a clear error.
+  - Add installer logging around the rehome/rebuild decisions for triage.
+- Risks:
+  - Hash drift if `pyvenv.cfg` is rewritten but still covered by manifests, causing installs to fail.
+  - Rehome logic could point to the wrong path (e.g., path with spaces or non-default install dir) and still fail to start Python.
+  - Rebuild fallback could pull from PyPI and fail offline or on machines without Python 3.10+.
+  - Silent venv reuse if checks are skipped accidentally.
+- Mitigations/safeguards:
+  - Explicitly exclude `pyvenv.cfg` from the embedded manifest verification (single-file carve-out) while keeping the rest of the venv hashed; document this exception.
+  - Validate the rehomed interpreter by running `python.exe -c "import sys, PyQt6"` and fail fast with a clear message if it exits non-zero.
+  - Gate rebuild on user confirmation; require system Python 3.10+ and surface dependency install progress; fail with actionable messaging if Python/deps are missing.
+  - Cover spaces/non-default paths in the manual test matrix; keep upgrade prompts unchanged except for the added rehome/rebuild step.
+- Results:
+  - Added installer rehome step for the bundled venv (`pyvenv.cfg` rewritten to installed paths) before dependency checks; if validation still fails, prompt to rebuild using system Python 3.10+ with online installs, then re-validate.
+  - Added shared helper for system-Python venv creation (reuse in both modes) and excluded `pyvenv.cfg` from manifests to avoid checksum drift after rehome.
+  - Tests: not run (no installer smoke pass available in this environment); needs manual installer run covering embedded fresh/upgrade + rebuild prompt flow.
 
 #### Stage 3.1 plan / risks / results (Completed)
 - Plan: create `win_inno_embed.yml` workflow to build embedded-venv installer on Windows; stages payload with release excludes, builds bundled venv with DLLs, generates/verifies manifests with `--include-venv`, bundles font, builds installer via `iscc` with `/DInstallVenvMode=embedded`, uploads artifacts as `win-inno-embed`, and calls VirusTotal scan workflow.
