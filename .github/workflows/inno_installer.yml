@@ -164,6 +164,8 @@ jobs:
             dist/inno_output/*.exe
 
   virustotal_scan:
+    permissions:
+      contents: read
     needs: build
     uses: ./.github/workflows/virustotal_scan.yml
     if: github.event_name == 'release' && github.event.release.target_commitish == 'main'
