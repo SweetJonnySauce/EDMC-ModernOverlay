@@ -111,9 +111,9 @@ jobs:
           & $venvPython -m pip install PyQt6>=6.5
           # Ensure required DLLs are present alongside the venv Python
           $pyBase = (python - <<'PY'
-import sys, pathlib
-print(pathlib.Path(sys.base_prefix))
-PY
+                     import sys, pathlib
+                     print(pathlib.Path(sys.base_prefix))
+                     PY
           ).Trim()
           $dllPatterns = @("python3*.dll", "vcruntime*.dll")
           foreach ($pat in $dllPatterns) {
