@@ -149,7 +149,7 @@ jobs:
           $outputDir = Join-Path $workspace "dist\\inno_output"
           $payloadRoot = Join-Path $workspace "dist\\inno_payload"
           New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
-          $finalExeBase = "EDMCModernOverlay-windows-build-${env:VERSION}"
+          $finalExeBase = "EDMCModernOverlay-windows-${env:VERSION}"
           iscc scripts\\installer.iss /DAppVersion="${env:VERSION}" /DOutputDir="$outputDir" /DOutputBaseFilename="$finalExeBase" /DPayloadRoot="$payloadRoot" /DInstallVenvMode="build"
 
       - name: Upload installer artifacts
@@ -199,6 +199,6 @@ jobs:
     secrets:
       VT_API_KEY: ${{ secrets.VT_API_KEY || secrets.VIRUSTOTAL_API_KEY }}
     with:
-      artifact: inno-installer
+      artifact: win-inno-build
       pattern: dist/inno_output/*.exe
       release_id: ${{ github.event.release.id }}
