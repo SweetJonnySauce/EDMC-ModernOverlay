@@ -224,33 +224,25 @@ begin
   payloadManifest := GetPayloadManifestPath();
   manifest := GetChecksumManifest();
   appRoot := ExpandConstant('{app}');
-  bundledPython := GetBundledPython();
-
-  if not FileExists(bundledPython) then
-  begin
-    MsgBox('Bundled Python runtime is missing.', mbError, MB_OK);
-    exit;
-  end;
-
-  pythonCheckCmd := '-c "import sys; sys.exit(0 if sys.version_info >= (3,12) else 1)"';
-  if not RunAndCheck(bundledPython, pythonCheckCmd, '', 'Bundled Python 3.12+ check') then
-    exit;
-
-  if FileExists(payloadManifest) then
-  begin
-    if not RunAndCheck(bundledPython, Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s" --skip "EDMCModernOverlay"', [checksumScriptPath, ExpandConstant('{tmp}'), payloadManifest, excludesPath]), '', 'Payload checksum validation') then
-      exit;
-  end;
-
-  if not RunAndCheck(bundledPython, Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s" --include-venv', [checksumScriptPath, appRoot, manifest, excludesPath]), '', 'Checksum validation') then
-    exit;
-
   venvPython := GetVenvPython();
   if not FileExists(venvPython) then
   begin
     MsgBox('Bundled virtual environment python.exe not found.', mbError, MB_OK);
     exit;
   end;
+
+  pythonCheckCmd := '-c "import sys; sys.exit(0 if sys.version_info >= (3,12) else 1)"';
+  if not RunAndCheck(venvPython, pythonCheckCmd, '', 'Bundled Python 3.12+ check') then
+    exit;
+
+  if FileExists(payloadManifest) then
+  begin
+    if not RunAndCheck(venvPython, Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s" --skip "EDMCModernOverlay"', [checksumScriptPath, ExpandConstant('{tmp}'), payloadManifest, excludesPath]), '', 'Payload checksum validation') then
+      exit;
+  end;
+
+  if not RunAndCheck(venvPython, Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s" --include-venv', [checksumScriptPath, appRoot, manifest, excludesPath]), '', 'Checksum validation') then
+    exit;
 
   if WizardIsTaskSelected('font') then
   begin

@@ -93,54 +93,22 @@ jobs:
           shutil.copy2(root / "scripts" / "release_excludes.json", tools / "release_excludes.json")
           PY
 
-      - name: Bundle Python runtime and wheels
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $pythonExe = (python -c "import sys; print(sys.executable)").Trim()
-          $pythonBase = (python -c "import sys; import pathlib; print(pathlib.Path(sys.base_prefix))").Trim()
-          if (-not (Test-Path -LiteralPath $pythonExe)) {
-            throw "Python executable not found after setup."
-          }
-          if (-not (Test-Path -LiteralPath $pythonBase)) {
-            throw "Python base path not found after setup."
-          }
-
-          $destPython = Join-Path (Get-Location) "dist\inno_payload\python"
-          if (Test-Path -LiteralPath $destPython) {
-            Remove-Item -Recurse -Force $destPython
-          }
-          New-Item -ItemType Directory -Path $destPython -Force | Out-Null
-
-          robocopy $pythonBase $destPython /E /NFL /NDL /NJH /NJS /NC /NS /NP
-          if ($LASTEXITCODE -ge 8) { throw "robocopy failed copying Python runtime (code $LASTEXITCODE)" }
-
-          $wheelDir = "dist\inno_payload\wheels"
-          New-Item -ItemType Directory -Path $wheelDir -Force | Out-Null
-          python -m pip install --upgrade pip
-          python -m pip download --only-binary=:all: --dest $wheelDir PyQt6>=6.5
-
       - name: Build bundled virtual environment
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $root = Get-Location
-          $bundledPython = Join-Path $root "dist\inno_payload\python\python.exe"
-          if (-not (Test-Path -LiteralPath $bundledPython)) {
-            throw "Bundled python.exe not found at $bundledPython"
-          }
           $venvPath = Join-Path $root "dist\inno_payload\EDMCModernOverlay\overlay_client\.venv"
           if (Test-Path -LiteralPath $venvPath) {
             Remove-Item -Recurse -Force $venvPath
           }
-          & $bundledPython -m venv $venvPath
+          python -m venv $venvPath
           $venvPython = Join-Path $venvPath "Scripts\python.exe"
           if (-not (Test-Path -LiteralPath $venvPython)) {
             throw "Venv python.exe not found at $venvPython"
           }
-          & $venvPython -m ensurepip --upgrade
-          $wheelDir = Join-Path $root "dist\inno_payload\wheels"
-          & $venvPython -m pip install --no-index --find-links "$wheelDir" PyQt6>=6.5
+          & $venvPython -m pip install --upgrade pip
+          & $venvPython -m pip install PyQt6>=6.5
 
       - name: Generate checksum manifest
         shell: pwsh
