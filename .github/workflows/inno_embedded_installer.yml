@@ -115,6 +115,7 @@ jobs:
           foreach ($pat in $dllPatterns) {
             Get-ChildItem -Path $pyBase -Filter $pat -File | ForEach-Object {
               Copy-Item -LiteralPath $_.FullName -Destination $venvPath -Force
+              Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $venvPath "Scripts") -Force
             }
           }
 

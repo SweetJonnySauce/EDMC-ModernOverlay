@@ -6,6 +6,7 @@ on:
   release:
     types:
       - published
+  workflow_dispatch: {}
 
 env:
   VERSION: ${{ github.event.release.tag_name || github.ref_name || format('run-{0}', github.run_number) }}
@@ -14,7 +15,7 @@ jobs:
   build:
     name: Build unsigned Inno installer
     runs-on: windows-latest
-    if: github.event_name == 'release' && github.event.release.target_commitish == 'main'
+    if: (github.event_name == 'release' && github.event.release.target_commitish == 'main') || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -168,7 +169,7 @@ jobs:
       contents: write
     needs: build
     uses: ./.github/workflows/virustotal_scan.yml
-    if: github.event_name == 'release' && github.event.release.target_commitish == 'main'
+    if: (github.event_name == 'release' && github.event.release.target_commitish == 'main') || github.event_name == 'workflow_dispatch'
     secrets:
       VT_API_KEY: ${{ secrets.VT_API_KEY || secrets.VIRUSTOTAL_API_KEY }}
     with:
