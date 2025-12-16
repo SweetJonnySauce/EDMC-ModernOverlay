@@ -107,13 +107,15 @@ jobs:
           if (-not (Test-Path -LiteralPath $venvPython)) {
             throw "Venv python.exe not found at $venvPython"
           }
-          & $venvPython -m pip install --upgrade pip
-          & $venvPython -m pip install PyQt6>=6.5
+          & $venvPython -m pip install --upgrade pip --no-cache-dir --no-compile
+          & $venvPython -m pip install PyQt6>=6.5 --no-cache-dir --no-compile
+          # Drop pip cache and __pycache__ to keep payload small
+          & $venvPython -m pip cache purge
+          Get-ChildItem -Path $venvPath -Include "__pycache__" -Recurse -Directory | Remove-Item -Recurse -Force
           $pyBase = (python -c "import sys, pathlib; print(pathlib.Path(sys.base_prefix))").Trim()
           $dllPatterns = @("python3*.dll", "vcruntime*.dll")
           foreach ($pat in $dllPatterns) {
             Get-ChildItem -Path $pyBase -Filter $pat -File | ForEach-Object {
-              Copy-Item -LiteralPath $_.FullName -Destination $venvPath -Force
               Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $venvPath "Scripts") -Force
             }
           }

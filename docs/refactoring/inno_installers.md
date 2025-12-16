@@ -164,7 +164,7 @@
 - Plan: create `win_inno_embed.yml` workflow to build embedded-venv installer on Windows; stages payload with release excludes, builds bundled venv with DLLs, generates/verifies manifests with `--include-venv`, bundles font, builds installer via `iscc` with `/DInstallVenvMode=embedded`, uploads artifacts as `win-inno-embed`, and calls VirusTotal scan workflow.
 - Risks: workflow syntax errors; missing DLLs in venv; misaligned artifact naming with VirusTotal; forgetting to pass `InstallVenvMode`.
 - Mitigations: mirror prior embedded workflow structure; explicitly copy DLLs into venv and Scripts; pass `InstallVenvMode=embedded`; artifact name matches spec; include manifest smoke-verification steps.
-- Results: `win_inno_embed.yml` added with full build steps and VirusTotal invocation; awaiting CI run for validation. No tests run locally.
+- Results: `win_inno_embed.yml` added with full build steps and VirusTotal invocation; size trimmed via `--no-cache-dir/--no-compile`, cache cleanup, and single-copy DLL placement; awaiting CI run for validation. No tests run locally.
 
 #### Stage 3.2 plan / risks / results (Pending)
 - Plan: run the new workflow in CI (release tag or manual dispatch) to confirm payload staging, bundled venv contents (including DLLs), and checksum generation/verification succeed.
