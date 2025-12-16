@@ -11,11 +11,16 @@ on:
       ref:
         required: false
         type: string
+      release_id:
+        required: false
+        type: string
     secrets:
       VT_API_KEY:
         required: true
+      GITHUB_TOKEN:
+        required: false
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   scan:
@@ -40,6 +45,8 @@ jobs:
       - name: Scan with VirusTotal
         env:
           VT_API_KEY: ${{ secrets.VT_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ inputs.release_id }}
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -49,6 +56,10 @@ jobs:
           import time
           import hashlib
           import requests
+
+          repo = os.environ.get("GITHUB_REPOSITORY")
+          release_id = os.environ.get("RELEASE_ID")
+          gh_token = os.environ.get("GITHUB_TOKEN")
 
           api_key = os.environ.get("VT_API_KEY") or os.environ.get("VIRUSTOTAL_API_KEY")
           if not api_key:
@@ -70,10 +81,11 @@ jobs:
                       h.update(chunk)
               return h.hexdigest()
 
-          def scan_one(target: str) -> bool:
+          def scan_one(target: str):
               sha = sha256sum(target)
               vt_url = f"https://www.virustotal.com/gui/file/{sha}"
               print(f"Scanning {target} ({sha})", flush=True)
+              print(f"VT report URL: {vt_url}", flush=True)
 
 
               resp = session.get(f"https://www.virustotal.com/api/v3/files/{sha}", timeout=30)
@@ -83,7 +95,8 @@ jobs:
                   if stats:
                       print(f"Existing VT stats: {stats}", flush=True)
                       print(f"VT report URL: {vt_url}", flush=True)
-                      return not (stats.get("malicious", 0) or stats.get("suspicious", 0))
+                      clean = not (stats.get("malicious", 0) or stats.get("suspicious", 0))
+                      return clean, sha, vt_url, stats
 
               with open(target, "rb") as handle:
                   upload = session.post(
@@ -104,15 +117,42 @@ jobs:
                       stats = data["attributes"]["stats"]
                       print(f"VT stats: {stats}", flush=True)
                       print(f"VT report URL: {vt_url}", flush=True)
-                      return not (stats.get("malicious", 0) or stats.get("suspicious", 0))
+                      clean = not (stats.get("malicious", 0) or stats.get("suspicious", 0))
+                      return clean, sha, vt_url, stats
                   print(f"VT status: {status}, waiting...", flush=True)
                   time.sleep(30)
 
           all_clean = True
+          results = []
           for target in targets:
-              if not scan_one(target):
+              clean, sha, vt_url, stats = scan_one(target)
+              results.append({"file": target, "sha": sha, "url": vt_url, "stats": stats, "clean": clean})
+              if not clean:
                   all_clean = False
                   print(f"VirusTotal flagged: {target}", flush=True)
+
+          def append_release_notes(summary: str) -> None:
+              if not (release_id and repo and gh_token):
+                  return
+              api = f"https://api.github.com/repos/{repo}/releases/{release_id}"
+              headers = {
+                  "Authorization": f"Bearer {gh_token}",
+                  "Accept": "application/vnd.github+json",
+              }
+              current = session.get(api, headers=headers, timeout=30)
+              current.raise_for_status()
+              body = current.json().get("body") or ""
+              new_body = body + "\n\n" + summary if body else summary
+              resp = session.patch(api, headers=headers, json={"body": new_body}, timeout=30)
+              resp.raise_for_status()
+
+          lines = ["VirusTotal scan results:"]
+          for r in results:
+              status = "clean" if r["clean"] else "flagged"
+              lines.append(f"- {r['file']} ({r['sha']}): {status} {r['stats']} – {r['url']}")
+          summary = "\n".join(lines)
+          print(summary, flush=True)
+          append_release_notes(summary)
           if not all_clean:
               sys.exit("VirusTotal flagged one or more files.")
           PY
