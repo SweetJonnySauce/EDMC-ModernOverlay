@@ -94,11 +94,20 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): string;
+var
+  response: Integer;
 begin
-  if IsProcessRunning('EDMarketConnector.exe') then
+  while IsProcessRunning('EDMarketConnector.exe') do
   begin
-    Result := 'Please close EDMarketConnector before installing the overlay.';
-    exit;
+    response := MsgBox(
+      'Please close EDMarketConnector before installing the overlay.' + #13#10#13#10 +
+      'Click Retry after closing it, or Cancel to exit the installer.',
+      mbError, MB_RETRYCANCEL or MB_DEFBUTTON2);
+    if response <> IDRETRY then
+    begin
+      Result := 'Setup was cancelled because EDMarketConnector was running.';
+      exit;
+    end;
   end;
   Result := '';
 end;
