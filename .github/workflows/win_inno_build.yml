@@ -47,7 +47,7 @@ jobs:
           exclude_root_dirs = set(manifest.get("root_directories", []))
           exclude_files = set(manifest.get("files", []))
           exclude_patterns = manifest.get("patterns", [])
-          exclude_substrings = manifest.get("substrings", [])
+          exclude_substrings = set(manifest.get("substrings", []))
 
           # Ensure prebuilt venv is excluded for build-mode installer
           exclude_substrings.update({"overlay_client/.venv", "overlay_client\\.venv"})
