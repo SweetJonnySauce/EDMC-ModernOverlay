@@ -170,7 +170,7 @@ jobs:
           $outputDir = Join-Path $workspace "dist\\inno_output"
           $payloadRoot = Join-Path $workspace "dist\\inno_payload"
           New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
-          $finalExeBase = "EDMCModernOverlay-windows-${env:VERSION}"
+          $finalExeBase = "EDMCModernOverlay-windows-embed-${env:VERSION}"
           iscc scripts\\installer.iss /DAppVersion="${env:VERSION}" /DOutputDir="$outputDir" /DOutputBaseFilename="$finalExeBase" /DPayloadRoot="$payloadRoot" /DInstallVenvMode="embedded"
 
       - name: Upload installer artifacts
