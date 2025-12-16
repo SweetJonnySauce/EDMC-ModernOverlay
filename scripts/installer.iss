@@ -203,21 +203,12 @@ begin
   Result := ExpandConstant('{app}') + '\EDMCModernOverlay\checksums.txt';
 end;
 
-function GetBundledPython(): string;
-begin
-  Result := ExpandConstant('{tmp}') + '\python\python.exe';
-end;
-
-function GetBundledWheels(): string;
-begin
-  Result := ExpandConstant('{tmp}') + '\wheels';
-end;
-
 procedure PerformPostInstallTasks;
 var
   checksumScriptPath, manifest, appRoot, venvPython, fontPath: string;
-  excludesPath, payloadManifest, bundledPython: string;
-  pythonCheckCmd: string;
+  excludesPath, payloadManifest: string;
+  pythonCheckCmd, includeArg, pythonForChecks: string;
+  hasBundledVenv: Boolean;
 begin
   checksumScriptPath := GetChecksumScriptPath();
   excludesPath := GetExcludesPath();
@@ -225,23 +216,58 @@ begin
   manifest := GetChecksumManifest();
   appRoot := ExpandConstant('{app}');
   venvPython := GetVenvPython();
-  if not FileExists(venvPython) then
-  begin
-    MsgBox('Bundled virtual environment python.exe not found.', mbError, MB_OK);
-    exit;
-  end;
+  hasBundledVenv := FileExists(venvPython);
+  includeArg := '';
+  pythonForChecks := 'python';
 
-  pythonCheckCmd := '-c "import sys; sys.exit(0 if sys.version_info >= (3,12) else 1)"';
-  if not RunAndCheck(venvPython, pythonCheckCmd, '', 'Bundled Python 3.12+ check') then
-    exit;
-
-  if FileExists(payloadManifest) then
+  if hasBundledVenv then
   begin
-    if not RunAndCheck(venvPython, Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s" --skip "EDMCModernOverlay"', [checksumScriptPath, ExpandConstant('{tmp}'), payloadManifest, excludesPath]), '', 'Payload checksum validation') then
+    pythonForChecks := venvPython;
+    includeArg := ' --include-venv';
+    pythonCheckCmd := '-c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)"';
+    if not RunAndCheck(venvPython, pythonCheckCmd, '', 'Bundled Python 3.10+ check') then
+      exit;
+  end
+  else
+  begin
+    pythonCheckCmd := '-c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)"';
+    if not RunAndCheck('python', pythonCheckCmd, '', 'System Python 3.10+ check') then
+      exit;
+
+    WizardForm.StatusLabel.Caption := 'Creating virtual environment...';
+    WizardForm.ProgressGauge.Max := 3;
+    WizardForm.ProgressGauge.Position := 1;
+    WizardForm.ProgressGauge.Update;
+
+    if not RunAndCheck('python', Format('-m venv "%s"', [appRoot + '\EDMCModernOverlay\overlay_client\.venv']), '', 'Virtual environment creation (system Python)') then
+      exit;
+
+    if not FileExists(venvPython) then
+    begin
+      MsgBox('Virtual environment python.exe not found after creation.', mbError, MB_OK);
+      exit;
+    end;
+
+    pythonForChecks := venvPython;
+
+    WizardForm.StatusLabel.Caption := 'Installing dependencies (online)...';
+    WizardForm.ProgressGauge.Position := 2;
+    WizardForm.ProgressGauge.Update;
+
+    if not RunAndCheck(venvPython, '-m pip install --upgrade pip', '', 'Dependency installation (online)') then
+      exit;
+
+    if not RunAndCheck(venvPython, '-m pip install PyQt6>=6.5', '', 'Dependency installation (online)') then
       exit;
   end;
 
-  if not RunAndCheck(venvPython, Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s" --include-venv', [checksumScriptPath, appRoot, manifest, excludesPath]), '', 'Checksum validation') then
+  if FileExists(payloadManifest) then
+  begin
+    if not RunAndCheck(pythonForChecks, Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s" --skip "EDMCModernOverlay"', [checksumScriptPath, ExpandConstant('{tmp}'), payloadManifest, excludesPath]), '', 'Payload checksum validation') then
+      exit;
+  end;
+
+  if not RunAndCheck(pythonForChecks, Format('"%s" --verify --root "%s" --manifest "%s" --excludes "%s"%s', [checksumScriptPath, appRoot, manifest, excludesPath, includeArg]), '', 'Checksum validation') then
     exit;
 
   if WizardIsTaskSelected('font') then

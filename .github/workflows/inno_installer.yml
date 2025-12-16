@@ -23,7 +23,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.12"
           cache: "pip"
 
       - name: Verify release build is not in dev mode
@@ -48,6 +48,9 @@ jobs:
           exclude_files = set(manifest.get("files", []))
           exclude_patterns = manifest.get("patterns", [])
           exclude_substrings = manifest.get("substrings", [])
+          # Keep the prebuilt venv for the Inno installer
+          if "overlay_client/.venv" in exclude_substrings:
+              exclude_substrings.remove("overlay_client/.venv")
 
           payload_root = root / "dist" / "inno_payload" / "EDMCModernOverlay"
           if payload_root.exists():
@@ -97,7 +100,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          python scripts/generate_checksums.py --root dist/inno_payload --target-dir dist/inno_payload/EDMCModernOverlay --output dist/inno_payload/EDMCModernOverlay/checksums.txt --excludes scripts/release_excludes.json
+          python scripts/generate_checksums.py --root dist/inno_payload --target-dir dist/inno_payload/EDMCModernOverlay --output dist/inno_payload/EDMCModernOverlay/checksums.txt --excludes scripts/release_excludes.json --include-venv
 
       - name: Generate payload checksum manifest (non-plugin assets)
         shell: pwsh
@@ -109,7 +112,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          python scripts/generate_checksums.py --verify --root dist/inno_payload --manifest dist/inno_payload/EDMCModernOverlay/checksums.txt
+          python scripts/generate_checksums.py --verify --root dist/inno_payload --manifest dist/inno_payload/EDMCModernOverlay/checksums.txt --include-venv
 
       - name: Smoke-verify payload manifest
         shell: pwsh
@@ -126,6 +129,31 @@ jobs:
           $fontUrl = "https://raw.githubusercontent.com/inorton/EDMCOverlay/master/EDMCOverlay/EDMCOverlay/EUROCAPS.TTF"
           $fontPath = Join-Path $fontDir "Eurocaps.ttf"
           Invoke-WebRequest -Uri $fontUrl -OutFile $fontPath
+
+      - name: Build bundled virtual environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Get-Location
+          $venvPath = Join-Path $root "dist\inno_payload\EDMCModernOverlay\overlay_client\.venv"
+          if (Test-Path -LiteralPath $venvPath) {
+            Remove-Item -Recurse -Force $venvPath
+          }
+          python -m venv $venvPath
+          $venvPython = Join-Path $venvPath "Scripts\python.exe"
+          if (-not (Test-Path -LiteralPath $venvPython)) {
+            throw "Venv python.exe not found at $venvPython"
+          }
+          & $venvPython -m pip install --upgrade pip
+          & $venvPython -m pip install PyQt6>=6.5
+          $pyBase = (python -c "import sys, pathlib; print(pathlib.Path(sys.base_prefix))").Trim()
+          $dllPatterns = @("python3*.dll", "vcruntime*.dll")
+          foreach ($pat in $dllPatterns) {
+            Get-ChildItem -Path $pyBase -Filter $pat -File | ForEach-Object {
+              Copy-Item -LiteralPath $_.FullName -Destination $venvPath -Force
+              Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $venvPath "Scripts") -Force
+            }
+          }
 
       - name: Install Inno Setup
         shell: pwsh
