@@ -105,7 +105,7 @@
 - Track the plan and risk mitigations alongside the phase notes so they are visible during execution and review.
 - After implementing each phase/stage, document the results and outcomes for that stage (tests run, issues found, follow-ups).
 - After implementation, mark the stage as completed in the tracking tables.
-- Do not continue if you have open questions, need clarification, or prior stages are not completed.
+- Do not continue if you have open questions, need clarification, or prior stages are not completed; pause and document why you stopped so the next step is unblocked quickly.
 
 ## Phase Details
 
@@ -118,6 +118,18 @@
 | --- | --- | --- |
 | 1.1 | Document requirements, shared constraints, and open questions | Completed |
 | 1.2 | Confirm naming/define choices with maintainers | Pending |
+
+#### Stage 1.1 plan / risks / results (Completed)
+- Plan: inventory current `inno_*` behaviors, define the two `win_inno_*` modes, capture installer expectations, VirusTotal wiring, and upgrade prompts; no code changes.
+- Risks: omitting legacy behaviors or naming conventions; mixing workflow vs artifact names.
+- Mitigations: cross-check existing `inno_*` workflows and `installer.iss`; document naming for workflows (`win_inno_*.yml`) vs artifacts (`win-inno-*`).
+- Results: requirements recorded above; open items captured in “Open questions”; no tests run (docs only).
+
+#### Stage 1.2 plan / risks / results (Pending)
+- Plan: confirm `/DInstallVenvMode` values, workflow file names (`win_inno_embed.yml`, `win_inno_build.yml`), and artifact names (`win-inno-embed`, `win-inno-build`) with maintainers; update docs/tables once confirmed.
+- Risks: proceeding with mismatched names/defines would break CI or installer behavior; unclear expectations would block later phases.
+- Mitigations: pause before Phase 2 until maintainer confirmation; propose defaults above for quick sign-off; no code changes until confirmed.
+- Results: Pending maintainer confirmation; do not advance to Phase 2 until resolved.
 
 ### Phase 2: `installer.iss` supports both modes
 - Introduce a single define-driven switch for venv mode while preserving current upgrade/validation behavior.
