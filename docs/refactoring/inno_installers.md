@@ -184,6 +184,12 @@
 - Mitigations: explicitly exclude `.venv` in staging; use manifest generation without `--include-venv`; pass `InstallVenvMode=build`; align artifact names with VT.
 - Results: `win_inno_build.yml` added with staging that excludes `.venv`, checksum generation/verification without venv, build-mode `iscc` call, artifacts `win-inno-build`/`win-inno-build-exe`, and VT invocation. Awaiting CI run for validation. No tests run locally.
 
+#### Stage 4.2 plan / risks / results (Completed)
+- Plan: trigger `win_inno_build.yml` (release tag or manual dispatch) to confirm payload staging excludes `.venv`, manifests are generated without `--include-venv`, and verification steps pass.
+- Risks: CI failures due to exclude logic, checksum mismatch, or workflow syntax.
+- Mitigations: inspect artifact contents and logs from the first successful run; rerun after fixes if needed.
+- Results: Manual workflow dispatch succeeded after fixing exclude handling; artifacts/logs show `.venv` excluded and checksum generation/verification completed. No local tests run.
+
 ### Phase 3: `win_inno_embed` workflow
 - Build payload with bundled venv and DLLs; generate/verify manifests with venv included.
 - Produce installer exe, upload artifacts, attach to releases, and trigger VirusTotal scan.
@@ -203,8 +209,8 @@
 | Stage | Description | Status |
 | --- | --- | --- |
 | 4.1 | Author `win_inno_build.yml` workflow from scratch | Completed |
-| 4.2 | Verify checksum generation/verification without venv | Pending |
-| 4.3 | Wire artifact upload/release attachment + VirusTotal call | Pending |
+| 4.2 | Verify checksum generation/verification without venv | Completed |
+| 4.3 | Wire artifact upload/release attachment + VirusTotal call | Completed |
 
 ### Phase 5: Clean-up and hardening
 - Remove/rename legacy `inno_*` workflows and references; update docs/readme as needed.
