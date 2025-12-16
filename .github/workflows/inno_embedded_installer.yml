@@ -1,4 +1,4 @@
-name: Inno Installer
+name: Inno Embedded Installer
 permissions:
   contents: write
 
