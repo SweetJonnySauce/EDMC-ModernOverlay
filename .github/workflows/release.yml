@@ -301,6 +301,8 @@ jobs:
     name: VirusTotal transparency report
     permissions:
       contents: write
+      pages: write
+      id-token: write
     needs:
       - vt_scan_bundles
       - vt_scan_inno
@@ -372,14 +374,22 @@ jobs:
           root="vt_pages/vt-reports/${tag}"
           mkdir -p "$root"
           cp vt-transparency.md "$root/index.md"
+          # Add a minimal landing page with links to the latest report
+          mkdir -p vt_pages
+          cat > vt_pages/index.md <<'EOF'
+          # VirusTotal transparency reports
 
-      - name: Publish transparency report to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+          Latest reports live under `vt-reports/<tag>/`.
+          EOF
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
-          publish_dir: vt_pages
-          keep_files: true
+          path: vt_pages
+
+      - name: Deploy transparency report to GitHub Pages
+        id: deploy_pages
+        uses: actions/deploy-pages@v4
 
       - name: Append transparency link to release notes
         env:
