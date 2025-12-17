@@ -96,6 +96,31 @@ jobs:
             dist/EDMCModernOverlay-windows_powershell-*.zip
             dist/EDMCModernOverlay-linux-*.tar.gz
 
+  source_zip:
+    name: Fetch source code archive
+    runs-on: ubuntu-latest
+    needs: bundle
+    permissions:
+      contents: write
+    steps:
+      - name: Download source zip for tag
+        env:
+          TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.zip"
+          echo "Downloading source archive from $url"
+          curl -fL "$url" -o dist/source.zip
+          ls -al dist
+
+      - name: Upload source zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-zip
+          path: dist/source.zip
+          if-no-files-found: error
+
   win_inno_build:
     name: Build Windows Inno installer (build-time venv)
     runs-on: windows-latest
@@ -297,6 +322,22 @@ jobs:
       release_tag: ${{ github.event.release.tag_name || github.ref_name }}
       artifact_suffix: win-inno
 
+  vt_scan_source:
+    permissions:
+      contents: write
+    needs: source_zip
+    uses: ./.github/workflows/virustotal_scan.yml
+    if: github.event_name == 'release'
+    secrets:
+      VT_API_KEY: ${{ secrets.VT_API_KEY || secrets.VIRUSTOTAL_API_KEY }}
+    with:
+      artifact: source-zip
+      pattern: "*.zip"
+      release_id: ${{ github.event.release.id }}
+      publish_release_notes: false
+      release_tag: ${{ github.event.release.tag_name || github.ref_name }}
+      artifact_suffix: source
+
   vt_transparency:
     name: VirusTotal transparency report
     permissions:
@@ -306,9 +347,12 @@ jobs:
     environment:
       name: github-pages
       url: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name || github.repository }}/vt-reports/${{ github.event.release.tag_name || github.ref_name }}/
+    outputs:
+      report_url: ${{ steps.append_link.outputs.report_url }}
     needs:
       - vt_scan_bundles
       - vt_scan_inno
+      - vt_scan_source
     runs-on: ubuntu-latest
     if: always() && github.event_name == 'release'
     steps:
@@ -449,6 +493,7 @@ jobs:
         uses: actions/deploy-pages@v4
 
       - name: Append transparency link to release notes
+        id: append_link
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
           GITHUB_RUN_ID: ${{ github.run_id }}
@@ -487,4 +532,84 @@ jobs:
           new_body = (body + "\n\n" + markdown_link).strip()
           patch = session.patch(f"https://api.github.com/repos/{repo}/releases/{rel_id}", json={"body": new_body}, timeout=30)
           patch.raise_for_status()
+
+          # Emit asset_url for downstream jobs
+          gh_output = os.environ.get("GITHUB_OUTPUT")
+          if gh_output:
+              with open(gh_output, "a", encoding="utf-8") as fh:
+                  fh.write(f"report_url={asset_url}\n")
           PY
+
+  update_readme_vt:
+    name: Update README VirusTotal link
+    needs: vt_transparency
+    runs-on: ubuntu-latest
+    if: always() && github.event_name == 'release'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update README link
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          REPORT_URL: ${{ needs.vt_transparency.outputs.report_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          repo = os.environ.get("REPOSITORY", "")
+          release_tag = os.environ.get("RELEASE_TAG", "").strip()
+          report_url = os.environ.get("REPORT_URL", "").strip()
+
+          if not report_url:
+              if repo and release_tag:
+                  owner, name = repo.split("/", 1)
+                  report_url = f"https://{owner}.github.io/{name}/vt-reports/{release_tag}/"
+              else:
+                  raise SystemExit("No report URL available to update README.")
+
+          report_url = report_url.rstrip("/") + "/"
+
+          readme = pathlib.Path("README.md")
+          text = readme.read_text(encoding="utf-8")
+          original = text
+
+          # Replace any existing VT report link (old or new) with the current report_url
+          patterns = [
+              r"https://[^)]+/vt-reports/[^\)/]+/?",
+              r"https://sweetjonnysauce\.github\.io/EDMCModernOverlay/virustotal_latest\.html",
+          ]
+
+          for pat in patterns:
+              text, n = re.subn(pat, report_url, text)
+              if n:
+                  break
+
+          if text == original:
+              print("No README changes made (no matching VT link found).")
+              raise SystemExit(0)
+
+          readme.write_text(text, encoding="utf-8")
+          print(f"Updated README VirusTotal link to {report_url}")
+          PY
+
+      - name: Commit README update
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- README.md; then
+            echo "No README changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "chore: update VirusTotal report link for ${RELEASE_TAG}"
+          git push
