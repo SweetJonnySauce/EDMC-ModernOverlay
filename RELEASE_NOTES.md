@@ -1,26 +1,30 @@
 # Release Notes
 
 ## 0.7.5
-- Features:
-  - Controller⇄client targeting rewrite: controller now pushes merged overrides with an edit nonce, cache entries carry nonce/timestamp metadata, and the client refuses stale transformed blocks so payloads never “jump” when editing offsets.
+- Features & Improvements:
+  - EDMC 6.0.0 compatibility!
+  - CMDR payload placements are now stored in `overlay_groupings.user.json` and are perserved across upgrades.
   - Diagnostics overhaul: EDMC’s DEBUG log level now drives every Modern Overlay logger, auto-creates `debug.json`, and exposes payload logging/stdout capture controls directly in the preferences panel while dev-only helpers live in the new `dev_settings.json`.
   - Overlay debug metrics now surface environment override inputs (applied, skipped, and values) to make override issues visible from the HUD.
-  - Cache + fallback hardening: while the controller is active we shorten cache flush debounces, immediately rewrite transformed bounds from the rendered geometry, and keep HUD fallback aligned even if the HUD momentarily drops payload frames.
   - Controller UI cleanup: preview now renders a single authoritative target box (no more dual “actual vs. target”), the absolute widget always mirrors controller coordinates without warning colors, and group pinning/anchor edits stay responsive.
-  - Controller performance & usability: merged-group loader now feeds the controller UI, writes are isolated to the user config file, and reloads poll both shipped/user files with last-good fallback to keep editing responsive.
-  - Linux installer is compositor-aware: detects your compositor, can apply manifest-driven overrides (Qt scaling, force Xwayland when requested) via `--compositor auto|<id>|none`, and records accepted overrides in `overlay_client/env_overrides.json` without clobbering existing env vars.
-  - Layered configs: shipped defaults remain in `overlay_groupings.json`; per-user overrides live in `overlay_groupings.user.json` (or an override path) and are preserved across upgrades. No automatic migration runs in this release.
-  - Compatibility: tested/updated for EDMC 6.0 RC (overlay API aliasing and prefs widget swaps to avoid deprecated nb.Entry).
-- Maintenance:
-  - Runtime floor: client/controller now require Python 3.10+; packaging, docs, and both installers enforce/announce the new minimum with a continue-anyway prompt if an older interpreter is detected.
-  - Integrity: installers now ship a per-file `checksums.txt` manifest. Both Linux and Windows installers validate the extracted bundle and installed plugin files against it; `generate_checksums.py` builds the manifest during release packaging.
-  - Workflow + testing aids: added controller workflow helper/tests to validate cache geometry, expanded fallback regression tests, and folded the new behavior into the refactoring plan documentation.
-  - Lifecycle hardening: centralized thread/timer management via a new lifecycle helper, moved background starts out of `__init__`, added join/cancel logging, and added leak-focused start/stop tests; full `make check` (PYQT_TESTS=1) passes.
-  - Runtime delegation: moved broadcaster/watchdog orchestration and controller launch/termination into dedicated helpers, added hook-level smoke tests, and reran full `make check` to confirm behavior parity.
-  - Linux install: added Arch/pacman support alongside existing installers.
+- Bug Fixes
   - Fix #26. Give focus back to game after closing the controller on Windows
   - Fix #29 where fractional scaling caused overlay to span two monitors. See [Physical Clamping](https://github.com/SweetJonnySauce/EDMCModernOverlay/wiki/Physical_Clamping)
   - Center justification now uses origin-aware baselines (ignoring non-justified frames) to keep centered text inside its containing box; right justification is unchanged.
+- Installer updates
+  - A brand new EXE installer is now shipped with the release using Inno Setup.
+  - Linux installer is compositor-aware: detects your compositor, can apply manifest-driven overrides (Qt scaling, force Xwayland when requested) via `--compositor auto|<id>|none`, and records accepted overrides in `overlay_client/env_overrides.json` without clobbering existing env vars.
+  - Installers now ship a per-file `checksums.txt` manifest to validate the integrity of them before installation/upgrade.
+  - Linux install: added Arch/pacman support alongside existing installers.
+- Maintenance:
+  - Overlay Controller⇄client targeting rewrite to address "jumping" of on-screen assets.
+  - Cache + fallback hardening: while the controller is active we shorten cache flush debounces, immediately rewrite transformed bounds from the rendered geometry, and keep HUD fallback aligned even if the HUD momentarily drops payload frames.
+  - Controller performance & usability: merged-group loader now feeds the controller UI, writes are isolated to the user config file, and reloads poll both shipped/user files with last-good fallback to keep editing responsive.
+  - Made min-version of Python required 3.10 for Plugin, Client, and Controller.
+  - Lifecycle hardening: centralized thread/timer management via a new lifecycle helper
+  - Runtime delegation: moved broadcaster/watchdog orchestration and controller launch/termination into dedicated helpers, added hook-level smoke tests
+- Known Issues
+  - VirusTotal flags the EXE installer due to it being unsigned and/or because it builds its own Python environment. Build logs and scan details are provided on the link below.
 
 ## 0.7.4-dev
 - Controller startup no longer crashes when Tk rejects a binding; unsupported or empty sequences are skipped with a warning instead.
