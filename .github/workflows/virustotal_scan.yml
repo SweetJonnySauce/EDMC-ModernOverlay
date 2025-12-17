@@ -234,6 +234,41 @@ jobs:
           finally:
               persist_status(scan_status)
 
+          def ensure_badges_file(status_value: str) -> None:
+              path = Path(badge_path)
+              if path.exists() and path.stat().st_size > 0:
+                  return
+              message = status_value or "error"
+              color = "brightgreen" if message == "success" else "red"
+
+              def shields_field(value: str) -> str:
+                  return urllib.parse.quote(value.replace("-", "--").replace("_", "__"))
+
+              lines = []
+              if release_tag:
+                  lines.append(f"### VirusTotal scan badges for {release_tag}")
+                  lines.append("")
+              if targets:
+                  for target in targets:
+                      asset_name = os.path.basename(target)
+                      label = f"VT {asset_name}"
+                      badge_url = "https://img.shields.io/badge/{label}-{msg}-{color}.svg".format(
+                          label=shields_field(label),
+                          msg=shields_field(message),
+                          color=color,
+                      )
+                      lines.append(f"{asset_name}: [![{label}]({badge_url})](https://www.virustotal.com/)")
+              else:
+                  label = "VT scan"
+                  badge_url = "https://img.shields.io/badge/{label}-{msg}-{color}.svg".format(
+                      label=shields_field(label),
+                      msg=shields_field(message),
+                      color=color,
+                  )
+                  lines.append(f"[![{label}]({badge_url})](https://www.virustotal.com/)")
+              path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+          ensure_badges_file(scan_status)
           sys.exit(exit_code)
           PY
 
