@@ -564,6 +564,14 @@ jobs:
           ref: ${{ github.event.repository.default_branch || 'main' }}
           fetch-depth: 0
 
+      - name: Download source VT badge fragment
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vt-report-*-source
+          path: vt_reports_source
+          merge-multiple: true
+          if-no-files-found: ignore
+
       - name: Update README link
         id: update_readme
         env:
@@ -581,27 +589,52 @@ jobs:
           release_tag = os.environ.get("RELEASE_TAG", "").strip()
           report_url = os.environ.get("REPORT_URL", "").strip()
 
-          if not report_url:
-              if repo and release_tag:
-                  owner, name = repo.split("/", 1)
-                  report_url = f"https://{owner}.github.io/{name}/vt-reports/{release_tag}/"
-              else:
-                  raise SystemExit("No report URL available to update README.")
+          if repo and release_tag and not report_url:
+              owner, name = repo.split("/", 1)
+              report_url = f"https://{owner}.github.io/{name}/vt-reports/{release_tag}/"
 
-          report_url = report_url.rstrip("/") + "/"
+          report_url = report_url.rstrip("/") + "/" if report_url else ""
+
+          # Try to get the source VT direct link from the source badge fragment
+          source_vt_url = ""
+          import pathlib
+          import re
+
+          badge_files = sorted(pathlib.Path("vt_reports_source").rglob("*.md"))
+          link_re = re.compile(r"\[!\[.*?\]\(.*?\)\]\((?P<link>https?://[^\s\)]+)\)")
+          for bf in badge_files:
+              content = bf.read_text(encoding="utf-8")
+              for line in content.splitlines():
+                  m = link_re.search(line)
+                  if m:
+                      source_vt_url = m.group("link").strip()
+                      break
+              if source_vt_url:
+                  break
+
+          target_url = source_vt_url or report_url
+          if not target_url:
+              print("No VT URL available to update README.")
+              changed = False
+              gh_output = os.environ.get("GITHUB_OUTPUT")
+              if gh_output:
+                  with open(gh_output, "a", encoding="utf-8") as fh:
+                      fh.write("changed=false\n")
+              raise SystemExit(0)
 
           readme = pathlib.Path("README.md")
           text = readme.read_text(encoding="utf-8")
           original = text
 
-          # Replace any existing VT report link (old or new) with the current report_url
+          # Replace any existing VT report link (old or new) with the current VT link (prefer source VT if available)
           patterns = [
               r"https://[^)]+/vt-reports/[^\)/]+/?",
               r"https://sweetjonnysauce\.github\.io/EDMCModernOverlay/virustotal_latest\.html",
+              r"https://www\.virustotal\.com/[^\s\)]+",
           ]
 
           for pat in patterns:
-              text, n = re.subn(pat, report_url, text)
+              text, n = re.subn(pat, target_url, text)
               if n:
                   break
 
