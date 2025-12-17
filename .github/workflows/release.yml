@@ -597,17 +597,19 @@ jobs:
 
           # Try to get the source VT direct link from the source badge fragment
           source_vt_url = ""
+          source_badge_url = ""
           import pathlib
           import re
 
           badge_files = sorted(pathlib.Path("vt_reports_source").rglob("*.md"))
-          link_re = re.compile(r"\[!\[.*?\]\(.*?\)\]\((?P<link>https?://[^\s\)]+)\)")
+          link_re = re.compile(r"\[!\[.*?\]\((?P<badge>https?://[^\s\)]+)\)\]\((?P<link>https?://[^\s\)]+)\)")
           for bf in badge_files:
               content = bf.read_text(encoding="utf-8")
               for line in content.splitlines():
                   m = link_re.search(line)
                   if m:
                       source_vt_url = m.group("link").strip()
+                      source_badge_url = m.group("badge").strip()
                       break
               if source_vt_url:
                   break
@@ -637,6 +639,15 @@ jobs:
               text, n = re.subn(pat, target_url, text)
               if n:
                   break
+
+          if source_badge_url:
+              badge_patterns = [
+                  r"https://img\.shields\.io/[^\s\)]+",
+              ]
+              for pat in badge_patterns:
+                  text, n = re.subn(pat, source_badge_url, text)
+                  if n:
+                      break
 
           if text == original:
               print("No README changes made (no matching VT link found).")
