@@ -66,6 +66,8 @@ jobs:
           RELEASE_ID: ${{ inputs.release_id }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           PUBLISH_RELEASE_NOTES: ${{ inputs.publish_release_notes }}
+          ARTIFACT_NAME: ${{ inputs.artifact }}
+          ARTIFACT_SUFFIX: ${{ inputs.artifact_suffix }}
           VT_BADGE_PATH: vt_badges.md
           VT_STATUS_PATH: vt_status.txt
         run: |
@@ -87,6 +89,8 @@ jobs:
           release_tag = os.environ.get("RELEASE_TAG") or ""
           badge_path = os.environ.get("VT_BADGE_PATH") or "vt_badges.md"
           status_path = Path(os.environ.get("VT_STATUS_PATH") or "vt_status.txt")
+          artifact_name = os.environ.get("ARTIFACT_NAME") or ""
+          artifact_suffix = os.environ.get("ARTIFACT_SUFFIX") or ""
 
           api_key = os.environ.get("VT_API_KEY") or os.environ.get("VIRUSTOTAL_API_KEY")
           session = requests.Session()
@@ -94,6 +98,8 @@ jobs:
 
           pattern = "${{ inputs.pattern }}"
           targets = [p for p in glob.glob(pattern, recursive=True) if os.path.isfile(p)]
+          if not targets:
+              print(f"No files matched pattern: {pattern}", file=sys.stderr)
 
           def sha256sum(path: str) -> str:
               h = hashlib.sha256()
@@ -254,14 +260,16 @@ jobs:
                       )
                       lines.append(f"{asset_name}: [![{label}]({badge_url})](https://www.virustotal.com/)")
               else:
+                  # Use artifact inputs to avoid wildcard labels when no targets are found.
                   pattern_label = os.path.basename(pattern) or pattern or "scan"
-                  label = pattern_label
+                  artifact_label = artifact_name or artifact_suffix or pattern_label.replace("*", "")
+                  label = artifact_label
                   badge_url = "https://img.shields.io/badge/{label}-{msg}-{color}.svg".format(
                       label=shields_field(label),
                       msg=shields_field(message),
                       color=color,
                   )
-                  lines.append(f"{pattern_label}: [![{label}]({badge_url})](https://www.virustotal.com/)")
+                  lines.append(f"{artifact_label}: [![{label}]({badge_url})](https://www.virustotal.com/)")
               path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
           ensure_badges_file(scan_status)
