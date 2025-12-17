@@ -219,7 +219,7 @@ jobs:
               # Persist badges for aggregation
               with open(badge_path, "w", encoding="utf-8") as fh:
                   for line in badges:
-                      fh.write(f"{line}  \n")
+                      fh.write(f"{line}\n\n")
 
               status_value = "success" if all_clean else "flagged"
               exit_code = 0 if all_clean else 2
@@ -258,7 +258,8 @@ jobs:
                           msg=shields_field(message),
                           color=color,
                       )
-                      lines.append(f"[![{label}]({badge_url})](https://www.virustotal.com/)  ")
+                      lines.append(f"[![{label}]({badge_url})](https://www.virustotal.com/)")
+                      lines.append("")
               else:
                   # Build a friendlier label when no targets were scanned.
                   pattern_label = os.path.basename(pattern) or pattern or "scan"
@@ -271,7 +272,8 @@ jobs:
                       msg=shields_field(message),
                       color=color,
                   )
-                  lines.append(f"[![{label}]({badge_url})](https://www.virustotal.com/)  ")
+                  lines.append(f"[![{label}]({badge_url})](https://www.virustotal.com/)")
+                  lines.append("")
               path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
           ensure_badges_file(scan_status)
