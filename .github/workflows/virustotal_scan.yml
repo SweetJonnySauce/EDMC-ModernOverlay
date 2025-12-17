@@ -212,7 +212,7 @@ jobs:
                       color=badge_color,
                   )
                   primary_url = r["url"] or "https://www.virustotal.com/"
-                  badges.append(f"{asset_name}: [![{label}]({badge_url})]({primary_url})")
+                  badges.append(f"[![{label}]({badge_url})]({primary_url})")
               if badges:
                   append_release_notes("\n".join(badges))
 
@@ -258,7 +258,7 @@ jobs:
                           msg=shields_field(message),
                           color=color,
                       )
-                      lines.append(f"{asset_name}: [![{label}]({badge_url})](https://www.virustotal.com/)")
+                      lines.append(f"[![{label}]({badge_url})](https://www.virustotal.com/)")
               else:
                   # Build a friendlier label when no targets were scanned.
                   pattern_label = os.path.basename(pattern) or pattern or "scan"
@@ -271,7 +271,7 @@ jobs:
                       msg=shields_field(message),
                       color=color,
                   )
-                  lines.append(f"{clean_label}: [![{label}]({badge_url})](https://www.virustotal.com/)")
+                  lines.append(f"[![{label}]({badge_url})](https://www.virustotal.com/)")
               path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
           ensure_badges_file(scan_status)
