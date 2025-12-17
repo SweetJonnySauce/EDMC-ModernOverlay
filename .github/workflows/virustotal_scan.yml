@@ -160,19 +160,22 @@ jobs:
           summary = "\n".join(lines)
           print(summary, flush=True)
 
-          # Build a concise badge for release notes
-          badge_message = "clean" if all_clean else "flagged"
-          badge_color = "brightgreen" if all_clean else "red"
-          badge_url = "https://img.shields.io/badge/{label}-{msg}-{color}".format(
-              label=urllib.parse.quote_plus("VirusTotal"),
-              msg=urllib.parse.quote_plus(badge_message),
-              color=urllib.parse.quote_plus(badge_color),
-          )
-          primary_url = None
-          if results:
-              primary_url = next((r["url"] for r in results if not r["clean"]), None) or results[0]["url"]
-          badge_markdown = f"[![VirusTotal]({badge_url})]({primary_url or 'https://www.virustotal.com/'})"
-          append_release_notes(badge_markdown)
+          # Build badges per scanned file for release notes
+          badges = []
+          for r in results:
+              badge_message = "clean" if r["clean"] else "flagged"
+              badge_color = "brightgreen" if r["clean"] else "red"
+              asset_name = os.path.basename(r["file"])
+              label = f"VT {asset_name}"
+              badge_url = "https://img.shields.io/badge/{label}-{msg}-{color}".format(
+                  label=urllib.parse.quote_plus(label),
+                  msg=urllib.parse.quote_plus(badge_message),
+                  color=urllib.parse.quote_plus(badge_color),
+              )
+              primary_url = r["url"] or "https://www.virustotal.com/"
+              badges.append(f"{asset_name}: [![{label}]({badge_url})]({primary_url})")
+          if badges:
+              append_release_notes("\n".join(badges))
           if not all_clean:
               sys.exit("VirusTotal flagged one or more files.")
           PY
