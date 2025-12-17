@@ -630,6 +630,19 @@ jobs:
           # Replace only the VirusTotal badge link/target; leave other badges untouched.
           vt_link = target_url
           vt_badge = source_badge_url or ""
+          if source_badge_url:
+              try:
+                  payload = source_badge_url.split("/badge/", 1)[1].split("?")[0]
+                  # Strip extension if present
+                  if payload.endswith(".svg"):
+                      payload = payload[:-4]
+                  parts = payload.split("-")
+                  if len(parts) >= 2:
+                      message = parts[-2]
+                      color = parts[-1]
+                      vt_badge = f"https://img.shields.io/badge/VirusTotal-{message}-{color}.svg"
+              except Exception:
+                  pass
 
           vt_pattern = re.compile(r"(\[!\[VirusTotal\]\()(?P<badge>[^\)]+)(\)\]\()(?P<link>[^\)]+)(\))")
           def replace_vt(match):
