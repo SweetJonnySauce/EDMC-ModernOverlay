@@ -362,15 +362,30 @@ jobs:
           print(f"Wrote {report} with {len(fragments)} fragments.")
           PY
 
-      - name: Upload transparency report to release
-        uses: softprops/action-gh-release@v2
+      - name: Prepare GitHub Pages content
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          tag="${RELEASE_TAG:-run-${GITHUB_RUN_ID}}"
+          root="vt_pages/vt-reports/${tag}"
+          mkdir -p "$root"
+          cp vt-transparency.md "$root/index.md"
+
+      - name: Publish transparency report to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
         with:
-          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
-          files: vt-transparency.md
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: vt_pages
+          keep_files: true
 
       - name: Append transparency link to release notes
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
@@ -380,19 +395,23 @@ jobs:
 
           token = os.environ["GITHUB_TOKEN"]
           repo = os.environ["GITHUB_REPOSITORY"]
-          release_tag = os.environ["RELEASE_TAG"]
+          release_tag = os.environ.get("RELEASE_TAG", "")
+          run_id = os.environ.get("GITHUB_RUN_ID", "")
 
           session = requests.Session()
           session.headers["Authorization"] = f"Bearer {token}"
           session.headers["Accept"] = "application/vnd.github+json"
+
+          owner, name = repo.split("/", 1)
+          page_tag = release_tag or f"run-{run_id}"
+          page_url = f"https://{owner}.github.io/{name}/vt-reports/{page_tag}/"
 
           resp = session.get(f"https://api.github.com/repos/{repo}/releases/tags/{release_tag}", timeout=30)
           resp.raise_for_status()
           release = resp.json()
           rel_id = release["id"]
           body = release.get("body") or ""
-          link = f"https://github.com/{repo}/releases/download/{release_tag}/vt-transparency.md"
-          line = f"VirusTotal transparency report: {link}"
+          line = f"VirusTotal transparency report: {page_url}"
           if line in body:
               raise SystemExit("Transparency link already present; skipping update.")
           new_body = (body + "\n\n" + line).strip()
