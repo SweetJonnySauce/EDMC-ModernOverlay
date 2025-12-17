@@ -58,6 +58,7 @@ jobs:
           import sys
           import time
           import hashlib
+          import urllib.parse
           import requests
 
           repo = os.environ.get("GITHUB_REPOSITORY")
@@ -155,10 +156,23 @@ jobs:
           lines = ["VirusTotal scan results:"]
           for r in results:
               status = "clean" if r["clean"] else "flagged"
-              lines.append(f"- {r['file']} ({r['sha']}): {status} {r['stats']} – {r['url']}")
+              lines.append(f"- {r['file']} ({r['sha']}): {status} {r['stats']} - {r['url']}")
           summary = "\n".join(lines)
           print(summary, flush=True)
-          append_release_notes(summary)
+
+          # Build a concise badge for release notes
+          badge_message = "clean" if all_clean else "flagged"
+          badge_color = "brightgreen" if all_clean else "red"
+          badge_url = "https://img.shields.io/badge/{label}-{msg}-{color}".format(
+              label=urllib.parse.quote_plus("VirusTotal"),
+              msg=urllib.parse.quote_plus(badge_message),
+              color=urllib.parse.quote_plus(badge_color),
+          )
+          primary_url = None
+          if results:
+              primary_url = next((r["url"] for r in results if not r["clean"]), None) or results[0]["url"]
+          badge_markdown = f"[![VirusTotal]({badge_url})]({primary_url or 'https://www.virustotal.com/'})"
+          append_release_notes(badge_markdown)
           if not all_clean:
               sys.exit("VirusTotal flagged one or more files.")
           PY
