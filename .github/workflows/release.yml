@@ -406,9 +406,9 @@ jobs:
       - name: Build transparency report
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
-          STATUS_BUNDLES: ${{ needs.vt_scan_bundles.result }}
-          STATUS_WINDOWS: ${{ needs.vt_scan_windows.result }}
-          STATUS_INNO: ${{ needs.vt_scan_inno.result }}
+          STATUS_BUNDLES: ${{ needs.vt_scan_bundles.outputs.scan_status || needs.vt_scan_bundles.result }}
+          STATUS_WINDOWS: ${{ needs.vt_scan_windows.outputs.scan_status || needs.vt_scan_windows.result }}
+          STATUS_INNO: ${{ needs.vt_scan_inno.outputs.scan_status || needs.vt_scan_inno.result }}
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -422,7 +422,7 @@ jobs:
               "windows_legacy": os.environ.get("STATUS_WINDOWS", "").strip(),
               "windows_inno": os.environ.get("STATUS_INNO", "").strip(),
           }
-          header_path = pathlib.Path("docs/refactoring/vt_report_header.md")
+          header_path = pathlib.Path("docs/vt_report_header.md")
 
           lines = []
           if header_path.exists():

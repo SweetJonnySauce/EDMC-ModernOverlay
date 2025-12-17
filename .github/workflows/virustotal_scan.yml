@@ -25,6 +25,10 @@ on:
         required: false
         type: string
         default: ""
+    outputs:
+      scan_status:
+        description: "Status of the VT scan (success/flagged/error)"
+        value: ${{ jobs.scan.outputs.scan_status }}
     secrets:
       VT_API_KEY:
         required: true
@@ -34,6 +38,8 @@ permissions:
 jobs:
   scan:
     runs-on: ubuntu-latest
+    outputs:
+      scan_status: ${{ steps.vt_scan.outputs.scan_status }}
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
@@ -52,6 +58,7 @@ jobs:
           python -m pip install requests
 
       - name: Scan with VirusTotal
+        id: vt_scan
         env:
           VT_API_KEY: ${{ secrets.VT_API_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -198,8 +205,12 @@ jobs:
               for line in badges:
                   fh.write(f"{line}\n")
 
+          status = "success" if all_clean else "flagged"
+          # Emit status for downstream jobs even when flagged
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"scan_status={status}\n")
           if not all_clean:
-              sys.exit("VirusTotal flagged one or more files.")
+              print("VirusTotal flagged one or more files; continuing to allow aggregation.", flush=True)
           PY
 
       - name: Upload VT badges fragment
