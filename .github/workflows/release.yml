@@ -114,13 +114,13 @@ jobs:
           mkdir -p dist
           url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.zip"
           echo "Downloading source archive from $url"
-          if curl -fL "$url" -o dist/source.zip; then
+          if curl -fL "$url" -o dist/EDMCModernOverlay-source.zip; then
             echo "have_source=true" >> "$GITHUB_OUTPUT"
             ls -al dist
           else
             echo "Source archive not available for tag ${TAG}; skipping source VT scan."
             echo "have_source=false" >> "$GITHUB_OUTPUT"
-            rm -f dist/source.zip
+            rm -f dist/EDMCModernOverlay-source.zip
           fi
 
       - name: Upload source zip artifact
@@ -128,7 +128,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: source-zip
-          path: dist/source.zip
+          path: dist/EDMCModernOverlay-source.zip
           if-no-files-found: error
 
   win_inno_build:
