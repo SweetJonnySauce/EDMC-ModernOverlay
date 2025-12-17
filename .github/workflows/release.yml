@@ -562,6 +562,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Update README link
+        id: update_readme
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
           REPORT_URL: ${{ needs.vt_transparency.outputs.report_url }}
@@ -603,23 +604,28 @@ jobs:
 
           if text == original:
               print("No README changes made (no matching VT link found).")
-              raise SystemExit(0)
+              changed = False
+          else:
+              readme.write_text(text, encoding="utf-8")
+              print(f"Updated README VirusTotal link to {report_url}")
+              changed = True
 
-          readme.write_text(text, encoding="utf-8")
-          print(f"Updated README VirusTotal link to {report_url}")
+          gh_output = os.environ.get("GITHUB_OUTPUT")
+          if gh_output:
+              with open(gh_output, "a", encoding="utf-8") as fh:
+                  fh.write(f"changed={'true' if changed else 'false'}\n")
           PY
 
-      - name: Commit README update
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
-        run: |
-          set -euo pipefail
-          if git diff --quiet -- README.md; then
-            echo "No README changes to commit."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add README.md
-          git commit -m "chore: update VirusTotal report link for ${RELEASE_TAG}"
-          git push
+      - name: Create README update PR
+        if: steps.update_readme.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: vt/readme-vt-link-${{ github.event.release.tag_name || github.ref_name || github.run_id }}
+          commit-message: chore: update VirusTotal report link for ${{ github.event.release.tag_name || github.ref_name }}
+          title: chore: update VirusTotal report link for ${{ github.event.release.tag_name || github.ref_name }}
+          body: |
+            Updates README to point the VirusTotal reports link to the latest release Pages URL.
+            
+            Report URL: ${{ needs.vt_transparency.outputs.report_url }}
+          base: ${{ github.event.repository.default_branch || 'main' }}
