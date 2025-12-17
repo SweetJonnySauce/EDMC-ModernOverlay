@@ -627,26 +627,17 @@ jobs:
           text = readme.read_text(encoding="utf-8")
           original = text
 
-          # Replace any existing VT report link (old or new) with the current VT link (prefer source VT if available)
-          patterns = [
-              r"https://[^)]+/vt-reports/[^\)/]+/?",
-              r"https://sweetjonnysauce\.github\.io/EDMCModernOverlay/virustotal_latest\.html",
-              r"https://www\.virustotal\.com/[^\s\)]+",
-          ]
+          # Replace only the VirusTotal badge link/target; leave other badges untouched.
+          vt_link = target_url
+          vt_badge = source_badge_url or ""
 
-          for pat in patterns:
-              text, n = re.subn(pat, target_url, text)
-              if n:
-                  break
+          vt_pattern = re.compile(r"(\[!\[VirusTotal\]\()(?P<badge>[^\)]+)(\)\]\()(?P<link>[^\)]+)(\))")
+          def replace_vt(match):
+              badge = vt_badge or match.group("badge")
+              link = vt_link or match.group("link")
+              return f"[![VirusTotal]({badge})]({link})"
 
-          if source_badge_url:
-              badge_patterns = [
-                  r"https://img\.shields\.io/[^\s\)]+",
-              ]
-              for pat in badge_patterns:
-                  text, n = re.subn(pat, source_badge_url, text)
-                  if n:
-                      break
+          text, n = vt_pattern.subn(replace_vt, text, count=1)
 
           if text == original:
               print("No README changes made (no matching VT link found).")
