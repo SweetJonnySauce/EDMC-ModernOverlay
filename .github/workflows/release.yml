@@ -303,6 +303,9 @@ jobs:
       contents: write
       pages: write
       id-token: write
+    environment:
+      name: github-pages
+      url: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name || github.repository }}/vt-reports/${{ github.event.release.tag_name || github.ref_name }}/
     needs:
       - vt_scan_bundles
       - vt_scan_inno
