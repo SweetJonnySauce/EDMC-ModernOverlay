@@ -1,0 +1,131 @@
+name: VT Transparency Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to aggregate VT badges for (e.g., v1.2.3)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  aggregate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build transparency report
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import io
+          import os
+          import pathlib
+          import zipfile
+          import requests
+
+          token = os.environ["GITHUB_TOKEN"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          release_tag = os.environ["RELEASE_TAG"]
+          session = requests.Session()
+          session.headers["Authorization"] = f"Bearer {token}"
+          session.headers["Accept"] = "application/vnd.github+json"
+
+          def get_release(tag: str):
+              resp = session.get(f"https://api.github.com/repos/{repo}/releases/tags/{tag}", timeout=30)
+              resp.raise_for_status()
+              return resp.json()
+
+          rel = get_release(release_tag)
+          release_id = rel["id"]
+
+          artifacts = []
+          page = 1
+          while True:
+              resp = session.get(f"https://api.github.com/repos/{repo}/actions/artifacts", params={"per_page": 100, "page": page}, timeout=30)
+              resp.raise_for_status()
+              data = resp.json()
+              artifacts.extend(data.get("artifacts", []))
+              if not data.get("artifacts") or len(data["artifacts"]) < 100:
+                  break
+              page += 1
+
+          prefix = f"vt-report-{release_tag}"
+          vt_artifacts = [a for a in artifacts if a["name"].startswith(prefix) and not a.get("expired")]
+          if not vt_artifacts:
+              raise SystemExit(f"No VT report artifacts found for prefix {prefix}")
+
+          out_lines = []
+          header_path = pathlib.Path("docs/refactoring/vt_report_header.md")
+          if header_path.exists():
+              out_lines.append(header_path.read_text(encoding="utf-8").strip())
+          else:
+              out_lines.append(f"## VirusTotal transparency report for {release_tag}")
+          out_lines.append("")
+
+          workdir = pathlib.Path("vt_reports")
+          workdir.mkdir(parents=True, exist_ok=True)
+
+          for art in vt_artifacts:
+              url = art["archive_download_url"]
+              resp = session.get(url, timeout=60)
+              resp.raise_for_status()
+              with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+                  for name in zf.namelist():
+                      if name.endswith(".md"):
+                          content = zf.read(name).decode("utf-8")
+                          out_lines.append(content.strip())
+                          out_lines.append("")
+
+          report_path = pathlib.Path("vt-transparency.md")
+          report_path.write_text("\n".join(out_lines).strip() + "\n", encoding="utf-8")
+
+          # Attach link text for later release-note update
+          link = f"https://github.com/{repo}/releases/download/{release_tag}/vt-transparency.md"
+          note_path = pathlib.Path("vt-transparency-link.txt")
+          note_path.write_text(f"VirusTotal transparency report: {link}\n", encoding="utf-8")
+          PY
+
+      - name: Upload report to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag }}
+          files: |
+            vt-transparency.md
+
+      - name: Append link to release notes
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import requests
+
+          token = os.environ["GITHUB_TOKEN"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          release_tag = os.environ["RELEASE_TAG"]
+          session = requests.Session()
+          session.headers["Authorization"] = f"Bearer {token}"
+          session.headers["Accept"] = "application/vnd.github+json"
+
+          resp = session.get(f"https://api.github.com/repos/{repo}/releases/tags/{release_tag}", timeout=30)
+          resp.raise_for_status()
+          release = resp.json()
+          rel_id = release["id"]
+          body = release.get("body") or ""
+          link = f"https://github.com/{repo}/releases/download/{release_tag}/vt-transparency.md"
+          line = f"VirusTotal transparency report: {link}"
+          if line in body:
+              exit(0)
+          new_body = (body + "\n\n" + line).strip()
+          patch = session.patch(f"https://api.github.com/repos/{repo}/releases/{rel_id}", json={"body": new_body}, timeout=30)
+          patch.raise_for_status()
+          PY

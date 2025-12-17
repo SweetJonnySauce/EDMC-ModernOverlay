@@ -18,6 +18,13 @@ on:
         required: false
         type: boolean
         default: false
+      release_tag:
+        required: false
+        type: string
+      artifact_suffix:
+        required: false
+        type: string
+        default: ""
     secrets:
       VT_API_KEY:
         required: true
@@ -49,7 +56,9 @@ jobs:
           VT_API_KEY: ${{ secrets.VT_API_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
           PUBLISH_RELEASE_NOTES: ${{ inputs.publish_release_notes }}
+          VT_BADGE_PATH: vt_badges.md
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -65,6 +74,8 @@ jobs:
           release_id = os.environ.get("RELEASE_ID")
           gh_token = os.environ.get("GITHUB_TOKEN")
           publish_notes = (os.environ.get("PUBLISH_RELEASE_NOTES") or "").lower() in ("1", "true", "yes", "on")
+          release_tag = os.environ.get("RELEASE_TAG") or ""
+          badge_path = os.environ.get("VT_BADGE_PATH") or "vt_badges.md"
 
           api_key = os.environ.get("VT_API_KEY") or os.environ.get("VIRUSTOTAL_API_KEY")
           if not api_key:
@@ -179,6 +190,20 @@ jobs:
               badges.append(f"{asset_name}: [![{label}]({badge_url})]({primary_url})")
           if badges:
               append_release_notes("\n".join(badges))
+
+          # Persist badges for aggregation
+          with open(badge_path, "w", encoding="utf-8") as fh:
+              if release_tag:
+                  fh.write(f"### VirusTotal scan badges for {release_tag}\n\n")
+              for line in badges:
+                  fh.write(f"{line}\n")
+
           if not all_clean:
               sys.exit("VirusTotal flagged one or more files.")
           PY
+
+      - name: Upload VT badges fragment
+        uses: actions/upload-artifact@v4
+        with:
+          name: vt-report-${{ inputs.release_tag || inputs.release_id || github.run_id }}${{ inputs.artifact_suffix != '' && format('-%s', inputs.artifact_suffix) || '' }}
+          path: vt_badges.md

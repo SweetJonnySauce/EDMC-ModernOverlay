@@ -8,18 +8,17 @@ Constraints and pain points
 - We must avoid editing release notes from multiple jobs to prevent badge loss or duplication.
 - Keep the report concise (badges + links), but include failing assets for transparency.
 
-- Plan (minimal changes)
+- Plan (option 1: single release workflow with explicit needs)
 - Release notes must be updated only after all VT jobs complete successfully.
-- Per VT job:
-  - After scanning, write a small markdown fragment `badges.md` containing one badge line per scanned asset (with asset name prefix and VT link).
-  - Upload `badges.md` as an artifact named `vt-report-<job>` (unique per workflow invocation).
-- Aggregation job (new):
-  - Needs all VT jobs.
-  - Downloads every `vt-report-*` artifact into a temp folder.
-  - Concatenates them into `vt-transparency.md` (add a short heading and timestamp).
-  - Attaches `vt-transparency.md` to the release and appends a single link in release notes: e.g., “VirusTotal transparency report”.
+- Per VT job (now inside release.yml):
+  - After scanning, write a small markdown fragment `vt_badges.md` containing one badge line per scanned asset (with asset name prefix and VT link).
+  - Upload `vt_badges.md` as an artifact named `vt-report-<release_tag>-<job>` so artifacts are tag-scoped and unique.
+- Aggregation job (added to release.yml):
+  - Needs all VT jobs (zip/tar VT + Inno EXE VT).
+  - Downloads every `vt-report-<release_tag>-*` artifact from the current run.
+  - Concatenates them into `vt-transparency.md`, prepending a markdown header template if present at `docs/refactoring/vt_report_header.md`; otherwise add a default heading with the tag and timestamp.
+  - Attaches `vt-transparency.md` to the release and appends a single link in release notes (this job is the only release-note writer).
 - Optional: Also upload `vt-transparency.md` as a build artifact for non-release runs (manual/branch) so we can inspect without touching release notes.
-- Add a reusable markdown header template (e.g., `docs/refactoring/vt_report_header.md`) that the aggregator prepends to `vt-transparency.md` so reports start with a consistent intro/context.
 
 Notes on implementation
 - Keep release-note edits centralized in the aggregator; individual VT jobs no longer touch release notes directly.

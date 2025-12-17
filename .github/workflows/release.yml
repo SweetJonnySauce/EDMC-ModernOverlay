@@ -164,12 +164,10 @@ jobs:
           files: |
             dist/EDMCModernOverlay-windows-legacy-*.exe
 
-  virustotal_scan:
+  vt_scan_bundles:
     permissions:
       contents: write
-    needs:
-      - bundle
-      - windows_installer
+    needs: bundle
     uses: ./.github/workflows/virustotal_scan.yml
     if: github.event_name == 'release'
     secrets:
@@ -178,4 +176,117 @@ jobs:
       artifact: release-bundles
       pattern: "EDMCModernOverlay-*.*"
       release_id: ${{ github.event.release.id }}
-      publish_release_notes: true
+      publish_release_notes: false
+      release_tag: ${{ github.event.release.tag_name || github.ref_name }}
+      artifact_suffix: bundles
+
+  vt_scan_windows:
+    permissions:
+      contents: write
+    needs: windows_installer
+    uses: ./.github/workflows/virustotal_scan.yml
+    if: github.event_name == 'release'
+    secrets:
+      VT_API_KEY: ${{ secrets.VT_API_KEY || secrets.VIRUSTOTAL_API_KEY }}
+    with:
+      artifact: windows-installer-exe
+      pattern: "dist/EDMCModernOverlay-windows-legacy-*.exe"
+      release_id: ${{ github.event.release.id }}
+      publish_release_notes: false
+      release_tag: ${{ github.event.release.tag_name || github.ref_name }}
+      artifact_suffix: windows
+
+  vt_transparency:
+    name: VirusTotal transparency report
+    permissions:
+      contents: write
+    needs:
+      - vt_scan_bundles
+      - vt_scan_windows
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download VT badge fragments
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vt-report-*
+          path: vt_reports
+          merge-multiple: true
+
+      - name: Build transparency report
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime
+          import os
+          import pathlib
+
+          release_tag = os.environ.get("RELEASE_TAG", "").strip()
+          header_path = pathlib.Path("docs/refactoring/vt_report_header.md")
+
+          lines = []
+          if header_path.exists():
+              lines.append(header_path.read_text(encoding="utf-8").strip())
+          else:
+              heading = f"## VirusTotal transparency report for {release_tag}" if release_tag else "## VirusTotal transparency report"
+              lines.append(heading)
+              lines.append(f"_Generated at {datetime.datetime.utcnow().isoformat()}Z_")
+          lines.append("")
+
+          fragments = sorted(pathlib.Path("vt_reports").rglob("*.md"))
+          if not fragments:
+              raise SystemExit("No VT badge fragments found to build report.")
+
+          for frag in fragments:
+              content = frag.read_text(encoding="utf-8").strip()
+              if content:
+                  lines.append(content)
+                  lines.append("")
+
+          report = pathlib.Path("vt-transparency.md")
+          report.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+          print(f"Wrote {report} with {len(fragments)} fragments.")
+          PY
+
+      - name: Upload transparency report to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
+          files: vt-transparency.md
+
+      - name: Append transparency link to release notes
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import requests
+
+          token = os.environ["GITHUB_TOKEN"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          release_tag = os.environ["RELEASE_TAG"]
+
+          session = requests.Session()
+          session.headers["Authorization"] = f"Bearer {token}"
+          session.headers["Accept"] = "application/vnd.github+json"
+
+          resp = session.get(f"https://api.github.com/repos/{repo}/releases/tags/{release_tag}", timeout=30)
+          resp.raise_for_status()
+          release = resp.json()
+          rel_id = release["id"]
+          body = release.get("body") or ""
+          link = f"https://github.com/{repo}/releases/download/{release_tag}/vt-transparency.md"
+          line = f"VirusTotal transparency report: {link}"
+          if line in body:
+              raise SystemExit("Transparency link already present; skipping update.")
+          new_body = (body + "\n\n" + line).strip()
+          patch = session.patch(f"https://api.github.com/repos/{repo}/releases/{rel_id}", json={"body": new_body}, timeout=30)
+          patch.raise_for_status()
+          PY
