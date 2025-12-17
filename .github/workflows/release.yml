@@ -96,74 +96,6 @@ jobs:
             dist/EDMCModernOverlay-windows_powershell-*.zip
             dist/EDMCModernOverlay-linux-*.tar.gz
 
-  windows_installer:
-    name: Build Windows installer EXE
-    runs-on: windows-latest
-    permissions:
-      contents: write
-    env:
-      VERSION: ${{ github.event.release.tag_name || github.ref_name || format('run-{0}', github.run_number) }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Verify release build is not in dev mode
-        shell: pwsh
-        run: |
-          python scripts/verify_release_not_dev.py
-
-      - name: Install ps2exe module
-        shell: pwsh
-        run: |
-          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          Install-Module -Name ps2exe -Scope CurrentUser -Force -AllowClobber
-
-      - name: Build installer executable
-        shell: pwsh
-        run: |
-          Import-Module ps2exe
-
-          $root = (Get-Location).ProviderPath
-          $stage = Join-Path $root 'dist/windows_exe'
-          $scriptPath = Join-Path $root 'scripts/build_install_windows_exe.ps1'
-
-          Write-Host "Building installer using staging path '$stage'."
-          & $scriptPath -StagingPath $stage -SourceRoot $root
-
-          $exePath = Join-Path $stage 'install_windows.exe'
-          if (-not (Test-Path -LiteralPath $exePath)) {
-              throw "Installer executable was not created at '$exePath'."
-          }
-
-          $version = "${env:VERSION}"
-          if ([string]::IsNullOrWhiteSpace($version)) {
-              $shortSha = (& git rev-parse --short=7 HEAD).Trim()
-              $version = "dev-$shortSha"
-          }
-
-          $outputDir = Join-Path $root 'dist'
-          if (-not (Test-Path -LiteralPath $outputDir)) {
-              New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
-          }
-          $finalExe = Join-Path $outputDir ("EDMCModernOverlay-windows-legacy-{0}.exe" -f $version)
-          Copy-Item -LiteralPath $exePath -Destination $finalExe -Force
-          Write-Host "Installer copied to '$finalExe'."
-
-      - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-installer-exe
-          path: dist/EDMCModernOverlay-windows-legacy-*.exe
-          if-no-files-found: error
-
-      - name: Attach EXE to GitHub Release
-        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
-          files: |
-            dist/EDMCModernOverlay-windows-legacy-*.exe
-
   win_inno_build:
     name: Build Windows Inno installer (build-time venv)
     runs-on: windows-latest
@@ -349,22 +281,6 @@ jobs:
       release_tag: ${{ github.event.release.tag_name || github.ref_name }}
       artifact_suffix: bundles
 
-  vt_scan_windows:
-    permissions:
-      contents: write
-    needs: windows_installer
-    uses: ./.github/workflows/virustotal_scan.yml
-    if: github.event_name == 'release'
-    secrets:
-      VT_API_KEY: ${{ secrets.VT_API_KEY || secrets.VIRUSTOTAL_API_KEY }}
-    with:
-      artifact: windows-installer-exe
-      pattern: "dist/EDMCModernOverlay-windows-legacy-*.exe"
-      release_id: ${{ github.event.release.id }}
-      publish_release_notes: false
-      release_tag: ${{ github.event.release.tag_name || github.ref_name }}
-      artifact_suffix: windows
-
   vt_scan_inno:
     permissions:
       contents: write
@@ -387,7 +303,6 @@ jobs:
       contents: write
     needs:
       - vt_scan_bundles
-      - vt_scan_windows
       - vt_scan_inno
     runs-on: ubuntu-latest
     if: always() && github.event_name == 'release'
