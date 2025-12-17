@@ -1,6 +1,6 @@
 # EDMC Modern Overlay (beta)
-[![Github All Releases](https://img.shields.io/badge/EDMCModernOverlay--source.zip-clean-brightgreen.svg)](https://github.com/SweetJonnySauce/EDMCModernOverlay/releases/latest)
-[![GitHub Latest Version](https://img.shields.io/badge/EDMCModernOverlay--source.zip-clean-brightgreen.svg)](https://github.com/SweetJonnySauce/EDMCModernOverlay/releases/latest)
+[![Github All Releases](https://img.shields.io/github/downloads/SweetJonnySauce/EDMCModernOverlay/total.svg)](https://github.com/SweetJonnySauce/EDMCModernOverlay/releases/latest)
+[![GitHub Latest Version](https://img.shields.io/github/v/release/SweetJonnySauce/EDMCModernOverlay)](https://github.com/SweetJonnySauce/EDMCModernOverlay/releases/latest)
 [![Build Status][build-badge]][build-url]
 [![VirusTotal](https://img.shields.io/badge/EDMCModernOverlay--source.zip-clean-brightgreen.svg)](https://www.virustotal.com/gui/file/ec9ccbc680b896de5f181898bedc6e753cf6f17e4bd9cc8a3f84df75f6c4f15b)
 
