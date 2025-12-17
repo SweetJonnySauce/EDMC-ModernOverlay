@@ -205,4 +205,3 @@ jobs:
       release_tag: ${{ github.event.release.tag_name || github.ref_name }}
       publish_release_notes: false
       artifact_suffix: win-inno-build
-      release_tag: ${{ github.event.release.tag_name || github.ref_name }}
