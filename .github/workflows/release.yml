@@ -622,8 +622,8 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: vt/readme-vt-link-${{ github.event.release.tag_name || github.ref_name || github.run_id }}
-          commit-message: chore: update VirusTotal report link for ${{ github.event.release.tag_name || github.ref_name }}
-          title: chore: update VirusTotal report link for ${{ github.event.release.tag_name || github.ref_name }}
+          commit-message: "chore: update VirusTotal report link for ${{ github.event.release.tag_name || github.ref_name }}"
+          title: "chore: update VirusTotal report link for ${{ github.event.release.tag_name || github.ref_name }}"
           body: |
             Updates README to point the VirusTotal reports link to the latest release Pages URL.
             
