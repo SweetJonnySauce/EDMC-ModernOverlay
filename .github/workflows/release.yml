@@ -570,7 +570,6 @@ jobs:
           pattern: vt-report-*-source
           path: vt_reports_source
           merge-multiple: true
-          if-no-files-found: ignore
 
       - name: Update README link
         id: update_readme
