@@ -218,3 +218,4 @@ jobs:
         with:
           name: vt-report-${{ inputs.release_tag || inputs.release_id || github.run_id }}${{ inputs.artifact_suffix != '' && format('-%s', inputs.artifact_suffix) || '' }}
           path: vt_badges.md
+          overwrite: true
