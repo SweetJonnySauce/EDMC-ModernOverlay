@@ -404,9 +404,6 @@ jobs:
       - name: Build transparency report
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
-          STATUS_BUNDLES: ${{ needs.vt_scan_bundles.outputs.scan_status || needs.vt_scan_bundles.result }}
-          STATUS_WINDOWS: ${{ needs.vt_scan_windows.outputs.scan_status || needs.vt_scan_windows.result }}
-          STATUS_INNO: ${{ needs.vt_scan_inno.outputs.scan_status || needs.vt_scan_inno.result }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -418,11 +415,6 @@ jobs:
           release_tag = os.environ.get("RELEASE_TAG", "").strip()
           repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
           run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
-          statuses = {
-              "bundles": os.environ.get("STATUS_BUNDLES", "").strip(),
-              "windows_legacy": os.environ.get("STATUS_WINDOWS", "").strip(),
-              "windows_inno": os.environ.get("STATUS_INNO", "").strip(),
-          }
           header_path = pathlib.Path("docs/vt_report_header.md")
 
           run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if (repo and run_id) else ""
@@ -435,14 +427,8 @@ jobs:
               lines.append(heading)
               lines.append(f"_Generated at {datetime.datetime.utcnow().isoformat()}Z_")
           if run_url:
+              lines.append("")
               lines.append(f"Workflow run: {run_url}")
-          lines.append("")
-
-          # Include scan job statuses
-          lines.append("### Scan job status")
-          for label, status in statuses.items():
-              label_fmt = label.replace("_", " ").title()
-              lines.append(f"- {label_fmt}: {status or 'unknown'}")
           lines.append("")
 
           fragments = sorted(pathlib.Path("vt_reports").rglob("*.md"))
