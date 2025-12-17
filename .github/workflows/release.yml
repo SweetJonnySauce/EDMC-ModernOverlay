@@ -400,7 +400,6 @@ jobs:
         with:
           pattern: vt-report-*
           path: vt_reports
-          merge-multiple: true
           if-no-files-found: ignore
 
       - name: Build transparency report
