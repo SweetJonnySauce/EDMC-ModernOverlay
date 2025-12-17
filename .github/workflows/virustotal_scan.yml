@@ -39,7 +39,7 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     outputs:
-      scan_status: ${{ steps.vt_scan.outputs.scan_status }}
+      scan_status: ${{ steps.scan_status.outputs.scan_status }}
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
@@ -59,6 +59,7 @@ jobs:
 
       - name: Scan with VirusTotal
         id: vt_scan
+        continue-on-error: true
         env:
           VT_API_KEY: ${{ secrets.VT_API_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -66,6 +67,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
           PUBLISH_RELEASE_NOTES: ${{ inputs.publish_release_notes }}
           VT_BADGE_PATH: vt_badges.md
+          VT_STATUS_PATH: vt_status.txt
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -76,6 +78,7 @@ jobs:
           import hashlib
           import urllib.parse
           import requests
+          from pathlib import Path
 
           repo = os.environ.get("GITHUB_REPOSITORY")
           release_id = os.environ.get("RELEASE_ID")
@@ -83,19 +86,14 @@ jobs:
           publish_notes = (os.environ.get("PUBLISH_RELEASE_NOTES") or "").lower() in ("1", "true", "yes", "on")
           release_tag = os.environ.get("RELEASE_TAG") or ""
           badge_path = os.environ.get("VT_BADGE_PATH") or "vt_badges.md"
+          status_path = Path(os.environ.get("VT_STATUS_PATH") or "vt_status.txt")
 
           api_key = os.environ.get("VT_API_KEY") or os.environ.get("VIRUSTOTAL_API_KEY")
-          if not api_key:
-              print("VT_API_KEY not set; skipping scan (expected VT_API_KEY or VIRUSTOTAL_API_KEY).", flush=True)
-              sys.exit(0)
-
           session = requests.Session()
           session.headers["x-apikey"] = api_key
 
           pattern = "${{ inputs.pattern }}"
           targets = [p for p in glob.glob(pattern, recursive=True) if os.path.isfile(p)]
-          if not targets:
-              sys.exit(f"No files matched pattern: {pattern}")
 
           def sha256sum(path: str) -> str:
               h = hashlib.sha256()
@@ -145,73 +143,116 @@ jobs:
                   print(f"VT status: {status}, waiting...", flush=True)
                   time.sleep(30)
 
-          all_clean = True
-          results = []
-          for target in targets:
-              clean, sha, vt_url, stats = scan_one(target)
-              results.append({"file": target, "sha": sha, "url": vt_url, "stats": stats, "clean": clean})
-              if not clean:
-                  all_clean = False
-                  print(f"VirusTotal flagged: {target}", flush=True)
+          def persist_status(value: str) -> None:
+              try:
+                  status_path.write_text(value, encoding="utf-8")
+              except Exception as err:
+                  print(f"Failed to write scan status to {status_path}: {err}", file=sys.stderr)
 
-          def append_release_notes(summary: str) -> None:
-              if not publish_notes:
-                  return
-              if not (release_id and repo and gh_token):
-                  return
-              api = f"https://api.github.com/repos/{repo}/releases/{release_id}"
-              headers = {
-                  "Authorization": f"Bearer {gh_token}",
-                  "Accept": "application/vnd.github+json",
-              }
-              current = session.get(api, headers=headers, timeout=30)
-              current.raise_for_status()
-              body = current.json().get("body") or ""
-              new_body = body + "\n\n" + summary if body else summary
-              resp = session.patch(api, headers=headers, json={"body": new_body}, timeout=30)
-              resp.raise_for_status()
+          def run_scan() -> tuple[str, int]:
+              if not api_key:
+                  print("VT_API_KEY not set; expected VT_API_KEY or VIRUSTOTAL_API_KEY.", flush=True)
+                  return "error", 1
+              if not targets:
+                  print(f"No files matched pattern: {pattern}", file=sys.stderr)
+                  return "error", 1
 
-          lines = ["VirusTotal scan results:"]
-          for r in results:
-              status = "clean" if r["clean"] else "flagged"
-              lines.append(f"- {r['file']} ({r['sha']}): {status} {r['stats']} - {r['url']}")
-          summary = "\n".join(lines)
-          print(summary, flush=True)
+              all_clean = True
+              results = []
+              for target in targets:
+                  clean, sha, vt_url, stats = scan_one(target)
+                  results.append({"file": target, "sha": sha, "url": vt_url, "stats": stats, "clean": clean})
+                  if not clean:
+                      all_clean = False
+                      print(f"VirusTotal flagged: {target}", flush=True)
 
-          # Build badges per scanned file for release notes
-          badges = []
-          for r in results:
-              badge_message = "clean" if r["clean"] else "flagged"
-              badge_color = "brightgreen" if r["clean"] else "red"
-              asset_name = os.path.basename(r["file"])
-              label = f"VT {asset_name}"
-              # Shields: use dash form with explicit escaping of "-" -> "--" and "_" -> "__", then URL-encode.
-              def shields_field(value: str) -> str:
-                  return urllib.parse.quote(value.replace("-", "--").replace("_", "__"))
-              badge_url = "https://img.shields.io/badge/{label}-{msg}-{color}.svg".format(
-                  label=shields_field(label),
-                  msg=shields_field(badge_message),
-                  color=badge_color,
-              )
-              primary_url = r["url"] or "https://www.virustotal.com/"
-              badges.append(f"{asset_name}: [![{label}]({badge_url})]({primary_url})")
-          if badges:
-              append_release_notes("\n".join(badges))
+              def append_release_notes(summary: str) -> None:
+                  if not publish_notes:
+                      return
+                  if not (release_id and repo and gh_token):
+                      return
+                  api = f"https://api.github.com/repos/{repo}/releases/{release_id}"
+                  headers = {
+                      "Authorization": f"Bearer {gh_token}",
+                      "Accept": "application/vnd.github+json",
+                  }
+                  current = session.get(api, headers=headers, timeout=30)
+                  current.raise_for_status()
+                  body = current.json().get("body") or ""
+                  new_body = body + "\n\n" + summary if body else summary
+                  resp = session.patch(api, headers=headers, json={"body": new_body}, timeout=30)
+                  resp.raise_for_status()
 
-          # Persist badges for aggregation
-          with open(badge_path, "w", encoding="utf-8") as fh:
-              if release_tag:
-                  fh.write(f"### VirusTotal scan badges for {release_tag}\n\n")
-              for line in badges:
-                  fh.write(f"{line}\n")
+              lines = ["VirusTotal scan results:"]
+              for r in results:
+                  status_word = "clean" if r["clean"] else "flagged"
+                  lines.append(f"- {r['file']} ({r['sha']}): {status_word} {r['stats']} - {r['url']}")
+              summary = "\n".join(lines)
+              print(summary, flush=True)
 
-          status = "success" if all_clean else "flagged"
-          # Emit status for downstream jobs even when flagged
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-              fh.write(f"scan_status={status}\n")
-          if not all_clean:
-              print("VirusTotal flagged one or more files; continuing to allow aggregation.", flush=True)
+              # Build badges per scanned file for release notes
+              badges = []
+              for r in results:
+                  badge_message = "clean" if r["clean"] else "flagged"
+                  badge_color = "brightgreen" if r["clean"] else "red"
+                  asset_name = os.path.basename(r["file"])
+                  label = f"VT {asset_name}"
+                  # Shields: use dash form with explicit escaping of "-" -> "--" and "_" -> "__", then URL-encode.
+                  def shields_field(value: str) -> str:
+                      return urllib.parse.quote(value.replace("-", "--").replace("_", "__"))
+                  badge_url = "https://img.shields.io/badge/{label}-{msg}-{color}.svg".format(
+                      label=shields_field(label),
+                      msg=shields_field(badge_message),
+                      color=badge_color,
+                  )
+                  primary_url = r["url"] or "https://www.virustotal.com/"
+                  badges.append(f"{asset_name}: [![{label}]({badge_url})]({primary_url})")
+              if badges:
+                  append_release_notes("\n".join(badges))
+
+              # Persist badges for aggregation
+              with open(badge_path, "w", encoding="utf-8") as fh:
+                  if release_tag:
+                      fh.write(f"### VirusTotal scan badges for {release_tag}\n\n")
+                  for line in badges:
+                      fh.write(f"{line}\n")
+
+              status_value = "success" if all_clean else "flagged"
+              exit_code = 0 if all_clean else 2
+              if not all_clean:
+                  print("VirusTotal flagged one or more files; continuing to allow aggregation.", flush=True)
+              return status_value, exit_code
+
+          scan_status = "error"
+          exit_code = 1
+          try:
+              scan_status, exit_code = run_scan()
+          except Exception as exc:
+              scan_status = "error"
+              exit_code = 1
+              print(f"VirusTotal scan failed: {exc}", file=sys.stderr)
+          finally:
+              persist_status(scan_status)
+
+          sys.exit(exit_code)
           PY
+
+      - name: Capture scan status
+        id: scan_status
+        if: always()
+        env:
+          VT_STATUS_PATH: vt_status.txt
+        run: |
+          set -euo pipefail
+          status_path="${VT_STATUS_PATH:-vt_status.txt}"
+          status="error"
+          if [[ -f "$status_path" ]]; then
+              status="$(tr -d '\r\n' < "$status_path" || true)"
+          fi
+          if [[ -z "$status" ]]; then
+              status="error"
+          fi
+          echo "scan_status=${status}" >> "$GITHUB_OUTPUT"
 
       - name: Upload VT badges fragment
         uses: actions/upload-artifact@v4
