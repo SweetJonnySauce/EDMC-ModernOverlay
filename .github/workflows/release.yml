@@ -557,6 +557,7 @@ jobs:
     if: always() && github.event_name == 'release'
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
