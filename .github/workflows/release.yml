@@ -481,10 +481,10 @@ jobs:
           release = resp.json()
           rel_id = release["id"]
           body = release.get("body") or ""
-          line = f"VirusTotal transparency report: {asset_url}"
-          if line in body:
+          markdown_link = f"[VirusTotal Reports]({asset_url})"
+          if markdown_link in body:
               raise SystemExit("Transparency link already present; skipping update.")
-          new_body = (body + "\n\n" + line).strip()
+          new_body = (body + "\n\n" + markdown_link).strip()
           patch = session.patch(f"https://api.github.com/repos/{repo}/releases/{rel_id}", json={"body": new_body}, timeout=30)
           patch.raise_for_status()
           PY
