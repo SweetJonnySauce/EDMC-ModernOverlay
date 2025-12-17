@@ -260,17 +260,18 @@ jobs:
                       )
                       lines.append(f"{asset_name}: [![{label}]({badge_url})](https://www.virustotal.com/)")
               else:
-                  # Use artifact inputs to avoid wildcard labels when no targets are found.
+                  # Build a friendlier label when no targets were scanned.
                   pattern_label = os.path.basename(pattern) or pattern or "scan"
-                  artifact_label = artifact_name or artifact_suffix or pattern_label
-                  artifact_label = artifact_label.replace("*", "").strip("-") or "scan"
-                  label = artifact_label
+                  if "*" in pattern_label and release_tag:
+                      pattern_label = pattern_label.replace("*", release_tag)
+                  clean_label = pattern_label.replace("*", "").strip("-") or "scan"
+                  label = clean_label or "scan"
                   badge_url = "https://img.shields.io/badge/{label}-{msg}-{color}.svg".format(
                       label=shields_field(label),
                       msg=shields_field(message),
                       color=color,
                   )
-                  lines.append(f"{artifact_label}: [![{label}]({badge_url})](https://www.virustotal.com/)")
+                  lines.append(f"{clean_label}: [![{label}]({badge_url})](https://www.virustotal.com/)")
               path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
           ensure_badges_file(scan_status)
