@@ -335,7 +335,7 @@ jobs:
           release_tag = os.environ.get("RELEASE_TAG", "").strip()
           repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
           run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
-          header_path = pathlib.Path("docs/vt_report_header.md")
+          header_path = pathlib.Path("docs/vt_report_header.html")
 
           run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if (repo and run_id) else ""
 

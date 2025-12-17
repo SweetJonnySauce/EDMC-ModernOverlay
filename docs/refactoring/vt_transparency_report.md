@@ -16,7 +16,7 @@ Constraints and pain points
 - Aggregation job (added to release.yml):
   - Needs all VT jobs (zip/tar VT + Inno EXE VT).
   - Downloads every `vt-report-<release_tag>-*` artifact from the current run.
-  - Concatenates them into `vt-transparency.md`, prepending a markdown header template if present at `docs/vt_report_header.md`; otherwise add a default heading with the tag and timestamp.
+  - Concatenates them into `vt-transparency.md`, prepending an HTML header template if present at `docs/vt_report_header.html`; otherwise add a default heading with the tag and timestamp.
   - Attaches `vt-transparency.md` to the release and appends a single link in release notes (this job is the only release-note writer).
 - Optional: Also upload `vt-transparency.md` as a build artifact for non-release runs (manual/branch) so we can inspect without touching release notes.
 
