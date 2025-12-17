@@ -192,16 +192,16 @@ jobs:
 
               # Build badges per scanned file for release notes
               badges = []
-              for r in results:
-                  badge_message = "clean" if r["clean"] else "flagged"
-                  badge_color = "brightgreen" if r["clean"] else "red"
-                  asset_name = os.path.basename(r["file"])
-                  label = f"VT {asset_name}"
-                  # Shields: use dash form with explicit escaping of "-" -> "--" and "_" -> "__", then URL-encode.
-                  def shields_field(value: str) -> str:
-                      return urllib.parse.quote(value.replace("-", "--").replace("_", "__"))
-                  badge_url = "https://img.shields.io/badge/{label}-{msg}-{color}.svg".format(
-                      label=shields_field(label),
+          for r in results:
+              badge_message = "clean" if r["clean"] else "flagged"
+              badge_color = "brightgreen" if r["clean"] else "red"
+              asset_name = os.path.basename(r["file"])
+              label = asset_name
+              # Shields: use dash form with explicit escaping of "-" -> "--" and "_" -> "__", then URL-encode.
+              def shields_field(value: str) -> str:
+                  return urllib.parse.quote(value.replace("-", "--").replace("_", "__"))
+              badge_url = "https://img.shields.io/badge/{label}-{msg}-{color}.svg".format(
+                  label=shields_field(label),
                       msg=shields_field(badge_message),
                       color=badge_color,
                   )
@@ -212,8 +212,6 @@ jobs:
 
               # Persist badges for aggregation
               with open(badge_path, "w", encoding="utf-8") as fh:
-                  if release_tag:
-                      fh.write(f"### VirusTotal scan badges for {release_tag}\n\n")
                   for line in badges:
                       fh.write(f"{line}\n")
 
@@ -245,13 +243,10 @@ jobs:
                   return urllib.parse.quote(value.replace("-", "--").replace("_", "__"))
 
               lines = []
-              if release_tag:
-                  lines.append(f"### VirusTotal scan badges for {release_tag}")
-                  lines.append("")
               if targets:
                   for target in targets:
                       asset_name = os.path.basename(target)
-                      label = f"VT {asset_name}"
+                      label = asset_name
                       badge_url = "https://img.shields.io/badge/{label}-{msg}-{color}.svg".format(
                           label=shields_field(label),
                           msg=shields_field(message),
@@ -259,13 +254,14 @@ jobs:
                       )
                       lines.append(f"{asset_name}: [![{label}]({badge_url})](https://www.virustotal.com/)")
               else:
-                  label = "VT scan"
+                  pattern_label = os.path.basename(pattern) or pattern or "scan"
+                  label = pattern_label
                   badge_url = "https://img.shields.io/badge/{label}-{msg}-{color}.svg".format(
                       label=shields_field(label),
                       msg=shields_field(message),
                       color=color,
                   )
-                  lines.append(f"[![{label}]({badge_url})](https://www.virustotal.com/)")
+                  lines.append(f"{pattern_label}: [![{label}]({badge_url})](https://www.virustotal.com/)")
               path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
           ensure_badges_file(scan_status)
