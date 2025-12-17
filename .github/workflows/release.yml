@@ -390,7 +390,7 @@ jobs:
       - vt_scan_windows
       - vt_scan_inno
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    if: always() && github.event_name == 'release'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -401,10 +401,14 @@ jobs:
           pattern: vt-report-*
           path: vt_reports
           merge-multiple: true
+          if-no-files-found: ignore
 
       - name: Build transparency report
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          STATUS_BUNDLES: ${{ needs.vt_scan_bundles.result }}
+          STATUS_WINDOWS: ${{ needs.vt_scan_windows.result }}
+          STATUS_INNO: ${{ needs.vt_scan_inno.result }}
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -413,6 +417,11 @@ jobs:
           import pathlib
 
           release_tag = os.environ.get("RELEASE_TAG", "").strip()
+          statuses = {
+              "bundles": os.environ.get("STATUS_BUNDLES", "").strip(),
+              "windows_legacy": os.environ.get("STATUS_WINDOWS", "").strip(),
+              "windows_inno": os.environ.get("STATUS_INNO", "").strip(),
+          }
           header_path = pathlib.Path("docs/refactoring/vt_report_header.md")
 
           lines = []
@@ -424,9 +433,17 @@ jobs:
               lines.append(f"_Generated at {datetime.datetime.utcnow().isoformat()}Z_")
           lines.append("")
 
+          # Include scan job statuses
+          lines.append("### Scan job status")
+          for label, status in statuses.items():
+              label_fmt = label.replace("_", " ").title()
+              lines.append(f"- {label_fmt}: {status or 'unknown'}")
+          lines.append("")
+
           fragments = sorted(pathlib.Path("vt_reports").rglob("*.md"))
           if not fragments:
-              raise SystemExit("No VT badge fragments found to build report.")
+              lines.append("_No VT badge fragments were found. Scans may have failed before artifact upload._")
+              lines.append("")
 
           for frag in fragments:
               content = frag.read_text(encoding="utf-8").strip()
