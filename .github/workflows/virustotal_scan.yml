@@ -58,7 +58,6 @@ jobs:
           import sys
           import time
           import hashlib
-          import urllib.parse
           import requests
 
           repo = os.environ.get("GITHUB_REPOSITORY")
@@ -161,16 +160,20 @@ jobs:
           print(summary, flush=True)
 
           # Build badges per scanned file for release notes
+          def shields_escape(text: str) -> str:
+              # Shields encodes "-" as "--" and "_" as "__"; spaces become "_".
+              return text.replace("_", "__").replace("-", "--").replace(" ", "_")
+
           badges = []
           for r in results:
               badge_message = "clean" if r["clean"] else "flagged"
               badge_color = "brightgreen" if r["clean"] else "red"
               asset_name = os.path.basename(r["file"])
               label = f"VT {asset_name}"
-              badge_url = "https://img.shields.io/badge/{label}-{msg}-{color}".format(
-                  label=urllib.parse.quote_plus(label),
-                  msg=urllib.parse.quote_plus(badge_message),
-                  color=urllib.parse.quote_plus(badge_color),
+              badge_url = "https://img.shields.io/badge/{label}/{msg}/{color}.svg".format(
+                  label=shields_escape(label),
+                  msg=shields_escape(badge_message),
+                  color=badge_color,
               )
               primary_url = r["url"] or "https://www.virustotal.com/"
               badges.append(f"{asset_name}: [![{label}]({badge_url})]({primary_url})")
