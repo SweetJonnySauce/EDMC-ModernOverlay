@@ -340,8 +340,10 @@ jobs:
           run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if (repo and run_id) else ""
 
           lines = []
-          if header_path.exists():
-              lines.append(header_path.read_text(encoding="utf-8").strip())
+          header_html = header_path.read_text(encoding="utf-8").strip() if header_path.exists() else ""
+
+          if header_html:
+              lines.append(header_html)
           else:
               heading = f"## VirusTotal transparency report for {release_tag}" if release_tag else "## VirusTotal transparency report"
               lines.append(heading)
@@ -386,8 +388,11 @@ jobs:
               "</style>",
               "</head>",
               "<body>",
-              f"<h2>{html.escape(heading_text)}</h2>",
           ]
+          if header_html:
+              html_lines.append(header_html)
+          else:
+              html_lines.append(f"<h2>{html.escape(heading_text)}</h2>")
           if run_url:
               html_lines.append(f'<p>Workflow run: <a href="{html.escape(run_url)}">{html.escape(run_url)}</a></p>')
           html_lines.append('<div class="badges">')
