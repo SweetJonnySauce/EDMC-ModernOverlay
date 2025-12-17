@@ -102,8 +102,11 @@ jobs:
     needs: bundle
     permissions:
       contents: write
+    outputs:
+      have_source: ${{ steps.fetch_source.outputs.have_source }}
     steps:
       - name: Download source zip for tag
+        id: fetch_source
         env:
           TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
@@ -111,10 +114,17 @@ jobs:
           mkdir -p dist
           url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.zip"
           echo "Downloading source archive from $url"
-          curl -fL "$url" -o dist/source.zip
-          ls -al dist
+          if curl -fL "$url" -o dist/source.zip; then
+            echo "have_source=true" >> "$GITHUB_OUTPUT"
+            ls -al dist
+          else
+            echo "Source archive not available for tag ${TAG}; skipping source VT scan."
+            echo "have_source=false" >> "$GITHUB_OUTPUT"
+            rm -f dist/source.zip
+          fi
 
       - name: Upload source zip artifact
+        if: steps.fetch_source.outputs.have_source == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: source-zip
@@ -327,7 +337,7 @@ jobs:
       contents: write
     needs: source_zip
     uses: ./.github/workflows/virustotal_scan.yml
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' && needs.source_zip.outputs.have_source == 'true'
     secrets:
       VT_API_KEY: ${{ secrets.VT_API_KEY || secrets.VIRUSTOTAL_API_KEY }}
     with:
