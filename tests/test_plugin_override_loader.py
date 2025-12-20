@@ -51,3 +51,48 @@ def test_override_manager_uses_loader_merged_view(tmp_path):
     pluginb = manager._plugins.get("pluginb")
     assert pluginb is not None
     assert pluginb.match_id_prefixes == ("baz-",)
+
+
+def test_override_manager_background_from_loader(tmp_path):
+    shipped = tmp_path / "overlay_groupings.json"
+    user = tmp_path / "overlay_groupings.user.json"
+
+    shipped.write_text(
+        """
+{
+  "PluginA": {
+    "idPrefixGroups": {
+      "Main": {
+        "idPrefixes": ["foo-"],
+        "backgroundColor": "#112233",
+        "backgroundBorderWidth": 1
+      }
+    }
+  }
+}
+""",
+        encoding="utf-8",
+    )
+    user.write_text(
+        """
+{
+  "PluginA": {
+    "idPrefixGroups": {
+      "Main": {
+        "backgroundColor": "#AABBCC",
+        "backgroundBorderWidth": 4
+      }
+    }
+  }
+}
+""",
+        encoding="utf-8",
+    )
+
+    loader = GroupingsLoader(shipped, user)
+    manager = PluginOverrideManager(shipped, logging.getLogger("test"), groupings_loader=loader)
+    manager._reload_if_needed()
+
+    color, border = manager.group_background("PluginA", "Main")
+    assert color == "#AABBCC"
+    assert border == 4

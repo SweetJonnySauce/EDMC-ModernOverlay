@@ -35,6 +35,8 @@ The JSON root is an object keyed by the display name you want shown in the overl
 | `idPrefixGroups.<name>.idPrefixGroupAnchor` | enum | Optional. One of `nw`, `ne`, `sw`, `se`, `center`, `top`, `bottom`, `left`, or `right`. Defaults to `nw` when omitted. `top`/`bottom` keep the midpoint of the vertical edges anchored, while `left`/`right` do the same for the horizontal edges—useful when plugins want edges to stay aligned against the overlay boundary. |
 | `idPrefixGroups.<name>.offsetX` / `offsetY` | number | Optional. Translates the whole group in the legacy 1280 × 960 canvas before Fill-mode scaling applies. Positive values move right/down; negative values move left/up. |
 | `idPrefixGroups.<name>.payloadJustification` | enum | Optional. One of `left` (default), `center`, or `right`. Applies only to idPrefix groups. After anchor adjustments (but before overflow nudging) Modern Overlay shifts narrower payloads so that their right edge or midpoint lines up with the widest payload in the group. The widest entry defines the alignment width and stays put. **Caution** Using justification with vect type payloads isn't supported and probably never will be. |
+| `idPrefixGroups.<name>.backgroundColor` | hex string or null | Optional. Default background fill for this group. Accepts `#RRGGBB` or `#RRGGBBAA` (alpha optional, case-insensitive). `null` forces a transparent override. |
+| `idPrefixGroups.<name>.backgroundBorderWidth` | integer | Optional. Border thickness in pixels (0–10). The background uses the same color and expands by this width on every side. |
 
 Additional metadata (`notes`, legacy `grouping.*`, etc.) is ignored by the current engine but preserved so you can document intent for reviewers.
 
@@ -98,6 +100,20 @@ The repository ships with `schemas/overlay_groupings.schema.json` (Draft 2020‑
           "type": "string",
           "enum": ["left", "center", "right"],
           "default": "left"
+        },
+        "backgroundColor": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            },
+            { "type": "null" }
+          ]
+        },
+        "backgroundBorderWidth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
         }
       },
       "required": ["idPrefixes"],

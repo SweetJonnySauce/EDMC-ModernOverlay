@@ -19,6 +19,7 @@ if str(OVERLAY_ROOT) not in sys.path:
 from prefix_entries import PrefixEntry, parse_prefix_entries
 
 from overlay_client.debug_config import DebugConfig
+from overlay_plugin.overlay_api import PluginGroupingError, _normalise_background_color, _normalise_border_width
 
 
 JsonDict = Dict[str, Any]
@@ -37,6 +38,8 @@ class _GroupSpec:
     offset_x: float = 0.0
     offset_y: float = 0.0
     payload_justification: str = _DEFAULT_PAYLOAD_JUSTIFICATION
+    background_color: Optional[str] = None
+    background_border_width: Optional[int] = None
 
 
 @dataclass
@@ -341,6 +344,29 @@ class PluginOverrideManager:
                         return token
                 return _DEFAULT_PAYLOAD_JUSTIFICATION
 
+            def _parse_background_fields(source: Mapping[str, Any]) -> Tuple[Optional[str], Optional[int]]:
+                color: Optional[str] = None
+                border: Optional[int] = None
+                if "backgroundColor" in source:
+                    raw_color = source.get("backgroundColor")
+                    if raw_color is None:
+                        color = None
+                    else:
+                        try:
+                            color = _normalise_background_color(raw_color)
+                        except PluginGroupingError:
+                            color = None
+                if "backgroundBorderWidth" in source:
+                    raw_border = source.get("backgroundBorderWidth")
+                    if raw_border is None:
+                        border = None
+                    else:
+                        try:
+                            border = _normalise_border_width(raw_border, "backgroundBorderWidth")
+                        except PluginGroupingError:
+                            border = None
+                return color, border
+
             def _append_group_spec(
                 label: Optional[str],
                 prefixes: Tuple[str, ...],
@@ -348,6 +374,8 @@ class PluginOverrideManager:
                 offset_x: float,
                 offset_y: float,
                 payload_justification: str,
+                background_color: Optional[str],
+                background_border_width: Optional[int],
             ) -> None:
                 if not prefixes:
                     return
@@ -360,6 +388,8 @@ class PluginOverrideManager:
                         offset_x=offset_x,
                         offset_y=offset_y,
                         payload_justification=payload_justification,
+                        background_color=background_color,
+                        background_border_width=background_border_width,
                     )
                 )
                 for entry in prefixes:
@@ -379,7 +409,17 @@ class PluginOverrideManager:
                     label_value = str(label).strip() if isinstance(label, str) and label else None
                     offset_x, offset_y = _parse_offsets(group_value)
                     justification_token = _parse_payload_justification(group_value)
-                    _append_group_spec(label_value, cleaned_prefixes, anchor_token, offset_x, offset_y, justification_token)
+                    background_color, background_border_width = _parse_background_fields(group_value)
+                    _append_group_spec(
+                        label_value,
+                        cleaned_prefixes,
+                        anchor_token,
+                        offset_x,
+                        offset_y,
+                        justification_token,
+                        background_color,
+                        background_border_width,
+                    )
 
             grouping_section = plugin_payload.get("grouping")
             if isinstance(grouping_section, Mapping):
@@ -395,7 +435,17 @@ class PluginOverrideManager:
                         label_value = str(label).strip() if isinstance(label, str) and label else None
                         offset_x, offset_y = _parse_offsets(group_value)
                         justification_token = _parse_payload_justification(group_value)
-                        _append_group_spec(label_value, cleaned_prefixes, anchor_token, offset_x, offset_y, justification_token)
+                        background_color, background_border_width = _parse_background_fields(group_value)
+                        _append_group_spec(
+                            label_value,
+                            cleaned_prefixes,
+                            anchor_token,
+                            offset_x,
+                            offset_y,
+                            justification_token,
+                            background_color,
+                            background_border_width,
+                        )
 
                 prefixes_spec = grouping_section.get("prefixes")
                 if isinstance(prefixes_spec, Mapping):
@@ -409,20 +459,42 @@ class PluginOverrideManager:
                             prefixes = _clean_group_prefixes(prefix_value)
                             label_value = str(label).strip() if isinstance(label, str) and label else prefix_value
                             justification_token = _DEFAULT_PAYLOAD_JUSTIFICATION
+                            background_color, background_border_width = _parse_background_fields({})
                         elif isinstance(prefix_value, Mapping):
                             prefixes = _clean_group_prefixes(prefix_value.get("prefix"))
                             label_value = str(label).strip() if isinstance(label, str) and label else None
                             anchor_token = _parse_anchor(prefix_value)
                             offset_x, offset_y = _parse_offsets(prefix_value)
                             justification_token = _parse_payload_justification(prefix_value)
+                            background_color, background_border_width = _parse_background_fields(prefix_value)
                         else:
                             justification_token = _DEFAULT_PAYLOAD_JUSTIFICATION
-                        _append_group_spec(label_value, prefixes, anchor_token, offset_x, offset_y, justification_token)
+                            background_color, background_border_width = _parse_background_fields({})
+                        _append_group_spec(
+                            label_value,
+                            prefixes,
+                            anchor_token,
+                            offset_x,
+                            offset_y,
+                            justification_token,
+                            background_color,
+                            background_border_width,
+                        )
                 elif isinstance(prefixes_spec, Iterable):
                     for entry in prefixes_spec:
                         if isinstance(entry, str) and entry:
                             cleaned_entry = entry.casefold()
-                            _append_group_spec(entry, (cleaned_entry,), None, 0.0, 0.0, _DEFAULT_PAYLOAD_JUSTIFICATION)
+                            background_color, background_border_width = _parse_background_fields({})
+                            _append_group_spec(
+                                entry,
+                                (cleaned_entry,),
+                                None,
+                                0.0,
+                                0.0,
+                                _DEFAULT_PAYLOAD_JUSTIFICATION,
+                                background_color,
+                                background_border_width,
+                            )
 
             if group_prefix_hints:
                 for prefix in group_prefix_hints:
@@ -673,6 +745,30 @@ class PluginOverrideManager:
             if label_value == suffix:
                 return spec.offset_x, spec.offset_y
         return 0.0, 0.0
+
+    def group_background(self, plugin: Optional[str], suffix: Optional[str]) -> Tuple[Optional[str], Optional[int]]:
+        self._reload_if_needed()
+        canonical = self._canonical_plugin_name(plugin)
+        if canonical is None or suffix is None:
+            return None, None
+        config = self._plugins.get(canonical)
+        if config is None or not config.group_specs:
+            return None, None
+        for spec in config.group_specs:
+            label_value = spec.label or (spec.prefixes[0].value if spec.prefixes else None)
+            if label_value == suffix:
+                border = spec.background_border_width
+                if isinstance(border, bool):
+                    border = int(bool(border))
+                if isinstance(border, (int, float)):
+                    try:
+                        border_int = int(border)
+                    except Exception:
+                        border_int = None
+                else:
+                    border_int = None
+                return spec.background_color, border_int
+        return None, None
 
     def group_payload_justification(self, plugin: Optional[str], suffix: Optional[str]) -> str:
         self._reload_if_needed()

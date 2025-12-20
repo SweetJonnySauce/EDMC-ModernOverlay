@@ -253,3 +253,18 @@ def test_define_plugin_group_requires_id_prefixes_when_group_absent(grouping_sto
             plugin_group="Example",
             id_prefix_group="alerts",
         )
+
+
+def test_define_plugin_group_supports_background_fields(grouping_store):
+    overlay_api.define_plugin_group(
+        plugin_group="Example",
+        id_prefix_group="alerts",
+        id_prefixes=["example-alert-"],
+        background_color="#ab12cd",
+        background_border_width=4,
+    )
+
+    payload = _load(grouping_store)
+    group = payload["Example"]["idPrefixGroups"]["alerts"]
+    assert group["backgroundColor"] == "#AB12CD"
+    assert group["backgroundBorderWidth"] == 4

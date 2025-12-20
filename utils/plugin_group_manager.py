@@ -36,6 +36,8 @@ from prefix_entries import (
     parse_prefix_entries,
     serialise_prefix_entries,
 )
+from overlay_plugin.overlay_api import PluginGroupingError, _normalise_background_color, _normalise_border_width
+from overlay_plugin.overlay_api import PluginGroupingError, _normalise_background_color, _normalise_border_width
 
 try:
     from overlay_client.plugin_overrides import PluginOverrideManager
@@ -80,6 +82,7 @@ REPLAY_RESOLUTIONS = [
 BASE_ASPECT_RATIO = 1280 / 960
 BASE_WIDTH = 1280
 BASE_HEIGHT = 960
+_MISSING = object()
 
 
 @dataclass(frozen=True)
@@ -760,6 +763,24 @@ class GroupConfigStore:
         )
         if justification:
             cleaned["payloadJustification"] = justification
+        if "backgroundColor" in spec or "background_color" in spec:
+            raw_color = spec.get("backgroundColor") or spec.get("background_color")
+            if raw_color is None:
+                cleaned["backgroundColor"] = None
+            else:
+                try:
+                    cleaned["backgroundColor"] = _normalise_background_color(raw_color)
+                except PluginGroupingError:
+                    pass
+        if "backgroundBorderWidth" in spec or "background_border_width" in spec:
+            raw_border = spec.get("backgroundBorderWidth") or spec.get("background_border_width")
+            if raw_border is None:
+                cleaned["backgroundBorderWidth"] = None
+            else:
+                try:
+                    cleaned["backgroundBorderWidth"] = _normalise_border_width(raw_border, "backgroundBorderWidth")
+                except PluginGroupingError:
+                    pass
         notes_value = spec.get("notes")
         if isinstance(notes_value, str) and notes_value.strip():
             cleaned["notes"] = notes_value.strip()
@@ -828,6 +849,8 @@ class GroupConfigStore:
                                 "offsetX": spec.get("offsetX"),
                                 "offsetY": spec.get("offsetY"),
                                 "payloadJustification": justification,
+                                "backgroundColor": spec.get("backgroundColor"),
+                                "backgroundBorderWidth": spec.get("backgroundBorderWidth"),
                                 "notes": notes,
                             }
                         )
@@ -946,6 +969,8 @@ class GroupConfigStore:
         offset_x: Optional[object] = None,
         offset_y: Optional[object] = None,
         payload_justification: Optional[str] = None,
+        background_color: Optional[str] = None,
+        background_border_width: Optional[object] = None,
     ) -> None:
         prefix_entries = self._coerce_prefix_entries(prefixes)
         cleaned_label = label.strip()
@@ -961,6 +986,18 @@ class GroupConfigStore:
         )
         if not justification_token:
             justification_token = DEFAULT_PAYLOAD_JUSTIFICATION
+        try:
+            normalized_color = _normalise_background_color(background_color) if background_color is not None else None
+        except PluginGroupingError as exc:
+            raise ValueError(str(exc)) from exc
+        try:
+            normalized_border = (
+                _normalise_border_width(background_border_width, "backgroundBorderWidth")
+                if background_border_width is not None
+                else None
+            )
+        except PluginGroupingError as exc:
+            raise ValueError(str(exc)) from exc
         with self._lock:
             entry = self._data.get(group_name)
             if not entry:
@@ -982,6 +1019,10 @@ class GroupConfigStore:
             if offset_y_value is not None:
                 spec_payload["offsetY"] = offset_y_value
             spec_payload["payloadJustification"] = justification_token
+            if background_color is not None:
+                spec_payload["backgroundColor"] = normalized_color
+            if background_border_width is not None:
+                spec_payload["backgroundBorderWidth"] = normalized_border
             groups[cleaned_label] = self._normalise_group_spec(
                 spec_payload
             )
@@ -999,6 +1040,8 @@ class GroupConfigStore:
         offset_x: Optional[object] = None,
         offset_y: Optional[object] = None,
         payload_justification: Optional[object] = None,
+        background_color: object = _MISSING,
+        background_border_width: object = _MISSING,
     ) -> None:
         original_label = label.strip()
         if not original_label:
@@ -1050,6 +1093,24 @@ class GroupConfigStore:
                     target_spec["payloadJustification"] = justification_token
                 else:
                     target_spec.pop("payloadJustification", None)
+            if background_color is not _MISSING:
+                if background_color is None or background_color == "":
+                    target_spec["backgroundColor"] = None
+                else:
+                    try:
+                        target_spec["backgroundColor"] = _normalise_background_color(background_color)
+                    except PluginGroupingError as exc:
+                        raise ValueError(str(exc)) from exc
+            if background_border_width is not _MISSING:
+                if background_border_width is None or background_border_width == "":
+                    target_spec.pop("backgroundBorderWidth", None)
+                else:
+                    try:
+                        target_spec["backgroundBorderWidth"] = _normalise_border_width(
+                            background_border_width, "backgroundBorderWidth"
+                        )
+                    except PluginGroupingError as exc:
+                        raise ValueError(str(exc)) from exc
             if replacement_label != original_label:
                 if replacement_label in groups and replacement_label != original_label:
                     raise ValueError(f"Grouping '{replacement_label}' already exists for '{group_name}'.")
@@ -1238,9 +1299,21 @@ class NewGroupingDialog(simpledialog.Dialog):
         self.offset_y_var = tk.StringVar(value=self._format_initial_offset(self._suggestion.get("offsetY")))
         ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=6, column=1, sticky="ew")
 
-        ttk.Label(master, text="Notes").grid(row=7, column=0, sticky="w")
+        ttk.Label(master, text="Background color (#RRGGBB[AA])").grid(row=7, column=0, sticky="w")
+        self.background_color_var = tk.StringVar(value=str(self._suggestion.get("backgroundColor") or ""))
+        ttk.Entry(master, textvariable=self.background_color_var, width=40).grid(row=7, column=1, sticky="ew")
+
+        ttk.Label(master, text="Background border (0–10 px)").grid(row=8, column=0, sticky="w")
+        self.background_border_var = tk.StringVar(
+            value=str(self._suggestion.get("backgroundBorderWidth", ""))
+        )
+        ttk.Spinbox(master, from_=0, to=10, textvariable=self.background_border_var, width=6).grid(
+            row=8, column=1, sticky="w"
+        )
+
+        ttk.Label(master, text="Notes").grid(row=9, column=0, sticky="w")
         self.notes_var = tk.StringVar(value=str(self._suggestion.get("notes") or ""))
-        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=7, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=9, column=1, sticky="ew")
         return master
 
     def validate(self) -> bool:  # type: ignore[override]
@@ -1257,6 +1330,11 @@ class NewGroupingDialog(simpledialog.Dialog):
             messagebox.showerror("Validation error", "Enter at least one ID prefix.")
             return False
         self._validated_prefixes = prefixes
+        try:
+            self._validated_background_color, self._validated_border = self._parse_background_inputs()
+        except ValueError as exc:
+            messagebox.showerror("Validation error", str(exc))
+            return False
         return True
 
     @staticmethod
@@ -1280,11 +1358,39 @@ class NewGroupingDialog(simpledialog.Dialog):
             "payload_justification": self.justification_var.get().strip(),
             "offset_x": self.offset_x_var.get().strip(),
             "offset_y": self.offset_y_var.get().strip(),
+            "background_color": getattr(self, "_validated_background_color", None),
+            "background_border_width": getattr(self, "_validated_border", None),
             "notes": self.notes_var.get().strip(),
         }
 
     def apply(self) -> None:  # type: ignore[override]
         self.result = self.result_data()
+
+    def _parse_background_inputs(self) -> tuple[Optional[str], Optional[int]]:
+        color_raw = self.background_color_var.get().strip()
+        color_value: Optional[str]
+        if not color_raw:
+            color_value = None
+        else:
+            if not color_raw.startswith("#"):
+                color_raw = "#" + color_raw
+            try:
+                color_value = _normalise_background_color(color_raw)
+            except PluginGroupingError as exc:
+                raise ValueError(str(exc)) from exc
+        border_raw = self.background_border_var.get().strip()
+        if border_raw == "":
+            border_value: Optional[int] = None
+        else:
+            try:
+                border_candidate = float(border_raw)
+            except ValueError as exc:
+                raise ValueError("backgroundBorderWidth must be a number between 0 and 10") from exc
+            try:
+                border_value = _normalise_border_width(border_candidate, "backgroundBorderWidth")
+            except PluginGroupingError as exc:
+                raise ValueError(str(exc)) from exc
+        return color_value, border_value
 
 
 class EditGroupingDialog(simpledialog.Dialog):
@@ -1389,9 +1495,19 @@ class EditGroupingDialog(simpledialog.Dialog):
         self.offset_y_var = tk.StringVar(value=self._format_initial_offset(self._entry.get("offsetY")))
         ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=7, column=1, sticky="ew")
 
-        ttk.Label(master, text="Notes").grid(row=8, column=0, sticky="w")
+        ttk.Label(master, text="Background color (#RRGGBB[AA])").grid(row=8, column=0, sticky="w")
+        self.background_color_var = tk.StringVar(value=str(self._entry.get("backgroundColor") or ""))
+        ttk.Entry(master, textvariable=self.background_color_var, width=40).grid(row=8, column=1, sticky="ew")
+
+        ttk.Label(master, text="Background border (0–10 px)").grid(row=9, column=0, sticky="w")
+        self.background_border_var = tk.StringVar(value=str(self._entry.get("backgroundBorderWidth") or ""))
+        ttk.Spinbox(master, from_=0, to=10, textvariable=self.background_border_var, width=6).grid(
+            row=9, column=1, sticky="w"
+        )
+
+        ttk.Label(master, text="Notes").grid(row=10, column=0, sticky="w")
         self.notes_var = tk.StringVar(value=str(self._entry.get("notes") or ""))
-        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=8, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=10, column=1, sticky="ew")
         return master
 
     def validate(self) -> bool:  # type: ignore[override]
@@ -1401,6 +1517,11 @@ class EditGroupingDialog(simpledialog.Dialog):
             return False
         if not self._prefix_entries:
             messagebox.showerror("Validation error", "Enter at least one ID prefix.")
+            return False
+        try:
+            self._validated_background_color, self._validated_border = self._parse_background_inputs()
+        except ValueError as exc:
+            messagebox.showerror("Validation error", str(exc))
             return False
         return True
 
@@ -1413,6 +1534,8 @@ class EditGroupingDialog(simpledialog.Dialog):
             "payload_justification": self.justification_var.get().strip(),
             "offset_x": self.offset_x_var.get().strip(),
             "offset_y": self.offset_y_var.get().strip(),
+            "background_color": getattr(self, "_validated_background_color", None),
+            "background_border_width": getattr(self, "_validated_border", None),
             "notes": self.notes_var.get().strip(),
         }
 
@@ -1501,6 +1624,32 @@ class EditGroupingDialog(simpledialog.Dialog):
         if isinstance(value, str):
             return value.strip()
         return ""
+
+    def _parse_background_inputs(self) -> tuple[Optional[str], Optional[int]]:
+        color_raw = self.background_color_var.get().strip()
+        color_value: Optional[str]
+        if not color_raw:
+            color_value = None
+        else:
+            if not color_raw.startswith("#"):
+                color_raw = "#" + color_raw
+            try:
+                color_value = _normalise_background_color(color_raw)
+            except PluginGroupingError as exc:
+                raise ValueError(str(exc)) from exc
+        border_raw = self.background_border_var.get().strip()
+        if border_raw == "":
+            border_value: Optional[int] = None
+        else:
+            try:
+                border_candidate = float(border_raw)
+            except ValueError as exc:
+                raise ValueError("backgroundBorderWidth must be a number between 0 and 10") from exc
+            try:
+                border_value = _normalise_border_width(border_candidate, "backgroundBorderWidth")
+            except PluginGroupingError as exc:
+                raise ValueError(str(exc)) from exc
+        return color_value, border_value
 
 
 class AddPrefixDialog(simpledialog.Dialog):
@@ -3011,6 +3160,8 @@ class PluginGroupManagerApp:
                 offset_x=data.get("offset_x"),
                 offset_y=data.get("offset_y"),
                 payload_justification=data.get("payload_justification"),
+                background_color=data.get("background_color"),
+                background_border_width=data.get("background_border_width"),
             )
         except ValueError as exc:
             messagebox.showerror("Failed to add grouping", str(exc))
@@ -3042,6 +3193,8 @@ class PluginGroupManagerApp:
                 offset_x=data.get("offset_x"),
                 offset_y=data.get("offset_y"),
                 payload_justification=data.get("payload_justification"),
+                background_color=data.get("background_color"),
+                background_border_width=data.get("background_border_width"),
             )
         except ValueError as exc:
             messagebox.showerror("Failed to edit grouping", str(exc))

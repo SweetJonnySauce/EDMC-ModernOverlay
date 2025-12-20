@@ -251,6 +251,7 @@ class LegacyRenderPipeline:
             "overlay_bounds_base": overlay_bounds_base,
             "anchor_translation_by_group": anchor_translation_by_group,
             "commands": commands,
+            "translated_bounds_by_group": translated_bounds_by_group,
         }
         self._legacy_render_cache = {
             "commands": commands,

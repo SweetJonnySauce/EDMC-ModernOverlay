@@ -17,6 +17,7 @@ _LOGGER = logging.getLogger("EDMC.ModernOverlay.API")
 _MAX_MESSAGE_BYTES = 16_384
 _ANCHOR_CHOICES = {"nw", "ne", "sw", "se", "center", "top", "bottom", "left", "right"}
 _JUSTIFICATION_CHOICES = {"left", "center", "right"}
+_HEX_DIGITS = set("0123456789ABCDEF")
 
 _publisher: Optional[Callable[[Mapping[str, Any]], bool]] = None
 _grouping_store: Optional["_PluginGroupingStore"] = None
@@ -139,6 +140,8 @@ def define_plugin_group(
     id_prefix_offset_x: Optional[Union[int, float]] = None,
     id_prefix_offset_y: Optional[Union[int, float]] = None,
     payload_justification: Optional[str] = None,
+    background_color: Optional[str] = None,
+    background_border_width: Optional[Union[int, float]] = None,
 ) -> bool:
     """Create or replace grouping metadata for a plugin.
 
@@ -163,6 +166,8 @@ def define_plugin_group(
         and id_prefix_offset_x is None
         and id_prefix_offset_y is None
         and payload_justification is None
+        and background_color is None
+        and background_border_width is None
     ):
         raise PluginGroupingError("Provide matchingPrefixes, idPrefixGroup, idPrefixes, or idPrefixGroupAnchor")
 
@@ -183,6 +188,14 @@ def define_plugin_group(
     )
     if justification_token is not None and id_group_label is None:
         raise PluginGroupingError("idPrefixGroup is required when specifying payloadJustification")
+    background_color_token = _normalise_background_color(background_color) if background_color is not None else None
+    background_border_width_token = (
+        _normalise_border_width(background_border_width, "backgroundBorderWidth")
+        if background_border_width is not None
+        else None
+    )
+    if (background_color_token is not None or background_border_width_token is not None) and id_group_label is None:
+        raise PluginGroupingError("idPrefixGroup is required when specifying backgroundColor or backgroundBorderWidth")
 
     update = _GroupingUpdate(
         plugin_group=plugin_label,
@@ -193,6 +206,8 @@ def define_plugin_group(
         offset_x=offset_x,
         offset_y=offset_y,
         payload_justification=justification_token,
+        background_color=background_color_token,
+        background_border_width=background_border_width_token,
     )
     return store.apply(update)
 
@@ -294,6 +309,30 @@ def _normalise_offset(value: Union[int, float], field: str) -> float:
     return numeric
 
 
+def _normalise_background_color(value: Optional[str]) -> str:
+    if not isinstance(value, str):
+        raise PluginGroupingError("backgroundColor must be a string")
+    token = value.strip().upper()
+    if not token:
+        raise PluginGroupingError("backgroundColor must be non-empty")
+    if not token.startswith("#"):
+        token = "#" + token
+    if len(token) not in (7, 9):
+        raise PluginGroupingError("backgroundColor must be #RRGGBB or #RRGGBBAA")
+    if not all(ch in _HEX_DIGITS for ch in token[1:]):
+        raise PluginGroupingError("backgroundColor must use hex digits")
+    return token
+
+
+def _normalise_border_width(value: Union[int, float], field: str) -> int:
+    if not isinstance(value, (int, float)):
+        raise PluginGroupingError(f"{field} must be a number")
+    numeric = int(value)
+    if numeric < 0 or numeric > 10:
+        raise PluginGroupingError(f"{field} must be between 0 and 10")
+    return numeric
+
+
 def _matches_contains_prefix(matches: Sequence[Any], prefix: str) -> bool:
     candidate = prefix.strip().lower()
     if not candidate:
@@ -347,6 +386,8 @@ class _GroupingUpdate:
     offset_x: Optional[float]
     offset_y: Optional[float]
     payload_justification: Optional[str]
+    background_color: Optional[str]
+    background_border_width: Optional[int]
 
 
 class _PluginGroupingStore:
@@ -443,6 +484,14 @@ class _PluginGroupingStore:
                     if group_entry.get("offsetY") != update.offset_y:
                         group_entry["offsetY"] = update.offset_y
                         mutated = True
+                if update.background_color is not None:
+                    if group_entry.get("backgroundColor") != update.background_color:
+                        group_entry["backgroundColor"] = update.background_color
+                        mutated = True
+                if update.background_border_width is not None:
+                    if group_entry.get("backgroundBorderWidth") != update.background_border_width:
+                        group_entry["backgroundBorderWidth"] = update.background_border_width
+                        mutated = True
 
                 if group_missing or groups_missing:
                     mutated = True
@@ -454,9 +503,11 @@ class _PluginGroupingStore:
                     or update.id_prefix_group_anchor is not None
                     or update.offset_x is not None
                     or update.offset_y is not None
+                    or update.background_color is not None
+                    or update.background_border_width is not None
                 ):
                     raise PluginGroupingError(
-                        "idPrefixGroup is required when specifying idPrefixes, idPrefixGroupAnchor, or offsets"
+                        "idPrefixGroup is required when specifying idPrefixes, idPrefixGroupAnchor, offsets, or background fields"
                     )
 
         if mutated:

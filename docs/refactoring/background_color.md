@@ -69,10 +69,11 @@
 
 | Phase | Description | Status |
 | --- | --- | --- |
-| 1 | Contracts and schema for background color/border | Pending |
-| 2 | Plugin API + loader/diff persistence plumbing | Pending |
-| 3 | Controller UI, validation, and user override writes | Pending |
-| 4 | Client rendering + preview visuals | Pending |
+| 1 | Contracts and schema for background color/border | Completed |
+| 2 | Plugin API + loader/diff persistence plumbing | Completed |
+| 3 | Controller UI, validation, and user override writes | Completed |
+| 4 | Client rendering + preview visuals | Completed |
+| 5 | plugin_group_manager defaults | Completed |
 
 ## Phase Details
 
@@ -83,9 +84,24 @@
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 1.1 | Document field names, precedence, validation (hex + alpha, border 0–10) in schema and docs | Not started |
-| 1.2 | Update `schemas/overlay_groupings.schema.json` to allow background color + border width per group | Not started |
-| 1.3 | Add/adjust tests for schema/loader contract coverage (e.g., loader tests consuming the schema) | Not started |
+| 1.1 | Document field names, precedence, validation (hex + alpha, border 0–10) in schema and docs | Completed |
+| 1.2 | Update `schemas/overlay_groupings.schema.json` to allow background color + border width per group | Completed |
+| 1.3 | Add/adjust tests for schema/loader contract coverage (e.g., loader tests consuming the schema) | Completed |
+
+**Stage 1.1 notes**
+- Plan: clarify the background fields, precedence (user → plugin group default → plugin payload → transparent), validation (`#RRGGBB`/`#RRGGBBAA`, border width 0–10), and rendering rule for the frame aligning to the transformed group bounds.
+- Risks: misaligned terminology or missing precedence step; mitigation: restated precedence and alignment requirement in the requirements list.
+- Result: requirements updated; no code changes; tests not applicable.
+
+**Stage 1.2 notes**
+- Plan: extend the JSON schema to permit optional `backgroundColor` and `backgroundBorderWidth` on group definitions, keeping validation strict (hex with optional alpha, border 0–10).
+- Risks: loosening schema too far or rejecting valid values; mitigation: pattern-match hex with alpha, clamp border width via min/max.
+- Result: schema updated with the two fields; tests not yet run (schema-only change).
+
+**Stage 1.3 notes**
+- Plan: cover schema/loader normalization with unit tests so hex validation and precedence stay anchored.
+- Risks: regression in merge precedence or schema drift; mitigation: new loader/diff/API tests asserting color/border normalization and clear-to-transparent semantics.
+- Result: Tests added (`tests/test_overlay_api.py`, `tests/test_groupings_loader.py`, `tests/test_groupings_diff.py`, `tests/test_plugin_override_loader.py`) and passing.
 
 ### Phase 2: Plugin API + loader/diff persistence plumbing
 - Goal: extend `define_plugin_group` and storage to accept/write defaults; ensure merge/diff honor precedence (user → plugin → payload → transparent).
@@ -94,9 +110,14 @@
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 2.1 | Extend `overlay_api.define_plugin_group` validation/serialization for background color + border width | Not Started |
-| 2.2 | Update `groupings_loader` and `groupings_diff` to merge/diff new fields correctly | Not started |
-| 2.3 | Refresh docs (`overlay-groupings.md`, `developer.md`) and add unit tests for API/loader/diff behaviors | Not started |
+| 2.1 | Extend `overlay_api.define_plugin_group` validation/serialization for background color + border width | Completed |
+| 2.2 | Update `groupings_loader` and `groupings_diff` to merge/diff new fields correctly | Completed |
+| 2.3 | Refresh docs (`overlay-groupings.md`, `developer.md`) and add unit tests for API/loader/diff behaviors | Completed |
+
+**Stage 2.x notes**
+- Implemented `background_color`/`background_border_width` support in `overlay_plugin.overlay_api`, loader, and diff helpers with validation + fallback to shipped defaults when user entries are invalid, and `None` respected as a transparent override.
+- Updated schema docs (`docs/overlay-groupings.md`) and added unit tests across API/loader/diff/override loader.
+- Tests: `tests/test_overlay_api.py`, `tests/test_groupings_loader.py`, `tests/test_groupings_diff.py`, `tests/test_plugin_override_loader.py`.
 
 ### Phase 3: Controller UI, validation, and user override writes
 - Goal: add the background color widget (text + picker) and border width control; persist user overrides to `overlay_groupings.user.json` with validation feedback.
@@ -105,9 +126,14 @@
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 3.1 | Build background color widget with validation (hex + optional alpha) and border width input (0–10) | Not started |
-| 3.2 | Wire reads/writes through controller state/edit controller to user file; ensure cache invalidation | Not started |
-| 3.3 | Update preview to display background + border expansion; add controller tests for override precedence | not started |
+| 3.1 | Build background color widget with validation (hex + optional alpha) and border width input (0–10) | Completed |
+| 3.2 | Wire reads/writes through controller state/edit controller to user file; ensure cache invalidation | Completed |
+| 3.3 | Update preview to display background + border expansion; add controller tests for override precedence | Completed |
+
+**Stage 3.x notes**
+- Added Tk background widget (hex entry + picker + border spinbox), wired through edit/group state persistence, and updated preview rendering to include background/border with live anchor/offset transforms.
+- Clearing the field records a transparent override; invalid input is highlighted.
+- Tests: `overlay_controller/tests/test_group_state_service.py`, `overlay_controller/tests/test_preview_renderer.py`.
 
 
 ### Phase 4: Client rendering + preview visuals
@@ -117,9 +143,13 @@
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 4.1 | Plumb resolved background color/border through override manager/grouping helper into render pipeline | Not started |
-| 4.2 | Draw background + border behind payloads; ensure preview/render match (border expansion visible) | Not started |
-| 4.3 | Add/extend client tests (override loader, render pipeline) and manual sanity checklist | Not started |
+| 4.1 | Plumb resolved background color/border through override manager/grouping helper into render pipeline | Completed |
+| 4.2 | Draw background + border behind payloads; ensure preview/render match (border expansion visible) | Completed |
+| 4.3 | Add/extend client tests (override loader, render pipeline) and manual sanity checklist | Completed |
+
+**Stage 4.x notes**
+- Propagated background fields through plugin override manager → grouping helper → group transform; render surface now paints backgrounds behind payloads using transformed bounds + nudges so border=0 matches final group geometry.
+- Tests: `overlay_client/tests/test_render_surface_mixin.py` plus shared loader/diff/override tests above.
 
 
 
@@ -130,3 +160,4 @@
 - Tests: add/adjust utility tests to cover valid writes, invalid inputs (bad hex, out-of-range border), and unchanged behavior when fields are omitted.
 - Risks: validation drift vs. `define_plugin_group`, unintended overwrites/noisy diffs, CLI UX regressions.
 - Mitigations: reuse normalization logic, write only when provided, targeted tests for the utility path.
+- Status: Completed — normalization/persistence accepts the new fields and the add/edit grouping dialogs now include background color (hex) and border width (0–10) with validation; clearing color sets transparent.

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import tkinter as tk
-from typing import Callable
+from typing import Callable, Optional
 
 from overlay_controller.selection_overlay import SelectionOverlay
 from overlay_controller.widgets import (
     AbsoluteXYWidget,
     AnchorSelectorWidget,
+    BackgroundWidget,
     IdPrefixGroupWidget,
     JustificationWidget,
     OffsetSelectorWidget,
@@ -42,6 +43,7 @@ class LayoutBuilder:
         on_absolute_changed: Callable[[str], None],
         on_anchor_changed: Callable[[str, bool], None],
         on_justification_changed: Callable[[str], None],
+        on_background_changed: Callable[[Optional[str], Optional[int]], None],
         load_idprefix_options: Callable[[], list[str]],
     ) -> dict[str, object]:
         app = self.app
@@ -122,6 +124,7 @@ class LayoutBuilder:
             ("absolute x/y", 0, True),
             ("anchor selector", 0, True),
             ("payload justification", 0, True),
+            ("background color", 0, True),
             ("Handy tips will show up here in the future", 1, False),
         ]
 
@@ -135,6 +138,7 @@ class LayoutBuilder:
         absolute_widget = None
         anchor_widget = None
         justification_widget = None
+        background_widget = None
         tip_helper = None
 
         for index, (label_text, weight, is_selectable) in enumerate(sections):
@@ -204,6 +208,14 @@ class LayoutBuilder:
                 justification_widget.pack(fill="both", expand=True, padx=4, pady=4)
                 if is_selectable and focus_index is not None:
                     focus_widgets[("sidebar", focus_index)] = justification_widget
+            elif index == 5:
+                background_widget = BackgroundWidget(frame)
+                if is_selectable and focus_index is not None:
+                    background_widget.set_focus_request_callback(lambda idx=focus_index: on_sidebar_click(idx))
+                background_widget.set_change_callback(on_background_changed)
+                background_widget.pack(fill="both", expand=True, padx=4, pady=4)
+                if is_selectable and focus_index is not None:
+                    focus_widgets[("sidebar", focus_index)] = background_widget
             else:
                 tip_helper = SidebarTipHelper(frame)
                 tip_helper.pack(fill="both", expand=True, padx=2, pady=2)
@@ -242,6 +254,7 @@ class LayoutBuilder:
             "absolute_widget": absolute_widget,
             "anchor_widget": anchor_widget,
             "justification_widget": justification_widget,
+            "background_widget": background_widget,
             "tip_helper": tip_helper,
             "sidebar_selectable": sidebar_selectable,
             "placement_min_width": placement_min_width,

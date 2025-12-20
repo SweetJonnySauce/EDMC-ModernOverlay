@@ -136,3 +136,38 @@ def test_reload_if_changed_handles_malformed_and_recovers(tmp_path):
     merged = loader.merged()
     assert "Extra" in merged["PluginA"]["idPrefixGroups"]
 
+
+def test_merge_background_precedence_and_clear(tmp_path):
+    shipped = tmp_path / "overlay_groupings.json"
+    user = tmp_path / "overlay_groupings.user.json"
+
+    shipped_payload = {
+        "PluginA": {
+            "idPrefixGroups": {
+                "Main": {"idPrefixes": ["Foo-"], "backgroundColor": "#112233", "backgroundBorderWidth": 2}
+            }
+        },
+        "PluginB": {
+            "idPrefixGroups": {
+                "Main": {"idPrefixes": ["Bar-"], "backgroundColor": "#445566", "backgroundBorderWidth": 1}
+            }
+        },
+    }
+    user_payload = {
+        "PluginA": {"idPrefixGroups": {"Main": {"backgroundColor": None, "backgroundBorderWidth": 5}}},
+        "PluginB": {"idPrefixGroups": {"Main": {"backgroundColor": "bad-value"}}},
+    }
+
+    _write_json(shipped, shipped_payload)
+    _write_json(user, user_payload)
+
+    loader = GroupingsLoader(shipped, user)
+    merged = loader.load()
+
+    group_a = merged["PluginA"]["idPrefixGroups"]["Main"]
+    assert group_a.get("backgroundColor") is None  # user cleared to transparent
+    assert group_a.get("backgroundBorderWidth") == 5
+
+    group_b = merged["PluginB"]["idPrefixGroups"]["Main"]
+    assert group_b.get("backgroundColor") == "#445566"  # fallback to shipped
+    assert group_b.get("backgroundBorderWidth") == 1

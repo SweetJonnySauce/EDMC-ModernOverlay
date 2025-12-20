@@ -4,6 +4,7 @@ import json
 import os
 import time
 from pathlib import Path
+from typing import Optional
 
 from overlay_plugin.groupings_diff import diff_groupings, is_empty_diff
 
@@ -115,6 +116,44 @@ class EditController:
         if timers is not None:
             try:
                 timers.start_live_edit_window(5.0)
+                timers.record_edit()
+            except Exception:
+                pass
+        app._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
+
+    def persist_background(
+        self, selection: tuple[str, str], color: Optional[str], border_width: Optional[int]
+    ) -> None:
+        app = self.app
+        plugin_name, label = selection
+        state = app.__dict__.get("_group_state")
+        if state is not None:
+            try:
+                state.persist_background(
+                    plugin_name,
+                    label,
+                    color,
+                    border_width,
+                    edit_nonce=app._edit_nonce,
+                    write=False,
+                    invalidate_cache=True,
+                )
+                app._groupings_data = getattr(state, "_groupings_data", app._groupings_data)
+                app._groupings_cache = getattr(state, "_groupings_cache", app._groupings_cache)
+            except Exception:
+                pass
+        self.schedule_groupings_config_write()
+        if state is None:
+            app._invalidate_group_cache_entry(plugin_name, label)
+        app._last_edit_ts = time.time()
+        snapshot = app._group_snapshots.get(selection)
+        if snapshot is not None:
+            snapshot.background_color = color if color else None
+            snapshot.background_border_width = int(border_width or 0) if border_width is not None else 0
+            app._group_snapshots[selection] = snapshot
+        timers = getattr(app, "_mode_timers", None)
+        if timers is not None:
+            try:
                 timers.record_edit()
             except Exception:
                 pass

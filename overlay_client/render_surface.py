@@ -367,6 +367,7 @@ class RenderSurfaceMixin:
             overlay_bounds_for_draw = payload_results.get("overlay_bounds_for_draw") or {}
             overlay_bounds_base = payload_results.get("overlay_bounds_base") or {}
             commands = payload_results.get("commands") or []
+            translated_bounds_by_group = payload_results.get("translated_bounds_by_group") or {}
             trace_helper = self._group_trace_helper(report_overlay_bounds, commands)
             trace_helper()
             # Preserve existing behavior for log buffers/trace helper.
@@ -398,6 +399,7 @@ class RenderSurfaceMixin:
                 commands,
                 anchor_translations,
                 translations,
+                translated_bounds_by_group,
                 overlay_bounds_for_draw,
                 overlay_bounds_base,
                 report_overlay_bounds,
@@ -532,6 +534,7 @@ class RenderSurfaceMixin:
         commands: Sequence[Any],
         anchor_translation_by_group: Mapping[Tuple[str, Optional[str]], Tuple[float, float]],
         translations: Mapping[Tuple[str, Optional[str]], Tuple[int, int]],
+        translated_bounds_by_group: Mapping[Tuple[str, Optional[str]], _ScreenBounds],
         overlay_bounds_for_draw: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
         overlay_bounds_base: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
         report_overlay_bounds: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
@@ -542,6 +545,12 @@ class RenderSurfaceMixin:
         window_width = max(self.width(), 0)
         window_height = max(self.height(), 0)
         draw_vertex_markers = self._dev_mode_enabled and self._debug_config.payload_vertex_markers
+        self._paint_group_backgrounds(
+            painter,
+            transform_by_group,
+            translated_bounds_by_group,
+            translations,
+        )
         vertex_points: List[Tuple[int, int]] = []
         for command in commands:
             key_tuple = command.group_key.as_tuple()
@@ -591,6 +600,46 @@ class RenderSurfaceMixin:
             self._draw_payload_vertex_markers(painter, vertex_points)
         if collect_debug_helpers:
             self._draw_group_debug_helpers(painter, mapper)
+
+    def _paint_group_backgrounds(
+        self,
+        painter: QPainter,
+        transform_by_group: Mapping[Tuple[str, Optional[str]], Optional[GroupTransform]],
+        translated_bounds_by_group: Mapping[Tuple[str, Optional[str]], _ScreenBounds],
+        translations: Mapping[Tuple[str, Optional[str]], Tuple[int, int]],
+    ) -> None:
+        if not transform_by_group:
+            return
+        for key, transform in transform_by_group.items():
+            if transform is None:
+                continue
+            color_value = getattr(transform, "background_color", None)
+            if not color_value:
+                continue
+            bounds = translated_bounds_by_group.get(key)
+            if bounds is None or not bounds.is_valid():
+                continue
+            q_color = QColor(color_value)
+            if not q_color.isValid():
+                continue
+            try:
+                border_width = int(getattr(transform, "background_border_width", 0) or 0)
+            except Exception:
+                border_width = 0
+            nudge_x, nudge_y = translations.get(key, (0, 0))
+            left = bounds.min_x + nudge_x
+            right = bounds.max_x + nudge_x
+            top = bounds.min_y + nudge_y
+            bottom = bounds.max_y + nudge_y
+            left_px = int(round(left - border_width))
+            top_px = int(round(top - border_width))
+            width_px = int(round((right - left) + border_width * 2))
+            height_px = int(round((bottom - top) + border_width * 2))
+            painter.save()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(q_color))
+            painter.drawRect(left_px, top_px, width_px, height_px)
+            painter.restore()
 
     def _build_legacy_commands_for_pass(
         self,

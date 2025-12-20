@@ -17,6 +17,8 @@ from prefix_entries import parse_prefix_entries, serialise_prefix_entries
 from overlay_plugin.overlay_api import (
     PluginGroupingError,
     _normalise_anchor,
+    _normalise_background_color,
+    _normalise_border_width,
     _normalise_justification,
     _normalise_offset,
     _normalise_prefixes,
@@ -197,6 +199,20 @@ def _normalise_group_entry(plugin_name: str, group_label: str, entry: Any) -> Di
     if "offsetY" in entry:
         normalised["offsetY"] = _normalise_offset(entry.get("offsetY"), "offsetY")
 
+    if "backgroundColor" in entry:
+        value = entry.get("backgroundColor")
+        if value is None:
+            normalised["backgroundColor"] = None
+        else:
+            normalised["backgroundColor"] = _normalise_background_color(value)
+
+    if "backgroundBorderWidth" in entry:
+        value = entry.get("backgroundBorderWidth")
+        if value is None:
+            normalised["backgroundBorderWidth"] = None
+        else:
+            normalised["backgroundBorderWidth"] = _normalise_border_width(value, "backgroundBorderWidth")
+
     for key, value in entry.items():
         if key in {
             "disabled",
@@ -205,6 +221,8 @@ def _normalise_group_entry(plugin_name: str, group_label: str, entry: Any) -> Di
             "payloadJustification",
             "offsetX",
             "offsetY",
+            "backgroundColor",
+            "backgroundBorderWidth",
         }:
             continue
         normalised[key] = value
