@@ -37,7 +37,6 @@ from prefix_entries import (
     serialise_prefix_entries,
 )
 from overlay_plugin.overlay_api import PluginGroupingError, _normalise_background_color, _normalise_border_width
-from overlay_plugin.overlay_api import PluginGroupingError, _normalise_background_color, _normalise_border_width
 
 try:
     from overlay_client.plugin_overrides import PluginOverrideManager

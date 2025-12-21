@@ -10,18 +10,16 @@
           "bgstally-frame-colonisation"
         ],
         "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left",
-        "offsetX": 0,
-        "offsetY": 0
+        "payloadJustification": "left"
       },
       "BGS-Tally Ready": {
         "idPrefixes": [
-          "bgstally-frame-info",
           "bgstally-msg-info-"
         ],
         "idPrefixGroupAnchor": "nw",
         "offsetY": 10,
-        "payloadJustification": "left"
+        "payloadJustification": "left",
+        "backgroundColor": null
       },
       "BGS-Tally System Info": {
         "idPrefixes": [
@@ -258,6 +256,9 @@
     }
   },
   "overlay-controller-status": {
+    "matchingPrefixes": [
+      "overlay-controller-status"
+    ],
     "idPrefixGroups": {
       "Overlay Controller Status": {
         "idPrefixes": [
@@ -267,9 +268,6 @@
         "payloadJustification": "left"
       }
     },
-    "matchingPrefixes": [
-      "overlay-controller-status"
-    ],
     "notes": [
       "Internal group to EDMCModernOverlay"
     ]

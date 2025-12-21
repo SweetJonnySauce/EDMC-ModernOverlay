@@ -2,6 +2,7 @@ import math
 from typing import Any, Optional, Tuple
 
 import pytest
+from PyQt6.QtGui import QColor
 
 from overlay_client.render_surface import RenderSurfaceMixin, _MeasuredText
 
@@ -115,3 +116,9 @@ def test_measure_text_uses_injected_measurer_and_resets_context() -> None:
 
     assert measured == (10, 2, 1)
     assert measurer_calls == [("hello", 12.0, "TestFamily")]
+
+
+def test_qcolor_from_background_parses_rgba() -> None:
+    color = RenderSurfaceMixin._qcolor_from_background("#11223344")
+    assert isinstance(color, QColor)
+    assert (color.red(), color.green(), color.blue(), color.alpha()) == (0x11, 0x22, 0x33, 0x44)

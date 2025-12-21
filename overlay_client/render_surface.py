@@ -619,8 +619,8 @@ class RenderSurfaceMixin:
             bounds = translated_bounds_by_group.get(key)
             if bounds is None or not bounds.is_valid():
                 continue
-            q_color = QColor(color_value)
-            if not q_color.isValid():
+            q_color = self._qcolor_from_background(color_value)
+            if q_color is None:
                 continue
             try:
                 border_width = int(getattr(transform, "background_border_width", 0) or 0)
@@ -640,6 +640,30 @@ class RenderSurfaceMixin:
             painter.setBrush(QBrush(q_color))
             painter.drawRect(left_px, top_px, width_px, height_px)
             painter.restore()
+
+    @staticmethod
+    def _qcolor_from_background(value: object) -> Optional[QColor]:
+        if not isinstance(value, str):
+            return None
+        token = value.strip()
+        if not token:
+            return None
+        if not token.startswith("#"):
+            token = "#" + token
+        if len(token) == 9:
+            hex_part = token[1:]
+            if not all(ch in "0123456789abcdefABCDEF" for ch in hex_part):
+                return None
+            try:
+                red = int(hex_part[0:2], 16)
+                green = int(hex_part[2:4], 16)
+                blue = int(hex_part[4:6], 16)
+                alpha = int(hex_part[6:8], 16)
+            except ValueError:
+                return None
+            return QColor(red, green, blue, alpha)
+        q_color = QColor(token)
+        return q_color if q_color.isValid() else None
 
     def _build_legacy_commands_for_pass(
         self,

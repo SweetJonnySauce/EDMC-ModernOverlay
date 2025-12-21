@@ -719,7 +719,17 @@ class OverlayConfigApp(tk.Tk):
             return False
 
         lower_keysym = keysym.lower()
-        if lower_keysym in {"escape", "space"}:
+        if lower_keysym == "escape":
+            self.exit_focus_mode()
+            return True
+        if lower_keysym == "space":
+            handler = getattr(widget, "handle_key", None)
+            try:
+                handled = bool(handler(keysym, event)) if handler is not None else False
+            except Exception:
+                handled = True
+            if handled:
+                return True
             self.exit_focus_mode()
             return True
 
@@ -1450,6 +1460,17 @@ class OverlayConfigApp(tk.Tk):
         if state is None:
             self._invalidate_group_cache_entry(plugin_name, label)
         self._last_edit_ts = time.time()
+        self._offset_live_edit_until = max(
+            getattr(self, "_offset_live_edit_until", 0.0) or 0.0,
+            self._last_edit_ts + 5.0,
+        )
+        timers = getattr(self, "_mode_timers", None)
+        if timers is not None:
+            try:
+                timers.start_live_edit_window(5.0)
+                timers.record_edit()
+            except Exception:
+                pass
         self._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
         self._draw_preview()
     def _handle_absolute_changed(self, axis: str) -> None:

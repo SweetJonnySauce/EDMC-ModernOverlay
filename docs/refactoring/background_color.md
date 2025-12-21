@@ -2,6 +2,7 @@
 
 ## Background Color Feature Requirements
 - Plugin authors can set a default background color on their plugin group via `define_plugin_group`.
+- Background color and border width apply only to plugin groups (`idPrefixGroup`); per-payload background values are not supported.
 - `define_plugin_group` may also include an optional background border width (pixels, 0–10 inclusive); the background extends beyond the group boundary by that width equally on all sides, using the same color as the background.
 - Persist plugin defaults per group in `overlay_groupings.json` (inside each group definition) so the renderer can resolve that group’s color without user input.
 - CMDRs can override the background color in the overlay controller via a new widget that shows a text box for color code entry plus a button that opens a color picker.

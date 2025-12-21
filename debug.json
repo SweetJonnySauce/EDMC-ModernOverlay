@@ -1,10 +1,8 @@
 {
-  "capture_client_stderrout": false,
+  "capture_client_stderrout": true,
   "overlay_logs_to_keep": 5,
   "payload_logging": {
-    "exclude_plugins": [
-      "bgs-tally"
-    ],
-    "overlay_payload_log_enabled": false
+    "exclude_plugins": [],
+    "overlay_payload_log_enabled": true
   }
 }

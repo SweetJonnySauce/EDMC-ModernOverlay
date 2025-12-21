@@ -38,6 +38,8 @@ DEFAULT_CONFIG = {
         "exit_focus": ["<Control-w>", "<Escape>"],
         "absolute_focus_next": ["<Tab>", "<Return>", "<KP_Enter>", "<Down>"],
         "absolute_focus_prev": ["<Shift-Tab>", "<Up>"],
+        "background_focus_next": ["<Tab>", "<Return>", "<KP_Enter>", "<Down>"],
+        "background_focus_prev": ["<Shift-Tab>", "<Up>"],
     },
 }
     },
