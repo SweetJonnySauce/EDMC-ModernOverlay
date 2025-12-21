@@ -58,9 +58,11 @@ class BackgroundWidget(tk.Frame):
             width=4,
             textvariable=self._border_var,
             command=self._emit_change,
+            repeatdelay=0,
+            repeatinterval=0,
         )
         spin.pack(side="left", padx=(6, 4))
-        spin.bind("<Button-1>", lambda _e: self._handle_spin_click(), add="+")
+        spin.bind("<Button-1>", self._handle_spin_click, add="+")
         spin.bind("<space>", self._handle_space_exit, add="+")
         spin.bind("<FocusIn>", lambda _e: self._handle_focus_event("border"), add="+")
         spin.bind("<FocusOut>", lambda _e: self._emit_change())
@@ -252,16 +254,28 @@ class BackgroundWidget(tk.Frame):
     def _bind_focus_target(self, widget: tk.Widget, field: str | None) -> None:
         widget.bind("<Button-1>", lambda _e, f=field: self._handle_container_click(f), add="+")
 
-    def _handle_spin_click(self) -> None:
+    def _handle_spin_click(self, event: tk.Event[tk.Misc]) -> str | None:  # type: ignore[name-defined]
         if not self._enabled:
-            return
+            return "break"
         if self._request_focus:
             try:
                 self._request_focus()
             except Exception:
                 pass
         self._set_active_field("border")
+        element = None
+        try:
+            element = self._spin.identify(event.x, event.y)
+        except Exception:
+            element = None
+        if element in {"buttonup", "buttondown"}:
+            try:
+                self._spin.focus_set()
+            except Exception:
+                pass
+            return None
         self._focus_field("border")
+        return "break"
 
     def _handle_picker_click(self) -> None:
         if not self._enabled:
