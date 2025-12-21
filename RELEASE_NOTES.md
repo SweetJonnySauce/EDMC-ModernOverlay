@@ -1,5 +1,9 @@
 # Release Notes
 
+## 0.7.6
+- Features
+  - Added functionality to set plugin group background color via define_plugin_group for Plugin Authors or via Overlay Controller for CMDRs
+  
 ## 0.7.5
 - Features & Improvements:
   - EDMC 6.0.0 compatibility!
