@@ -21,6 +21,8 @@ from pathlib import Path
 import tempfile
 from typing import Any, Dict, Optional, Tuple
 
+from overlay_plugin.overlay_api import PluginGroupingError, _normalise_background_color, _normalise_border_width
+
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_DIR = Path(__file__).resolve().parent
 # Allow submodule imports when this file is loaded as a standalone module in test harnesses.
@@ -257,6 +259,7 @@ class OverlayConfigApp(tk.Tk):
             on_absolute_changed=self._handle_absolute_changed,
             on_anchor_changed=self._handle_anchor_changed,
             on_justification_changed=self._handle_justification_changed,
+            on_background_changed=self._handle_background_changed,
             load_idprefix_options=self._load_idprefix_options,
         )
         self.container = layout["container"]
@@ -275,6 +278,7 @@ class OverlayConfigApp(tk.Tk):
         self.absolute_widget = layout["absolute_widget"]
         self.anchor_widget = layout["anchor_widget"]
         self.justification_widget = layout["justification_widget"]
+        self.background_widget = layout["background_widget"]
         self.tip_helper = layout["tip_helper"]
         self._sidebar_focus_index = 0
         self.widget_select_mode = True
@@ -715,7 +719,17 @@ class OverlayConfigApp(tk.Tk):
             return False
 
         lower_keysym = keysym.lower()
-        if lower_keysym in {"escape", "space"}:
+        if lower_keysym == "escape":
+            self.exit_focus_mode()
+            return True
+        if lower_keysym == "space":
+            handler = getattr(widget, "handle_key", None)
+            try:
+                handled = bool(handler(keysym, event)) if handler is not None else False
+            except Exception:
+                handled = True
+            if handled:
+                return True
             self.exit_focus_mode()
             return True
 
@@ -830,7 +844,7 @@ class OverlayConfigApp(tk.Tk):
 
     def _set_group_controls_enabled(self, enabled: bool) -> None:
         self._group_controls_enabled = bool(enabled)
-        widget_names = ("offset_widget", "absolute_widget", "anchor_widget", "justification_widget")
+        widget_names = ("offset_widget", "absolute_widget", "anchor_widget", "justification_widget", "background_widget")
         for name in widget_names:
             widget = getattr(self, name, None)
             setter = getattr(widget, "set_enabled", None)
@@ -1338,6 +1352,13 @@ class OverlayConfigApp(tk.Tk):
                 self.justification_widget.set_justification(justification)
             except Exception:
                 pass
+        background_color = cfg.get("backgroundColor") if isinstance(cfg, dict) else None
+        background_border = cfg.get("backgroundBorderWidth") if isinstance(cfg, dict) else None
+        if hasattr(self, "background_widget"):
+            try:
+                self.background_widget.set_values(background_color, background_border)
+            except Exception:
+                pass
         self._sync_absolute_for_current_group(force_ui=True)
         self._send_active_group_selection(plugin_name, label)
 
@@ -1387,6 +1408,71 @@ class OverlayConfigApp(tk.Tk):
             except Exception:
                 pass
         self._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
+
+    def _handle_background_changed(self, color: Optional[str], border_width: Optional[int]) -> None:
+        selection = self._get_current_group_selection()
+        if selection is None:
+            return
+        plugin_name, label = selection
+        normalised_color: Optional[str]
+        try:
+            normalised_color = _normalise_background_color(color) if color else None
+        except PluginGroupingError:
+            normalised_color = None
+        try:
+            normalised_border = (
+                _normalise_border_width(border_width, "backgroundBorderWidth") if border_width is not None else 0
+            )
+        except PluginGroupingError:
+            normalised_border = 0
+
+        if not isinstance(self._groupings_data, dict):
+            return
+        entry = self._groupings_data.setdefault(plugin_name, {})
+        groups = entry.setdefault("idPrefixGroups", {})
+        if not isinstance(groups, dict):
+            groups = {}
+            entry["idPrefixGroups"] = groups
+        group = groups.get(label)
+        if not isinstance(group, dict):
+            group = {}
+            groups[label] = group
+        group["backgroundColor"] = normalised_color
+        group["backgroundBorderWidth"] = normalised_border
+
+        state = safe_getattr(self, "_group_state")
+        if state is not None:
+            try:
+                state.persist_background(
+                    plugin_name,
+                    label,
+                    normalised_color,
+                    normalised_border,
+                    edit_nonce=self._edit_nonce,
+                    write=False,
+                    invalidate_cache=True,
+                )
+                self._groupings_data = getattr(state, "_groupings_data", self._groupings_data)
+                self._groupings_cache = getattr(state, "_groupings_cache", self._groupings_cache)
+            except Exception:
+                pass
+        self._edit_controller.schedule_groupings_config_write()
+        if state is None:
+            self._invalidate_group_cache_entry(plugin_name, label)
+        self._last_edit_ts = time.time()
+        self._offset_live_edit_until = max(
+            getattr(self, "_offset_live_edit_until", 0.0) or 0.0,
+            self._last_edit_ts + 5.0,
+        )
+        timers = getattr(self, "_mode_timers", None)
+        if timers is not None:
+            try:
+                timers.start_live_edit_window(5.0)
+                timers.record_edit()
+            except Exception:
+                pass
+        self._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
+        self._draw_preview()
     def _handle_absolute_changed(self, axis: str) -> None:
         selection = self._get_current_group_selection()
         if selection is None or not hasattr(self, "absolute_widget"):

@@ -46,6 +46,22 @@
           "type": "string",
           "enum": ["left", "center", "right"],
           "default": "left"
+        },
+        "backgroundColor": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            },
+            { "type": "null" }
+          ],
+          "description": "Hex color in #RRGGBB or #RRGGBBAA format (alpha optional). Null clears to transparent."
+        },
+        "backgroundBorderWidth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "description": "Border width in pixels; extends background equally on all sides."
         }
       },
       "required": ["idPrefixes"],

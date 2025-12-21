@@ -1,6 +1,7 @@
 from .absolute import AbsoluteXYWidget
 from .anchor import AnchorSelectorWidget
 from .common import alt_modifier_active
+from .background import BackgroundWidget
 from .idprefix import IdPrefixGroupWidget
 from .justification import JustificationWidget
 from .offset import OffsetSelectorWidget
@@ -12,6 +13,7 @@ __all__ = [
     "AbsoluteXYWidget",
     "AnchorSelectorWidget",
     "JustificationWidget",
+    "BackgroundWidget",
     "SidebarTipHelper",
     "alt_modifier_active",
 ]

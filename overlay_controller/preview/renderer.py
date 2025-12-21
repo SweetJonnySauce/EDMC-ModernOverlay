@@ -71,6 +71,8 @@ class PreviewRenderer:
             snapshot.offset_x if snapshot is not None else None,
             snapshot.offset_y if snapshot is not None else None,
             snapshot.cache_timestamp if snapshot is not None else None,
+            getattr(snapshot, "background_color", None) if snapshot is not None else None,
+            getattr(snapshot, "background_border_width", None) if snapshot is not None else None,
         )
         current_signature = (
             width,
@@ -141,6 +143,19 @@ class PreviewRenderer:
         trans_y0 = offset_y + trans_min_y * scale
         trans_x1 = offset_x + trans_max_x * scale
         trans_y1 = offset_y + trans_max_y * scale
+        bg_color = getattr(snapshot, "background_color", None)
+        bg_border = getattr(snapshot, "background_border_width", 0) if snapshot is not None else 0
+        if bg_color:
+            tk_color = bg_color[:7] if isinstance(bg_color, str) and len(bg_color) == 9 else bg_color
+            expand = max(0.0, float(bg_border or 0) * scale)
+            canvas.create_rectangle(
+                trans_x0 - expand,
+                trans_y0 - expand,
+                trans_x1 + expand,
+                trans_y1 + expand,
+                fill=tk_color,
+                outline="",
+            )
         canvas.create_rectangle(trans_x0, trans_y0, trans_x1, trans_y1, **_rect_color("#ffa94d"))
         actual_label = "Target Placement"
         actual_inside = (trans_x1 - trans_x0) >= 110 and (trans_y1 - trans_y0) >= 20

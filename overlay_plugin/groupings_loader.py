@@ -19,6 +19,8 @@ from prefix_entries import parse_prefix_entries, serialise_prefix_entries
 from overlay_plugin.overlay_api import (
     PluginGroupingError,
     _normalise_anchor,
+    _normalise_background_color,
+    _normalise_border_width,
     _normalise_justification,
     _normalise_offset,
     _normalise_prefixes,
@@ -267,6 +269,14 @@ class GroupingsLoader:
         if offset_y is not None:
             merged["offsetY"] = offset_y
 
+        background_color = self._select_background_color(user_entry, base_entry, plugin_name, group_label)
+        if background_color is not None:
+            merged["backgroundColor"] = background_color
+
+        border_width = self._select_background_border(user_entry, base_entry, plugin_name, group_label)
+        if border_width is not None:
+            merged["backgroundBorderWidth"] = border_width
+
         # Carry over any other fields from base/user (user wins) except disabled.
         for source in (base_entry, user_entry):
             for key, value in source.items():
@@ -276,6 +286,8 @@ class GroupingsLoader:
                     "payloadJustification",
                     "offsetX",
                     "offsetY",
+                    "backgroundColor",
+                    "backgroundBorderWidth",
                     "disabled",
                 }:
                     continue
@@ -303,6 +315,56 @@ class GroupingsLoader:
         if value is None:
             return None
         return normaliser(value)
+
+    def _select_background_color(
+        self, user_entry: Mapping[str, Any], base_entry: Mapping[str, Any], plugin_name: str, group_label: str
+    ) -> Optional[str]:
+        user_has_value = "backgroundColor" in user_entry
+        user_value = user_entry.get("backgroundColor", None)
+        if user_has_value:
+            if user_value is None:
+                return None
+            try:
+                return _normalise_background_color(user_value)
+            except PluginGroupingError as exc:
+                self._logger.warning(
+                    "plugin %s group %s: invalid user backgroundColor %s", plugin_name, group_label, exc
+                )
+        base_value = base_entry.get("backgroundColor", None)
+        if base_value is None:
+            return None
+        try:
+            return _normalise_background_color(base_value)
+        except PluginGroupingError as exc:
+            self._logger.warning(
+                "plugin %s group %s: invalid shipped backgroundColor %s", plugin_name, group_label, exc
+            )
+            return None
+
+    def _select_background_border(
+        self, user_entry: Mapping[str, Any], base_entry: Mapping[str, Any], plugin_name: str, group_label: str
+    ) -> Optional[int]:
+        user_has_value = "backgroundBorderWidth" in user_entry
+        user_value = user_entry.get("backgroundBorderWidth", None)
+        if user_has_value:
+            if user_value is None:
+                return None
+            try:
+                return _normalise_border_width(user_value, "backgroundBorderWidth")
+            except PluginGroupingError as exc:
+                self._logger.warning(
+                    "plugin %s group %s: invalid user backgroundBorderWidth %s", plugin_name, group_label, exc
+                )
+        base_value = base_entry.get("backgroundBorderWidth", None)
+        if base_value is None:
+            return None
+        try:
+            return _normalise_border_width(base_value, "backgroundBorderWidth")
+        except PluginGroupingError as exc:
+            self._logger.warning(
+                "plugin %s group %s: invalid shipped backgroundBorderWidth %s", plugin_name, group_label, exc
+            )
+            return None
 
     @staticmethod
     def _is_disabled(entry: Mapping[str, Any]) -> bool:

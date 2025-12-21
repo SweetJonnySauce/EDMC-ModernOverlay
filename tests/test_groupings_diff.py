@@ -155,6 +155,25 @@ def test_diff_merge_round_trip_matches_merged_view():
     assert rebuilt == normalized_expected
 
 
+def test_diff_includes_background_fields():
+    shipped = {
+        "PluginA": {
+            "idPrefixGroups": {"Main": {"idPrefixes": ["Foo-"], "backgroundColor": "#111111", "backgroundBorderWidth": 1}}
+        }
+    }
+    merged = {
+        "PluginA": {
+            "idPrefixGroups": {
+                "Main": {"idPrefixes": ["Foo-"], "backgroundColor": "#222222", "backgroundBorderWidth": 3}
+            }
+        }
+    }
+
+    diff = diff_groupings(shipped, merged)
+    assert diff["PluginA"]["idPrefixGroups"]["Main"]["backgroundColor"] == "#222222"
+    assert diff["PluginA"]["idPrefixGroups"]["Main"]["backgroundBorderWidth"] == 3
+
+
 def test_disabled_survives_diff_and_shrink_round_trip():
     shipped = {"PluginA": {"idPrefixGroups": {"Main": {"idPrefixes": ["Foo-"]}}}}
     merged = {}

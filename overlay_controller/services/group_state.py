@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 from overlay_plugin.groupings_diff import diff_groupings, is_empty_diff
+from overlay_plugin.overlay_api import PluginGroupingError, _normalise_background_color, _normalise_border_width
 from overlay_plugin.groupings_loader import GroupingsLoader
 
 ABS_BASE_WIDTH = 1280.0
@@ -30,6 +31,8 @@ class GroupSnapshot:
     transform_anchor: Optional[Tuple[float, float]]
     has_transform: bool = False
     cache_timestamp: float = 0.0
+    background_color: Optional[str] = None
+    background_border_width: int = 0
 
 
 class GroupStateService:
@@ -148,6 +151,16 @@ class GroupStateService:
 
         offset_x = float(cfg.get("offsetX", 0.0)) if isinstance(cfg, dict) else 0.0
         offset_y = float(cfg.get("offsetY", 0.0)) if isinstance(cfg, dict) else 0.0
+        bg_color_raw = cfg.get("backgroundColor") if isinstance(cfg, dict) else None
+        try:
+            background_color = _normalise_background_color(bg_color_raw) if bg_color_raw is not None else None
+        except PluginGroupingError:
+            background_color = None
+        bg_border_raw = cfg.get("backgroundBorderWidth") if isinstance(cfg, dict) else None
+        try:
+            background_border_width = _normalise_border_width(bg_border_raw, "backgroundBorderWidth") if bg_border_raw is not None else 0
+        except PluginGroupingError:
+            background_border_width = 0
 
         base_min_x = float(base_payload.get("base_min_x", 0.0))
         base_min_y = float(base_payload.get("base_min_y", 0.0))
@@ -179,6 +192,8 @@ class GroupStateService:
             transform_anchor=transform_anchor,
             has_transform=True,
             cache_timestamp=cache_ts,
+            background_color=background_color,
+            background_border_width=background_border_width,
         )
 
     def persist_offsets(
@@ -233,6 +248,24 @@ class GroupStateService:
         if invalidate_cache:
             self._invalidate_group_cache_entry(plugin_name, label, edit_nonce=edit_nonce)
 
+    def persist_background(
+        self,
+        plugin_name: str,
+        label: str,
+        color: Optional[str],
+        border_width: Optional[int],
+        *,
+        edit_nonce: str = "",
+        write: bool = True,
+        invalidate_cache: bool = True,
+    ) -> None:
+        self._edit_nonce = edit_nonce
+        self._set_group_background(plugin_name, label, color, border_width)
+        if write:
+            self._write_groupings_config(edit_nonce=edit_nonce)
+        if invalidate_cache:
+            self._invalidate_group_cache_entry(plugin_name, label, edit_nonce=edit_nonce)
+
     def _load_groupings_cache(self) -> Dict[str, object]:
         try:
             payload = json.loads(self._cache_path.read_text(encoding="utf-8"))
@@ -261,6 +294,35 @@ class GroupStateService:
             group = {}
             groups[label] = group
         group[key] = value
+
+    def _set_group_background(
+        self, plugin_name: str, label: str, color: Optional[str], border_width: Optional[int]
+    ) -> None:
+        if not isinstance(self._groupings_data, dict):
+            return
+        entry = self._groupings_data.get(plugin_name)
+        if not isinstance(entry, dict):
+            entry = {}
+            self._groupings_data[plugin_name] = entry
+        groups = entry.get("idPrefixGroups")
+        if not isinstance(groups, dict):
+            groups = {}
+            entry["idPrefixGroups"] = groups
+        group = groups.get(label)
+        if not isinstance(group, dict):
+            group = {}
+            groups[label] = group
+        normalized_color: Optional[str]
+        try:
+            normalized_color = _normalise_background_color(color) if color is not None else None
+        except PluginGroupingError:
+            normalized_color = None
+        group["backgroundColor"] = normalized_color
+        if border_width is not None:
+            try:
+                group["backgroundBorderWidth"] = _normalise_border_width(border_width, "backgroundBorderWidth")
+            except PluginGroupingError:
+                group["backgroundBorderWidth"] = None
 
     def _get_cache_record(
         self, plugin_name: str, label: str

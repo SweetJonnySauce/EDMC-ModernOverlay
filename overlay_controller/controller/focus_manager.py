@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from overlay_controller.widgets import AbsoluteXYWidget
+from overlay_controller.widgets import AbsoluteXYWidget, BackgroundWidget
 
 
 class FocusManager:
@@ -23,6 +23,19 @@ class FocusManager:
             self.binding_manager.register_action(
                 "absolute_focus_prev",
                 absolute_widget.focus_previous_field,
+                widgets=targets,
+            )
+        background_widget = getattr(self.app, "background_widget", None)
+        if isinstance(background_widget, BackgroundWidget):
+            targets = background_widget.get_binding_targets()
+            self.binding_manager.register_action(
+                "background_focus_next",
+                background_widget.focus_next_field,
+                widgets=targets,
+            )
+            self.binding_manager.register_action(
+                "background_focus_prev",
+                background_widget.focus_previous_field,
                 widgets=targets,
             )
 
@@ -203,6 +216,9 @@ class FocusManager:
         elif idx == 4:
             primary = "Set payload justification."
             secondary = "Left/Center/Right controls text alignment."
+        elif idx == 5:
+            primary = "Set background color and border."
+            secondary = "Enter #RRGGBB or #RRGGBBAA; border width is 0–10 px."
 
         if focus_hint:
             secondary = f"{secondary} {focus_hint}" if secondary else focus_hint

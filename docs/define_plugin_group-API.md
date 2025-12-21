@@ -1,11 +1,10 @@
-# Overlay Groupings Guide
-
-`overlay_groupings.json` is the single source of truth for Modern Overlay’s plugin-specific behaviour. It powers four things:
+`overlay_groupings.json` is the source for Modern Overlay’s plugin-specific behaviour as defined by Plugin Authors. These values can be overridden by CMDRs using the Overlay Controller (stored in `overlay_groupings.user.json`). It powers five things:
 
 1. **Plugin detection** – payloads without a `plugin` field are mapped to the correct owner via `matchingPrefixes`.
-2. **Grouping** – related payloads stay rigid in Fill mode when they share a named `idPrefixGroup`.
-3. **Anchoring** – each group can declare the anchor point Modern Overlay should keep stationary when nudging windows back on screen.
-4. **Justification** - Payloads within a group can now be centered or right justified.
+2. **Grouping** – related payloads stay rigid when they share a named `idPrefixGroup`.
+3. **Anchoring** – each group can declare the anchor point Modern Overlay applies transformatios to.
+4. **Justification** - Payloads within a group can now be centered or right justified (does not work for vector images).
+5. **Backgrounds** – groups can define a background fill and optional border thickness.
 
 This document explains the current schema, the helper tooling, and the workflows we now support.
 
@@ -20,7 +19,9 @@ The JSON root is an object keyed by the display name you want shown in the overl
     "idPrefixGroups": {
       "alerts": {
         "idPrefixes": ["example-alert-"],
-        "idPrefixGroupAnchor": "ne"
+        "idPrefixGroupAnchor": "ne",
+        "backgroundColor": "#1a1a1acc",
+        "backgroundBorderWidth": 2
       }
     }
   }
@@ -35,6 +36,8 @@ The JSON root is an object keyed by the display name you want shown in the overl
 | `idPrefixGroups.<name>.idPrefixGroupAnchor` | enum | Optional. One of `nw`, `ne`, `sw`, `se`, `center`, `top`, `bottom`, `left`, or `right`. Defaults to `nw` when omitted. `top`/`bottom` keep the midpoint of the vertical edges anchored, while `left`/`right` do the same for the horizontal edges—useful when plugins want edges to stay aligned against the overlay boundary. |
 | `idPrefixGroups.<name>.offsetX` / `offsetY` | number | Optional. Translates the whole group in the legacy 1280 × 960 canvas before Fill-mode scaling applies. Positive values move right/down; negative values move left/up. |
 | `idPrefixGroups.<name>.payloadJustification` | enum | Optional. One of `left` (default), `center`, or `right`. Applies only to idPrefix groups. After anchor adjustments (but before overflow nudging) Modern Overlay shifts narrower payloads so that their right edge or midpoint lines up with the widest payload in the group. The widest entry defines the alignment width and stays put. **Caution** Using justification with vect type payloads isn't supported and probably never will be. |
+| `idPrefixGroups.<name>.backgroundColor` | hex string or null | Optional. Default background fill for this group. Accepts `#RRGGBB` or `#RRGGBBAA` (alpha optional, case-insensitive). `null` forces a transparent override. |
+| `idPrefixGroups.<name>.backgroundBorderWidth` | integer | Optional. Border thickness in pixels (0–10). The background uses the same color and expands by this width on every side. |
 
 Additional metadata (`notes`, legacy `grouping.*`, etc.) is ignored by the current engine but preserved so you can document intent for reviewers.
 
@@ -45,11 +48,11 @@ Payload justification is resolved immediately after anchor translations. The ove
 ## Layered configuration (user overrides)
 
 - Defaults ship in `overlay_groupings.json`. User overrides live beside it in `overlay_groupings.user.json` and are never overwritten on upgrade.
-- Merge rules: shipped defaults are the base; user entries overlay per plugin/group; user-only plugins/groups are allowed. `disabled: true` in the user file hides the shipped entry at that scope.
+- Merge rules: shipped defaults are the base; user values replace shipped values at the same plugin or `idPrefixGroups.<name>` when present, while any missing keys fall back to shipped defaults; user-only plugins/groups are allowed. You can hide a shipped entry by setting `disabled: true` on the plugin entry (removes the whole plugin from the merged view) or on a specific `idPrefixGroups.<name>` entry (removes just that group).
 - Writes: the controller writes **only** to the user file (diffed against shipped defaults). The public API (`define_plugin_group`) still targets the shipped file so plugin authors can register defaults.
 - Paths: `MODERN_OVERLAY_USER_GROUPINGS_PATH` can point the user file elsewhere (tests/tools). If omitted, the plugin root path above is used. CLI tools still default to the shipped file for writes unless you override via `--groupings-path`.
 - Reload/error handling: the loader watches both shipped/user files; missing user file means “no overrides.” Malformed user JSON is warned and ignored while keeping the last-good merged view.
-- Reset: remove/rename `overlay_groupings.user.json` to fall back to shipped defaults. User-only entries disappear; shipped-only entries return. This release does **not** auto-migrate existing edits from the shipped file.
+- Reset: remove/rename `overlay_groupings.user.json` to fall back to shipped defaults. User-only entries disappear; shipped-only entries return. 
 
 ### Reference schema
 
@@ -94,10 +97,32 @@ The repository ships with `schemas/overlay_groupings.schema.json` (Draft 2020‑
           "type": "string",
           "enum": ["nw", "ne", "sw", "se", "center", "top", "bottom", "left", "right"]
         },
+        "offsetX": {
+          "type": "number"
+        },
+        "offsetY": {
+          "type": "number"
+        },
         "payloadJustification": {
           "type": "string",
           "enum": ["left", "center", "right"],
           "default": "left"
+        },
+        "backgroundColor": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            },
+            { "type": "null" }
+          ],
+          "description": "Hex color in #RRGGBB or #RRGGBBAA format (alpha optional). Null clears to transparent."
+        },
+        "backgroundBorderWidth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "description": "Border width in pixels; extends background equally on all sides."
         }
       },
       "required": ["idPrefixes"],
@@ -129,7 +154,7 @@ The repository ships with `schemas/overlay_groupings.schema.json` (Draft 2020‑
 
 ### Manual edits
 
-You can edit `overlay_groupings.json` directly; the schema above is self-contained and stored alongside the repository. Keep the file in version control, run `python3 -m json.tool overlay_groupings.json` (or a formatter of your choice) for quick validation, and cover behavioural changes with tests/logs when possible.
+While it is advised to use the `define_plugin_group` API, you can edit `overlay_groupings.json` directly; the schema above is self-contained and stored alongside the repository. Keep the file in version control, run `python3 -m json.tool overlay_groupings.json` (or a formatter of your choice) for quick validation, and cover behavioural changes with tests/logs when possible.
 
 ### Public API (`define_plugin_group`)
 
@@ -145,6 +170,8 @@ try:
         id_prefix_group="alerts",
         id_prefixes=["myplugin-alert-"],
         id_prefix_group_anchor="ne",
+        background_color="#1A1A1ACC",
+        background_border_width=2,
     )
 except PluginGroupingError as exc:
     # Modern Overlay is offline or the payload was invalid
@@ -242,13 +269,9 @@ Because legacy clients always address the 1280×960 virtual surface, you only ne
 
 ## Utilities
 
-### CLI helper (`utils/plugin_group_cli.py`)
+### Payload inspector (`utils/payload_inspector.py`)
 
-Run `utils/plugin_group_cli.py --plugin-group Example --id-prefix-group alerts --id-prefixes example-alert- --write` to edit the file from the terminal. Without `--write` the script operates in a dry-run mode, printing the resulting JSON block so you can review it before committing.
-
-### GUI helper (`utils/plugin_group_tester.py`)
-
-Launch `python3 utils/plugin_group_tester.py` for a Tk-based form that posts to the same API. It defaults to a mock example, lets you paste prefixes one-per-line, and reports the response inline (200 = updated, 204 = no-op, 400/500 = validation/runtime errors).
+Run `python3 utils/payload_inspector.py` to tail `overlay-payloads.log` and see live payload IDs alongside the resolved plugin/group labels from the current overrides. It mirrors runtime log discovery (including rotations), lets you pick a log file, and is a quick way to verify that a prefix maps to the group you expect.
 
 ### Interactive manager (`utils/plugin_group_manager.py`)
 
@@ -274,4 +297,4 @@ The full Plugin Group Manager remains available for exploratory work:
 | Override parser | `overlay_client/.venv/bin/python -m pytest overlay_client/tests/test_override_grouping.py` | Ensures `overlay_groupings.json` is parsed into runtime grouping metadata correctly (matching, anchors, grouping keys). |
 | Manual sanity | `python3 utils/plugin_group_manager.py` | Exercise the UI, verify anchors/bounds, and ensure new groups behave correctly with live payloads. |
 
-Before shipping new prefixes, capture representative payloads (in DEV MODE from the EDMC Logs directory `cat ./EDMCModernOverlay/overlay-payloads.log | grep 'mypluginspec' > mypluginspec.log` and test with `tests/send_overlay_from_log.py`) to verify that Fill mode keeps the new groups rigid. 
+Before shipping new prefixes, capture representative payloads (in EDMC DEBUG mode from the EDMC Logs directory `cat ./EDMCModernOverlay/overlay-payloads.log | grep 'mypluginspec' > mypluginspec.log` and test with `tests/send_overlay_from_log.py`) to verify that Fill mode keeps the new groups rigid. 
