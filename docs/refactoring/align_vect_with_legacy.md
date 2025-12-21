@@ -110,6 +110,20 @@
 | 3.3 | Visual check: navroute panel and bioscan radar panel outlines | Not started |
 | 3.4 | Document behavior change and any affected overlays | Not started |
 
+### Phase 4: Honor newline (`\n`) in text like legacy
+- Goal: mirror legacy handling of `\n` as a hard line break for overlay text.
+- Approach (minimal risk): in the Qt text painters, split incoming text on `\r\n`/`\n` and render each line with `lineSpacing()` vertical offsets; keep first line anchored at the original baseline. No payload format changes.
+- Targets: `_QtVectorPainterAdapter.draw_text` (vector labels) and message painter.
+- Tests/checks: add a “Foo\nBar” case for vector labels and messages to ensure two lines render; quick visual on navroute/bioscan overlays.
+- Risks: slight shift in vertical sizing if fonts differ; mitigated by localized change and targeted tests.
+
+| Stage | Description | Status |
+| --- | --- | --- |
+| 4.1 | Implement line splitting/lineSpacing rendering in Qt text painters | Not started |
+| 4.2 | Add regression tests for multiline text in vectors/messages | Not started |
+| 4.3 | Visual check on navroute and bioscan overlays for multiline labels | Not started |
+| 4.4 | Document behavior change and confirm parity with legacy newline handling | Not started |
+
 ### Notes: Legacy vs Modern vect behavior
 - **EDMCOverlay (legacy, inorton)**: draws line segments using the graphic’s top-level `Color` only; per-point colors apply to markers/text; requires caller to supply at least 2 points. Rendering in `EDMCOverlay/EDMCOverlay/OverlayRenderer.cs:404-448`.
 - **EDMCModernOverlay (shim + client)**: currently normalizes a single-point vect by duplicating the point (`EDMCOverlay/edmcoverlay.py:97-116`), then draws segments with the pen color chosen from the next point’s `color` (fallback to current/base) in `overlay_client/vector_renderer.py:47-52`; markers/text use each point’s color. Behavior differs from legacy when per-point colors are set or only one point is provided. The refactor above will change Modern to match legacy defaults.
