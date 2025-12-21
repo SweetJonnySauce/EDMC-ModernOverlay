@@ -94,6 +94,16 @@ def _is_id_only_payload(message: Mapping[str, Any]) -> bool:
     return True
 
 
+def _point_has_marker_or_text(point: Mapping[str, Any]) -> bool:
+    marker = point.get("marker")
+    if marker:
+        return True
+    text = point.get("text")
+    if text is None:
+        return False
+    return str(text) != ""
+
+
 def _normalise_vector_points(
     raw_vector: Any,
     *,
@@ -112,9 +122,7 @@ def _normalise_vector_points(
     if len(points) >= 2:
         return points
     if len(points) == 1:
-        duplicate = dict(points[0])
-        points.append(duplicate)
-        return points
+        return points if _point_has_marker_or_text(points[0]) else None
     return None
 
 

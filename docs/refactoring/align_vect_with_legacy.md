@@ -42,11 +42,23 @@
 - Tooling: automated formatting/linting/tests in CI; commit hooks for quick checks; steady dependency management.
 - Performance awareness: efficient enough without premature micro-optimizations; measure before tuning.
 
+## Execution Rules
+- Before planning/implementation, set up your environment using `.venv/bin/python tests/configure_pytest_environment.py` (create `.venv` if needed).
+- For each phase/stage, create and document a concrete plan before making code changes.
+- Identify risks inherent in the plan (behavioral regressions, installer failures, CI flakiness, dependency drift, user upgrade prompts) and list the mitigations/tests you will run to address those risks.
+- Track the plan and risk mitigations alongside the phase notes so they are visible during execution and review.
+- After implementing each phase/stage, document the results and outcomes for that stage (tests run, issues found, follow-ups).
+- After implementation, mark the stage as completed in the tracking tables.
+- Do not continue if you have open questions, need clarification, or prior stages are not completed; pause and document why you stopped so the next step is unblocked quickly.
+
 ## Phase Overview
 
 | Phase | Description | Status |
 | --- | --- | --- |
 | 1 | Align vect rendering semantics with legacy (default behavior change) | Not started |
+| 2 | Align label placement with legacy | Not started |
+| 3 | Align rectangle border fallback with legacy | Not started |
+| 4 | Honor newline (`\n`) in text like legacy | Not started |
 
 ## Phase Details
 
@@ -55,40 +67,135 @@
 - Behavior targets:
   - Use the payload’s top-level `color` for all line segments (ignore per-point `color` when setting the pen).
   - Keep per-point colors for markers/text (matches legacy); OK to drop per-point line color support.
-  - Require 2+ points; remove auto-duplication of a single point (legacy didn’t auto-duplicate). Consider graceful drop/log if <2 points.
+  - Draw line segments only when 2+ points are present; do not auto-duplicate a single point.
+  - Preserve single-point vectors when they include marker/text (legacy callers rely on this for label/marker-only payloads).
+- Behavior changes (implemented):
+  - Line segments always use the payload `base_color` (per-point line colors ignored).
+  - Single-point vectors are only kept if they contain marker/text; otherwise they are dropped.
 - Tests to add:
   - 2-point payload with mixed per-point colors → line uses base color, markers/text use per-point color.
-  - 1-point payload → rejected/dropped/ignored (no line drawn).
+  - 1-point payload with marker/text → marker/text drawn, no line drawn.
+  - 1-point payload without marker/text → rejected/dropped/ignored.
   - 3+ points → confirm consecutive segments all use base color, markers/text still per-point.
-- Risks: breaking consumers relying on per-point line colors or single-point duplication; regressions in grouping/transform paths.
+- Risks: breaking consumers relying on per-point line colors or single-point line rendering; regressions in grouping/transform paths.
 - Mitigations: targeted tests above; document the behavioral change; keep code paths small to ease revert.
+- Compatibility note: EDMC-BioScan sends single-point vect payloads for markers/text; preserving marker/text-only single points maintains parity with legacy overlay behavior.
+
+#### Phase 1 Plan (pre-implementation)
+- Preflight: run `.venv/bin/python tests/configure_pytest_environment.py -h` to confirm the venv + PyQt6 setup before any changes.
+- Sequence:
+  1) Stage 1.1: adjust normalization in `EDMCOverlay/edmcoverlay.py` and `overlay_client/legacy_processor.py` to stop duplicating single points while keeping marker/text-only single points.
+  2) Stage 1.2: update `overlay_client/vector_renderer.py` to use base color for all line segments.
+  3) Stage 1.3: add tests for single-point marker/text, single-point drop, mixed colors, and 3+ points.
+  4) Stage 1.4: document behavior change + tests run in this file.
+- Risks + mitigations/tests:
+  - Behavioral regression for callers relying on per-point line colors or 1-point lines. Mitigation: targeted vector renderer/legacy processor tests; log drops for visibility.
+  - Bioscan radar label/marker loss if single-point marker/text is dropped. Mitigation: explicitly preserve marker/text-only single points; validate with bioscan payload log and tests.
+  - CI flakiness: low; run scoped tests (`-k legacy_processor`/`-k vector`) plus broader pytest if needed.
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 1.1 | Adjust legacy shim normalization to drop single-point duplication and log/drop insufficient points | Not started |
-| 1.2 | Change vector renderer to use base color for segments, preserve per-point colors for markers/text | Not started |
-| 1.3 | Add/update tests covering 1-point, 2-point mixed colors, 3+ points | Not started |
-| 1.4 | Document behavioral change and test steps in the refactor notes | Not started |
+| 1.1 | Adjust legacy shim normalization to stop duplicating single points; allow marker/text-only single points to pass through; log/drop otherwise | Completed |
+| 1.2 | Change vector renderer to use base color for segments, preserve per-point colors for markers/text | Completed |
+| 1.3 | Add/update tests covering 1-point marker/text, 1-point without marker/text, 2-point mixed colors, 3+ points | Completed |
+| 1.4 | Document behavioral change and test steps in the refactor notes | Completed |
 
-### Phase 2: Align label placement with legacy
-- Goal: match legacy text placement relative to markers/lines (vertical offset).
+#### Stage 1.1 Plan (pre-implementation)
+- Preflight: run `.venv/bin/python tests/configure_pytest_environment.py -h` to confirm environment readiness.
+- Implementation steps:
+  1) Update `EDMCOverlay/edmcoverlay.py` to keep a single point only when it has `marker` or `text`; otherwise return `None` and avoid duplication.
+  2) Update `overlay_client/legacy_processor.py` to stop duplicating single points; keep marker/text-only single points, otherwise drop/log as insufficient.
+  3) Keep logging minimal and consistent (reuse existing shim warning; add a legacy processor warning/trace only if needed for visibility).
+- Risks + mitigations/tests:
+  - Drop of line-only single-point payloads: expected; mitigated by preserving marker/text-only cases and adding tests in Stage 1.3.
+  - Compatibility regressions for other vect consumers: mitigated by logging and focused tests.
+- Tests to run after Stage 1.1:
+  - `.venv/bin/python tests/configure_pytest_environment.py -k legacy_processor`
+  - `.venv/bin/python tests/configure_pytest_environment.py -k vector`
+
+#### Stage 1.1 Results
+- Outcome: single-point duplication removed in the shim and legacy processor; marker/text-only single points preserved; insufficient single-point vectors now drop with a warning and trace hook.
+- Tests: `.venv/bin/python tests/configure_pytest_environment.py -k legacy_processor`; `.venv/bin/python tests/configure_pytest_environment.py -k vector`.
+- Issues/Follow-ups: none.
+
+#### Stage 1.2 Plan (pre-implementation)
+- Preflight: run `.venv/bin/python tests/configure_pytest_environment.py -h` to confirm environment readiness.
+- Implementation steps:
+  1) Update `overlay_client/vector_renderer.py` to set the pen color from `base_color` for all line segments (stop using per-point colors for lines).
+  2) Leave marker/text color selection unchanged (per-point color or base color fallback).
+  3) Keep tracing output intact; avoid new behavior flags.
+- Risks + mitigations/tests:
+  - Behavioral regression: per-point line color no longer renders. Mitigation: document in Phase 1 notes; add coverage in Stage 1.3 for mixed-color payloads.
+  - Unexpected line color fallback behavior: mitigate with renderer tests and payload samples.
+  - CI flakiness: low; run focused tests.
+- Tests to run after Stage 1.2:
+  - `.venv/bin/python tests/configure_pytest_environment.py -k vector_renderer`
+  - `.venv/bin/python tests/configure_pytest_environment.py -k vector`
+
+#### Stage 1.2 Results
+- Outcome: line segments now always use the payload `base_color`; marker/text colors still use per-point color or base color fallback.
+- Tests: `.venv/bin/python tests/configure_pytest_environment.py -k vector_renderer`; `.venv/bin/python tests/configure_pytest_environment.py -k vector`.
+- Issues/Follow-ups: none.
+
+#### Stage 1.3 Plan (pre-implementation)
+- Preflight: run `.venv/bin/python tests/configure_pytest_environment.py -h` to confirm environment readiness.
+- Implementation steps:
+  1) Add a vector renderer test that asserts line segments always use `base_color` even when per-point colors differ, while markers/text keep per-point colors.
+  2) Add legacy processor tests for 1-point marker/text vectors (kept) and 1-point without marker/text (dropped).
+  3) If needed, add shim-level tests for `normalise_legacy_payload` single-point handling (drop vs keep marker/text).
+- Risks + mitigations/tests:
+  - Behavioral regression not captured by tests: mitigate by covering 1-point keep/drop and mixed color lines.
+  - Flaky test expectations due to ordering: mitigate by asserting on captured operations explicitly (no ordering assumptions beyond the line list).
+  - CI flakiness: low; run focused tests.
+- Tests to run after Stage 1.3:
+  - `.venv/bin/python tests/configure_pytest_environment.py -k legacy_processor`
+  - `.venv/bin/python tests/configure_pytest_environment.py -k vector_renderer`
+  - `.venv/bin/python tests/configure_pytest_environment.py -k vector`
+
+#### Stage 1.3 Results
+- Outcome: added coverage for single-point marker/text retention vs drop, plus line segment base color behavior with mixed per-point colors.
+- Tests: `.venv/bin/python tests/configure_pytest_environment.py -k legacy_processor`; `.venv/bin/python tests/configure_pytest_environment.py -k vector_renderer`; `.venv/bin/python tests/configure_pytest_environment.py -k vector`.
+- Issues/Follow-ups: none.
+
+#### Stage 1.4 Plan (pre-implementation)
+- Preflight: run `.venv/bin/python tests/configure_pytest_environment.py -h` to confirm environment readiness.
+- Implementation steps:
+  1) Update Phase 1 notes to explicitly document the behavior changes (single-point marker/text preserved, single-point line-only dropped, base color for segments).
+  2) Record the tests run across Stages 1.1–1.3 in the notes for quick audit.
+  3) Mark Stage 1.4 as completed once documentation is updated.
+- Risks + mitigations/tests:
+  - Documentation drift: mitigate by referencing the exact behaviors and test commands already executed.
+  - Missed test traceability: mitigate by listing all executed test commands in the Stage 1.4 results.
+- Tests to run after Stage 1.4:
+  - None (documentation-only stage).
+
+#### Stage 1.4 Results
+- Outcome: documented Phase 1 behavior changes and captured tests run for auditability.
+- Tests: none (documentation-only).
+- Issues/Follow-ups: none.
+
+### Phase 2: Make marker label placement configurable (default in-line)
+- Goal: keep Modern Overlay's default label placement in-line with the marker, while allowing per-plugin vertical adjustments to match legacy or other layouts.
 - Current difference:
   - Legacy: `DrawTextEx(..., marker_x + 2, marker_y + 7)` uses `(x,y)` as text top-left; `+7` pushes text below the line/marker.
-  - Modern: `draw_text(x + 8, y - 8, ...)` then adds font ascent internally, effectively treating `y` as text-top and pulling text up to the line.
-- Target behavior: replicate legacy placement (text below the line/marker) unless a design call is made to keep the modern placement.
+  - Modern: `draw_text(x + 8, y - 8, ...)` then adds font ascent internally, effectively keeping text in-line with the marker.
+- Target behavior:
+  - Default (0) leaves text in-line with the marker (current Modern behavior; no visual change).
+  - Introduce optional `markerLabelYOffset` (-10 to 10) in `define_plugin_group` schema/API for per-plugin adjustment.
+  - A negative offset places text above the marker; positive places it below (e.g., +10 approximates legacy).
 - Tests/checks:
-  - Visual regression for vect labels vs. markers/lines (ensure text sits at legacy position).
-  - Verify bioscan radar overlay to ensure label offsets don’t regress other overlays.
-  - Check navroute and other vect consumers still render labels correctly.
-- Risks: changing text offsets could affect other overlays that rely on current positioning.
-- Mitigations: scoped visual checks, note deltas, add targeted assertions in renderer tests if possible.
+  - Ensure default 0 preserves existing Modern placement.
+  - Add config-driven coverage for `markerLabelYOffset` at -10, 0, +10 to verify offset direction.
+  - Visual regression for bioscan radar and navroute to confirm per-plugin offsets behave as expected.
+- Risks: introducing a new plugin-group setting could drift across schema/controller/client or cause unexpected offsets for existing configs.
+- Mitigations: schema validation with bounds; default 0 in loader; targeted tests for API/schema + renderer offsets; document the new option.
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 2.1 | Adjust vector text offsets to match legacy `(x+2, y+7)` or equivalent after font ascent handling | Not started |
-| 2.2 | Validate bioscan radar overlay text placement | Not started |
-| 2.3 | Run visual/regression checks on navroute and other vect overlays | Not started |
-| 2.4 | Document placement change and any observed side effects | Not started |
+| 2.1 | Add `markerLabelYOffset` (-10..10) to `define_plugin_group` schema/API with default 0; update loader/config plumbing | Not started |
+| 2.2 | Apply the configurable offset in vector label rendering (keep default in-line) | Not started |
+| 2.3 | Validate bioscan radar + navroute overlays with offset adjustments | Not started |
+| 2.4 | Document the new offset option and any observed side effects | Not started |
 
 ### Phase 3: Align rectangle border fallback with legacy
 - Goal: match legacy’s behavior when an invalid/empty border color is supplied (e.g., trailing comma `dd5500,` in `igm_config.v9.ini`).
@@ -126,5 +233,5 @@
 
 ### Notes: Legacy vs Modern vect behavior
 - **EDMCOverlay (legacy, inorton)**: draws line segments using the graphic’s top-level `Color` only; per-point colors apply to markers/text; requires caller to supply at least 2 points. Rendering in `EDMCOverlay/EDMCOverlay/OverlayRenderer.cs:404-448`.
-- **EDMCModernOverlay (shim + client)**: currently normalizes a single-point vect by duplicating the point (`EDMCOverlay/edmcoverlay.py:97-116`), then draws segments with the pen color chosen from the next point’s `color` (fallback to current/base) in `overlay_client/vector_renderer.py:47-52`; markers/text use each point’s color. Behavior differs from legacy when per-point colors are set or only one point is provided. The refactor above will change Modern to match legacy defaults.
+- **EDMCModernOverlay (shim + client)**: currently normalizes a single-point vect by duplicating the point (`EDMCOverlay/edmcoverlay.py:97-116`), then draws segments with the pen color chosen from the next point’s `color` (fallback to current/base) in `overlay_client/vector_renderer.py:47-52`; markers/text use each point’s color. Behavior differs from legacy when per-point colors are set or only one point is provided. The refactor above will change Modern to match legacy defaults while preserving marker/text-only single points.
 - **Legacy repo reference**: https://github.com/inorton/EDMCOverlay

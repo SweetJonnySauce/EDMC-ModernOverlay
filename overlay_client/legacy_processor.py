@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
 from collections.abc import Iterable, Sequence
@@ -7,6 +8,8 @@ from typing import Any, Callable, Mapping, MutableMapping, Optional
 import json
 
 from overlay_client.legacy_store import LegacyItem, LegacyItemStore
+
+LOGGER = logging.getLogger("EDMC.ModernOverlay.LegacyProcessor")
 
 
 def _hashable_payload_snapshot(item_type: str, payload: Mapping[str, Any]) -> tuple:
@@ -78,6 +81,16 @@ def _extract_plugin(payload: Mapping[str, Any]) -> Optional[str]:
             if isinstance(value, str) and value:
                 return value
     return None
+
+
+def _point_has_marker_or_text(point: Mapping[str, Any]) -> bool:
+    marker = point.get("marker")
+    if marker:
+        return True
+    text = point.get("text")
+    if text is None:
+        return False
+    return str(text) != ""
 
 
 _LEGACY_CONTENT_KEYS = {
@@ -225,8 +238,19 @@ def process_legacy_payload(
             return True
         if shape_name == "vect":
             vector = message.get("vector")
-            if not isinstance(vector, list) or len(vector) < 2:
-                raise ValueError("Vector shape payload requires a 'vector' list with at least two points")
+            if not isinstance(vector, list):
+                if trace_fn:
+                    trace_fn(
+                        "legacy_processor:vector_drop",
+                        payload,
+                        {
+                            "plugin": plugin_name,
+                            "item_id": item_id,
+                            "reason": "vector_not_list",
+                        },
+                    )
+                LOGGER.warning("Dropping vect payload with invalid vector list: id=%s vector=%s", item_id, vector)
+                return False
             points = []
             for entry in vector:
                 if not isinstance(entry, Mapping):
@@ -248,20 +272,31 @@ def process_legacy_payload(
                     point["text"] = str(entry["text"])
                 points.append(point)
             if not points:
-                raise ValueError("Vector shape payload normalised to zero points")
-            if len(points) == 1:
-                duplicate = dict(points[0])
-                points.append(duplicate)
                 if trace_fn:
                     trace_fn(
-                        "legacy_processor:vector_single_point_extended",
+                        "legacy_processor:vector_drop",
                         payload,
                         {
                             "plugin": plugin_name,
                             "item_id": item_id,
-                            "point": points[0],
+                            "reason": "no_valid_points",
                         },
                     )
+                LOGGER.warning("Dropping vect payload with insufficient points: id=%s vector=%s", item_id, vector)
+                return False
+            if len(points) == 1 and not _point_has_marker_or_text(points[0]):
+                if trace_fn:
+                    trace_fn(
+                        "legacy_processor:vector_drop",
+                        payload,
+                        {
+                            "plugin": plugin_name,
+                            "item_id": item_id,
+                            "reason": "single_point_without_marker_or_text",
+                        },
+                    )
+                LOGGER.warning("Dropping vect payload with insufficient points: id=%s vector=%s", item_id, vector)
+                return False
             data = {
                 "base_color": message.get("color", "white"),
                 "points": points,

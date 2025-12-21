@@ -42,6 +42,15 @@
 - Tooling: automated formatting/linting/tests in CI; commit hooks for quick checks; steady dependency management.
 - Performance awareness: efficient enough without premature micro-optimizations; measure before tuning.
 
+## Execution Rules
+- Before planning/implementation, set up your environment using `.venv/bin/python tests/configure_pytest_environment.py` (create `.venv` if needed).
+- For each phase/stage, create and document a concrete plan before making code changes.
+- Identify risks inherent in the plan (behavioral regressions, installer failures, CI flakiness, dependency drift, user upgrade prompts) and list the mitigations/tests you will run to address those risks.
+- Track the plan and risk mitigations alongside the phase notes so they are visible during execution and review.
+- After implementing each phase/stage, document the results and outcomes for that stage (tests run, issues found, follow-ups).
+- After implementation, mark the stage as completed in the tracking tables.
+- Do not continue if you have open questions, need clarification, or prior stages are not completed; pause and document why you stopped so the next step is unblocked quickly.
+
 ## Phase Overview
 
 | Phase | Description | Status |

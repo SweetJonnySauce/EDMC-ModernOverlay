@@ -45,8 +45,7 @@ def render_vector(
         )
 
     for idx in range(len(points) - 1):
-        color = points[idx + 1].get("color") or points[idx].get("color") or base_color
-        adapter.set_pen(str(color))
+        adapter.set_pen(base_color)
         x1, y1 = scaled_points[idx]
         x2, y2 = scaled_points[idx + 1]
         adapter.draw_line(x1, y1, x2, y2)

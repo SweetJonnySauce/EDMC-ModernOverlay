@@ -62,3 +62,27 @@ def test_render_vector_generates_lines_and_markers():
     assert any(op == "circle" for op, _ in adapter.operations)
     assert any(op == "text" for op, _ in adapter.operations)
     assert any(op == "cross" for op, _ in adapter.operations)
+
+
+def test_render_vector_lines_use_base_color_markers_use_point_color():
+    adapter = FakeAdapter()
+    data = {
+        "base_color": "#ffffff",
+        "points": [
+            {"x": 0, "y": 0},
+            {"x": 10, "y": 0, "color": "red"},
+            {"x": 10, "y": 10, "marker": "circle", "text": "Target", "color": "green"},
+        ],
+    }
+    render_vector(adapter, data, scale_x=1.0, scale_y=1.0)
+
+    line_ops = [val for op, val in adapter.operations if op == "line"]
+    assert len(line_ops) == 2
+    for _, _, _, _, pen in line_ops:
+        assert pen is not None
+        assert pen[0] == "#ffffff"
+
+    circle = next(val for op, val in adapter.operations if op == "circle")
+    assert circle[3] == "green"
+    text = next(val for op, val in adapter.operations if op == "text")
+    assert text[3] == "green"

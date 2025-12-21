@@ -9,8 +9,31 @@ provide.
 """
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
+
+
+def _ensure_pyqt6() -> None:
+    try:
+        import PyQt6  # noqa: F401
+        return
+    except ImportError:
+        pass
+
+    print("PyQt6 is not installed; attempting to install it now.", file=sys.stderr)
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "PyQt6"],
+        check=False,
+    )
+    if result.returncode != 0:
+        print("Failed to install PyQt6. Install it manually and retry.", file=sys.stderr)
+        raise SystemExit(result.returncode)
+    try:
+        import PyQt6  # noqa: F401
+    except ImportError as exc:  # pragma: no cover
+        print("PyQt6 is still unavailable after installation.", file=sys.stderr)
+        raise SystemExit(1) from exc
 
 
 def main(argv: list[str]) -> int:
@@ -22,6 +45,8 @@ def main(argv: list[str]) -> int:
     except ImportError as exc:  # pragma: no cover
         print("pytest is not installed in this environment.", file=sys.stderr)
         raise SystemExit(1) from exc
+
+    _ensure_pyqt6()
 
     return pytest.main(argv)
 

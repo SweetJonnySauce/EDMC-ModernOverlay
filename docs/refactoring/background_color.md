@@ -58,7 +58,7 @@
 - Performance awareness: efficient enough without premature micro-optimizations; measure before tuning.
 
 ## Execution Rules
-- Before planning/implementation, set up your environment using `tests/configure_pytest_environment.py`.
+- Before planning/implementation, set up your environment using `.venv/bin/python tests/configure_pytest_environment.py` (create `.venv` if needed).
 - For each phase/stage, create and document a concrete plan before making code changes.
 - Identify risks inherent in the plan (behavioral regressions, installer failures, CI flakiness, dependency drift, user upgrade prompts) and list the mitigations/tests you will run to address those risks.
 - Track the plan and risk mitigations alongside the phase notes so they are visible during execution and review.
