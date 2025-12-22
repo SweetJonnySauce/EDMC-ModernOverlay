@@ -2,7 +2,12 @@
 
 ## 0.7.6
 - Features
-  - Added functionality to set plugin group background color via define_plugin_group for Plugin Authors or via Overlay Controller for CMDRs
+  - Added functionality to set plugin group background color via define_plugin_group for Plugin Authors or via Overlay Controller for CMDRs.
+- Plugin Developer Features
+  - Added `markerLabelPosition` (`below`/`above`/`centered`) to `define_plugin_group` schema/API with default `below`.
+  - Added `\n` and `\r\n` functionality to text payloads to support multiline text.
+- Bug Fixes
+  - Fixes #42 and #42. Address nuanced backwards compatibility issues for vector images and marker labels that mainly affected EDR Navigation.
   
 ## 0.7.5
 - Features & Improvements:

@@ -58,7 +58,7 @@
 | 1 | Align vect rendering semantics with legacy (default behavior change) | Completed |
 | 2 | Align label placement with legacy | Completed |
 | 3 | Align rectangle border fallback with legacy | Completed |
-| 4 | Honor newline (`\n`) in text like legacy | In progress |
+| 4 | Honor newline (`\n`) in text like legacy | Completed |
 
 ## Phase Details
 
@@ -345,8 +345,8 @@
 | --- | --- | --- |
 | 4.1 | Implement line splitting/lineSpacing rendering in Qt text painters | Completed |
 | 4.2 | Add regression tests for multiline text in vectors/messages | Completed |
-| 4.3 | Visual check on navroute and bioscan overlays for multiline labels | Not started |
-| 4.4 | Document behavior change and confirm parity with legacy newline handling | Not started |
+| 4.3 | Visual check on navroute and bioscan overlays for multiline labels | Completed |
+| 4.4 | Document behavior change and confirm parity with legacy newline handling | Completed |
 
 #### Stage 4.1 Plan (pre-implementation)
 - Preflight: run `.venv/bin/python tests/configure_pytest_environment.py` (create `.venv` if needed) before code changes.
@@ -387,6 +387,28 @@
 #### Stage 4.2 Results
 - Outcome: added multiline regression coverage for vector label placement, Qt adapter line splitting, message painter line splitting, and `_measure_text` multi-line sizing via a fake measurer.
 - Tests: `.venv/bin/python tests/configure_pytest_environment.py -k vector_renderer`; `.venv/bin/python tests/configure_pytest_environment.py -k paint_commands`; `.venv/bin/python tests/configure_pytest_environment.py -k text_measurer`.
+- Issues/Follow-ups: none.
+
+#### Stage 4.3 Results
+- Outcome: visual checks on navroute and bioscan overlays passed with multi-line labels rendering as expected (line breaks honored, spacing consistent).
+- Tests: none (visual verification).
+- Issues/Follow-ups: none.
+
+#### Stage 4.4 Plan (pre-implementation)
+- Preflight: none (documentation-only stage).
+- Implementation steps:
+  1) Document the newline handling change for vector labels and message text (split on `\n`/`\r\n`, draw with line spacing, first line anchored to the existing baseline).
+  2) Note that this behavior matches legacy overlay newline handling and applies to all overlay text drawn via Qt painters.
+  3) Record the visual verification from Stage 4.3 and reference the regression tests from Stage 4.2.
+- Risks + mitigations/tests:
+  - Documentation drift: mitigated by explicitly stating the behavior, scope, and validation steps already run.
+  - Confusion about anchor/baseline behavior: mitigated by stating that the first line keeps the original baseline.
+- Tests to run after Stage 4.4:
+  - None (documentation-only).
+
+#### Stage 4.4 Results
+- Outcome: documented newline handling scope and legacy parity, plus recorded Stage 4.2 tests and Stage 4.3 visual verification.
+- Tests: none (documentation-only).
 - Issues/Follow-ups: none.
 
 ### Notes: Legacy vs Modern vect behavior
