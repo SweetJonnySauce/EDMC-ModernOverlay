@@ -104,9 +104,16 @@ class DeveloperHelperController:
     def handle_legacy_payload(self, window: "OverlayWindow", payload: Dict[str, Any]) -> None:
         if payload.get("type") == "shape" and payload.get("shape") == "vect":
             points = payload.get("vector")
-            if not isinstance(points, list) or len(points) < 2:
+            if not isinstance(points, list) or not points:
                 self._logger.warning("Vector payload ignored: requires at least two points (%s)", points)
                 return
+            if len(points) < 2:
+                point = points[0] if isinstance(points[0], dict) else {}
+                has_marker = bool(point.get("marker"))
+                has_text = point.get("text") is not None and str(point.get("text")) != ""
+                if not (has_marker or has_text):
+                    self._logger.warning("Vector payload ignored: requires at least two points (%s)", points)
+                    return
         window.handle_legacy_payload(payload)
 
     def set_log_retention(self, retention: int) -> None:

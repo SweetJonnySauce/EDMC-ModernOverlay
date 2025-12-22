@@ -52,7 +52,7 @@ def render_vector(
     base_color = str(payload.get("base_color") or "white")
     label_position = _normalise_marker_label_position(marker_label_position)
     points: List[Mapping[str, Any]] = list(payload.get("points") or [])
-    if len(points) < 2:
+    if not points:
         return
 
     def scaled(point: Mapping[str, Any]) -> tuple[int, int]:
@@ -73,11 +73,12 @@ def render_vector(
             },
         )
 
-    for idx in range(len(points) - 1):
-        adapter.set_pen(base_color)
-        x1, y1 = scaled_points[idx]
-        x2, y2 = scaled_points[idx + 1]
-        adapter.draw_line(x1, y1, x2, y2)
+    if len(points) >= 2:
+        for idx in range(len(points) - 1):
+            adapter.set_pen(base_color)
+            x1, y1 = scaled_points[idx]
+            x2, y2 = scaled_points[idx + 1]
+            adapter.draw_line(x1, y1, x2, y2)
 
     for idx, point in enumerate(points):
         marker = (point.get("marker") or "").lower()
