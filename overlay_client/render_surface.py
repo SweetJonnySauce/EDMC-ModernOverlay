@@ -1238,9 +1238,10 @@ class RenderSurfaceMixin:
         else:
             border_color = QColor(border_spec)
             if not border_color.isValid():
-                border_color = QColor("white")
-            pen = QPen(border_color)
-            pen.setWidth(self._line_width("legacy_rect"))
+                pen = QPen(Qt.PenStyle.NoPen)
+            else:
+                pen = QPen(border_color)
+                pen.setWidth(self._line_width("legacy_rect"))
 
         if not fill_spec or fill_spec.lower() == "none":
             brush = QBrush(Qt.BrushStyle.NoBrush)

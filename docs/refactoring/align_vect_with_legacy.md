@@ -55,9 +55,9 @@
 
 | Phase | Description | Status |
 | --- | --- | --- |
-| 1 | Align vect rendering semantics with legacy (default behavior change) | Not started |
-| 2 | Align label placement with legacy | Not started |
-| 3 | Align rectangle border fallback with legacy | Not started |
+| 1 | Align vect rendering semantics with legacy (default behavior change) | Completed |
+| 2 | Align label placement with legacy | Completed |
+| 3 | Align rectangle border fallback with legacy | In progress |
 | 4 | Honor newline (`\n`) in text like legacy | Not started |
 
 ## Phase Details
@@ -267,10 +267,50 @@
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 3.1 | Change border color handling to skip pen when color is invalid/None | Not started |
-| 3.2 | Add regression tests for invalid vs valid border colors | Not started |
+| 3.1 | Change border color handling to skip pen when color is invalid/None | Completed |
+| 3.2 | Add regression tests for invalid vs valid border colors | Completed |
 | 3.3 | Visual check: navroute panel and bioscan radar panel outlines | Not started |
 | 3.4 | Document behavior change and any affected overlays | Not started |
+
+#### Stage 3.1 Plan (pre-implementation)
+- Preflight: run `.venv/bin/python tests/configure_pytest_environment.py` (create `.venv` if needed) before code changes.
+- Implementation steps:
+  1) Review `_build_rect_command` in `overlay_client/render_surface.py` to confirm current invalid-color handling and how legacy rects map to `item["color"]`.
+  2) Change invalid border color handling to use `Qt.NoPen` instead of falling back to white; keep `legacy_rect` line width for valid colors.
+  3) Leave fill/brush handling unchanged and avoid adding new behavior flags.
+  4) Keep logging minimal; add a trace hook only if needed for visibility of invalid colors.
+- Risks + mitigations/tests:
+  - Some overlays may have relied on the white fallback: mitigated by Stage 3.2 tests and Stage 3.3 visual checks on navroute/bioscan panels.
+  - Valid colors misclassified as invalid could drop borders: mitigated by retaining `QColor.isValid()` checks and adding regression tests in Stage 3.2.
+  - Silent behavior change: mitigated by documenting in Stage 3.4 and optionally tracing invalid colors.
+- Tests to run after Stage 3.1:
+  - `.venv/bin/python tests/configure_pytest_environment.py -k rect`
+  - `.venv/bin/python tests/configure_pytest_environment.py -k paint_commands`
+
+#### Stage 3.1 Results
+- Outcome: invalid border colors now skip drawing a border (`Qt.NoPen`) instead of falling back to white; valid border colors still render with `legacy_rect` width.
+- Tests: `.venv/bin/python tests/configure_pytest_environment.py -k rect`; `.venv/bin/python tests/configure_pytest_environment.py -k paint_commands`.
+- Issues/Follow-ups: none.
+
+#### Stage 3.2 Plan (pre-implementation)
+- Preflight: run `.venv/bin/python tests/configure_pytest_environment.py` (create `.venv` if needed) before code changes.
+- Implementation steps:
+  1) Add unit coverage for legacy rect border handling in the most appropriate test module (likely `overlay_client/tests/test_paint_commands.py` or an existing legacy rect test) to avoid Qt font metric dependencies.
+  2) For invalid border color payloads (e.g., empty string, trailing comma `dd5500,`, or `none`), assert that the rect paint command uses `Qt.NoPen` and still applies the fill color.
+  3) For valid border colors, assert that the pen is set to the parsed color with the `legacy_rect` width.
+  4) Keep assertions focused on paint command state/calls to avoid brittle pixel or font metric checks.
+- Risks + mitigations/tests:
+  - Qt class construction in tests could make assertions brittle; mitigate by using existing recording painter helpers and asserting on pen/brush types rather than pixel output.
+  - Coverage might miss the invalid-color parsing branch; mitigate by explicitly including a malformed color case (e.g., trailing comma) plus empty/none variants.
+  - CI flakiness: low; keep tests isolated to paint commands and avoid GUI dependencies.
+- Tests to run after Stage 3.2:
+  - `.venv/bin/python tests/configure_pytest_environment.py -k rect`
+  - `.venv/bin/python tests/configure_pytest_environment.py -k paint_commands`
+
+#### Stage 3.2 Results
+- Outcome: added regression coverage for invalid border colors (empty/none/malformed) and valid border colors, asserting `Qt.NoPen` vs solid pen with `legacy_rect` width while preserving fill.
+- Tests: `.venv/bin/python tests/configure_pytest_environment.py -k rect`; `.venv/bin/python tests/configure_pytest_environment.py -k paint_commands`.
+- Issues/Follow-ups: none.
 
 ### Phase 4: Honor newline (`\n`) in text like legacy
 - Goal: mirror legacy handling of `\n` as a hard line break for overlay text.

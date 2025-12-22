@@ -2,8 +2,11 @@ import math
 from typing import Any, Optional, Tuple
 
 import pytest
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 
+from overlay_client.group_transform import GroupKey
+from overlay_client.legacy_store import LegacyItem
 from overlay_client.render_surface import RenderSurfaceMixin, _MeasuredText
 
 
@@ -61,6 +64,60 @@ class _StubSurface(RenderSurfaceMixin):
 
     def format_scale_debug(self) -> str:
         return "scale-debug"
+
+
+class _StubFill:
+    def __init__(self, scale: float = 1.0) -> None:
+        self.scale = scale
+
+    def screen_x(self, value: float) -> float:
+        return value
+
+    def screen_y(self, value: float) -> float:
+        return value
+
+
+class _StubGroupContext:
+    def __init__(self) -> None:
+        self.fill = _StubFill()
+        self.transform_context = None
+        self.scale = 1.0
+        self.selected_anchor = None
+        self.base_anchor_point = None
+        self.anchor_for_transform = None
+        self.base_translation_dx = 0.0
+        self.base_translation_dy = 0.0
+
+
+class _StubMapper:
+    pass
+
+
+class _RectSurface(_StubSurface):
+    def __init__(self) -> None:
+        super().__init__()
+        self._line_width_defaults = {"legacy_rect": 2}
+
+    def _line_width(self, key: str) -> int:
+        return self._line_widths.get(key) or self._line_width_defaults.get(key, 1)
+
+    def _viewport_state(self) -> object:
+        return object()
+
+    def _group_offsets(self, group_transform) -> Tuple[float, float]:  # noqa: ANN001
+        return (0.0, 0.0)
+
+    def _group_anchor_point(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        return None
+
+    def _group_base_point(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        return None
+
+    def _should_trace_payload(self, plugin_name: Optional[str], item_id: str) -> bool:
+        return False
+
+    def _compute_rect_transform(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        return ([(0.0, 0.0), (2.0, 0.0), (0.0, 1.0), (2.0, 1.0)], [], None, None)
 
 
 def test_line_width_respects_override_defaults() -> None:
@@ -122,3 +179,43 @@ def test_qcolor_from_background_parses_rgba() -> None:
     color = RenderSurfaceMixin._qcolor_from_background("#11223344")
     assert isinstance(color, QColor)
     assert (color.red(), color.green(), color.blue(), color.alpha()) == (0x11, 0x22, 0x33, 0x44)
+
+
+def _build_rect_command(surface: _RectSurface, border_spec: str, *, fill_spec: str = "#112233"):
+    legacy_item = LegacyItem(
+        item_id="rect-1",
+        kind="rect",
+        data={"color": border_spec, "fill": fill_spec, "x": 1.0, "y": 2.0, "w": 3.0, "h": 4.0},
+        plugin="plugin",
+    )
+    return surface._build_rect_command(legacy_item, _StubMapper(), GroupKey("plugin"), None, None)
+
+
+@pytest.mark.parametrize("border_spec", ["", "none", "dd5500,"])
+def test_rect_command_invalid_border_color_skips_pen(monkeypatch: pytest.MonkeyPatch, border_spec: str) -> None:
+    surface = _RectSurface()
+    monkeypatch.setattr(
+        "overlay_client.render_surface.build_group_context",
+        lambda *args, **kwargs: _StubGroupContext(),
+    )
+
+    cmd = _build_rect_command(surface, border_spec)
+
+    assert cmd is not None
+    assert cmd.pen.style() == Qt.PenStyle.NoPen
+    assert cmd.brush.color().name() == QColor("#112233").name()
+
+
+def test_rect_command_valid_border_color_uses_pen(monkeypatch: pytest.MonkeyPatch) -> None:
+    surface = _RectSurface()
+    monkeypatch.setattr(
+        "overlay_client.render_surface.build_group_context",
+        lambda *args, **kwargs: _StubGroupContext(),
+    )
+
+    cmd = _build_rect_command(surface, "#ff00ff")
+
+    assert cmd is not None
+    assert cmd.pen.style() == Qt.PenStyle.SolidLine
+    assert cmd.pen.color().name() == QColor("#ff00ff").name()
+    assert cmd.pen.width() == surface._line_width("legacy_rect")
