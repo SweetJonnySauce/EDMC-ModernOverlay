@@ -47,6 +47,12 @@
           "enum": ["left", "center", "right"],
           "default": "left"
         },
+        "markerLabelPosition": {
+          "type": "string",
+          "enum": ["below", "above", "centered"],
+          "default": "below",
+          "description": "Marker label placement relative to the marker."
+        },
         "backgroundColor": {
           "oneOf": [
             {

@@ -12,7 +12,7 @@
   "physical_clamp_overrides": {},
   "show_debug_overlay": false,
   "min_font_point": 6.0,
-  "max_font_point": 12.0,
+  "max_font_point": 16.5,
   "status_bottom_margin": 40,
   "title_bar_enabled": false,
   "title_bar_height": 30,

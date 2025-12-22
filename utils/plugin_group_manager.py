@@ -58,6 +58,8 @@ PAYLOAD_LOG_BASENAMES = ("overlay-payloads.log", "overlay_payloads.log")
 ANCHOR_CHOICES = ("nw", "ne", "sw", "se", "center", "top", "bottom", "left", "right")
 PAYLOAD_JUSTIFICATION_CHOICES = ("left", "center", "right")
 DEFAULT_PAYLOAD_JUSTIFICATION = "left"
+MARKER_LABEL_POSITION_CHOICES = ("below", "above", "centered")
+DEFAULT_MARKER_LABEL_POSITION = "below"
 GENERIC_PAYLOAD_TOKENS = {"vect", "shape", "text"}
 GROUP_SELECTOR_STYLE = "ModernOverlayGroupSelect.TCombobox"
 LEFT_COLUMN_WIDTH = 180
@@ -706,6 +708,17 @@ class GroupConfigStore:
         return None
 
     @staticmethod
+    def _normalise_marker_label_position(value: Any) -> Optional[str]:
+        if not isinstance(value, str):
+            return None
+        token = value.strip().lower()
+        if not token:
+            return None
+        if token in MARKER_LABEL_POSITION_CHOICES:
+            return token
+        return None
+
+    @staticmethod
     def _clean_offset_value(value: Any) -> Optional[float]:
         numeric: Optional[float]
         if isinstance(value, (int, float)):
@@ -762,6 +775,11 @@ class GroupConfigStore:
         )
         if justification:
             cleaned["payloadJustification"] = justification
+        marker_label_position = self._normalise_marker_label_position(
+            spec.get("markerLabelPosition") or spec.get("marker_label_position")
+        )
+        if marker_label_position:
+            cleaned["markerLabelPosition"] = marker_label_position
         if "backgroundColor" in spec or "background_color" in spec:
             raw_color = spec.get("backgroundColor") or spec.get("background_color")
             if raw_color is None:
@@ -839,6 +857,13 @@ class GroupConfigStore:
                             justification = DEFAULT_PAYLOAD_JUSTIFICATION
                         if justification not in PAYLOAD_JUSTIFICATION_CHOICES:
                             justification = DEFAULT_PAYLOAD_JUSTIFICATION
+                        raw_marker_label_position = spec.get("markerLabelPosition")
+                        if isinstance(raw_marker_label_position, str) and raw_marker_label_position.strip():
+                            marker_label_position = raw_marker_label_position.strip().lower()
+                        else:
+                            marker_label_position = DEFAULT_MARKER_LABEL_POSITION
+                        if marker_label_position not in MARKER_LABEL_POSITION_CHOICES:
+                            marker_label_position = DEFAULT_MARKER_LABEL_POSITION
                         view_entries.append(
                             {
                                 "label": label,
@@ -848,6 +873,7 @@ class GroupConfigStore:
                                 "offsetX": spec.get("offsetX"),
                                 "offsetY": spec.get("offsetY"),
                                 "payloadJustification": justification,
+                                "markerLabelPosition": marker_label_position,
                                 "backgroundColor": spec.get("backgroundColor"),
                                 "backgroundBorderWidth": spec.get("backgroundBorderWidth"),
                                 "notes": notes,
@@ -968,6 +994,7 @@ class GroupConfigStore:
         offset_x: Optional[object] = None,
         offset_y: Optional[object] = None,
         payload_justification: Optional[str] = None,
+        marker_label_position: Optional[str] = None,
         background_color: Optional[str] = None,
         background_border_width: Optional[object] = None,
     ) -> None:
@@ -985,6 +1012,11 @@ class GroupConfigStore:
         )
         if not justification_token:
             justification_token = DEFAULT_PAYLOAD_JUSTIFICATION
+        marker_label_position_token = (
+            self._normalise_marker_label_position(marker_label_position) if marker_label_position is not None else None
+        )
+        if not marker_label_position_token:
+            marker_label_position_token = DEFAULT_MARKER_LABEL_POSITION
         try:
             normalized_color = _normalise_background_color(background_color) if background_color is not None else None
         except PluginGroupingError as exc:
@@ -1018,6 +1050,7 @@ class GroupConfigStore:
             if offset_y_value is not None:
                 spec_payload["offsetY"] = offset_y_value
             spec_payload["payloadJustification"] = justification_token
+            spec_payload["markerLabelPosition"] = marker_label_position_token
             if background_color is not None:
                 spec_payload["backgroundColor"] = normalized_color
             if background_border_width is not None:
@@ -1039,6 +1072,7 @@ class GroupConfigStore:
         offset_x: Optional[object] = None,
         offset_y: Optional[object] = None,
         payload_justification: Optional[object] = None,
+        marker_label_position: Optional[object] = None,
         background_color: object = _MISSING,
         background_border_width: object = _MISSING,
     ) -> None:
@@ -1092,6 +1126,12 @@ class GroupConfigStore:
                     target_spec["payloadJustification"] = justification_token
                 else:
                     target_spec.pop("payloadJustification", None)
+            if marker_label_position is not None:
+                marker_label_position_token = self._normalise_marker_label_position(marker_label_position)
+                if marker_label_position_token:
+                    target_spec["markerLabelPosition"] = marker_label_position_token
+                else:
+                    target_spec.pop("markerLabelPosition", None)
             if background_color is not _MISSING:
                 if background_color is None or background_color == "":
                     target_spec["backgroundColor"] = None
@@ -1290,29 +1330,45 @@ class NewGroupingDialog(simpledialog.Dialog):
             state="readonly",
         ).grid(row=4, column=1, sticky="w")
 
-        ttk.Label(master, text="Offset X (px)").grid(row=5, column=0, sticky="w")
+        ttk.Label(master, text="Marker label position").grid(row=5, column=0, sticky="w")
+        suggestion_marker = str(
+            self._suggestion.get("markerLabelPosition")
+            or self._suggestion.get("marker_label_position")
+            or DEFAULT_MARKER_LABEL_POSITION
+        ).strip().lower()
+        if suggestion_marker not in MARKER_LABEL_POSITION_CHOICES:
+            suggestion_marker = DEFAULT_MARKER_LABEL_POSITION
+        self.marker_label_position_var = tk.StringVar(value=suggestion_marker)
+        ttk.Combobox(
+            master,
+            values=MARKER_LABEL_POSITION_CHOICES,
+            textvariable=self.marker_label_position_var,
+            state="readonly",
+        ).grid(row=5, column=1, sticky="w")
+
+        ttk.Label(master, text="Offset X (px)").grid(row=6, column=0, sticky="w")
         self.offset_x_var = tk.StringVar(value=self._format_initial_offset(self._suggestion.get("offsetX")))
-        ttk.Entry(master, textvariable=self.offset_x_var, width=40).grid(row=5, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.offset_x_var, width=40).grid(row=6, column=1, sticky="ew")
 
-        ttk.Label(master, text="Offset Y (px)").grid(row=6, column=0, sticky="w")
+        ttk.Label(master, text="Offset Y (px)").grid(row=7, column=0, sticky="w")
         self.offset_y_var = tk.StringVar(value=self._format_initial_offset(self._suggestion.get("offsetY")))
-        ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=6, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=7, column=1, sticky="ew")
 
-        ttk.Label(master, text="Background color (#RRGGBB[AA])").grid(row=7, column=0, sticky="w")
+        ttk.Label(master, text="Background color (#RRGGBB[AA])").grid(row=8, column=0, sticky="w")
         self.background_color_var = tk.StringVar(value=str(self._suggestion.get("backgroundColor") or ""))
-        ttk.Entry(master, textvariable=self.background_color_var, width=40).grid(row=7, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.background_color_var, width=40).grid(row=8, column=1, sticky="ew")
 
-        ttk.Label(master, text="Background border (0–10 px)").grid(row=8, column=0, sticky="w")
+        ttk.Label(master, text="Background border (0–10 px)").grid(row=9, column=0, sticky="w")
         self.background_border_var = tk.StringVar(
             value=str(self._suggestion.get("backgroundBorderWidth", ""))
         )
         ttk.Spinbox(master, from_=0, to=10, textvariable=self.background_border_var, width=6).grid(
-            row=8, column=1, sticky="w"
+            row=9, column=1, sticky="w"
         )
 
-        ttk.Label(master, text="Notes").grid(row=9, column=0, sticky="w")
+        ttk.Label(master, text="Notes").grid(row=10, column=0, sticky="w")
         self.notes_var = tk.StringVar(value=str(self._suggestion.get("notes") or ""))
-        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=9, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=10, column=1, sticky="ew")
         return master
 
     def validate(self) -> bool:  # type: ignore[override]
@@ -1355,6 +1411,7 @@ class NewGroupingDialog(simpledialog.Dialog):
             "prefixes": prefixes,
             "anchor": self.anchor_var.get().strip(),
             "payload_justification": self.justification_var.get().strip(),
+            "marker_label_position": self.marker_label_position_var.get().strip(),
             "offset_x": self.offset_x_var.get().strip(),
             "offset_y": self.offset_y_var.get().strip(),
             "background_color": getattr(self, "_validated_background_color", None),
@@ -1486,27 +1543,41 @@ class EditGroupingDialog(simpledialog.Dialog):
             state="readonly",
         ).grid(row=5, column=1, sticky="w")
 
-        ttk.Label(master, text="Offset X (px)").grid(row=6, column=0, sticky="w")
+        ttk.Label(master, text="Marker label position").grid(row=6, column=0, sticky="w")
+        marker_label_position = str(
+            self._entry.get("markerLabelPosition") or DEFAULT_MARKER_LABEL_POSITION
+        ).strip().lower()
+        if marker_label_position not in MARKER_LABEL_POSITION_CHOICES:
+            marker_label_position = DEFAULT_MARKER_LABEL_POSITION
+        self.marker_label_position_var = tk.StringVar(value=marker_label_position)
+        ttk.Combobox(
+            master,
+            values=MARKER_LABEL_POSITION_CHOICES,
+            textvariable=self.marker_label_position_var,
+            state="readonly",
+        ).grid(row=6, column=1, sticky="w")
+
+        ttk.Label(master, text="Offset X (px)").grid(row=7, column=0, sticky="w")
         self.offset_x_var = tk.StringVar(value=self._format_initial_offset(self._entry.get("offsetX")))
-        ttk.Entry(master, textvariable=self.offset_x_var, width=40).grid(row=6, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.offset_x_var, width=40).grid(row=7, column=1, sticky="ew")
 
-        ttk.Label(master, text="Offset Y (px)").grid(row=7, column=0, sticky="w")
+        ttk.Label(master, text="Offset Y (px)").grid(row=8, column=0, sticky="w")
         self.offset_y_var = tk.StringVar(value=self._format_initial_offset(self._entry.get("offsetY")))
-        ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=7, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=8, column=1, sticky="ew")
 
-        ttk.Label(master, text="Background color (#RRGGBB[AA])").grid(row=8, column=0, sticky="w")
+        ttk.Label(master, text="Background color (#RRGGBB[AA])").grid(row=9, column=0, sticky="w")
         self.background_color_var = tk.StringVar(value=str(self._entry.get("backgroundColor") or ""))
-        ttk.Entry(master, textvariable=self.background_color_var, width=40).grid(row=8, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.background_color_var, width=40).grid(row=9, column=1, sticky="ew")
 
-        ttk.Label(master, text="Background border (0–10 px)").grid(row=9, column=0, sticky="w")
+        ttk.Label(master, text="Background border (0–10 px)").grid(row=10, column=0, sticky="w")
         self.background_border_var = tk.StringVar(value=str(self._entry.get("backgroundBorderWidth") or ""))
         ttk.Spinbox(master, from_=0, to=10, textvariable=self.background_border_var, width=6).grid(
-            row=9, column=1, sticky="w"
+            row=10, column=1, sticky="w"
         )
 
-        ttk.Label(master, text="Notes").grid(row=10, column=0, sticky="w")
+        ttk.Label(master, text="Notes").grid(row=11, column=0, sticky="w")
         self.notes_var = tk.StringVar(value=str(self._entry.get("notes") or ""))
-        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=10, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=11, column=1, sticky="ew")
         return master
 
     def validate(self) -> bool:  # type: ignore[override]
@@ -1531,6 +1602,7 @@ class EditGroupingDialog(simpledialog.Dialog):
             "prefixes": list(self._prefix_entries),
             "anchor": self.anchor_var.get().strip(),
             "payload_justification": self.justification_var.get().strip(),
+            "marker_label_position": self.marker_label_position_var.get().strip(),
             "offset_x": self.offset_x_var.get().strip(),
             "offset_y": self.offset_y_var.get().strip(),
             "background_color": getattr(self, "_validated_background_color", None),
@@ -2481,12 +2553,20 @@ class PluginGroupManagerApp:
                 justification_value = DEFAULT_PAYLOAD_JUSTIFICATION
             if justification_value not in PAYLOAD_JUSTIFICATION_CHOICES:
                 justification_value = DEFAULT_PAYLOAD_JUSTIFICATION
+            marker_label_value = entry.get("markerLabelPosition") or DEFAULT_MARKER_LABEL_POSITION
+            if isinstance(marker_label_value, str):
+                marker_label_value = marker_label_value.strip().lower() or DEFAULT_MARKER_LABEL_POSITION
+            else:
+                marker_label_value = DEFAULT_MARKER_LABEL_POSITION
+            if marker_label_value not in MARKER_LABEL_POSITION_CHOICES:
+                marker_label_value = DEFAULT_MARKER_LABEL_POSITION
             notes_text = entry.get("notes") or "- none -"
             left_cell = ttk.Frame(entry_frame, width=LEFT_COLUMN_WIDTH)
             left_cell.grid(row=1, column=0, sticky="nw", pady=(2, 0))
             left_cell.grid_propagate(False)
             ttk.Label(left_cell, text=f"Anchor: {anchor_value}").pack(anchor="w")
             ttk.Label(left_cell, text=f"Justification: {justification_value}").pack(anchor="w", pady=(2, 0))
+            ttk.Label(left_cell, text=f"Marker label: {marker_label_value}").pack(anchor="w", pady=(2, 0))
             offset_label = (
                 f"Offset: x={self._format_offset_value(entry.get('offsetX'))}, "
                 f"y={self._format_offset_value(entry.get('offsetY'))}"
@@ -3159,6 +3239,7 @@ class PluginGroupManagerApp:
                 offset_x=data.get("offset_x"),
                 offset_y=data.get("offset_y"),
                 payload_justification=data.get("payload_justification"),
+                marker_label_position=data.get("marker_label_position"),
                 background_color=data.get("background_color"),
                 background_border_width=data.get("background_border_width"),
             )
@@ -3192,6 +3273,7 @@ class PluginGroupManagerApp:
                 offset_x=data.get("offset_x"),
                 offset_y=data.get("offset_y"),
                 payload_justification=data.get("payload_justification"),
+                marker_label_position=data.get("marker_label_position"),
                 background_color=data.get("background_color"),
                 background_border_width=data.get("background_border_width"),
             )

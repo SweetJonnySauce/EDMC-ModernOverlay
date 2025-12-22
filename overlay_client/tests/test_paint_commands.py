@@ -108,11 +108,22 @@ def test_vector_paint_invokes_render_with_adapter(monkeypatch):
     painter = _RecordingPainter()
     seen: Dict[str, Any] = {}
 
-    def fake_render_vector(adapter, payload, scale_x, scale_y, *, offset_x, offset_y, trace=None):
+    def fake_render_vector(
+        adapter,
+        payload,
+        scale_x,
+        scale_y,
+        *,
+        offset_x,
+        offset_y,
+        marker_label_position=None,
+        trace=None,
+    ):
         seen["adapter"] = adapter
         seen["payload"] = payload
         seen["scale"] = (scale_x, scale_y)
         seen["offsets"] = (offset_x, offset_y)
+        seen["marker_label_position"] = marker_label_position
         seen["trace"] = trace
 
     monkeypatch.setattr("overlay_client.paint_commands.render_vector", fake_render_vector)
@@ -134,6 +145,7 @@ def test_vector_paint_invokes_render_with_adapter(monkeypatch):
     assert seen["payload"] == {"k": "v"}
     assert seen["scale"] == (2.0, 2.0)
     assert seen["offsets"] == (11.5, 22.5)
+    assert seen["marker_label_position"] == "below"
     assert window._registered["item-vec"] == (14, 26)
 
 

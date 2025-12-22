@@ -23,6 +23,7 @@ def test_merge_precedence_and_normalisation(tmp_path):
                     "idPrefixGroupAnchor": "NE",
                     "offsetX": 1,
                     "payloadJustification": "Right",
+                    "markerLabelPosition": "Below",
                 }
             },
         }
@@ -34,6 +35,7 @@ def test_merge_precedence_and_normalisation(tmp_path):
                 "Main": {
                     "idPrefixes": ["Foo-2"],
                     "offsetY": 5,
+                    "markerLabelPosition": "Centered",
                 },
                 "Extra": {
                     "idPrefixes": ["Baz-"],
@@ -62,6 +64,7 @@ def test_merge_precedence_and_normalisation(tmp_path):
     assert main["offsetX"] == pytest.approx(1.0)
     assert main["offsetY"] == pytest.approx(5.0)
     assert main["payloadJustification"] == "right"
+    assert main["markerLabelPosition"] == "centered"
 
     extra = groups["Extra"]
     assert extra["idPrefixes"] == ["baz-"]

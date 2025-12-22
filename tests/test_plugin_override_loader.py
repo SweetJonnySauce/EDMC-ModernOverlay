@@ -96,3 +96,44 @@ def test_override_manager_background_from_loader(tmp_path):
     color, border = manager.group_background("PluginA", "Main")
     assert color == "#AABBCC"
     assert border == 4
+
+
+def test_override_manager_marker_label_position_from_loader(tmp_path):
+    shipped = tmp_path / "overlay_groupings.json"
+    user = tmp_path / "overlay_groupings.user.json"
+
+    shipped.write_text(
+        """
+{
+  "PluginA": {
+    "idPrefixGroups": {
+      "Main": {
+        "idPrefixes": ["foo-"],
+        "markerLabelPosition": "below"
+      }
+    }
+  }
+}
+""",
+        encoding="utf-8",
+    )
+    user.write_text(
+        """
+{
+  "PluginA": {
+    "idPrefixGroups": {
+      "Main": {
+        "markerLabelPosition": "above"
+      }
+    }
+  }
+}
+""",
+        encoding="utf-8",
+    )
+
+    loader = GroupingsLoader(shipped, user)
+    manager = PluginOverrideManager(shipped, logging.getLogger("test"), groupings_loader=loader)
+    manager._reload_if_needed()
+
+    assert manager.group_marker_label_position("PluginA", "Main") == "above"

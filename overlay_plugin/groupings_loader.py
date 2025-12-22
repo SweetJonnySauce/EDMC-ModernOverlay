@@ -22,6 +22,7 @@ from overlay_plugin.overlay_api import (
     _normalise_background_color,
     _normalise_border_width,
     _normalise_justification,
+    _normalise_marker_label_position,
     _normalise_offset,
     _normalise_prefixes,
 )
@@ -260,6 +261,14 @@ class GroupingsLoader:
         payload_justification = self._select(user_entry, base_entry, "payloadJustification", _normalise_justification)
         if payload_justification is not None:
             merged["payloadJustification"] = payload_justification
+        marker_label_position = self._select(
+            user_entry,
+            base_entry,
+            "markerLabelPosition",
+            _normalise_marker_label_position,
+        )
+        if marker_label_position is not None:
+            merged["markerLabelPosition"] = marker_label_position
 
         offset_x = self._select(user_entry, base_entry, "offsetX", lambda value: _normalise_offset(value, "offsetX"))
         if offset_x is not None:
@@ -284,6 +293,7 @@ class GroupingsLoader:
                     "idPrefixes",
                     "idPrefixGroupAnchor",
                     "payloadJustification",
+                    "markerLabelPosition",
                     "offsetX",
                     "offsetY",
                     "backgroundColor",

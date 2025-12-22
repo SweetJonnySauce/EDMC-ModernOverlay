@@ -208,6 +208,38 @@ def test_define_plugin_group_updates_payload_justification(grouping_store):
     assert payload["Example"]["idPrefixGroups"]["alerts"]["payloadJustification"] == "right"
 
 
+def test_define_plugin_group_sets_marker_label_position(grouping_store):
+    overlay_api.define_plugin_group(
+        plugin_group="Example",
+        id_prefix_group="alerts",
+        id_prefixes=["example-alert-"],
+        marker_label_position="below",
+    )
+
+    payload = _load(grouping_store)
+    group = payload["Example"]["idPrefixGroups"]["alerts"]
+    assert group["markerLabelPosition"] == "below"
+
+
+def test_define_plugin_group_updates_marker_label_position(grouping_store):
+    overlay_api.define_plugin_group(
+        plugin_group="Example",
+        id_prefix_group="alerts",
+        id_prefixes=["example-alert-"],
+        marker_label_position="below",
+    )
+
+    updated = overlay_api.define_plugin_group(
+        plugin_group="Example",
+        id_prefix_group="alerts",
+        marker_label_position="centered",
+    )
+    assert updated is True
+
+    payload = _load(grouping_store)
+    assert payload["Example"]["idPrefixGroups"]["alerts"]["markerLabelPosition"] == "centered"
+
+
 def test_define_plugin_group_requires_id_group_for_payload_justification(grouping_store):
     with pytest.raises(PluginGroupingError):
         overlay_api.define_plugin_group(
@@ -223,6 +255,24 @@ def test_define_plugin_group_validates_payload_justification_token(grouping_stor
             id_prefix_group="alerts",
             id_prefixes=["example-"],
             payload_justification="middle",
+        )
+
+
+def test_define_plugin_group_requires_id_group_for_marker_label_position(grouping_store):
+    with pytest.raises(PluginGroupingError):
+        overlay_api.define_plugin_group(
+            plugin_group="Example",
+            marker_label_position="below",
+        )
+
+
+def test_define_plugin_group_validates_marker_label_position_token(grouping_store):
+    with pytest.raises(PluginGroupingError):
+        overlay_api.define_plugin_group(
+            plugin_group="Example",
+            id_prefix_group="alerts",
+            id_prefixes=["example-"],
+            marker_label_position="low",
         )
 
 

@@ -174,28 +174,83 @@
 - Tests: none (documentation-only).
 - Issues/Follow-ups: none.
 
-### Phase 2: Make marker label placement configurable (default in-line)
-- Goal: keep Modern Overlay's default label placement in-line with the marker, while allowing per-plugin vertical adjustments to match legacy or other layouts.
+### Phase 2: Make marker label placement configurable (default legacy offset)
+- Goal: keep Modern Overlay's default label placement aligned with legacy (Y+7 to top-left of the text box), while allowing per-plugin vertical positioning for other layouts.
 - Current difference:
   - Legacy: `DrawTextEx(..., marker_x + 2, marker_y + 7)` uses `(x,y)` as text top-left; `+7` pushes text below the line/marker.
   - Modern: `draw_text(x + 8, y - 8, ...)` then adds font ascent internally, effectively keeping text in-line with the marker.
 - Target behavior:
-  - Default (0) leaves text in-line with the marker (current Modern behavior; no visual change).
-  - Introduce optional `markerLabelYOffset` (-10 to 10) in `define_plugin_group` schema/API for per-plugin adjustment.
-  - A negative offset places text above the marker; positive places it below (e.g., +10 approximates legacy).
+  - Default position is `below`: Y+7 applies to the **top of the text box** (top-left anchor), matching legacy.
+  - Introduce optional `markerLabelPosition` in `define_plugin_group` schema/API with values `below`, `above`, `centered`.
+  - `below`: top of text box at Y+7 (legacy default).
+  - `above`: bottom of text box at Y-7 (requires font height to compute top).
+  - `centered`: middle of text box at Y+0 (requires font height to compute top).
 - Tests/checks:
-  - Ensure default 0 preserves existing Modern placement.
-  - Add config-driven coverage for `markerLabelYOffset` at -10, 0, +10 to verify offset direction.
+  - Ensure default `below` matches legacy placement (top-left anchor at Y+7).
+  - Add config-driven coverage for `markerLabelPosition` values `below`, `above`, `centered` to verify placement relative to text box.
   - Visual regression for bioscan radar and navroute to confirm per-plugin offsets behave as expected.
 - Risks: introducing a new plugin-group setting could drift across schema/controller/client or cause unexpected offsets for existing configs.
-- Mitigations: schema validation with bounds; default 0 in loader; targeted tests for API/schema + renderer offsets; document the new option.
+- Mitigations: schema validation for allowed values; default `below` in loader; targeted tests for API/schema + renderer offsets; document the new option.
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 2.1 | Add `markerLabelYOffset` (-10..10) to `define_plugin_group` schema/API with default 0; update loader/config plumbing | Not started |
-| 2.2 | Apply the configurable offset in vector label rendering (keep default in-line) | Not started |
-| 2.3 | Validate bioscan radar + navroute overlays with offset adjustments | Not started |
-| 2.4 | Document the new offset option and any observed side effects | Not started |
+| 2.1 | Add `markerLabelPosition` (`below`/`above`/`centered`) to `define_plugin_group` schema/API with default `below`; update loader/config plumbing | Completed |
+| 2.2 | Apply the configurable position in vector label rendering (default legacy `below`) | Completed |
+| 2.3 | Validate bioscan radar + navroute overlays with offset adjustments | Completed |
+| 2.4 | Document the new offset option and any observed side effects | Completed |
+
+#### Stage 2.1 Plan (pre-implementation)
+- Preflight: run `.venv/bin/python tests/configure_pytest_environment.py` (create `.venv` if needed) to set up the environment before changes.
+- Implementation steps:
+  1) Extend `schemas/overlay_groupings.schema.json` to allow optional `markerLabelPosition` with enum values `below`, `above`, `centered` and default `below` (top-of-text-box anchor).
+  2) Update `overlay_plugin/overlay_api.py` to accept `marker_label_position` (and `markerLabelPosition` if appropriate), validate tokens, and write canonical `markerLabelPosition` into `overlay_groupings.json` when provided.
+  3) Plumb the new field through config loaders/overrides with a default of `below` when missing (e.g., `overlay_plugin/groupings_loader.py`, `overlay_client/plugin_overrides.py`, `overlay_client/group_transform.py`).
+  4) Keep serialization/normalization consistent with existing plugin group fields (camelCase in JSON; snake_case in Python APIs).
+- Risks + mitigations/tests:
+  - Schema/API drift or invalid values accepted. Mitigation: strict enum validation in schema and API; add loader tests for invalid values.
+  - Default mismatch across layers (schema vs loader vs overrides). Mitigation: set default `below` consistently in schema, loader, and override manager; assert in tests.
+  - Inconsistent key naming (camelCase vs snake_case) leading to silent ignores. Mitigation: accept both in API/loader; canonicalize on write; add tests.
+- Tests to run after Stage 2.1:
+  - `.venv/bin/python tests/configure_pytest_environment.py -k define_plugin_group`
+  - `.venv/bin/python tests/configure_pytest_environment.py -k groupings_loader`
+  - `.venv/bin/python tests/configure_pytest_environment.py -k plugin_override_loader`
+
+#### Stage 2.1 Results
+- Outcome: added `markerLabelPosition` to the schema, API, loader/overrides parsing, and group transforms with default handling (`below`).
+- Tests: `.venv/bin/python tests/configure_pytest_environment.py -k define_plugin_group`; `.venv/bin/python tests/configure_pytest_environment.py -k groupings_loader`; `.venv/bin/python tests/configure_pytest_environment.py -k plugin_override_loader`.
+- Issues/Follow-ups: none.
+
+#### Stage 2.2 Plan (pre-implementation)
+- Preflight: run `.venv/bin/python tests/configure_pytest_environment.py` to confirm the environment before changes.
+- Implementation steps:
+  1) Plumb `markerLabelPosition` from `GroupTransform` into the vector rendering path (e.g., `_VectorPaintCommand` → `render_vector`), keeping the default `below`.
+  2) Update `overlay_client/vector_renderer.py` and the Qt adapter to position text using the **top of the text box**: `below` uses Y+7, `above` uses Y-7 to the **bottom** of the box, `centered` uses Y=0 to the **middle**. This requires measuring the text block height via font metrics (line spacing × line count) to compute the top Y.
+  3) Keep X offset logic intact (x+8) and ensure the computed top Y is rounded consistently to avoid jitter.
+  4) Add/adjust unit tests to verify `below`/`above`/`centered` placement math without relying on Qt font metrics (fake adapter height), and update any Qt adapter tests as needed.
+- Risks + mitigations/tests:
+  - Behavioral regression: default `below` shifts existing inline label placement. Mitigation: document the default change, rely on per-plugin overrides, and add targeted tests for the three positions.
+  - Cross-platform font metric differences could cause flaky pixel tests. Mitigation: keep unit tests off Qt by faking text heights; avoid hardcoded font metrics in assertions.
+  - CI flakiness: low. Mitigation: run focused tests and keep the changes isolated to vector rendering.
+  - Installer failures/dependency drift/user upgrade prompts: none (no new deps).
+- Tests to run after Stage 2.2:
+  - `.venv/bin/python tests/configure_pytest_environment.py -k vector_renderer`
+  - `.venv/bin/python tests/configure_pytest_environment.py -k paint_commands`
+  - `.venv/bin/python tests/configure_pytest_environment.py -k vector`
+
+#### Stage 2.2 Results
+- Outcome: `markerLabelPosition` now drives vector label placement (`below`/`above`/`centered`) using text box height from font metrics; default `below` maps to Y+7 top-of-text placement.
+- Tests: `.venv/bin/python tests/configure_pytest_environment.py -k vector_renderer`; `.venv/bin/python tests/configure_pytest_environment.py -k paint_commands`; `.venv/bin/python tests/configure_pytest_environment.py -k vector`.
+- Issues/Follow-ups: none.
+
+#### Stage 2.3 Results
+- Outcome: visual checks on bioscan radar and navroute overlays passed with default `below` placement; `above`/`centered` positions respond as expected.
+- Tests: none (visual verification).
+- Issues/Follow-ups: none.
+
+#### Stage 2.4 Results
+- Outcome: documented `markerLabelPosition` and confirmed no side effects observed during Phase 2 visual checks.
+- Tests: none (documentation-only).
+- Issues/Follow-ups: none.
 
 ### Phase 3: Align rectangle border fallback with legacy
 - Goal: match legacy’s behavior when an invalid/empty border color is supplied (e.g., trailing comma `dd5500,` in `igm_config.v9.ini`).

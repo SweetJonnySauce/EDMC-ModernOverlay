@@ -9,6 +9,33 @@ class VectorPainterAdapter:
     def draw_circle_marker(self, x: int, y: int, radius: int, color: str) -> None: ...
     def draw_cross_marker(self, x: int, y: int, size: int, color: str) -> None: ...
     def draw_text(self, x: int, y: int, text: str, color: str) -> None: ...
+    def measure_text_block(self, text: str) -> tuple[int, int]: ...
+
+
+_MARKER_LABEL_POSITIONS = {"below", "above", "centered"}
+
+
+def _normalise_marker_label_position(value: Optional[str]) -> str:
+    if not isinstance(value, str):
+        return "below"
+    token = value.strip().lower()
+    if token in _MARKER_LABEL_POSITIONS:
+        return token
+    return "below"
+
+
+def _measure_text_height(adapter: VectorPainterAdapter, text: str) -> float:
+    try:
+        _, height = adapter.measure_text_block(text)
+    except Exception:
+        return 0.0
+    try:
+        height_value = float(height)
+    except (TypeError, ValueError):
+        return 0.0
+    if height_value < 0.0:
+        return 0.0
+    return height_value
 
 
 def render_vector(
@@ -19,9 +46,11 @@ def render_vector(
     *,
     offset_x: float = 0.0,
     offset_y: float = 0.0,
+    marker_label_position: Optional[str] = None,
     trace: Optional[Callable[[str, Mapping[str, Any]], None]] = None,
 ) -> None:
     base_color = str(payload.get("base_color") or "white")
+    label_position = _normalise_marker_label_position(marker_label_position)
     points: List[Mapping[str, Any]] = list(payload.get("points") or [])
     if len(points) < 2:
         return
@@ -61,4 +90,14 @@ def render_vector(
 
         text = point.get("text")
         if text:
-            adapter.draw_text(x + 8, y - 8, str(text), color)
+            text_value = str(text)
+            draw_y: float
+            if label_position == "below":
+                draw_y = y + 7
+            else:
+                text_height = _measure_text_height(adapter, text_value)
+                if label_position == "above":
+                    draw_y = y - 7 - text_height
+                else:
+                    draw_y = y - (text_height / 2.0)
+            adapter.draw_text(x + 8, int(round(draw_y)), text_value, color)
