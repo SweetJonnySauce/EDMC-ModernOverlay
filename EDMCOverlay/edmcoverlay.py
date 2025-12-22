@@ -270,10 +270,15 @@ class Overlay:
         color: str,
         x: int,
         y: int,
-        *,
         ttl: int = 4,
         size: str = "normal",
     ) -> None:
+        try:
+            ttl = int(ttl)
+        except (TypeError, ValueError):
+            ttl = 4
+        if not isinstance(size, str):
+            size = "normal"
         payload = {
             "type": "message",
             "id": msgid,
