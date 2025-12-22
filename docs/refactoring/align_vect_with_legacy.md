@@ -57,7 +57,7 @@
 | --- | --- | --- |
 | 1 | Align vect rendering semantics with legacy (default behavior change) | Completed |
 | 2 | Align label placement with legacy | Completed |
-| 3 | Align rectangle border fallback with legacy | In progress |
+| 3 | Align rectangle border fallback with legacy | Completed |
 | 4 | Honor newline (`\n`) in text like legacy | Not started |
 
 ## Phase Details
@@ -269,8 +269,8 @@
 | --- | --- | --- |
 | 3.1 | Change border color handling to skip pen when color is invalid/None | Completed |
 | 3.2 | Add regression tests for invalid vs valid border colors | Completed |
-| 3.3 | Visual check: navroute panel and bioscan radar panel outlines | Not started |
-| 3.4 | Document behavior change and any affected overlays | Not started |
+| 3.3 | Visual check: navroute panel and bioscan radar panel outlines | Completed |
+| 3.4 | Document behavior change and any affected overlays | Completed |
 
 #### Stage 3.1 Plan (pre-implementation)
 - Preflight: run `.venv/bin/python tests/configure_pytest_environment.py` (create `.venv` if needed) before code changes.
@@ -310,6 +310,28 @@
 #### Stage 3.2 Results
 - Outcome: added regression coverage for invalid border colors (empty/none/malformed) and valid border colors, asserting `Qt.NoPen` vs solid pen with `legacy_rect` width while preserving fill.
 - Tests: `.venv/bin/python tests/configure_pytest_environment.py -k rect`; `.venv/bin/python tests/configure_pytest_environment.py -k paint_commands`.
+- Issues/Follow-ups: none.
+
+#### Stage 3.3 Results
+- Outcome: visual checks on navroute and bioscan radar panels passed; no unintended outlines observed when invalid border colors are supplied.
+- Tests: none (visual verification).
+- Issues/Follow-ups: none.
+
+#### Stage 3.4 Plan (pre-implementation)
+- Preflight: none (documentation-only stage).
+- Implementation steps:
+  1) Document the behavior change: invalid/empty border colors now suppress the border instead of falling back to white (legacy parity).
+  2) Note potential affected overlays/configs that previously relied on the fallback (e.g., malformed color strings like trailing commas).
+  3) Record the visual check outcome from Stage 3.3.
+- Risks + mitigations/tests:
+  - Documentation drift or missed consumers: mitigated by capturing the legacy parity note and pointing to potential invalid-color configs.
+  - Confusion about expected border behavior: mitigated by explicitly stating the invalid color handling and recommended fix (use a valid color or `none`).
+- Tests to run after Stage 3.4:
+  - None (documentation-only stage).
+
+#### Stage 3.4 Results
+- Outcome: documented invalid-border handling change, noted legacy parity and potential invalid-color configs, and captured Stage 3.3 visual verification.
+- Tests: none (documentation-only).
 - Issues/Follow-ups: none.
 
 ### Phase 4: Honor newline (`\n`) in text like legacy
