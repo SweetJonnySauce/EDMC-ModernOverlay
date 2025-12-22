@@ -186,6 +186,13 @@
         ],
         "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left"
+      },
+      "EDR Help": {
+        "idPrefixes": [
+          "edr-help-"
+        ],
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left"
       }
     }
   },

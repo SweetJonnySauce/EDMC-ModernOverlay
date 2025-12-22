@@ -40,6 +40,7 @@ declare -a PKG_INSTALL_CMD=()
 declare -a PROFILE_PACKAGES_CORE=()
 declare -a PROFILE_PACKAGES_QT=()
 declare -a PROFILE_PACKAGES_WAYLAND=()
+declare -a PROFILE_PACKAGES_FLATPAK=()
 PKG_UPDATE_COMPLETED=0
 PACKAGE_MANAGER_KIND=""
 PACKAGE_STATUS_CHECK_SUPPORTED=0
@@ -213,6 +214,7 @@ def emit_profile(profile):
     emit_array("PROFILE_PACKAGES_CORE", packages.get("core") or [])
     emit_array("PROFILE_PACKAGES_QT", packages.get("qt") or [])
     emit_array("PROFILE_PACKAGES_WAYLAND", packages.get("wayland") or [])
+    emit_array("PROFILE_PACKAGES_FLATPAK", packages.get("flatpak") or [])
 
 
 def emit_compositor(entry):
@@ -326,6 +328,7 @@ select_custom_profile() {
     PROFILE_PACKAGES_CORE=()
     PROFILE_PACKAGES_QT=()
     PROFILE_PACKAGES_WAYLAND=()
+    PROFILE_PACKAGES_FLATPAK=()
 }
 
 select_profile_by_id() {
@@ -1705,6 +1708,10 @@ ensure_system_packages() {
     elif [[ "$session_stack" == "wayland" ]]; then
         fallback_notice+=" wmctrl x11-utils"
     fi
+    if [[ "${PLUGIN_DIR_KIND:-}" == "flatpak" && ${#PROFILE_PACKAGES_FLATPAK[@]} > 0 ]]; then
+        packages+=("${PROFILE_PACKAGES_FLATPAK[@]}")
+        fallback_notice+=" flatpak-spawn"
+    fi
     if ((${#packages[@]} == 0)); then
         echo "⚠️  Automatic dependency installation is disabled for profile '$PROFILE_LABEL'."
         echo "    Ensure these packages (or their equivalents) are installed manually: ${fallback_notice}"
@@ -1719,6 +1726,9 @@ ensure_system_packages() {
         echo "ℹ️  X11 session detected; skipping Wayland helper packages."
     elif [[ "$session_stack" == "unknown" && ${#PROFILE_PACKAGES_WAYLAND[@]} > 0 ]]; then
         echo "ℹ️  Session type could not be determined automatically; Wayland helper packages will be skipped."
+    fi
+    if [[ "${PLUGIN_DIR_KIND:-}" == "flatpak" && ${#PROFILE_PACKAGES_FLATPAK[@]} > 0 ]]; then
+        echo "ℹ️  Flatpak EDMC install detected; including Flatpak helper packages."
     fi
 
     echo "📦 Modern Overlay requires the following packages on '$PROFILE_LABEL':"

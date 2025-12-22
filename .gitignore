@@ -11,6 +11,7 @@ overlay_group_cache.json.tmp
 overlay_groupings.user.json
 #*.code-workspace
 overlay_client/env_overrides.json
+overlay_client/fonts/EUROCAPS.TTF
 _external/
 _external/**    
 .hostvenv/
