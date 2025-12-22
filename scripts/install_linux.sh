@@ -580,6 +580,105 @@ classify_packages_for_pacman() {
     done
 }
 
+classify_packages_for_dnf() {
+    local pkg installed_evr candidate_evr rc
+    local package_list
+    package_list="$(format_list_or_none "$@")"
+    log_verbose "Running dnf package classification for: ${package_list}"
+
+    local rpm_available=0
+    local repoquery_available=0
+    local vercmp_available=0
+
+    if command -v rpm >/dev/null 2>&1; then
+        rpm_available=1
+    fi
+    if command -v dnf >/dev/null 2>&1 && dnf repoquery --help >/dev/null 2>&1; then
+        repoquery_available=1
+    else
+        log_verbose "dnf repoquery not available; candidate version checks will be skipped."
+    fi
+    if command -v rpmdev-vercmp >/dev/null 2>&1; then
+        vercmp_available=1
+    else
+        log_verbose "rpmdev-vercmp not available; upgrade comparisons will be skipped."
+    fi
+
+    for pkg in "$@"; do
+        installed_evr=""
+        if (( rpm_available )); then
+            if ! installed_evr="$(rpm -q --qf '%{EVR}' "$pkg" 2>/dev/null)"; then
+                rc=$?
+                PACKAGES_TO_INSTALL+=("$pkg")
+                PACKAGE_STATUS_DETAILS["$pkg"]="not installed (rpm -q exit ${rc})"
+                log_verbose "Package '$pkg' not installed (rpm -q exit ${rc}); scheduling install."
+                continue
+            fi
+        else
+            if ! dnf list installed "$pkg" >/dev/null 2>&1; then
+                rc=$?
+                PACKAGES_TO_INSTALL+=("$pkg")
+                PACKAGE_STATUS_DETAILS["$pkg"]="not installed (dnf list installed exit ${rc})"
+                log_verbose "Package '$pkg' not installed (dnf list installed exit ${rc}); scheduling install."
+                continue
+            fi
+        fi
+
+        candidate_evr=""
+        if (( repoquery_available )); then
+            if candidate_evr="$(dnf repoquery --latest-limit 1 --qf '%{EVR}' "$pkg" 2>/dev/null)"; then
+                candidate_evr="$(printf '%s\n' "$candidate_evr" | head -n1)"
+            else
+                rc=$?
+                log_verbose "dnf repoquery failed for '$pkg' (exit ${rc}); skipping candidate version."
+                candidate_evr=""
+            fi
+        fi
+
+        if [[ -n "$candidate_evr" && -n "$installed_evr" && $vercmp_available -eq 1 ]]; then
+            rpmdev-vercmp "$installed_evr" "$candidate_evr" >/dev/null 2>&1
+            rc=$?
+            case "$rc" in
+                0)
+                    PACKAGES_ALREADY_OK+=("$pkg")
+                    PACKAGE_STATUS_DETAILS["$pkg"]="installed ${installed_evr}"
+                    log_verbose "Package '$pkg' already satisfied (version ${installed_evr})."
+                    ;;
+                11)
+                    PACKAGES_ALREADY_OK+=("$pkg")
+                    PACKAGE_STATUS_DETAILS["$pkg"]="installed ${installed_evr} (newer than repo ${candidate_evr})"
+                    log_verbose "Package '$pkg' newer than repo candidate (${installed_evr} > ${candidate_evr})."
+                    ;;
+                12)
+                    PACKAGES_TO_UPGRADE+=("$pkg")
+                    PACKAGE_STATUS_DETAILS["$pkg"]="installed ${installed_evr} → candidate ${candidate_evr}"
+                    log_verbose "Package '$pkg' upgrade required (${installed_evr} → ${candidate_evr})."
+                    ;;
+                *)
+                    PACKAGES_ALREADY_OK+=("$pkg")
+                    PACKAGE_STATUS_DETAILS["$pkg"]="installed ${installed_evr} (version compare failed)"
+                    log_verbose "Package '$pkg' version compare failed (rpmdev-vercmp exit ${rc})."
+                    ;;
+            esac
+        else
+            local detail
+            if [[ -n "$installed_evr" ]]; then
+                detail="installed ${installed_evr}"
+            else
+                detail="installed (version unknown)"
+            fi
+            if [[ -z "$candidate_evr" ]]; then
+                detail+="; candidate check skipped"
+            elif (( ! vercmp_available )); then
+                detail+="; version compare skipped"
+            fi
+            PACKAGES_ALREADY_OK+=("$pkg")
+            PACKAGE_STATUS_DETAILS["$pkg"]="$detail"
+            log_verbose "Package '$pkg' installed; upgrade check skipped."
+        fi
+    done
+}
+
 classify_package_statuses() {
     reset_package_status_tracking
     local manager_kind
@@ -600,6 +699,10 @@ classify_package_statuses() {
         apt)
             PACKAGE_STATUS_CHECK_SUPPORTED=1
             classify_packages_for_apt "$@"
+            ;;
+        dnf)
+            PACKAGE_STATUS_CHECK_SUPPORTED=1
+            classify_packages_for_dnf "$@"
             ;;
         pacman)
             PACKAGE_STATUS_CHECK_SUPPORTED=1

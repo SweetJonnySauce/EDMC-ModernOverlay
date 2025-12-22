@@ -63,6 +63,7 @@
 | 1.2 | Extend `matrix_helper` parsing in `scripts/install_linux.sh` to emit `PROFILE_PACKAGES_FLATPAK`. | Completed |
 | 1.3 | Append Flatpak package group in `ensure_system_packages` when `PLUGIN_DIR_KIND=flatpak`; update fallback notice to mention `flatpak-spawn` for Flatpak installs. | Completed |
 | 1.4 | Validate via `install_linux.sh --dry-run --profile fedora` with Flatpak plugin dir selection; confirm `flatpak-spawn` appears only for Flatpak installs. | Blocked |
+| 1.5 | Add Fedora (dnf/rpm) package status checks comparable to Debian apt checks. | Completed |
 
 #### Stage 1.1 Plan
 - Update `scripts/install_matrix.json` to add a new `packages.flatpak` array alongside `core`, `qt`, and `wayland` for each distro profile.
@@ -96,3 +97,29 @@
 
 #### Stage 1.4 Results
 - Blocked: running `scripts/install_linux.sh --dry-run --yes --profile fedora <path>` from the repo fails with `Could not find EDMCModernOverlay directory alongside install script.` The script expects a release bundle layout (EDMCModernOverlay directory adjacent to `scripts/`), which is not present in this repo checkout.
+
+#### Stage 1.5 Plan
+- Extend `detect_package_manager_kind` handling in `scripts/install_linux.sh` to treat `dnf` as a supported manager kind for status checks.
+- Implement `classify_packages_for_dnf` that:
+  - Uses `rpm -q <pkg>` (or `dnf list installed <pkg>`) to detect installed packages.
+  - Uses `dnf repoquery --latest-limit 1 --qf '%{evr}' <pkg>` to retrieve candidate versions (if available).
+  - Compares installed vs. candidate versions using `rpmdev-vercmp` when present; otherwise, treat as “installed” without upgrade checks.
+- Wire `classify_packages_for_dnf` into `classify_package_statuses` and set `PACKAGE_STATUS_CHECK_SUPPORTED=1` for dnf.
+- Add fallback behavior and messages when `dnf repoquery` or version-compare tooling is missing (avoid hard failure; mark upgrade check unavailable).
+- Document any new tool dependencies (e.g., `dnf-plugins-core` for `repoquery`, `rpmdevtools` for `rpmdev-vercmp`) and decide whether to prompt-install them or skip upgrade checks when absent.
+
+#### Stage 1.5 Plan (Detailed)
+- Define the exact command flow for dnf:
+  - Use `rpm -q --qf '%{EVR}' <pkg>` to capture installed EVR and detect not-installed exit codes.
+  - Use `dnf repoquery --latest-limit 1 --qf '%{EVR}' <pkg>` to capture candidate EVR when available.
+  - Use `rpmdev-vercmp <installed> <candidate>` for comparisons when installed; interpret `0` (equal), `11` (first newer), `12` (second newer).
+- Decide fallback behavior when tools are missing:
+  - If `dnf repoquery` is unavailable, mark status as "installed" (if present) without upgrade checks and log that candidate lookup was skipped.
+  - If `rpmdev-vercmp` is unavailable, skip upgrade checks and mark as "installed" when both versions are known.
+- Add log detail strings to `PACKAGE_STATUS_DETAILS` for each package that explain which checks were used and which were skipped.
+- Update the Stage 1.5 results section after implementation to note any tool dependency assumptions and any deviations from apt behavior.
+
+#### Stage 1.5 Results
+- Implemented `classify_packages_for_dnf` and wired it into `classify_package_statuses` with `PACKAGE_STATUS_CHECK_SUPPORTED=1` for dnf.
+- Uses `rpm -q --qf '%{EVR}'` for install detection, `dnf repoquery` for candidate EVR when available, and `rpmdev-vercmp` for upgrade comparison when present.
+- Falls back to "candidate check skipped" or "version compare skipped" status details when tools are missing, without failing installation.

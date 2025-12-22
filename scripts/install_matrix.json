@@ -188,8 +188,7 @@
         "wayland": [
           "xorg-xprop",
           "xorg-xwininfo"
-        ],
-        "flatpak": []
+        ]
       }
     }
   ],
