@@ -46,6 +46,7 @@ class _MessagePaintCommand(_LegacyPaintCommand):
     text_width: int = 0
     ascent: int = 0
     descent: int = 0
+    line_spacing: int = 0
     cycle_anchor: Optional[Tuple[int, int]] = None
     trace_fn: Optional[Callable[[str, Mapping[str, Any]], None]] = None
 
@@ -58,7 +59,13 @@ class _MessagePaintCommand(_LegacyPaintCommand):
         painter.setPen(self.color)
         draw_x = int(round(self.x + offset_x))
         draw_baseline = int(round(self.baseline + offset_y))
-        painter.drawText(draw_x, draw_baseline, self.text)
+        normalised = str(self.text).replace("\r\n", "\n").replace("\r", "\n")
+        lines = normalised.split("\n") or [""]
+        line_spacing = self.line_spacing or (self.ascent + self.descent)
+        if line_spacing <= 0:
+            line_spacing = 0
+        for idx, line in enumerate(lines):
+            painter.drawText(draw_x, draw_baseline + (line_spacing * idx), line)
         if self.trace_fn:
             self.trace_fn(
                 "render_message:draw",
@@ -196,5 +203,11 @@ class _QtVectorPainterAdapter(VectorPainterAdapter):
         font = self._text_font()
         self._painter.setFont(font)
         metrics = QFontMetrics(font)
+        normalised = str(text).replace("\r\n", "\n").replace("\r", "\n")
+        lines = normalised.split("\n") or [""]
         baseline = int(round(y + metrics.ascent()))
-        self._painter.drawText(x, baseline, text)
+        line_spacing = max(metrics.lineSpacing(), metrics.height(), 0)
+        if line_spacing <= 0:
+            line_spacing = metrics.ascent() + metrics.descent()
+        for idx, line in enumerate(lines):
+            self._painter.drawText(x, baseline + (line_spacing * idx), line)

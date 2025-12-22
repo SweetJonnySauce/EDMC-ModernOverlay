@@ -89,7 +89,7 @@ class _StubGroupContext:
         self.base_translation_dy = 0.0
 
 
-class _StubMapper:
+class _RectStubMapper:
     pass
 
 
@@ -188,7 +188,7 @@ def _build_rect_command(surface: _RectSurface, border_spec: str, *, fill_spec: s
         data={"color": border_spec, "fill": fill_spec, "x": 1.0, "y": 2.0, "w": 3.0, "h": 4.0},
         plugin="plugin",
     )
-    return surface._build_rect_command(legacy_item, _StubMapper(), GroupKey("plugin"), None, None)
+    return surface._build_rect_command(legacy_item, _RectStubMapper(), GroupKey("plugin"), None, None)
 
 
 @pytest.mark.parametrize("border_spec", ["", "none", "dd5500,"])

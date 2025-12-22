@@ -58,7 +58,7 @@
 | 1 | Align vect rendering semantics with legacy (default behavior change) | Completed |
 | 2 | Align label placement with legacy | Completed |
 | 3 | Align rectangle border fallback with legacy | Completed |
-| 4 | Honor newline (`\n`) in text like legacy | Not started |
+| 4 | Honor newline (`\n`) in text like legacy | In progress |
 
 ## Phase Details
 
@@ -343,10 +343,51 @@
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 4.1 | Implement line splitting/lineSpacing rendering in Qt text painters | Not started |
-| 4.2 | Add regression tests for multiline text in vectors/messages | Not started |
+| 4.1 | Implement line splitting/lineSpacing rendering in Qt text painters | Completed |
+| 4.2 | Add regression tests for multiline text in vectors/messages | Completed |
 | 4.3 | Visual check on navroute and bioscan overlays for multiline labels | Not started |
 | 4.4 | Document behavior change and confirm parity with legacy newline handling | Not started |
+
+#### Stage 4.1 Plan (pre-implementation)
+- Preflight: run `.venv/bin/python tests/configure_pytest_environment.py` (create `.venv` if needed) before code changes.
+- Implementation steps:
+  1) Update `_QtVectorPainterAdapter.draw_text` in `overlay_client/paint_commands.py` to split incoming text on `\r\n`/`\n` and draw each line using `lineSpacing()` offsets, keeping the first line anchored at the existing baseline.
+  2) Update the message painter path (e.g., `_MessagePaintCommand.paint` in `overlay_client/paint_commands.py`) to apply the same line-splitting logic so multi-line messages render with consistent spacing.
+  3) Verify message/vector text measurement helpers still reflect multi-line height (e.g., `measure_text_block` vs single-line measurements) and adjust if needed so bounds/cycle anchors remain correct.
+  4) Keep X-offset behavior and font selection unchanged; avoid adding behavior flags.
+- Risks + mitigations/tests:
+  - Baseline shifts for multi-line text could alter anchor placement: mitigated by keeping the first line anchored and adding Stage 4.2 tests.
+  - Cross-platform font metric differences could cause subtle spacing changes: mitigated by using `lineSpacing()` consistently and focusing tests on logical layout, not pixels.
+  - Message bounds/anchor mismatches if measurement stays single-line: mitigated by reviewing measurement helpers and adding explicit multi-line coverage in Stage 4.2.
+- Tests to run after Stage 4.1:
+  - `.venv/bin/python tests/configure_pytest_environment.py -k vector_renderer`
+  - `.venv/bin/python tests/configure_pytest_environment.py -k paint_commands`
+
+#### Stage 4.1 Results
+- Outcome: Qt text painters now split on newlines and draw multi-line text using line spacing, with the first line anchored to the existing baseline for both vector labels and message text.
+- Tests: `.venv/bin/python tests/configure_pytest_environment.py -k vector_renderer`; `.venv/bin/python tests/configure_pytest_environment.py -k paint_commands`.
+- Issues/Follow-ups: none.
+
+#### Stage 4.2 Plan (pre-implementation)
+- Preflight: run `.venv/bin/python tests/configure_pytest_environment.py` (create `.venv` if needed) before code changes.
+- Implementation steps:
+  1) Add vector label tests in `tests/test_vector_renderer.py` to assert multi-line text is split and drawn with per-line offsets (use a fake adapter to capture draw_text calls).
+  2) Add message paint command tests in `overlay_client/tests/test_paint_commands.py` to verify `\n` and `\r\n` inputs result in multiple drawText calls with line spacing offsets.
+  3) Add message bounds/measurement coverage (likely `overlay_client/tests/test_render_surface_mixin.py` or a new focused test) to ensure `_measure_text` returns multi-line width/height consistent with line spacing.
+  4) Keep assertions logical (call counts, ordered offsets) rather than pixel-perfect font metrics to avoid cross-platform flakiness.
+- Risks + mitigations/tests:
+  - Qt metrics differences causing flaky tests: mitigate by using fake adapters/recording painters and explicit line spacing values where possible.
+  - Missing a newline normalization path (`\r\n` vs `\n`): mitigate by covering both line ending types.
+  - Tests overreach into internal behavior: mitigate by asserting only on stable public outputs (draw calls/bounds).
+- Tests to run after Stage 4.2:
+  - `.venv/bin/python tests/configure_pytest_environment.py -k vector_renderer`
+  - `.venv/bin/python tests/configure_pytest_environment.py -k paint_commands`
+  - `.venv/bin/python tests/configure_pytest_environment.py -k text_measurer`
+
+#### Stage 4.2 Results
+- Outcome: added multiline regression coverage for vector label placement, Qt adapter line splitting, message painter line splitting, and `_measure_text` multi-line sizing via a fake measurer.
+- Tests: `.venv/bin/python tests/configure_pytest_environment.py -k vector_renderer`; `.venv/bin/python tests/configure_pytest_environment.py -k paint_commands`; `.venv/bin/python tests/configure_pytest_environment.py -k text_measurer`.
+- Issues/Follow-ups: none.
 
 ### Notes: Legacy vs Modern vect behavior
 - **EDMCOverlay (legacy, inorton)**: draws line segments using the graphic’s top-level `Color` only; per-point colors apply to markers/text; requires caller to supply at least 2 points. Rendering in `EDMCOverlay/EDMCOverlay/OverlayRenderer.cs:404-448`.

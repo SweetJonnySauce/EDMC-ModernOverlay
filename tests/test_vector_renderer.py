@@ -129,3 +129,29 @@ def test_render_vector_text_position_defaults_to_below():
     render_vector(adapter, data, scale_x=1.0, scale_y=1.0, marker_label_position="invalid")
     text = next(val for op, val in adapter.operations if op == "text")
     assert text[1] == 27
+
+
+def test_render_vector_multiline_text_uses_block_height_for_position():
+    class MultiLineAdapter(FakeAdapter):
+        def __init__(self, *, line_spacing: int = 12) -> None:
+            super().__init__(text_height=line_spacing)
+            self._line_spacing = line_spacing
+
+        def measure_text_block(self, text: str) -> tuple[int, int]:
+            normalised = str(text).replace("\r\n", "\n").replace("\r", "\n")
+            lines = normalised.split("\n") or [""]
+            width = max(len(line) for line in lines) * 6
+            return width, self._line_spacing * len(lines)
+
+    data = {
+        "base_color": "#ffffff",
+        "points": [
+            {"x": 0, "y": 50, "text": "Line1\nLine2"},
+            {"x": 10, "y": 50},
+        ],
+    }
+    adapter = MultiLineAdapter(line_spacing=12)
+    render_vector(adapter, data, scale_x=1.0, scale_y=1.0, marker_label_position="above")
+    text = next(val for op, val in adapter.operations if op == "text")
+    assert text[1] == 19
+    assert text[2] == "Line1\nLine2"

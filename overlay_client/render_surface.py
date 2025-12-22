@@ -1038,6 +1038,10 @@ class RenderSurfaceMixin:
             stats["calls"] = stats.get("calls", 0) + 1
         cache = getattr(self, "_text_cache", None)
         family = font_family or self._font_family
+        normalised = str(text)
+        has_newline = "\n" in normalised or "\r" in normalised
+        if has_newline:
+            normalised = normalised.replace("\r\n", "\n").replace("\r", "\n")
         try:
             ensure_context = getattr(self, "_ensure_text_cache_context", None)
             if callable(ensure_context):
@@ -1051,6 +1055,28 @@ class RenderSurfaceMixin:
                 stats["cache_hit"] = stats.get("cache_hit", 0) + 1 if isinstance(stats, dict) else 0
                 return cached
         if self._text_measurer is not None:
+            if has_newline:
+                lines = normalised.split("\n") or [""]
+                max_width = 0
+                line_height = 0
+                ascent = 0
+                for idx, line in enumerate(lines):
+                    measured = self._text_measurer(line, point_size, font_family or self._font_family)
+                    if idx == 0:
+                        ascent = max(0, int(measured.ascent))
+                    line_width = max(0, int(measured.width))
+                    if line_width > max_width:
+                        max_width = line_width
+                    line_height = max(line_height, int(measured.ascent + measured.descent))
+                total_height = line_height * max(1, len(lines))
+                descent = max(0, total_height - ascent)
+                measured_tuple = (max_width, ascent, descent)
+                if cache is not None:
+                    stats["cache_miss"] = stats.get("cache_miss", 0) + 1 if isinstance(stats, dict) else 0
+                    cache[key] = measured_tuple
+                    if len(cache) > self._TEXT_CACHE_MAX:
+                        cache.pop(next(iter(cache)))
+                return measured_tuple
             measured = self._text_measurer(text, point_size, font_family or self._font_family)
             return measured.width, measured.ascent, measured.descent
         metrics_font = QFont(family)
@@ -1058,7 +1084,25 @@ class RenderSurfaceMixin:
         metrics_font.setPointSizeF(point_size)
         metrics_font.setWeight(QFont.Weight.Normal)
         metrics = QFontMetrics(metrics_font)
-        measured = (metrics.horizontalAdvance(text), metrics.ascent(), metrics.descent())
+        if has_newline:
+            lines = normalised.split("\n") or [""]
+            max_width = 0
+            for line in lines:
+                try:
+                    advance = metrics.horizontalAdvance(line)
+                except Exception:
+                    advance = 0
+                if advance > max_width:
+                    max_width = advance
+            line_spacing = max(metrics.lineSpacing(), metrics.height(), 0)
+            if line_spacing <= 0:
+                line_spacing = metrics.ascent() + metrics.descent()
+            total_height = line_spacing * max(1, len(lines))
+            ascent = metrics.ascent()
+            descent = max(0, int(total_height - ascent))
+            measured = (max(0, max_width), ascent, descent)
+        else:
+            measured = (metrics.horizontalAdvance(text), metrics.ascent(), metrics.descent())
         if cache is not None:
             stats["cache_miss"] = stats.get("cache_miss", 0) + 1 if isinstance(stats, dict) else 0
             cache[key] = measured
@@ -1142,6 +1186,14 @@ class RenderSurfaceMixin:
         )
         text = str(item.get("text", ""))
         text_width, ascent, descent = self._measure_text(text, scaled_point_size, self._font_family)
+        metrics_font = QFont(self._font_family)
+        self._apply_font_fallbacks(metrics_font)
+        metrics_font.setPointSizeF(scaled_point_size)
+        metrics_font.setWeight(QFont.Weight.Normal)
+        metrics = QFontMetrics(metrics_font)
+        line_spacing = max(metrics.lineSpacing(), metrics.height(), 0)
+        if line_spacing <= 0:
+            line_spacing = ascent + descent
         x = int(round(fill.screen_x(adjusted_left)))
         payload_point_y = int(round(fill.screen_y(adjusted_top)))
         baseline = int(round(payload_point_y + ascent))
@@ -1209,6 +1261,7 @@ class RenderSurfaceMixin:
             text_width=text_width,
             ascent=ascent,
             descent=descent,
+            line_spacing=line_spacing,
             cycle_anchor=(center_x, center_y),
             trace_fn=trace_fn,
             base_overlay_bounds=base_overlay_bounds,
