@@ -775,7 +775,9 @@ class PreferencesPanel:
 
         self._legacy_client = None
         self._status_gutter_spin = None
+        self._payload_gutter_spin = None
         self._title_bar_height_spin = None
+        self._gridline_spacing_spin = None
         self._cycle_prev_btn = None
         self._cycle_next_btn = None
         self._cycle_copy_checkbox = None
@@ -866,6 +868,7 @@ class PreferencesPanel:
         status_gutter_spin.bind("<FocusOut>", self._on_status_gutter_event)
         status_gutter_spin.bind("<Return>", self._on_status_gutter_event)
         self._status_gutter_spin = status_gutter_spin
+        self._update_status_gutter_spin_state()
 
         status_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
         user_row += 1
@@ -981,6 +984,8 @@ class PreferencesPanel:
         gutter_spin.pack(side="left")
         gutter_spin.bind("<FocusOut>", self._on_payload_gutter_event)
         gutter_spin.bind("<Return>", self._on_payload_gutter_event)
+        self._payload_gutter_spin = gutter_spin
+        self._update_payload_gutter_spin_state()
         nudge_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
         user_row += 1
 
@@ -1231,6 +1236,8 @@ class PreferencesPanel:
             grid_spacing_spin.pack(side="left")
             grid_spacing_spin.bind("<FocusOut>", self._on_gridline_spacing_event)
             grid_spacing_spin.bind("<Return>", self._on_gridline_spacing_event)
+            self._gridline_spacing_spin = grid_spacing_spin
+            self._update_gridline_spacing_spin_state()
             grid_row.grid(row=dev_row, column=0, sticky="w", pady=ROW_PAD)
             dev_row += 1
 
@@ -1349,6 +1356,7 @@ class PreferencesPanel:
     def _on_show_status_toggle(self) -> None:
         value = bool(self._var_show_status.get())
         self._preferences.show_connection_status = value
+        self._update_status_gutter_spin_state()
         if self._set_status:
             try:
                 self._set_status(value)
@@ -1494,6 +1502,30 @@ class PreferencesPanel:
         self._status_var.set(
             "Overlay stdout/stderr capture {}".format("enabled" if desired else "disabled")
         )
+
+    def _update_status_gutter_spin_state(self) -> None:
+        if self._status_gutter_spin is None:
+            return
+        if bool(self._var_show_status.get()):
+            self._status_gutter_spin.state(["!disabled"])
+        else:
+            self._status_gutter_spin.state(["disabled"])
+
+    def _update_payload_gutter_spin_state(self) -> None:
+        if self._payload_gutter_spin is None:
+            return
+        if bool(self._var_payload_nudge.get()):
+            self._payload_gutter_spin.state(["!disabled"])
+        else:
+            self._payload_gutter_spin.state(["disabled"])
+
+    def _update_gridline_spacing_spin_state(self) -> None:
+        if self._gridline_spacing_spin is None:
+            return
+        if bool(self._var_gridlines_enabled.get()):
+            self._gridline_spacing_spin.state(["!disabled"])
+        else:
+            self._gridline_spacing_spin.state(["disabled"])
 
     def _update_log_retention_spin_state(self) -> None:
         if self._log_retention_spin is None:
@@ -1751,6 +1783,7 @@ class PreferencesPanel:
     def _on_gridlines_toggle(self) -> None:
         enabled = bool(self._var_gridlines_enabled.get())
         self._preferences.gridlines_enabled = enabled
+        self._update_gridline_spacing_spin_state()
         if self._set_gridlines_enabled:
             try:
                 self._set_gridlines_enabled(enabled)
@@ -1784,6 +1817,7 @@ class PreferencesPanel:
     def _on_payload_nudge_toggle(self) -> None:
         enabled = bool(self._var_payload_nudge.get())
         self._preferences.nudge_overflow_payloads = enabled
+        self._update_payload_gutter_spin_state()
         if self._set_payload_nudge:
             try:
                 self._set_payload_nudge(enabled)
@@ -1791,6 +1825,7 @@ class PreferencesPanel:
                 self._status_var.set(f"Failed to update payload nudging: {exc}")
                 self._var_payload_nudge.set(not enabled)
                 self._preferences.nudge_overflow_payloads = bool(self._var_payload_nudge.get())
+                self._update_payload_gutter_spin_state()
                 return
         self._preferences.save()
 
