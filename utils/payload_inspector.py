@@ -389,6 +389,10 @@ class PayloadInspectorApp:
         # Right-click suppression menu (Button-2 for mac support)
         self.tree.bind("<Button-3>", self._show_context_menu)
         self.tree.bind("<Button-2>", self._show_context_menu)
+        self.root.bind("<Button-1>", self._dismiss_context_menu, add="+")
+        self.root.bind("<Button-2>", self._dismiss_context_menu, add="+")
+        self.root.bind("<Button-3>", self._dismiss_context_menu, add="+")
+        self.root.bind("<Escape>", self._dismiss_context_menu, add="+")
 
         tips_frame = ttk.Frame(left_frame)
         tips_frame.pack(fill="x", padx=(5, 0), pady=(6, 0))
@@ -574,6 +578,26 @@ class PayloadInspectorApp:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
             menu.grab_release()
+
+    def _dismiss_context_menu(self, event=None) -> None:
+        menu = self._context_menu
+        if menu is None:
+            return
+        if event is not None:
+            widget = getattr(event, "widget", None)
+            if widget is menu:
+                return
+            if widget is self.tree and getattr(event, "num", None) in (2, 3):
+                return
+        try:
+            menu.unpost()
+        except Exception:
+            pass
+        try:
+            menu.destroy()
+        except Exception:
+            pass
+        self._context_menu = None
 
     def _suppress(self, kind: str, value: str) -> None:
         token = value.strip()
