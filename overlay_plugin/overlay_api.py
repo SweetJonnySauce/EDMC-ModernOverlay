@@ -343,7 +343,7 @@ def _normalise_background_color(value: Optional[str]) -> str:
     if not token.startswith("#"):
         token = "#" + token
     if len(token) not in (7, 9):
-        raise PluginGroupingError("backgroundColor must be #RRGGBB or #RRGGBBAA")
+        raise PluginGroupingError("backgroundColor must be #RRGGBB or #AARRGGBB")
     if not all(ch in _HEX_DIGITS for ch in token[1:]):
         raise PluginGroupingError("backgroundColor must use hex digits")
     return token
