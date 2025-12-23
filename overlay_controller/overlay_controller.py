@@ -1360,6 +1360,7 @@ class OverlayConfigApp(tk.Tk):
             except Exception:
                 pass
         self._sync_absolute_for_current_group(force_ui=True)
+        self._sync_offset_pins_for_current_group()
         self._send_active_group_selection(plugin_name, label)
 
     def _handle_justification_changed(self, justification: str) -> None:
@@ -1689,6 +1690,66 @@ class OverlayConfigApp(tk.Tk):
     ) -> None:
         _ = debounce_ms, prefer_user
         self._refresh_current_group_snapshot(force_ui=force_ui)
+
+    def _sync_offset_pins_for_current_group(self) -> None:
+        widget = getattr(self, "offset_widget", None)
+        if widget is None:
+            return
+        selection = self._get_current_group_selection()
+        if selection is None:
+            try:
+                widget.set_pins(set())
+            except Exception:
+                pass
+            return
+        snapshot = self._get_group_snapshot(selection)
+        if snapshot is None:
+            try:
+                widget.set_pins(set())
+            except Exception:
+                pass
+            return
+
+        anchor_name = None
+        anchor_widget = getattr(self, "anchor_widget", None)
+        if anchor_widget is not None:
+            getter = getattr(anchor_widget, "get_anchor", None)
+            if callable(getter):
+                try:
+                    anchor_name = getter()
+                except Exception:
+                    anchor_name = None
+        anchor_token = (anchor_name or snapshot.anchor_token or "nw").strip().lower()
+        horizontal, vertical = self._anchor_sides(anchor_token)
+
+        abs_x = abs_y = None
+        abs_widget = getattr(self, "absolute_widget", None)
+        if abs_widget is not None:
+            try:
+                abs_x, abs_y = abs_widget.get_px_values()
+            except Exception:
+                abs_x = abs_y = None
+        if abs_x is None or abs_y is None:
+            fallback_x, fallback_y = self._compute_absolute_from_snapshot(snapshot)
+            if abs_x is None:
+                abs_x = fallback_x
+            if abs_y is None:
+                abs_y = fallback_y
+
+        tol = getattr(self, "_absolute_tolerance_px", 0.0) or 0.0
+        pins: set[str] = set()
+        if horizontal == "left" and abs(abs_x - ABS_MIN_X) <= tol:
+            pins.add("left")
+        elif horizontal == "right" and abs(abs_x - ABS_MAX_X) <= tol:
+            pins.add("right")
+        if vertical == "top" and abs(abs_y - ABS_MIN_Y) <= tol:
+            pins.add("up")
+        elif vertical == "bottom" and abs(abs_y - ABS_MAX_Y) <= tol:
+            pins.add("down")
+        try:
+            widget.set_pins(pins)
+        except Exception:
+            pass
     def _select_transformed_for_anchor(self, anchor: str, trans_min: float, trans_max: float, axis: str) -> float:
         horizontal, vertical = self._anchor_sides(anchor)
         side = horizontal if (axis or "").lower() == "x" else vertical
