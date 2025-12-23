@@ -98,8 +98,8 @@ def test_background_widget_picker_applies_alpha(background_widget, monkeypatch):
 
     widget._open_color_picker()
 
-    assert captured["color"] == "#112233"
-    assert widget._color_var.get() == "#AABBCC44"
+    assert captured["color"] == "#223344"
+    assert widget._color_var.get() == "#11AABBCC"
 
 
 def test_background_widget_picker_cancel_keeps_value(background_widget, monkeypatch):

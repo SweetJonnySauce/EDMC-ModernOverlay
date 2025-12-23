@@ -7,7 +7,7 @@
 - Persist plugin defaults per group in `overlay_groupings.json` (inside each group definition) so the renderer can resolve that group’s color without user input.
 - CMDRs can override the background color in the overlay controller via a new widget that shows a text box for color code entry plus a button that opens a color picker.
 - Resolved color precedence: user override (from `overlay_groupings.user.json`) → plugin group default (from `overlay_groupings.json` via `define_plugin_group`) → plugin-provided payload color (if any) → transparent. The widget shows the resolved value.
-- Accept color codes in hex `#RRGGBB` or `#RRGGBBAA` (alpha optional, case-insensitive); invalid codes are rejected and the widget should surface validation.
+- Accept color codes in hex `#RRGGBB` or `#AARRGGBB` (alpha optional, case-insensitive); invalid codes are rejected and the widget should surface validation.
 - Store user overrides in `overlay_groupings.user.json`; group-level user values take precedence over plugin defaults when rendering.
 - If no user override is set, fall back to the plugin’s default background color from `overlay_groupings.json`.
 - Clearing the color value (user override empty) means transparent; when no user override, no plugin default, and no plugin-provided payload color are present, treat background as transparent and show no value in the widget/picker.
@@ -90,7 +90,7 @@
 | 1.3 | Add/adjust tests for schema/loader contract coverage (e.g., loader tests consuming the schema) | Completed |
 
 **Stage 1.1 notes**
-- Plan: clarify the background fields, precedence (user → plugin group default → plugin payload → transparent), validation (`#RRGGBB`/`#RRGGBBAA`, border width 0–10), and rendering rule for the frame aligning to the transformed group bounds.
+- Plan: clarify the background fields, precedence (user → plugin group default → plugin payload → transparent), validation (`#RRGGBB`/`#AARRGGBB`, border width 0–10), and rendering rule for the frame aligning to the transformed group bounds.
 - Risks: misaligned terminology or missing precedence step; mitigation: restated precedence and alignment requirement in the requirements list.
 - Result: requirements updated; no code changes; tests not applicable.
 
@@ -157,7 +157,7 @@
 ## Phase 5: plugin_group_manager defaults
 - Goal: allow `utils/plugin_group_manager` to set per-group `backgroundColor`/`backgroundBorderWidth` defaults when writing `overlay_groupings.json`.
 - Touch points: `utils/plugin_group_manager.py` (CLI/data handling), help/usage docs/snippets.
-- Behavior: accept optional background color (hex `#RRGGBB`/`#RRGGBBAA`) and border width (0–10); validate using the same rules as `define_plugin_group`; write fields only when provided; omit to keep transparent/default 0. Preserve existing prefix/anchor/offset/justification handling.
+- Behavior: accept optional background color (hex `#RRGGBB`/`#AARRGGBB`) and border width (0–10); validate using the same rules as `define_plugin_group`; write fields only when provided; omit to keep transparent/default 0. Preserve existing prefix/anchor/offset/justification handling.
 - Tests: add/adjust utility tests to cover valid writes, invalid inputs (bad hex, out-of-range border), and unchanged behavior when fields are omitted.
 - Risks: validation drift vs. `define_plugin_group`, unintended overwrites/noisy diffs, CLI UX regressions.
 - Mitigations: reuse normalization logic, write only when provided, targeted tests for the utility path.

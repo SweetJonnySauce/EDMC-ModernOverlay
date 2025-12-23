@@ -657,10 +657,10 @@ class RenderSurfaceMixin:
             if not all(ch in "0123456789abcdefABCDEF" for ch in hex_part):
                 return None
             try:
-                red = int(hex_part[0:2], 16)
-                green = int(hex_part[2:4], 16)
-                blue = int(hex_part[4:6], 16)
-                alpha = int(hex_part[6:8], 16)
+                alpha = int(hex_part[0:2], 16)
+                red = int(hex_part[2:4], 16)
+                green = int(hex_part[4:6], 16)
+                blue = int(hex_part[6:8], 16)
             except ValueError:
                 return None
             return QColor(red, green, blue, alpha)

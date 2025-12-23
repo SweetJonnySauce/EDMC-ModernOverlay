@@ -325,7 +325,7 @@ class BackgroundWidget(tk.Frame):
             hex_value = hex_value.upper()
             if had_alpha and alpha_value is not None:
                 alpha_int = max(0, min(255, int(alpha_value)))
-                result = f"#{hex_value}{alpha_int:02X}"
+                result = f"#{alpha_int:02X}{hex_value}"
             else:
                 result = f"#{hex_value}"
             self._color_var.set(result)
@@ -446,16 +446,18 @@ class BackgroundWidget(tk.Frame):
         if len(token) not in (6, 8):
             return None, None, False
         try:
-            red = int(token[0:2], 16)
-            green = int(token[2:4], 16)
-            blue = int(token[4:6], 16)
+            if len(token) == 8:
+                alpha = int(token[0:2], 16)
+                red = int(token[2:4], 16)
+                green = int(token[4:6], 16)
+                blue = int(token[6:8], 16)
+            else:
+                red = int(token[0:2], 16)
+                green = int(token[2:4], 16)
+                blue = int(token[4:6], 16)
         except Exception:
             return None, None, False
         if len(token) == 8:
-            try:
-                alpha = int(token[6:8], 16)
-            except Exception:
-                return None, None, False
             return (red, green, blue), alpha, True
         return (red, green, blue), 255, False
 

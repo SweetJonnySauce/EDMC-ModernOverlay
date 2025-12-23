@@ -178,7 +178,7 @@ def test_measure_text_uses_injected_measurer_and_resets_context() -> None:
 def test_qcolor_from_background_parses_rgba() -> None:
     color = RenderSurfaceMixin._qcolor_from_background("#11223344")
     assert isinstance(color, QColor)
-    assert (color.red(), color.green(), color.blue(), color.alpha()) == (0x11, 0x22, 0x33, 0x44)
+    assert (color.red(), color.green(), color.blue(), color.alpha()) == (0x22, 0x33, 0x44, 0x11)
 
 
 def _build_rect_command(surface: _RectSurface, border_spec: str, *, fill_spec: str = "#112233"):

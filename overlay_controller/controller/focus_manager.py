@@ -218,7 +218,7 @@ class FocusManager:
             secondary = "Left/Center/Right controls text alignment."
         elif idx == 5:
             primary = "Set background color and border."
-            secondary = "Enter #RRGGBB or #RRGGBBAA; border width is 0–10 px."
+            secondary = "Enter #RRGGBB or #AARRGGBB; border width is 0–10 px."
 
         if focus_hint:
             secondary = f"{secondary} {focus_hint}" if secondary else focus_hint

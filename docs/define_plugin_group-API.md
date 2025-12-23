@@ -20,7 +20,7 @@ The JSON root is an object keyed by the display name you want shown in the overl
       "alerts": {
         "idPrefixes": ["example-alert-"],
         "idPrefixGroupAnchor": "ne",
-        "backgroundColor": "#1a1a1acc",
+        "backgroundColor": "#cc1a1a1a",
         "backgroundBorderWidth": 2
       }
     }
@@ -37,7 +37,7 @@ The JSON root is an object keyed by the display name you want shown in the overl
 | `idPrefixGroups.<name>.offsetX` / `offsetY` | number | Optional. Translates the whole group in the legacy 1280 × 960 canvas before Fill-mode scaling applies. Positive values move right/down; negative values move left/up. |
 | `idPrefixGroups.<name>.payloadJustification` | enum | Optional. One of `left` (default), `center`, or `right`. Applies only to idPrefix groups. After anchor adjustments (but before overflow nudging) Modern Overlay shifts narrower payloads so that their right edge or midpoint lines up with the widest payload in the group. The widest entry defines the alignment width and stays put. **Caution** Using justification with vect type payloads isn't supported and probably never will be. |
 | `idPrefixGroups.<name>.markerLabelPosition` | enum | Optional. One of `below` (default), `above`, or `centered`. Controls where vector marker labels are placed relative to the marker: `below` anchors the top of the text box at Y+7 (legacy default), `above` anchors the bottom of the text box at Y-7, and `centered` anchors the middle of the text box at Y+0. |
-| `idPrefixGroups.<name>.backgroundColor` | hex string or null | Optional. Default background fill for this group. Accepts `#RRGGBB` or `#RRGGBBAA` (alpha optional, case-insensitive). `null` forces a transparent override. |
+| `idPrefixGroups.<name>.backgroundColor` | hex string or null | Optional. Default background fill for this group. Accepts `#RRGGBB` or `#AARRGGBB` (alpha optional, case-insensitive). `null` forces a transparent override. |
 | `idPrefixGroups.<name>.backgroundBorderWidth` | integer | Optional. Border thickness in pixels (0–10). The background uses the same color and expands by this width on every side. |
 
 Additional metadata (`notes`, legacy `grouping.*`, etc.) is ignored by the current engine but preserved so you can document intent for reviewers.
@@ -123,7 +123,7 @@ The repository ships with `schemas/overlay_groupings.schema.json` (Draft 2020‑
             },
             { "type": "null" }
           ],
-          "description": "Hex color in #RRGGBB or #RRGGBBAA format (alpha optional). Null clears to transparent."
+          "description": "Hex color in #RRGGBB or #AARRGGBB format (alpha optional). Null clears to transparent."
         },
         "backgroundBorderWidth": {
           "type": "integer",
