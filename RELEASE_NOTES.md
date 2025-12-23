@@ -3,14 +3,15 @@
 ## 0.7.6
 - Features
   - Added functionality to set plugin group background color via define_plugin_group for Plugin Authors or via Overlay Controller for CMDRs.
-  - Added Font Step to preference pane and a Font preview button. This allows the CMDR to define the interval increase/decrease between the canonical font sizes "Small", "Normal", "Large", and "Huge". Addresses #41
+  - Added Font Step to preference pane and a Font preview button. This allows the CMDR to define the interval increase/decrease between the canonical font sizes "Small", "Normal", "Large", and "Huge". Addresses [#41](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/41)
+  - Added a global payload opacity setting for CMDRs on the plugin preference pane. Reducing opacity makes all payloads semi-transparent on the game screen. Payloads that are already semi-transparent have their settings further reduced linearly with this setting. Adrsses [#33](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/33)
 - Plugin Developer Features
   - Added `markerLabelPosition` (`below`/`above`/`centered`) to `define_plugin_group` schema/API with default `below`.
   - Added `\n` and `\r\n` functionality to text payloads to support multiline text.
 - Bug Fixes
-  - Fixes #42 and #42. Address nuanced backwards compatibility issues for vector images and marker labels that mainly affected EDR Navigation.
-  - Fixed #21. EDR Help and Docking payloads were not clearing when EDR sent the clear message. Modified the shim layer to allow positional arguments (see #13)
-  - Fixed #46. Fedora install now checks to see if the `flatpak-spawn` package is installed. (Fedora packages it separately.)
+  - Fixes [#42](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/42) and [#43](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/43). Address nuanced backwards compatibility issues for vector images and marker labels that mainly affected EDR Navigation.
+  - Fixed [#21](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/21). EDR Help and Docking payloads were not clearing when EDR sent the clear message. Modified the shim layer to allow positional arguments (see [#13](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/13))
+  - Fixed [#46](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/43). Fedora install now checks to see if the `flatpak-spawn` package is installed. (Fedora packages it separately.)
   - Tweaked some preference settings for a more consistent UI/UX.
   
 ## 0.7.5

@@ -32,6 +32,7 @@ from overlay_client.viewport_transform import (
     legacy_scale_components,
 )
 from overlay_client.viewport_helper import BASE_HEIGHT, BASE_WIDTH, ScaleMode
+from overlay_client.opacity_utils import apply_global_payload_opacity, coerce_percent
 from overlay_client.window_utils import legacy_preset_point_size as util_legacy_preset_point_size, line_width as util_line_width
 
 _CLIENT_LOGGER = logging.getLogger("EDMC.ModernOverlay.Client")
@@ -622,6 +623,7 @@ class RenderSurfaceMixin:
             q_color = self._qcolor_from_background(color_value)
             if q_color is None:
                 continue
+            q_color = self._apply_payload_opacity_color(q_color)
             try:
                 border_width = int(getattr(transform, "background_border_width", 0) or 0)
             except Exception:
@@ -2261,6 +2263,12 @@ class RenderSurfaceMixin:
 
     def _apply_window_dimensions(self, *, force: bool = False) -> None:
         return
+
+    def _payload_opacity_percent(self) -> int:
+        return coerce_percent(getattr(self, "_payload_opacity", 100), 100)
+
+    def _apply_payload_opacity_color(self, color: QColor) -> QColor:
+        return apply_global_payload_opacity(color, self._payload_opacity_percent())
 
     def _line_width(self, key: str) -> int:
         defaults = getattr(self, "_line_width_defaults", _LINE_WIDTH_DEFAULTS_FALLBACK)

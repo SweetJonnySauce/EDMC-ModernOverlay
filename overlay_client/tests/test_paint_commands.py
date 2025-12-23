@@ -39,6 +39,12 @@ class _StubWindow:
     def _legacy_preset_point_size(self, *_):
         return 10.0
 
+    def _apply_payload_opacity_color(self, color):
+        return color
+
+    def _payload_opacity_percent(self) -> int:
+        return 100
+
 
 class _RecordingPainter:
     def __init__(self) -> None:

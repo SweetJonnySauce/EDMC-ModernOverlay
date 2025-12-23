@@ -13,6 +13,7 @@ class InitialClientSettings:
     """Values used to bootstrap the client before config payloads arrive."""
 
     client_log_retention: int = 5
+    global_payload_opacity: int = 100
     force_render: bool = False
     allow_force_render_release: bool = False
     force_xwayland: bool = False
@@ -43,6 +44,7 @@ class DeveloperHelperConfig:
     """Subset of overlay preferences that are considered developer helpers."""
 
     background_opacity: Optional[float] = None
+    global_payload_opacity: Optional[int] = None
     enable_drag: Optional[bool] = None
     client_log_retention: Optional[int] = None
     gridlines_enabled: Optional[bool] = None
@@ -115,6 +117,7 @@ class DeveloperHelperConfig:
 
         return cls(
             background_opacity=_float(payload.get("opacity"), None),
+            global_payload_opacity=_int(payload.get("global_payload_opacity"), None),
             enable_drag=_bool(payload.get("enable_drag"), None),
             client_log_retention=_int(payload.get("client_log_retention"), None),
             gridlines_enabled=_bool(payload.get("gridlines_enabled"), None),
@@ -159,6 +162,11 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         retention = int(data.get("client_log_retention", retention))
     except (TypeError, ValueError):
         retention = defaults.client_log_retention
+    try:
+        payload_opacity = int(data.get("global_payload_opacity", defaults.global_payload_opacity))
+    except (TypeError, ValueError):
+        payload_opacity = defaults.global_payload_opacity
+    payload_opacity = max(0, min(payload_opacity, 100))
     allow_force_release = bool(data.get("allow_force_render_release", defaults.allow_force_render_release))
     force_render = bool(data.get("force_render", defaults.force_render))
     if not allow_force_release:
@@ -235,6 +243,7 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
 
     return InitialClientSettings(
         client_log_retention=max(1, retention),
+        global_payload_opacity=payload_opacity,
         force_render=force_render,
         force_xwayland=force_xwayland,
         show_debug_overlay=show_debug_overlay,

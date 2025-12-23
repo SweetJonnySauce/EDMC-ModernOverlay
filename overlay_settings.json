@@ -1,11 +1,12 @@
 {
   "overlay_opacity": 0.0,
+  "global_payload_opacity": 52,
   "show_connection_status": false,
   "debug_overlay_corner": "SE",
   "client_log_retention": 5,
   "gridlines_enabled": false,
   "gridline_spacing": 120,
-  "force_render": false,
+  "force_render": true,
   "allow_force_render_release": false,
   "force_xwayland": true,
   "physical_clamp_enabled": false,

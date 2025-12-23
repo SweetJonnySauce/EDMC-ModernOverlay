@@ -1504,6 +1504,19 @@ class _PluginRuntime:
         self._command_helper_prefix = normalised
         LOGGER.info("Overlay Controller launch command preference updated to %s", normalised)
 
+    def set_payload_opacity_preference(self, value: int) -> None:
+        try:
+            numeric = int(value)
+        except (TypeError, ValueError):
+            numeric = int(getattr(self._preferences, "global_payload_opacity", 100))
+        numeric = max(0, min(numeric, 100))
+        with self._prefs_lock:
+            if numeric == getattr(self._preferences, "global_payload_opacity", 100):
+                return
+            self._preferences.global_payload_opacity = numeric
+            self._preferences.save()
+        self._send_overlay_config()
+
     def _build_command_helper(self, prefix: str, previous_prefix: Optional[str] = None) -> Any:
         legacy: list[str] = []
         if prefix == "!overlay":
@@ -2268,6 +2281,7 @@ class _PluginRuntime:
         payload = {
             "event": "OverlayConfig",
             "opacity": float(self._preferences.overlay_opacity),
+            "global_payload_opacity": int(getattr(self._preferences, "global_payload_opacity", 100)),
             "show_status": bool(self._preferences.show_connection_status),
             "debug_overlay_corner": str(self._preferences.debug_overlay_corner or "NW"),
             "status_bottom_margin": int(self._preferences.status_bottom_margin()),
@@ -2294,10 +2308,11 @@ class _PluginRuntime:
         self._last_config = dict(payload)
         self._publish_payload(payload)
         LOGGER.debug(
-            "Published overlay config: opacity=%s show_status=%s debug_overlay_corner=%s status_bottom_margin=%s client_log_retention=%d gridlines_enabled=%s "
+            "Published overlay config: opacity=%s global_payload_opacity=%s show_status=%s debug_overlay_corner=%s status_bottom_margin=%s client_log_retention=%d gridlines_enabled=%s "
             "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s physical_clamp=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s "
             "nudge_overflow=%s payload_gutter=%d payload_log_delay=%.2f font_min=%.1f font_max=%.1f font_step=%d platform_context=%s clamp_overrides=%s",
             payload["opacity"],
+            payload["global_payload_opacity"],
             payload["show_status"],
             payload["debug_overlay_corner"],
             payload["status_bottom_margin"],
@@ -2923,6 +2938,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         cycle_next_callback = _plugin.cycle_payload_next if _plugin else None
         restart_overlay_callback = _plugin.restart_overlay_client if _plugin else None
         launch_command_callback = _plugin.set_launch_command_preference if _plugin else None
+        payload_opacity_callback = _plugin.set_payload_opacity_preference if _plugin else None
         capture_override_callback = _plugin.set_capture_override_preference if _plugin else None
         log_retention_override_callback = _plugin.set_log_retention_override_preference if _plugin else None
         payload_exclusion_callback = _plugin.set_payload_logging_exclusions if _plugin else None
@@ -2956,6 +2972,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             cycle_next_callback,
             restart_overlay_callback,
             launch_command_callback,
+            payload_opacity_callback,
             dev_mode=DEV_BUILD,
             plugin_version=MODERN_OVERLAY_VERSION,
             version_update_available=version_update_available,
