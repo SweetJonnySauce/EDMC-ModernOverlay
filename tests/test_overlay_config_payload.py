@@ -20,6 +20,7 @@ class _StubPrefs:
         self.physical_clamp_overrides = {"DisplayPort-2": 1.0}
         self.min_font_point = 6.0
         self.max_font_point = 18.0
+        self.legacy_font_step = 2
         self.cycle_payload_ids = False
         self.copy_payload_id_on_cycle = False
         self.scale_mode = "fit"
@@ -55,6 +56,7 @@ def test_overlay_config_includes_physical_clamp_flag(monkeypatch):
     assert runtime._last_config.get("physical_clamp_enabled") is True
     assert payload["physical_clamp_overrides"] == {"DisplayPort-2": 1.0}
     assert runtime._last_config.get("physical_clamp_overrides") == {"DisplayPort-2": 1.0}
+    assert payload["legacy_font_step"] == 2
 
 
 def test_overlay_config_defaults_keep_clamp_off(monkeypatch):

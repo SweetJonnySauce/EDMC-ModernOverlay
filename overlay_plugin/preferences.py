@@ -161,6 +161,80 @@ def _format_physical_clamp_overrides(overrides: Mapping[str, float]) -> str:
     return ", ".join(tokens)
 
 
+def _attach_tooltip(widget, text: str, *, nb_module=None, delay_ms: int = 500) -> None:
+    if not text:
+        return
+    if nb_module is not None:
+        tooltip_factory = (
+            getattr(nb_module, "ToolTip", None)
+            or getattr(nb_module, "Tooltip", None)
+            or getattr(nb_module, "CreateToolTip", None)
+        )
+        if tooltip_factory:
+            try:
+                tooltip_factory(widget, text)
+                return
+            except Exception:
+                LOGGER.debug("Failed to attach notebook tooltip helper", exc_info=True)
+    try:
+        import tkinter as tk
+    except Exception:
+        return
+
+    tip_window = None
+    after_id = None
+
+    def hide_tip() -> None:
+        nonlocal tip_window, after_id
+        if after_id is not None:
+            try:
+                widget.after_cancel(after_id)
+            except Exception:
+                pass
+            after_id = None
+        if tip_window is not None:
+            try:
+                tip_window.destroy()
+            except Exception:
+                pass
+            tip_window = None
+
+    def show_tip() -> None:
+        nonlocal tip_window
+        if tip_window is not None:
+            return
+        try:
+            x = widget.winfo_rootx() + 16
+            y = widget.winfo_rooty() + widget.winfo_height() + 8
+        except Exception:
+            return
+        tip_window = tk.Toplevel(widget)
+        tip_window.wm_overrideredirect(True)
+        try:
+            tip_window.attributes("-topmost", True)
+        except Exception:
+            pass
+        label = tk.Label(
+            tip_window,
+            text=text,
+            background="#ffffe0",
+            relief="solid",
+            borderwidth=1,
+            justify="left",
+        )
+        label.pack(ipadx=6, ipady=3)
+        tip_window.wm_geometry(f"+{x}+{y}")
+
+    def schedule_tip(_event=None) -> None:
+        nonlocal after_id
+        hide_tip()
+        after_id = widget.after(delay_ms, show_tip)
+
+    widget.bind("<Enter>", schedule_tip, add="+")
+    widget.bind("<Leave>", lambda _event: hide_tip(), add="+")
+    widget.bind("<ButtonPress>", lambda _event: hide_tip(), add="+")
+
+
 def _coerce_physical_clamp_overrides(
     value: Any,
     default: Optional[Mapping[str, float]],
@@ -269,6 +343,7 @@ class Preferences:
     show_debug_overlay: bool = False
     min_font_point: float = 6.0
     max_font_point: float = 24.0
+    legacy_font_step: int = 2
     title_bar_enabled: bool = False
     title_bar_height: int = 0
     cycle_payload_ids: bool = False
@@ -359,6 +434,7 @@ class Preferences:
             "show_debug_overlay": _config_get_raw(_config_key("show_debug_overlay"), self.show_debug_overlay),
             "min_font_point": _config_get_raw(_config_key("min_font_point"), self.min_font_point),
             "max_font_point": _config_get_raw(_config_key("max_font_point"), self.max_font_point),
+            "legacy_font_step": _config_get_raw(_config_key("legacy_font_step"), self.legacy_font_step),
             "title_bar_enabled": _config_get_raw(_config_key("title_bar_enabled"), self.title_bar_enabled),
             "title_bar_height": _config_get_raw(_config_key("title_bar_height"), self.title_bar_height),
             "cycle_payload_ids": _config_get_raw(_config_key("cycle_payload_ids"), self.cycle_payload_ids),
@@ -425,6 +501,12 @@ class Preferences:
         self.max_font_point = _coerce_float(
             data.get("max_font_point"), self.max_font_point, minimum=self.min_font_point, maximum=72.0
         )
+        self.legacy_font_step = _coerce_int(
+            data.get("legacy_font_step"),
+            self.legacy_font_step,
+            minimum=0,
+            maximum=10,
+        )
         self.title_bar_enabled = _coerce_bool(data.get("title_bar_enabled"), self.title_bar_enabled)
         self.title_bar_height = _coerce_int(data.get("title_bar_height"), self.title_bar_height, minimum=0)
         self.cycle_payload_ids = _coerce_bool(data.get("cycle_payload_ids"), self.cycle_payload_ids)
@@ -484,6 +566,7 @@ class Preferences:
             "show_debug_overlay": bool(self.show_debug_overlay),
             "min_font_point": float(self.min_font_point),
             "max_font_point": float(self.max_font_point),
+            "legacy_font_step": int(self.legacy_font_step),
             "status_bottom_margin": int(self.status_bottom_margin()),
             "title_bar_enabled": bool(self.title_bar_enabled),
             "title_bar_height": int(self.title_bar_height),
@@ -523,6 +606,7 @@ class Preferences:
         _config_set_raw(_config_key("show_debug_overlay"), bool(self.show_debug_overlay))
         _config_set_raw(_config_key("min_font_point"), float(self.min_font_point))
         _config_set_raw(_config_key("max_font_point"), float(self.max_font_point))
+        _config_set_raw(_config_key("legacy_font_step"), int(self.legacy_font_step))
         _config_set_raw(_config_key("title_bar_enabled"), bool(self.title_bar_enabled))
         _config_set_raw(_config_key("title_bar_height"), int(self.title_bar_height))
         _config_set_raw(_config_key("cycle_payload_ids"), bool(self.cycle_payload_ids))
@@ -590,6 +674,8 @@ class PreferencesPanel:
         set_payload_logging_callback: Optional[Callable[[bool], None]] = None,
         set_font_min_callback: Optional[Callable[[float], None]] = None,
         set_font_max_callback: Optional[Callable[[float], None]] = None,
+        set_font_step_callback: Optional[Callable[[int], None]] = None,
+        preview_font_sizes_callback: Optional[Callable[[], None]] = None,
         set_cycle_payload_callback: Optional[Callable[[bool], None]] = None,
         set_cycle_payload_copy_callback: Optional[Callable[[bool], None]] = None,
         cycle_payload_prev_callback: Optional[Callable[[], None]] = None,
@@ -633,6 +719,7 @@ class PreferencesPanel:
         self._var_payload_logging = tk.BooleanVar(value=initial_logging)
         self._var_min_font = tk.DoubleVar(value=float(preferences.min_font_point))
         self._var_max_font = tk.DoubleVar(value=float(preferences.max_font_point))
+        self._var_legacy_font_step = tk.IntVar(value=int(preferences.legacy_font_step))
         self._var_cycle_payload = tk.BooleanVar(value=preferences.cycle_payload_ids)
         self._var_cycle_copy = tk.BooleanVar(value=preferences.copy_payload_id_on_cycle)
         self._var_launch_command = tk.StringVar(value=preferences.controller_launch_command)
@@ -656,6 +743,7 @@ class PreferencesPanel:
         self._var_log_retention_value = tk.IntVar(value=int(retention_value))
         self._var_payload_exclude = tk.StringVar(value=", ".join(state.exclude_plugins))
         self._font_bounds_apply_in_progress = False
+        self._font_step_apply_in_progress = False
         self._launch_command_apply_in_progress = False
 
         self._send_test = send_test_callback
@@ -673,6 +761,8 @@ class PreferencesPanel:
         self._set_payload_logging = set_payload_logging_callback
         self._set_font_min = set_font_min_callback
         self._set_font_max = set_font_max_callback
+        self._set_font_step = set_font_step_callback
+        self._preview_font_sizes = preview_font_sizes_callback
         self._set_cycle_payload = set_cycle_payload_callback
         self._set_cycle_payload_copy = set_cycle_payload_copy_callback
         self._cycle_prev_callback = cycle_payload_prev_callback
@@ -706,6 +796,7 @@ class PreferencesPanel:
 
         self._var_min_font.trace_add("write", self._on_font_bounds_trace)
         self._var_max_font.trace_add("write", self._on_font_bounds_trace)
+        self._var_legacy_font_step.trace_add("write", self._on_font_step_trace)
         header_frame = ttk.Frame(frame, style=self._frame_style)
         header_frame.grid(row=0, column=0, sticky="we")
         header_frame.columnconfigure(0, weight=1)
@@ -809,6 +900,28 @@ class PreferencesPanel:
         max_spin.pack(side="left")
         max_spin.bind("<FocusOut>", self._on_font_bounds_event)
         max_spin.bind("<Return>", self._on_font_bounds_event)
+        step_label = nb.Label(font_row, text="Font Step:")
+        _attach_tooltip(
+            step_label,
+            'Font Step is the difference in font size between "Small", "Normal", "Large", and "Huge" font sizes.',
+            nb_module=nb,
+        )
+        step_label.pack(side="left", padx=(12, 4))
+        step_spin = ttk.Spinbox(
+            font_row,
+            from_=0,
+            to=10,
+            increment=1,
+            width=3,
+            textvariable=self._var_legacy_font_step,
+            command=self._on_font_step_command,
+            style=self._spinbox_style,
+        )
+        step_spin.pack(side="left")
+        step_spin.bind("<FocusOut>", self._on_font_step_event)
+        step_spin.bind("<Return>", self._on_font_step_event)
+        preview_btn = nb.Button(font_row, text="Preview", command=self._on_font_preview)
+        preview_btn.pack(side="left", padx=(8, 0))
         font_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
         user_row += 1
 
@@ -1195,6 +1308,7 @@ class PreferencesPanel:
     def apply(self) -> None:
         # Ensure any pending entry/spinbox values are written back before saving.
         self._apply_font_bounds(update_remote=False)
+        self._apply_font_step(update_remote=False)
         self._apply_status_gutter(update_remote=False, force=True)
         self._apply_title_bar_height(update_remote=False)
         self._apply_payload_gutter()
@@ -1715,6 +1829,17 @@ class PreferencesPanel:
             return
         self._apply_font_bounds()
 
+    def _on_font_step_command(self) -> None:
+        self._apply_font_step()
+
+    def _on_font_step_event(self, _event) -> None:  # pragma: no cover - Tk event
+        self._apply_font_step()
+
+    def _on_font_step_trace(self, *_args) -> None:
+        if self._font_step_apply_in_progress:
+            return
+        self._apply_font_step()
+
     def _apply_font_bounds(self, update_remote: bool = True) -> None:
         if self._font_bounds_apply_in_progress:
             return
@@ -1751,6 +1876,38 @@ class PreferencesPanel:
         self._preferences.max_font_point = max_value
         self._preferences.save()
         self._font_bounds_apply_in_progress = False
+
+    def _apply_font_step(self, update_remote: bool = True) -> None:
+        if self._font_step_apply_in_progress:
+            return
+        self._font_step_apply_in_progress = True
+        try:
+            step_value = int(self._var_legacy_font_step.get())
+        except (TypeError, ValueError):
+            step_value = int(self._preferences.legacy_font_step)
+        step_value = max(0, min(step_value, 10))
+        self._var_legacy_font_step.set(step_value)
+        if update_remote and self._set_font_step:
+            try:
+                self._set_font_step(step_value)
+            except Exception as exc:
+                self._status_var.set(f"Failed to update font step: {exc}")
+                self._font_step_apply_in_progress = False
+                return
+        self._preferences.legacy_font_step = step_value
+        self._preferences.save()
+        self._font_step_apply_in_progress = False
+
+    def _on_font_preview(self) -> None:
+        if not self._preview_font_sizes:
+            self._status_var.set("Overlay not running; preview unavailable.")
+            return
+        try:
+            self._preview_font_sizes()
+        except Exception as exc:  # pragma: no cover - defensive UI handler
+            self._status_var.set(f"Preview failed: {exc}")
+            return
+        self._status_var.set("Font size preview sent to overlay.")
 
     def _on_send_click(self) -> None:
         message = self._test_var.get().strip()

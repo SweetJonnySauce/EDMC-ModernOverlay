@@ -51,10 +51,14 @@ def test_legacy_preset_point_size_offsets_from_normal() -> None:
         "font_scale_diag": 1.0,
         "font_min_point": 1.0,
         "font_max_point": 200.0,
+        "legacy_font_step": 2.0,
     }
     assert math.isclose(legacy_preset_point_size("small", **base_kwargs), 8.0)
     assert math.isclose(legacy_preset_point_size("normal", **base_kwargs), 10.0)
     assert math.isclose(legacy_preset_point_size("huge", **base_kwargs), 14.0)
+    base_kwargs["legacy_font_step"] = 0.0
+    assert math.isclose(legacy_preset_point_size("small", **base_kwargs), 10.0)
+    assert math.isclose(legacy_preset_point_size("huge", **base_kwargs), 10.0)
 
 
 def test_line_width_rounds_and_clamps() -> None:

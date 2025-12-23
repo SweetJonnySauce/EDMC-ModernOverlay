@@ -128,6 +128,12 @@ VERSION_UPDATE_NOTICE_ID = "edmc-modernoverlay-version-notice"
 VERSION_UPDATE_NOTICE_REBROADCASTS = 0
 VERSION_UPDATE_NOTICE_REBROADCAST_INTERVAL = 2.0
 
+FONT_PREVIEW_COLOR = "#ff7f00"
+FONT_PREVIEW_TTL = 5
+FONT_PREVIEW_BASE_X = 60
+FONT_PREVIEW_BASE_Y = 120
+FONT_PREVIEW_LINE_SPACING = 30
+
 EDMC_DEFAULT_LOG_LEVEL = logging.DEBUG if DEV_BUILD else logging.INFO
 _LEVEL_NAME_MAP = {
     "CRITICAL": logging.CRITICAL,
@@ -1420,8 +1426,32 @@ class _PluginRuntime:
                 payload["ttl"],
                 payload["size"],
             )
-        else:
-            LOGGER.debug("Sent test message to overlay via API: %s", text)
+
+    def preview_font_sizes(self) -> None:
+        if not self._running:
+            raise RuntimeError("Overlay is not running")
+        timestamp = datetime.now(UTC).isoformat()
+        entries = [
+            ("huge", "Huge"),
+            ("large", "Large"),
+            ("normal", "Normal"),
+            ("small", "Small"),
+        ]
+        for index, (size_label, text_label) in enumerate(entries):
+            payload = {
+                "timestamp": timestamp,
+                "event": "LegacyOverlay",
+                "type": "message",
+                "id": f"font-preview-{size_label}-{timestamp}",
+                "text": text_label,
+                "color": FONT_PREVIEW_COLOR,
+                "x": FONT_PREVIEW_BASE_X,
+                "y": FONT_PREVIEW_BASE_Y + (index * FONT_PREVIEW_LINE_SPACING),
+                "ttl": FONT_PREVIEW_TTL,
+                "size": size_label,
+            }
+            if not send_overlay_message(payload):
+                raise RuntimeError("Failed to send font preview to overlay")
 
     def preview_overlay_opacity(self, value: float) -> None:
         try:
@@ -1946,6 +1976,23 @@ class _PluginRuntime:
         if broadcast:
             self._send_overlay_config()
 
+    def set_legacy_font_step_preference(self, value: int) -> None:
+        try:
+            step = int(value)
+        except (TypeError, ValueError):
+            step = int(getattr(self._preferences, "legacy_font_step", 2))
+        step = max(0, min(step, 10))
+        with self._prefs_lock:
+            if step != getattr(self._preferences, "legacy_font_step", 2):
+                self._preferences.legacy_font_step = step
+                LOGGER.debug("Overlay legacy font step set to %d", step)
+                self._preferences.save()
+                broadcast = True
+            else:
+                broadcast = False
+        if broadcast:
+            self._send_overlay_config()
+
     def _publish_external(self, payload: Mapping[str, Any]) -> bool:
         if not self._running:
             return False
@@ -2235,6 +2282,7 @@ class _PluginRuntime:
             "physical_clamp_overrides": dict(getattr(self._preferences, "physical_clamp_overrides", {}) or {}),
             "min_font_point": float(self._preferences.min_font_point),
             "max_font_point": float(self._preferences.max_font_point),
+            "legacy_font_step": int(getattr(self._preferences, "legacy_font_step", 2)),
             "cycle_payload_ids": bool(self._preferences.cycle_payload_ids),
             "copy_payload_id_on_cycle": bool(self._preferences.copy_payload_id_on_cycle),
             "scale_mode": str(self._preferences.scale_mode or "fit"),
@@ -2248,7 +2296,7 @@ class _PluginRuntime:
         LOGGER.debug(
             "Published overlay config: opacity=%s show_status=%s debug_overlay_corner=%s status_bottom_margin=%s client_log_retention=%d gridlines_enabled=%s "
             "gridline_spacing=%d force_render=%s title_bar_enabled=%s title_bar_height=%d debug_overlay=%s physical_clamp=%s cycle_payload_ids=%s copy_payload_id_on_cycle=%s "
-            "nudge_overflow=%s payload_gutter=%d payload_log_delay=%.2f font_min=%.1f font_max=%.1f platform_context=%s clamp_overrides=%s",
+            "nudge_overflow=%s payload_gutter=%d payload_log_delay=%.2f font_min=%.1f font_max=%.1f font_step=%d platform_context=%s clamp_overrides=%s",
             payload["opacity"],
             payload["show_status"],
             payload["debug_overlay_corner"],
@@ -2268,6 +2316,7 @@ class _PluginRuntime:
             payload["payload_log_delay_seconds"],
             payload["min_font_point"],
             payload["max_font_point"],
+            payload["legacy_font_step"],
             payload["platform_context"],
             payload["physical_clamp_overrides"],
         )
@@ -2866,6 +2915,8 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         payload_logging_callback = _plugin.set_payload_logging_preference if _plugin else None
         font_min_callback = _plugin.set_min_font_preference if _plugin else None
         font_max_callback = _plugin.set_max_font_preference if _plugin else None
+        font_step_callback = _plugin.set_legacy_font_step_preference if _plugin else None
+        font_preview_callback = _plugin.preview_font_sizes if _plugin else None
         cycle_toggle_callback = _plugin.set_cycle_payload_preference if _plugin else None
         cycle_copy_callback = _plugin.set_cycle_payload_copy_preference if _plugin else None
         cycle_prev_callback = _plugin.cycle_payload_prev if _plugin else None
@@ -2897,6 +2948,8 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             payload_logging_callback,
             font_min_callback,
             font_max_callback,
+            font_step_callback,
+            font_preview_callback,
             cycle_toggle_callback,
             cycle_copy_callback,
             cycle_prev_callback,

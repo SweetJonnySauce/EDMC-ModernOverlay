@@ -3,6 +3,7 @@
 ## 0.7.6
 - Features
   - Added functionality to set plugin group background color via define_plugin_group for Plugin Authors or via Overlay Controller for CMDRs.
+  - Added Font Step to preference pane and a Font preview button. This allows the CMDR to define the interval increase/decrease between the canonical font sizes "Small", "Normal", "Large", and "Huge". Addresses #41
 - Plugin Developer Features
   - Added `markerLabelPosition` (`below`/`above`/`centered`) to `define_plugin_group` schema/API with default `below`.
   - Added `\n` and `\r\n` functionality to text payloads to support multiline text.
