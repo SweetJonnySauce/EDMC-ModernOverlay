@@ -1,5 +1,6 @@
 {
   "overlay_opacity": 0.0,
+  "global_payload_opacity": 52,
   "show_connection_status": false,
   "debug_overlay_corner": "SE",
   "client_log_retention": 5,

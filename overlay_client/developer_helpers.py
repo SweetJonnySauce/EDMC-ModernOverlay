@@ -36,6 +36,7 @@ class DeveloperHelperController:
 
     def apply_initial_window_state(self, window: "OverlayWindow", initial: InitialClientSettings) -> None:
         window.set_log_retention(self._current_log_retention)
+        window.set_payload_opacity(getattr(initial, "global_payload_opacity", 100))
         window.set_force_render(initial.force_render)
         window.set_physical_clamp_enabled(getattr(initial, "physical_clamp_enabled", False))
         if getattr(initial, "physical_clamp_overrides", None):
@@ -59,6 +60,8 @@ class DeveloperHelperController:
         config = DeveloperHelperConfig.from_payload(payload)
         if config.background_opacity is not None:
             window.set_background_opacity(config.background_opacity)
+        if config.global_payload_opacity is not None:
+            window.set_payload_opacity(config.global_payload_opacity)
         if config.enable_drag is not None:
             window.set_drag_enabled(config.enable_drag)
         if config.gridlines_enabled is not None or config.gridline_spacing is not None:

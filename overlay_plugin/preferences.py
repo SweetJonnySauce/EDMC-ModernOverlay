@@ -330,6 +330,7 @@ class Preferences:
     plugin_dir: Path
     dev_mode: bool = False
     overlay_opacity: float = 0.0
+    global_payload_opacity: int = 100
     show_connection_status: bool = False
     debug_overlay_corner: str = "NW"
     client_log_retention: int = DEFAULT_CLIENT_LOG_RETENTION
@@ -412,6 +413,10 @@ class Preferences:
         )
         payload: Dict[str, Any] = {
             "overlay_opacity": _config_get_raw(_config_key("overlay_opacity"), self.overlay_opacity),
+            "global_payload_opacity": _config_get_raw(
+                _config_key("global_payload_opacity"),
+                self.global_payload_opacity,
+            ),
             "show_connection_status": _config_get_raw(_config_key("show_connection_status"), self.show_connection_status),
             "debug_overlay_corner": _config_get_raw(_config_key("debug_overlay_corner"), self.debug_overlay_corner),
             "client_log_retention": _config_get_raw(_config_key("client_log_retention"), self.client_log_retention),
@@ -466,6 +471,12 @@ class Preferences:
 
     def _apply_raw_data(self, data: Mapping[str, Any]) -> None:
         self.overlay_opacity = _coerce_float(data.get("overlay_opacity"), self.overlay_opacity, minimum=0.0, maximum=1.0)
+        self.global_payload_opacity = _coerce_int(
+            data.get("global_payload_opacity"),
+            self.global_payload_opacity,
+            minimum=0,
+            maximum=100,
+        )
         self.show_connection_status = _coerce_bool(data.get("show_connection_status"), self.show_connection_status)
         self.debug_overlay_corner = _coerce_str(
             data.get("debug_overlay_corner"),
@@ -553,6 +564,7 @@ class Preferences:
     def _shadow_payload(self) -> Dict[str, Any]:
         return {
             "overlay_opacity": float(self.overlay_opacity),
+            "global_payload_opacity": int(self.global_payload_opacity),
             "show_connection_status": bool(self.show_connection_status),
             "debug_overlay_corner": str(self.debug_overlay_corner or "NW"),
             "client_log_retention": int(self.client_log_retention),
@@ -589,6 +601,7 @@ class Preferences:
         if not self._config_enabled:
             return
         _config_set_raw(_config_key("overlay_opacity"), float(self.overlay_opacity))
+        _config_set_raw(_config_key("global_payload_opacity"), int(self.global_payload_opacity))
         _config_set_raw(_config_key("show_connection_status"), bool(self.show_connection_status))
         _config_set_raw(_config_key("debug_overlay_corner"), str(self.debug_overlay_corner or "NW"))
         _config_set_raw(_config_key("client_log_retention"), int(self.client_log_retention))
@@ -682,6 +695,7 @@ class PreferencesPanel:
         cycle_payload_next_callback: Optional[Callable[[], None]] = None,
         restart_overlay_callback: Optional[Callable[[], None]] = None,
         set_launch_command_callback: Optional[Callable[[str], None]] = None,
+        set_payload_opacity_callback: Optional[Callable[[int], None]] = None,
         dev_mode: bool = False,
         plugin_version: Optional[str] = None,
         version_update_available: bool = False,
@@ -700,6 +714,7 @@ class PreferencesPanel:
         self._style = ttk.Style()
         self._frame_style, self._spinbox_style, self._scale_style = self._init_theme_styles(nb)
         self._var_opacity = tk.DoubleVar(value=preferences.overlay_opacity)
+        self._var_payload_opacity = tk.DoubleVar(value=float(preferences.global_payload_opacity))
         self._var_show_status = tk.BooleanVar(value=preferences.show_connection_status)
         self._var_status_gutter = tk.IntVar(value=max(0, int(preferences.status_message_gutter)))
         self._var_debug_overlay_corner = tk.StringVar(value=(preferences.debug_overlay_corner or "NW"))
@@ -745,6 +760,7 @@ class PreferencesPanel:
         self._font_bounds_apply_in_progress = False
         self._font_step_apply_in_progress = False
         self._launch_command_apply_in_progress = False
+        self._payload_opacity_apply_in_progress = False
 
         self._send_test = send_test_callback
         self._set_opacity = set_opacity_callback
@@ -769,6 +785,7 @@ class PreferencesPanel:
         self._cycle_next_callback = cycle_payload_next_callback
         self._restart_overlay = restart_overlay_callback
         self._set_launch_command = set_launch_command_callback
+        self._set_payload_opacity = set_payload_opacity_callback
         self._set_capture_override = set_capture_override_callback
         self._set_log_retention_override = set_log_retention_override_callback
         self._set_payload_exclusions = set_payload_exclusion_callback
@@ -792,6 +809,7 @@ class PreferencesPanel:
         self._test_x_var = tk.StringVar()
         self._test_y_var = tk.StringVar()
         self._status_var = tk.StringVar(value="")
+        self._payload_opacity_label = tk.StringVar(value=f"{int(preferences.global_payload_opacity)}%")
         self._dev_mode = bool(dev_mode)
 
         frame = nb.Frame(parent)
@@ -996,6 +1014,31 @@ class PreferencesPanel:
         launch_entry.bind("<FocusOut>", self._on_launch_command_event)
         launch_entry.bind("<Return>", self._on_launch_command_event)
         launch_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
+        user_row += 1
+
+        payload_opacity_row = ttk.Frame(user_section, style=self._frame_style)
+        payload_opacity_label = nb.Label(payload_opacity_row, text="Overlay payload opacity:")
+        _attach_tooltip(
+            payload_opacity_label,
+            "Adjust the opacity of all payloads drawn on the game screen. "
+            "If a payload is already semi-transparent this setting will adjust its opacity linearly.",
+            nb_module=nb,
+        )
+        payload_opacity_label.pack(side="left")
+        payload_opacity_scale = ttk.Scale(
+            payload_opacity_row,
+            variable=self._var_payload_opacity,
+            from_=0,
+            to=100,
+            orient=tk.HORIZONTAL,
+            length=200,
+            command=self._on_payload_opacity_change,
+            style=self._scale_style,
+        )
+        payload_opacity_scale.pack(side="left", padx=(8, 0))
+        payload_opacity_value = nb.Label(payload_opacity_row, textvariable=self._payload_opacity_label)
+        payload_opacity_value.pack(side="left", padx=(8, 0))
+        payload_opacity_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
         user_row += 1
 
         clamp_row = ttk.Frame(user_section, style=self._frame_style)
@@ -1352,6 +1395,43 @@ class PreferencesPanel:
                 self._status_var.set(f"Failed to update opacity: {exc}")
                 return
         self._preferences.save()
+
+    def _on_payload_opacity_change(self, value: str) -> None:
+        self._apply_payload_opacity(value=value, update_remote=True)
+
+    def _apply_payload_opacity(self, *, value: Optional[str] = None, update_remote: bool = True) -> int:
+        if self._payload_opacity_apply_in_progress:
+            return int(self._preferences.global_payload_opacity)
+        self._payload_opacity_apply_in_progress = True
+        try:
+            if value is None:
+                raw_value: object = self._var_payload_opacity.get()
+            else:
+                raw_value = value
+            try:
+                numeric = int(round(float(raw_value)))
+            except (TypeError, ValueError):
+                numeric = int(self._preferences.global_payload_opacity)
+            numeric = max(0, min(100, numeric))
+            if float(numeric) != float(self._var_payload_opacity.get()):
+                self._var_payload_opacity.set(float(numeric))
+            self._payload_opacity_label.set(f"{numeric}%")
+            old_value = int(self._preferences.global_payload_opacity)
+            if update_remote and self._set_payload_opacity and numeric != old_value:
+                try:
+                    self._set_payload_opacity(numeric)
+                except Exception as exc:
+                    self._status_var.set(f"Failed to update payload opacity: {exc}")
+                    self._var_payload_opacity.set(float(old_value))
+                    self._payload_opacity_label.set(f"{old_value}%")
+                    self._preferences.global_payload_opacity = old_value
+                    return old_value
+            if numeric != old_value:
+                self._preferences.global_payload_opacity = numeric
+                self._preferences.save()
+            return numeric
+        finally:
+            self._payload_opacity_apply_in_progress = False
 
     def _on_show_status_toggle(self) -> None:
         value = bool(self._var_show_status.get())

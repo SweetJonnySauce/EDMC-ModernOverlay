@@ -56,7 +56,7 @@ class _MessagePaintCommand(_LegacyPaintCommand):
         font.setPointSizeF(self.point_size)
         font.setWeight(QFont.Weight.Normal)
         painter.setFont(font)
-        painter.setPen(self.color)
+        painter.setPen(window._apply_payload_opacity_color(self.color))
         draw_x = int(round(self.x + offset_x))
         draw_baseline = int(round(self.baseline + offset_y))
         normalised = str(self.text).replace("\r\n", "\n").replace("\r", "\n")
@@ -94,8 +94,17 @@ class _RectPaintCommand(_LegacyPaintCommand):
     cycle_anchor: Optional[Tuple[int, int]] = None
 
     def paint(self, window: "OverlayWindow", painter: QPainter, offset_x: int, offset_y: int) -> None:
-        painter.setPen(self.pen)
-        painter.setBrush(self.brush)
+        pen = self.pen
+        brush = self.brush
+        if window._payload_opacity_percent() < 100:
+            if pen.style() != Qt.PenStyle.NoPen:
+                pen = QPen(pen)
+                pen.setColor(window._apply_payload_opacity_color(pen.color()))
+            if brush.style() != Qt.BrushStyle.NoBrush:
+                brush = QBrush(brush)
+                brush.setColor(window._apply_payload_opacity_color(brush.color()))
+        painter.setPen(pen)
+        painter.setBrush(brush)
         draw_x = int(round(self.x + offset_x))
         draw_y = int(round(self.y + offset_y))
         painter.drawRect(draw_x, draw_y, self.width, self.height)
@@ -170,6 +179,7 @@ class _QtVectorPainterAdapter(VectorPainterAdapter):
         q_color = QColor(color)
         if not q_color.isValid():
             q_color = QColor("white")
+        q_color = self._window._apply_payload_opacity_color(q_color)
         pen = QPen(q_color)
         pen_width = self._window._line_width("vector_line") if width is None else max(0, int(width))
         pen.setWidth(pen_width)
@@ -183,6 +193,7 @@ class _QtVectorPainterAdapter(VectorPainterAdapter):
         q_color = QColor(color)
         if not q_color.isValid():
             q_color = QColor("white")
+        q_color = self._window._apply_payload_opacity_color(q_color)
         pen = QPen(q_color)
         pen.setWidth(self._window._line_width("vector_marker"))
         self._painter.setPen(pen)
@@ -198,6 +209,7 @@ class _QtVectorPainterAdapter(VectorPainterAdapter):
         q_color = QColor(color)
         if not q_color.isValid():
             q_color = QColor("white")
+        q_color = self._window._apply_payload_opacity_color(q_color)
         pen = QPen(q_color)
         self._painter.setPen(pen)
         font = self._text_font()

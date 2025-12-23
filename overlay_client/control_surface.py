@@ -673,6 +673,16 @@ class ControlSurfaceMixin:
             self._invalidate_grid_cache()
             self.update()
 
+    def set_payload_opacity(self, opacity: int) -> None:
+        try:
+            value = int(opacity)
+        except (TypeError, ValueError):
+            value = getattr(self, "_payload_opacity", 100)
+        value = max(0, min(value, 100))
+        if value != getattr(self, "_payload_opacity", 100):
+            self._payload_opacity = value
+            self.update()
+
     def set_drag_enabled(self, enabled: bool) -> None:
         enabled_flag = bool(enabled)
         if enabled_flag != self._drag_enabled:

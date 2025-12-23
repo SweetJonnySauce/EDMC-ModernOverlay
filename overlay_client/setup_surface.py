@@ -88,6 +88,11 @@ class SetupSurfaceMixin:
         self._current_mode_profile = self._mode_profile.resolve("inactive", self._mode_profile_overrides)
         self._payload_model = payload_model_factory(self._trace_legacy_store_event)
         self._background_opacity: float = 0.0
+        try:
+            payload_opacity = int(getattr(initial, "global_payload_opacity", 100))
+        except (TypeError, ValueError):
+            payload_opacity = 100
+        self._payload_opacity: int = max(0, min(payload_opacity, 100))
         self._gridlines_enabled: bool = False
         self._gridline_spacing: int = 120
         self._grid_pixmap: Optional[QPixmap] = None
