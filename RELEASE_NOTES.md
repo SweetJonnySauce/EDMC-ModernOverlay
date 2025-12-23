@@ -11,6 +11,7 @@
   - Fixes #42 and #42. Address nuanced backwards compatibility issues for vector images and marker labels that mainly affected EDR Navigation.
   - Fixed #21. EDR Help and Docking payloads were not clearing when EDR sent the clear message. Modified the shim layer to allow positional arguments (see #13)
   - Fixed #46. Fedora install now checks to see if the `flatpak-spawn` package is installed. (Fedora packages it separately.)
+  - Tweaked some preference settings for a more consistent UI/UX.
   
 ## 0.7.5
 - Features & Improvements:
