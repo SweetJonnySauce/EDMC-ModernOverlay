@@ -80,7 +80,9 @@
           "bioscan_radar_"
         ],
         "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
+        "payloadJustification": "left",
+        "markerLabelPosition": "centered",
+        "backgroundColor": null
       },
       "Bioscan Summary": {
         "idPrefixes": [
@@ -178,7 +180,8 @@
         "idPrefixGroupAnchor": "top",
         "offsetX": 640,
         "offsetY": 5,
-        "payloadJustification": "left"
+        "payloadJustification": "left",
+        "markerLabelPosition": "below"
       },
       "Edr Sitrep": {
         "idPrefixes": [

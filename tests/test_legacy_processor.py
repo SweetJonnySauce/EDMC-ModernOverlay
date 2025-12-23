@@ -99,6 +99,47 @@ def test_process_vector_payload():
     assert data["points"][2]["text"] == "Target"
 
 
+def test_process_vector_single_point_marker_is_kept():
+    store = LegacyItemStore()
+    changed = process_legacy_payload(
+        store,
+        {
+            "type": "shape",
+            "shape": "vect",
+            "id": "vect-single-marker",
+            "color": "white",
+            "vector": [{"x": 1, "y": 2, "marker": "cross", "text": "Here"}],
+            "ttl": 6,
+        },
+    )
+    assert changed is True
+    item = store.get("vect-single-marker")
+    assert item is not None
+    assert item.kind == "vector"
+    data = item.data
+    assert data["base_color"] == "white"
+    assert len(data["points"]) == 1
+    assert data["points"][0]["marker"] == "cross"
+    assert data["points"][0]["text"] == "Here"
+
+
+def test_process_vector_single_point_without_marker_is_dropped():
+    store = LegacyItemStore()
+    changed = process_legacy_payload(
+        store,
+        {
+            "type": "shape",
+            "shape": "vect",
+            "id": "vect-single-no-marker",
+            "color": "white",
+            "vector": [{"x": 1, "y": 2}],
+            "ttl": 6,
+        },
+    )
+    assert changed is False
+    assert store.get("vect-single-no-marker") is None
+
+
 def test_ttl_purge(monkeypatch: pytest.MonkeyPatch):
     store = LegacyItemStore()
 

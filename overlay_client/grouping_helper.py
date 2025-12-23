@@ -98,6 +98,7 @@ class FillGroupingHelper:
             _, anchor_token = self._group_preserve_fill_aspect(plugin_label, suffix)
             offset_x, offset_y = self._group_offsets(plugin_label, suffix)
             justification = self._group_payload_justification(plugin_label, suffix)
+            marker_label_position = self._group_marker_label_position(plugin_label, suffix)
             background_color, background_border_width = self._group_background(plugin_label, suffix)
             anchor_x, anchor_y = self._anchor_from_bounds(bounds, anchor_token)
             band_min_x = _normalise(bounds.min_x, base_width)
@@ -123,6 +124,7 @@ class FillGroupingHelper:
                     bounds_max_y=bounds.max_y,
                     anchor_token=(anchor_token or "nw").lower(),
                     payload_justification=justification,
+                    marker_label_position=marker_label_position,
                     background_color=background_color,
                     background_border_width=int(background_border_width or 0),
                 ),
@@ -165,6 +167,11 @@ class FillGroupingHelper:
         if self._override_manager is None:
             return "left"
         return self._override_manager.group_payload_justification(plugin_label, suffix)
+
+    def _group_marker_label_position(self, plugin_label: Optional[str], suffix: Optional[str]) -> str:
+        if self._override_manager is None:
+            return "below"
+        return self._override_manager.group_marker_label_position(plugin_label, suffix)
 
     def _group_background(self, plugin_label: Optional[str], suffix: Optional[str]) -> Tuple[Optional[str], Optional[int]]:
         if self._override_manager is None:

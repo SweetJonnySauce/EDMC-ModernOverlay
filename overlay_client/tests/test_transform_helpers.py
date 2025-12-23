@@ -289,6 +289,41 @@ def test_compute_vector_transform_guard_insufficient_points():
     assert trace_cb is None
 
 
+def test_compute_vector_transform_single_point_marker():
+    fill = _fill(scale=1.0)
+    mapper = _mapper(scale=1.0, mode=ScaleMode.FIT)
+    result = compute_vector_transform(
+        "plugin",
+        "item",
+        fill,
+        transform_context=None,
+        transform_meta=None,
+        mapper=mapper,
+        group_transform=None,
+        item_data={"base_color": "#fff"},
+        raw_points=[{"x": 1, "y": 2, "marker": "cross"}],
+        offset_x=0.0,
+        offset_y=0.0,
+        selected_anchor=None,
+        base_anchor_point=None,
+        anchor_for_transform=None,
+        base_translation_dx=0.0,
+        base_translation_dy=0.0,
+        trace_fn=None,
+        collect_only=False,
+    )
+    vector_payload, screen_points, overlay_bounds, base_overlay_bounds, effective_anchor, raw_min_x, trace_cb = result
+    assert vector_payload is not None
+    assert vector_payload["points"][0]["x"] == 1.0
+    assert vector_payload["points"][0]["y"] == 2.0
+    assert screen_points == [(1, 2)]
+    assert overlay_bounds == (1.0, 2.0, 1.0, 2.0)
+    assert base_overlay_bounds == (1.0, 2.0, 1.0, 2.0)
+    assert effective_anchor is None
+    assert raw_min_x == 1.0
+    assert trace_cb is None
+
+
 def test_compute_vector_transform_basic_points_and_bounds():
     fill = _fill(scale=1.0, base_offset_x=2.0, base_offset_y=3.0)
     mapper = _mapper(scale=1.0, mode=ScaleMode.FIT)

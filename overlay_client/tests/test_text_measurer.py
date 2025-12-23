@@ -24,3 +24,25 @@ def test_injected_text_measurer_used_without_qt() -> None:
     assert width == 123
     assert ascent == 7
     assert descent == 3
+
+
+def test_measure_text_multiline_uses_line_spacing() -> None:
+    class Dummy:
+        pass
+
+    window = Dummy()
+    window._text_measurer = lambda text, point_size, font_family: _MeasuredText(
+        width=len(text) * 5,
+        ascent=6,
+        descent=4,
+    )  # type: ignore[attr-defined]
+    window._text_cache = None  # type: ignore[attr-defined]
+    window._measure_stats = {}  # type: ignore[attr-defined]
+    window._font_family = "TestFont"  # type: ignore[attr-defined]
+    window._apply_font_fallbacks = lambda *args, **kwargs: None  # type: ignore[attr-defined]
+
+    text = "aa\nbbb"
+    width, ascent, descent = OverlayWindow._measure_text(window, text, 10.0, None)
+    assert width == 15
+    assert ascent == 6
+    assert descent == 14

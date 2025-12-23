@@ -3,6 +3,6 @@
   "overlay_logs_to_keep": 5,
   "payload_logging": {
     "exclude_plugins": [],
-    "overlay_payload_log_enabled": true
+    "overlay_payload_log_enabled": false
   }
 }

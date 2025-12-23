@@ -16,6 +16,16 @@ from overlay_client.viewport_transform import LegacyMapper  # type: ignore
 TraceFn = Callable[[str, Mapping[str, Any]], None]
 
 
+def _point_has_marker_or_text(point: Mapping[str, Any]) -> bool:
+    marker = point.get("marker")
+    if marker:
+        return True
+    text = point.get("text")
+    if text is None:
+        return False
+    return str(text) != ""
+
+
 def apply_inverse_group_scale(
     value_x: float,
     value_y: float,
@@ -366,7 +376,7 @@ def compute_vector_transform(
             transformed_anchor[0] + translation_dx,
             transformed_anchor[1] + translation_dy,
         )
-    if len(transformed_points) < 2:
+    if len(transformed_points) < 2 and not any(_point_has_marker_or_text(pt) for pt in transformed_points):
         return None, [], None, None, None, raw_min_x, None
     vector_payload: Mapping[str, Any] = {
         "base_color": item_data.get("base_color"),

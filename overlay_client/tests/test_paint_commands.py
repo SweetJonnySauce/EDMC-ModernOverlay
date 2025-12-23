@@ -108,11 +108,22 @@ def test_vector_paint_invokes_render_with_adapter(monkeypatch):
     painter = _RecordingPainter()
     seen: Dict[str, Any] = {}
 
-    def fake_render_vector(adapter, payload, scale_x, scale_y, *, offset_x, offset_y, trace=None):
+    def fake_render_vector(
+        adapter,
+        payload,
+        scale_x,
+        scale_y,
+        *,
+        offset_x,
+        offset_y,
+        marker_label_position=None,
+        trace=None,
+    ):
         seen["adapter"] = adapter
         seen["payload"] = payload
         seen["scale"] = (scale_x, scale_y)
         seen["offsets"] = (offset_x, offset_y)
+        seen["marker_label_position"] = marker_label_position
         seen["trace"] = trace
 
     monkeypatch.setattr("overlay_client.paint_commands.render_vector", fake_render_vector)
@@ -134,6 +145,7 @@ def test_vector_paint_invokes_render_with_adapter(monkeypatch):
     assert seen["payload"] == {"k": "v"}
     assert seen["scale"] == (2.0, 2.0)
     assert seen["offsets"] == (11.5, 22.5)
+    assert seen["marker_label_position"] == "below"
     assert window._registered["item-vec"] == (14, 26)
 
 
@@ -146,3 +158,60 @@ def test_vector_adapter_draw_circle_uses_line_widths():
     # Confirm pen/brush set before drawEllipse call.
     draw_calls = [call for call in painter.calls if call and call[0] == "drawEllipse"]
     assert draw_calls, "drawEllipse not invoked"
+
+
+def test_vector_adapter_draw_text_multiline_splits_lines(monkeypatch):
+    class _FakeMetrics:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def lineSpacing(self) -> int:  # noqa: N802
+            return 12
+
+        def height(self) -> int:
+            return 12
+
+        def ascent(self) -> int:
+            return 7
+
+        def descent(self) -> int:
+            return 3
+
+    monkeypatch.setattr("overlay_client.paint_commands.QFontMetrics", _FakeMetrics)
+    window = _StubWindow()
+    painter = _RecordingPainter()
+    adapter = _QtVectorPainterAdapter(window, painter)
+
+    adapter.draw_text(10, 20, "One\nTwo", "white")
+
+    draw_calls = [call for call in painter.calls if call[0] == "drawText"]
+    assert len(draw_calls) == 2
+    baseline = int(round(20 + 7))
+    assert draw_calls[0] == ("drawText", 10, baseline, "One")
+    assert draw_calls[1] == ("drawText", 10, baseline + 12, "Two")
+
+
+def test_message_paint_draws_multiline_text():
+    window = _StubWindow()
+    painter = _RecordingPainter()
+    cmd = _MessagePaintCommand(
+        group_key=("g", None),
+        group_transform=None,
+        legacy_item=_StubLegacyItem("item-msg"),
+        bounds=None,
+        text="Hello\r\nWorld",
+        color=QColor("white"),
+        point_size=12.0,
+        x=10,
+        baseline=100,
+        line_spacing=5,
+        cycle_anchor=None,
+    )
+
+    cmd.paint(window, painter, offset_x=0, offset_y=0)
+
+    draw_calls = [call for call in painter.calls if call[0] == "drawText"]
+    assert draw_calls == [
+        ("drawText", 10, 100, "Hello"),
+        ("drawText", 10, 105, "World"),
+    ]
