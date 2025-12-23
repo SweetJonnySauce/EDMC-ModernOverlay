@@ -238,4 +238,19 @@ class OffsetSelectorWidget(tk.Frame):
             self._apply_arrow_colors()
         return removed
 
+    def set_pins(self, directions: object | None) -> None:
+        """Replace pinned highlights without emitting change callbacks."""
+
+        if not directions:
+            new_pins: set[str] = set()
+        else:
+            new_pins = {str(item).lower() for item in directions if str(item).lower() in {"up", "down", "left", "right"}}
+        if "left" in new_pins and "right" in new_pins:
+            new_pins.discard("right")
+        if "up" in new_pins and "down" in new_pins:
+            new_pins.discard("down")
+        if new_pins == self._pinned:
+            return
+        self._pinned = new_pins
+        self._apply_arrow_colors()
 
