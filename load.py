@@ -1452,8 +1452,6 @@ class _PluginRuntime:
             }
             if not send_overlay_message(payload):
                 raise RuntimeError("Failed to send font preview to overlay")
-        else:
-            LOGGER.debug("Sent test message to overlay via API: %s", text)
 
     def preview_overlay_opacity(self, value: float) -> None:
         try:
