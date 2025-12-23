@@ -161,6 +161,80 @@ def _format_physical_clamp_overrides(overrides: Mapping[str, float]) -> str:
     return ", ".join(tokens)
 
 
+def _attach_tooltip(widget, text: str, *, nb_module=None, delay_ms: int = 500) -> None:
+    if not text:
+        return
+    if nb_module is not None:
+        tooltip_factory = (
+            getattr(nb_module, "ToolTip", None)
+            or getattr(nb_module, "Tooltip", None)
+            or getattr(nb_module, "CreateToolTip", None)
+        )
+        if tooltip_factory:
+            try:
+                tooltip_factory(widget, text)
+                return
+            except Exception:
+                LOGGER.debug("Failed to attach notebook tooltip helper", exc_info=True)
+    try:
+        import tkinter as tk
+    except Exception:
+        return
+
+    tip_window = None
+    after_id = None
+
+    def hide_tip() -> None:
+        nonlocal tip_window, after_id
+        if after_id is not None:
+            try:
+                widget.after_cancel(after_id)
+            except Exception:
+                pass
+            after_id = None
+        if tip_window is not None:
+            try:
+                tip_window.destroy()
+            except Exception:
+                pass
+            tip_window = None
+
+    def show_tip() -> None:
+        nonlocal tip_window
+        if tip_window is not None:
+            return
+        try:
+            x = widget.winfo_rootx() + 16
+            y = widget.winfo_rooty() + widget.winfo_height() + 8
+        except Exception:
+            return
+        tip_window = tk.Toplevel(widget)
+        tip_window.wm_overrideredirect(True)
+        try:
+            tip_window.attributes("-topmost", True)
+        except Exception:
+            pass
+        label = tk.Label(
+            tip_window,
+            text=text,
+            background="#ffffe0",
+            relief="solid",
+            borderwidth=1,
+            justify="left",
+        )
+        label.pack(ipadx=6, ipady=3)
+        tip_window.wm_geometry(f"+{x}+{y}")
+
+    def schedule_tip(_event=None) -> None:
+        nonlocal after_id
+        hide_tip()
+        after_id = widget.after(delay_ms, show_tip)
+
+    widget.bind("<Enter>", schedule_tip, add="+")
+    widget.bind("<Leave>", lambda _event: hide_tip(), add="+")
+    widget.bind("<ButtonPress>", lambda _event: hide_tip(), add="+")
+
+
 def _coerce_physical_clamp_overrides(
     value: Any,
     default: Optional[Mapping[str, float]],
@@ -826,7 +900,12 @@ class PreferencesPanel:
         max_spin.pack(side="left")
         max_spin.bind("<FocusOut>", self._on_font_bounds_event)
         max_spin.bind("<Return>", self._on_font_bounds_event)
-        step_label = nb.Label(font_row, text="Step:")
+        step_label = nb.Label(font_row, text="Font Step:")
+        _attach_tooltip(
+            step_label,
+            'Font Step is the difference in font size between "Small", "Normal", "Large", and "Huge" font sizes.',
+            nb_module=nb,
+        )
         step_label.pack(side="left", padx=(12, 4))
         step_spin = ttk.Spinbox(
             font_row,
