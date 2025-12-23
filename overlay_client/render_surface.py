@@ -1004,6 +1004,7 @@ class RenderSurfaceMixin:
             self._font_scale_diag,
             self._font_min_point,
             self._font_max_point,
+            getattr(self, "_legacy_font_step", 2.0),
         )
 
     def _invalidate_text_cache(self, reason: Optional[str] = None) -> None:

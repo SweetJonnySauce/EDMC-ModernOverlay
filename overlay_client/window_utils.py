@@ -80,6 +80,7 @@ def legacy_preset_point_size(
     font_scale_diag: float,
     font_min_point: float,
     font_max_point: float,
+    legacy_font_step: float,
 ) -> float:
     normal_point = viewport_scaled_point_size(
         state,
@@ -90,11 +91,16 @@ def legacy_preset_point_size(
         mapper,
         use_physical=True,
     )
+    try:
+        step = float(legacy_font_step)
+    except (TypeError, ValueError):
+        step = 2.0
+    step = max(0.0, min(step, 10.0))
     offsets = {
-        "small": -2.0,
+        "small": -step,
         "normal": 0.0,
-        "large": 2.0,
-        "huge": 4.0,
+        "large": step,
+        "huge": step * 2.0,
     }
     target = normal_point + offsets.get(preset.lower(), 0.0)
     return max(1.0, target)

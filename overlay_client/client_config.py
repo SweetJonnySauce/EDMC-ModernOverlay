@@ -21,6 +21,7 @@ class InitialClientSettings:
     show_debug_overlay: bool = False
     min_font_point: float = 6.0
     max_font_point: float = 24.0
+    legacy_font_step: float = 2.0
     status_bottom_margin: int = 20
     debug_overlay_corner: str = "NW"
     status_corner: str = "SW"
@@ -52,6 +53,7 @@ class DeveloperHelperConfig:
     show_debug_overlay: Optional[bool] = None
     min_font_point: Optional[float] = None
     max_font_point: Optional[float] = None
+    legacy_font_step: Optional[float] = None
     status_bottom_margin: Optional[int] = None
     debug_overlay_corner: Optional[str] = None
     status_corner: Optional[str] = None
@@ -123,6 +125,7 @@ class DeveloperHelperConfig:
             show_debug_overlay=_bool(payload.get("show_debug_overlay"), None),
             min_font_point=_float(payload.get("min_font_point"), None),
             max_font_point=_float(payload.get("max_font_point"), None),
+            legacy_font_step=_float(payload.get("legacy_font_step"), None),
             status_bottom_margin=_int(payload.get("status_bottom_margin"), None),
             debug_overlay_corner=_str(payload.get("debug_overlay_corner"), None),
             title_bar_enabled=_bool(payload.get("title_bar_enabled"), None),
@@ -171,8 +174,13 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         max_font = float(data.get("max_font_point", defaults.max_font_point))
     except (TypeError, ValueError):
         max_font = defaults.max_font_point
+    try:
+        legacy_font_step = float(data.get("legacy_font_step", defaults.legacy_font_step))
+    except (TypeError, ValueError):
+        legacy_font_step = defaults.legacy_font_step
     min_font = max(1.0, min(min_font, 48.0))
     max_font = max(min_font, min(max_font, 72.0))
+    legacy_font_step = max(0.0, min(legacy_font_step, 10.0))
     try:
         bottom_margin = int(data.get("status_bottom_margin", defaults.status_bottom_margin))
     except (TypeError, ValueError):
@@ -232,6 +240,7 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         show_debug_overlay=show_debug_overlay,
         min_font_point=min_font,
         max_font_point=max_font,
+        legacy_font_step=legacy_font_step,
         status_bottom_margin=bottom_margin,
         debug_overlay_corner=corner_value,
         title_bar_enabled=title_bar_enabled,

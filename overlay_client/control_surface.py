@@ -425,6 +425,21 @@ class ControlSurfaceMixin:
             self.update()
             self._notify_font_bounds_changed()
 
+    def set_legacy_font_step(self, step: Optional[float]) -> None:
+        if step is None:
+            return
+        try:
+            step_value = float(step)
+        except (TypeError, ValueError):
+            step_value = getattr(self, "_legacy_font_step", 2.0)
+        step_value = max(0.0, min(step_value, 10.0))
+        if math.isclose(step_value, getattr(self, "_legacy_font_step", 2.0), rel_tol=1e-3):
+            return
+        self._legacy_font_step = step_value
+        _CLIENT_LOGGER.debug("Legacy font step updated: %.1f", self._legacy_font_step)
+        self._refresh_legacy_items()
+        self.update()
+
     def display_message(self, message: str, *, ttl: Optional[float] = None) -> None:
         self._message_clear_timer.stop()
         self._state["message"] = message

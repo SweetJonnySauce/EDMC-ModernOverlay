@@ -43,6 +43,7 @@ class DeveloperHelperController:
         window.set_follow_enabled(True)
         window.set_debug_overlay(initial.show_debug_overlay)
         window.set_font_bounds(initial.min_font_point, initial.max_font_point)
+        window.set_legacy_font_step(getattr(initial, "legacy_font_step", 2.0))
         window.set_status_bottom_margin(initial.status_bottom_margin)
         window.set_debug_overlay_corner(getattr(initial, "debug_overlay_corner", "NW"))
         window.set_title_bar_compensation(initial.title_bar_enabled, initial.title_bar_height)
@@ -83,6 +84,8 @@ class DeveloperHelperController:
             window.set_debug_overlay(config.show_debug_overlay)
         if config.min_font_point is not None or config.max_font_point is not None:
             window.set_font_bounds(config.min_font_point, config.max_font_point)
+        if config.legacy_font_step is not None:
+            window.set_legacy_font_step(config.legacy_font_step)
         if config.cycle_payload_ids is not None:
             window.set_cycle_payload_enabled(config.cycle_payload_ids)
         if config.copy_payload_id_on_cycle is not None:
