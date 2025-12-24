@@ -5,6 +5,6 @@
     "exclude_plugins": [
       "bgs-tally"
     ],
-    "overlay_payload_log_enabled": true
+    "overlay_payload_log_enabled": false
   }
 }

@@ -24,7 +24,7 @@
   "nudge_overflow_payloads": false,
   "payload_nudge_gutter": 20,
   "status_message_gutter": 20,
-  "log_payloads": true,
+  "log_payloads": false,
   "payload_log_delay_seconds": 0.5,
   "controller_launch_command": "!ovr"
 }
