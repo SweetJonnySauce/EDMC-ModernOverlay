@@ -18,6 +18,8 @@
   - Fixed [#27](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/27). When a plugin sends a clear payload it's typically just ttl=0 , text="". This gets cached and the hud target in controller mode is misrepresented. Add capability to show the last visible (or max) payload size while in controller mode.
   - Cleaned up some inconsistencies with pref pane, internal messages being sent, and plugged `define_plugin_group` api into `utils/plugin_group_manager.py` for add/update operations.
   - Cleaned up a noisy log message (client connected)
+  - Addresses [#56](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/56) by creating a vt_transparency.html asset you can download and view.
+
   
 ## 0.7.5
 - Features & Improvements:

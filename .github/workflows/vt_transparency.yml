@@ -83,13 +83,47 @@ jobs:
                           out_lines.append(content.strip())
                           out_lines.append("")
 
-          report_path = pathlib.Path("vt-transparency.md")
-          report_path.write_text("\n".join(out_lines).strip() + "\n", encoding="utf-8")
+          # Generate a minimal HTML version for attachment
+          import html
+          import re
 
-          # Attach link text for later release-note update
-          link = f"https://github.com/{repo}/releases/download/{release_tag}/vt-transparency.md"
-          note_path = pathlib.Path("vt-transparency-link.txt")
-          note_path.write_text(f"VirusTotal transparency report: {link}\n", encoding="utf-8")
+          heading_text = release_tag or "VirusTotal transparency report"
+          badge_regex = re.compile(r"\[!\[(?P<label>.+?)\]\((?P<badge>.+?)\)\]\((?P<link>.+?)\)")
+
+          html_lines = [
+              "<!DOCTYPE html>",
+              "<html>",
+              "<head>",
+              '<meta charset="utf-8" />',
+              f"<title>{html.escape(heading_text)}</title>",
+              "<style>",
+              "body { font-family: Arial, sans-serif; color: #e7e7e7; background: #0f1114; padding: 24px; }",
+              "a { color: #7fb0ff; }",
+              ".badges p { margin: 8px 0; }",
+              "</style>",
+              "</head>",
+              "<body>",
+          ]
+          html_lines.append(f"<h2>{html.escape(heading_text)}</h2>")
+          html_lines.append('<div class="badges">')
+
+          for line in out_lines:
+              raw_line = line.strip()
+              if not raw_line:
+                  html_lines.append("")
+                  continue
+              m = badge_regex.match(raw_line)
+              if m:
+                  label = html.escape(m.group("label"))
+                  badge = html.escape(m.group("badge"))
+                  link = html.escape(m.group("link"))
+                  html_lines.append(f'<p><a href="{link}"><img alt="{label}" src="{badge}" /></a></p>')
+              else:
+                  html_lines.append(f"<p>{html.escape(line)}</p>")
+
+          html_lines.extend(["</div>", "</body>", "</html>"])
+          report_html = pathlib.Path("vt-transparency.html")
+          report_html.write_text("\n".join(html_lines).strip() + "\n", encoding="utf-8")
           PY
 
       - name: Upload report to release
@@ -97,35 +131,4 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.release_tag }}
           files: |
-            vt-transparency.md
-
-      - name: Append link to release notes
-        env:
-          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import os
-          import requests
-
-          token = os.environ["GITHUB_TOKEN"]
-          repo = os.environ["GITHUB_REPOSITORY"]
-          release_tag = os.environ["RELEASE_TAG"]
-          session = requests.Session()
-          session.headers["Authorization"] = f"Bearer {token}"
-          session.headers["Accept"] = "application/vnd.github+json"
-
-          resp = session.get(f"https://api.github.com/repos/{repo}/releases/tags/{release_tag}", timeout=30)
-          resp.raise_for_status()
-          release = resp.json()
-          rel_id = release["id"]
-          body = release.get("body") or ""
-          link = f"https://github.com/{repo}/releases/download/{release_tag}/vt-transparency.md"
-          line = f"VirusTotal transparency report: {link}"
-          if line in body:
-              exit(0)
-          new_body = (body + "\n\n" + line).strip()
-          patch = session.patch(f"https://api.github.com/repos/{repo}/releases/{rel_id}", json={"body": new_body}, timeout=30)
-          patch.raise_for_status()
-          PY
+            vt-transparency.html

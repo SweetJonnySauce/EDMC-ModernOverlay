@@ -331,6 +331,7 @@ jobs:
       publish_release_notes: false
       release_tag: ${{ github.event.release.tag_name || github.ref_name }}
       artifact_suffix: win-inno
+      force_upload: true
 
   vt_scan_source:
     permissions:
@@ -352,13 +353,6 @@ jobs:
     name: VirusTotal transparency report
     permissions:
       contents: write
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name || github.repository }}/vt-reports/${{ github.event.release.tag_name || github.ref_name }}/
-    outputs:
-      report_url: ${{ steps.append_link.outputs.report_url }}
     needs:
       - vt_scan_bundles
       - vt_scan_inno
@@ -418,10 +412,6 @@ jobs:
                   lines.append(content)
                   lines.append("")
 
-          # Write markdown report
-          report_md = pathlib.Path("vt-transparency.md")
-          report_md.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
-
           # Generate a minimal HTML version for attachment
           import html
           import re
@@ -473,82 +463,14 @@ jobs:
           html_lines.extend(["</div>", "</body>", "</html>"])
           report_html = pathlib.Path("vt-transparency.html")
           report_html.write_text("\n".join(html_lines).strip() + "\n", encoding="utf-8")
-          print(f"Wrote {report_md} and {report_html} with {len(fragments)} fragments.")
+          print(f"Wrote {report_html} with {len(fragments)} fragments.")
           PY
-      - name: Prepare GitHub Pages content
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          tag="${RELEASE_TAG:-run-${GITHUB_RUN_ID}}"
-          root="vt_pages/vt-reports/${tag}"
-          mkdir -p "$root"
-          cp vt-transparency.html "$root/index.html"
-          # Add a minimal landing page
-          mkdir -p vt_pages
-          cat > vt_pages/index.md <<'EOF'
-          # VirusTotal transparency reports
-
-          Reports live under `vt-reports/<tag>/`.
-          EOF
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload transparency report to release
+        uses: softprops/action-gh-release@v2
         with:
-          path: vt_pages
-
-      - name: Deploy transparency report to GitHub Pages
-        id: deploy_pages
-        uses: actions/deploy-pages@v4
-
-      - name: Append transparency link to release notes
-        id: append_link
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PAGES_URL: ${{ steps.deploy_pages.outputs.page_url }}
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import os
-          import requests
-
-          token = os.environ["GITHUB_TOKEN"]
-          repo = os.environ["GITHUB_REPOSITORY"]
-          release_tag = os.environ.get("RELEASE_TAG", "")
-          run_id = os.environ.get("GITHUB_RUN_ID", "")
-          pages_url = os.environ.get("PAGES_URL", "").rstrip("/")
-
-          session = requests.Session()
-          session.headers["Authorization"] = f"Bearer {token}"
-          session.headers["Accept"] = "application/vnd.github+json"
-
-          owner, name = repo.split("/", 1)
-          page_tag = release_tag or f"run-{run_id}"
-          base_url = pages_url or f"https://{owner}.github.io/{name}"
-          asset_url = f"{base_url}/vt-reports/{page_tag}/"
-
-          resp = session.get(f"https://api.github.com/repos/{repo}/releases/tags/{release_tag}", timeout=30)
-          resp.raise_for_status()
-          release = resp.json()
-          rel_id = release["id"]
-          body = release.get("body") or ""
-          markdown_link = f"[VirusTotal Reports]({asset_url})"
-          if markdown_link in body:
-              raise SystemExit("Transparency link already present; skipping update.")
-          new_body = (body + "\n\n" + markdown_link).strip()
-          patch = session.patch(f"https://api.github.com/repos/{repo}/releases/{rel_id}", json={"body": new_body}, timeout=30)
-          patch.raise_for_status()
-
-          # Emit asset_url for downstream jobs
-          gh_output = os.environ.get("GITHUB_OUTPUT")
-          if gh_output:
-              with open(gh_output, "a", encoding="utf-8") as fh:
-                  fh.write(f"report_url={asset_url}\n")
-          PY
+          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
+          files: |
+            vt-transparency.html
 
   update_readme_vt:
     name: Update README VirusTotal link
@@ -573,26 +495,12 @@ jobs:
 
       - name: Update README link
         id: update_readme
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
-          REPORT_URL: ${{ needs.vt_transparency.outputs.report_url }}
-          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           python - <<'PY'
           import os
           import pathlib
           import re
-
-          repo = os.environ.get("REPOSITORY", "")
-          release_tag = os.environ.get("RELEASE_TAG", "").strip()
-          report_url = os.environ.get("REPORT_URL", "").strip()
-
-          if repo and release_tag and not report_url:
-              owner, name = repo.split("/", 1)
-              report_url = f"https://{owner}.github.io/{name}/vt-reports/{release_tag}/"
-
-          report_url = report_url.rstrip("/") + "/" if report_url else ""
 
           # Try to get the source VT direct link from the source badge fragment
           source_vt_url = ""
@@ -613,7 +521,7 @@ jobs:
               if source_vt_url:
                   break
 
-          target_url = source_vt_url or report_url
+          target_url = source_vt_url
           if not target_url:
               print("No VT URL available to update README.")
               changed = False
@@ -657,7 +565,7 @@ jobs:
               changed = False
           else:
               readme.write_text(text, encoding="utf-8")
-              print(f"Updated README VirusTotal link to {report_url}")
+              print(f"Updated README VirusTotal link to {target_url}")
               changed = True
 
           gh_output = os.environ.get("GITHUB_OUTPUT")
