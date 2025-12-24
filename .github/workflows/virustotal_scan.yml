@@ -25,6 +25,10 @@ on:
         required: false
         type: string
         default: ""
+      force_upload:
+        required: false
+        type: boolean
+        default: false
     outputs:
       scan_status:
         description: "Status of the VT scan (success/flagged/error)"
@@ -68,6 +72,7 @@ jobs:
           PUBLISH_RELEASE_NOTES: ${{ inputs.publish_release_notes }}
           ARTIFACT_NAME: ${{ inputs.artifact }}
           ARTIFACT_SUFFIX: ${{ inputs.artifact_suffix }}
+          FORCE_UPLOAD: ${{ inputs.force_upload }}
           VT_BADGE_PATH: vt_badges.md
           VT_STATUS_PATH: vt_status.txt
         run: |
@@ -91,6 +96,7 @@ jobs:
           status_path = Path(os.environ.get("VT_STATUS_PATH") or "vt_status.txt")
           artifact_name = os.environ.get("ARTIFACT_NAME") or ""
           artifact_suffix = os.environ.get("ARTIFACT_SUFFIX") or ""
+          force_upload = (os.environ.get("FORCE_UPLOAD") or "").lower() in ("1", "true", "yes", "on")
 
           api_key = os.environ.get("VT_API_KEY") or os.environ.get("VIRUSTOTAL_API_KEY")
           session = requests.Session()
@@ -114,16 +120,16 @@ jobs:
               print(f"Scanning {target} ({sha})", flush=True)
               print(f"VT report URL: {vt_url}", flush=True)
 
-
-              resp = session.get(f"https://www.virustotal.com/api/v3/files/{sha}", timeout=30)
-              if resp.status_code == 200:
-                  data = resp.json().get("data", {})
-                  stats = data.get("attributes", {}).get("last_analysis_stats")
-                  if stats:
-                      print(f"Existing VT stats: {stats}", flush=True)
-                      print(f"VT report URL: {vt_url}", flush=True)
-                      clean = not (stats.get("malicious", 0) or stats.get("suspicious", 0))
-                      return clean, sha, vt_url, stats
+              if not force_upload:
+                  resp = session.get(f"https://www.virustotal.com/api/v3/files/{sha}", timeout=30)
+                  if resp.status_code == 200:
+                      data = resp.json().get("data", {})
+                      stats = data.get("attributes", {}).get("last_analysis_stats")
+                      if stats:
+                          print(f"Existing VT stats: {stats}", flush=True)
+                          print(f"VT report URL: {vt_url}", flush=True)
+                          clean = not (stats.get("malicious", 0) or stats.get("suspicious", 0))
+                          return clean, sha, vt_url, stats
 
               with open(target, "rb") as handle:
                   upload = session.post(

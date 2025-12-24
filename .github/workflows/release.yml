@@ -331,6 +331,7 @@ jobs:
       publish_release_notes: false
       release_tag: ${{ github.event.release.tag_name || github.ref_name }}
       artifact_suffix: win-inno
+      force_upload: true
 
   vt_scan_source:
     permissions:
