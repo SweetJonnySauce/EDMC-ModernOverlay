@@ -8,12 +8,14 @@
 - Plugin Developer Features
   - Added `markerLabelPosition` (`below`/`above`/`centered`) to `define_plugin_group` schema/API with default `below`.
   - Added `\n` and `\r\n` functionality to text payloads to support multiline text.
+  - Provide a new option in `define_plugin_group` called `controller_preview_box_mode` (enum: `last` (default),`max`). This is used to determine how to size the orange border that shows up when the overlay controller is open. Some plugins send clear messages or slowly decay their on-screen HUDs so the border will shrink. By setting this property to `last` (default), it will use the last visible payload to determine the size of the orange border. By setting this property to `max`, it will use the largest visible payload seen to determine the size of the orange border. This now also includes a "Reset cached values" button on the pref pane to clear `overlay_group_cache.json` should it go astray.
 - Bug Fixes
   - Fixes [#42](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/42) and [#43](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/43). Address nuanced backwards compatibility issues for vector images and marker labels that mainly affected EDR Navigation.
   - Fixed [#21](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/21). EDR Help and Docking payloads were not clearing when EDR sent the clear message. Modified the shim layer to allow positional arguments (see [#13](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/13))
   - Fixed [#46](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/46). Fedora install now checks to see if the `flatpak-spawn` package is installed. (Fedora packages it separately.)
   - Tweaked some preference settings for a more consistent UI/UX.
   - Fixed [#48](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/48). A "pinned" group in the overlay controller is when it's nudged up next to the edge. The arrow in the controller stays orange when pinned. This fix was to address a problem where pinning did not reset when the plugin group changed in the controller.
+  - Fixed [#27](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/27). When a plugin sends a clear payload it's typically just ttl=0 , text="". This gets cached and the hud target in controller mode is misrepresented. Add capability to show the last visible (or max) payload size while in controller mode.
   
 ## 0.7.5
 - Features & Improvements:
