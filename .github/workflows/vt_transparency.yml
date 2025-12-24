@@ -85,11 +85,6 @@ jobs:
 
           report_path = pathlib.Path("vt-transparency.md")
           report_path.write_text("\n".join(out_lines).strip() + "\n", encoding="utf-8")
-
-          # Attach link text for later release-note update
-          link = f"https://github.com/{repo}/releases/download/{release_tag}/vt-transparency.md"
-          note_path = pathlib.Path("vt-transparency-link.txt")
-          note_path.write_text(f"VirusTotal transparency report: {link}\n", encoding="utf-8")
           PY
 
       - name: Upload report to release
@@ -98,34 +93,3 @@ jobs:
           tag_name: ${{ github.event.inputs.release_tag }}
           files: |
             vt-transparency.md
-
-      - name: Append link to release notes
-        env:
-          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import os
-          import requests
-
-          token = os.environ["GITHUB_TOKEN"]
-          repo = os.environ["GITHUB_REPOSITORY"]
-          release_tag = os.environ["RELEASE_TAG"]
-          session = requests.Session()
-          session.headers["Authorization"] = f"Bearer {token}"
-          session.headers["Accept"] = "application/vnd.github+json"
-
-          resp = session.get(f"https://api.github.com/repos/{repo}/releases/tags/{release_tag}", timeout=30)
-          resp.raise_for_status()
-          release = resp.json()
-          rel_id = release["id"]
-          body = release.get("body") or ""
-          link = f"https://github.com/{repo}/releases/download/{release_tag}/vt-transparency.md"
-          line = f"VirusTotal transparency report: {link}"
-          if line in body:
-              exit(0)
-          new_body = (body + "\n\n" + line).strip()
-          patch = session.patch(f"https://api.github.com/repos/{repo}/releases/{rel_id}", json={"body": new_body}, timeout=30)
-          patch.raise_for_status()
-          PY
