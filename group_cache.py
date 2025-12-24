@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import threading
 import time
 from pathlib import Path
@@ -105,6 +106,35 @@ class GroupPlacementCache:
             controller_ts_val = float(controller_ts)
         except (TypeError, ValueError):
             controller_ts_val = 0.0
+
+        def _safe_float(value: Any, default: float = 0.0) -> float:
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return default
+            if not math.isfinite(number):
+                return default
+            return number
+
+        def _payload_size(payload: Mapping[str, Any]) -> tuple[float, float]:
+            if any(key in payload for key in ("base_min_x", "base_min_y", "base_max_x", "base_max_y", "base_width", "base_height")):
+                min_x = _safe_float(payload.get("base_min_x"))
+                min_y = _safe_float(payload.get("base_min_y"))
+                max_x = _safe_float(payload.get("base_max_x"))
+                max_y = _safe_float(payload.get("base_max_y"))
+                width = _safe_float(payload.get("base_width"), max_x - min_x)
+                height = _safe_float(payload.get("base_height"), max_y - min_y)
+            else:
+                min_x = _safe_float(payload.get("trans_min_x"))
+                min_y = _safe_float(payload.get("trans_min_y"))
+                max_x = _safe_float(payload.get("trans_max_x"))
+                max_y = _safe_float(payload.get("trans_max_y"))
+                width = _safe_float(payload.get("trans_width"), max_x - min_x)
+                height = _safe_float(payload.get("trans_height"), max_y - min_y)
+            if width <= 0.0 or height <= 0.0:
+                width = max(0.0, max_x - min_x)
+                height = max(0.0, max_y - min_y)
+            return width, height
         with self._lock:
             plugin_entry = self._state["groups"].setdefault(plugin_key, {})
             existing = plugin_entry.get(suffix_key)
@@ -112,11 +142,36 @@ class GroupPlacementCache:
             existing_transformed = existing.get("transformed") if isinstance(existing, dict) else None
             if existing_normalized == normalized_payload and existing_transformed == transformed_payload:
                 return
+            existing_last_visible = existing.get("last_visible_transformed") if isinstance(existing, dict) else None
+            existing_max = existing.get("max_transformed") if isinstance(existing, dict) else None
+            last_visible_transformed = dict(existing_last_visible) if isinstance(existing_last_visible, dict) else None
+            max_transformed = dict(existing_max) if isinstance(existing_max, dict) else None
+            width, height = _payload_size(normalized_payload)
+            if width > 0.0 and height > 0.0:
+                base_snapshot = {
+                    "base_min_x": normalized_payload.get("base_min_x"),
+                    "base_min_y": normalized_payload.get("base_min_y"),
+                    "base_max_x": normalized_payload.get("base_max_x"),
+                    "base_max_y": normalized_payload.get("base_max_y"),
+                    "base_width": normalized_payload.get("base_width"),
+                    "base_height": normalized_payload.get("base_height"),
+                }
+                last_visible_transformed = dict(base_snapshot)
+                if isinstance(max_transformed, Mapping):
+                    max_width, max_height = _payload_size(max_transformed)
+                    if width >= max_width and height >= max_height:
+                        max_transformed = dict(base_snapshot)
+                else:
+                    max_transformed = dict(base_snapshot)
             entry_payload: Dict[str, Any] = {
                 "base": normalized_payload,
                 "transformed": transformed_payload,
                 "last_updated": time.time(),
             }
+            if last_visible_transformed is not None:
+                entry_payload["last_visible_transformed"] = last_visible_transformed
+            if max_transformed is not None:
+                entry_payload["max_transformed"] = max_transformed
             if edit_nonce:
                 entry_payload["edit_nonce"] = edit_nonce
             if controller_ts_val > 0.0:
@@ -129,6 +184,25 @@ class GroupPlacementCache:
             }
             self._dirty = True
         self._schedule_flush()
+
+    def reset(self) -> None:
+        """Clear cached groups and persist an empty cache file immediately."""
+        timer = None
+        with self._lock:
+            self._state = _default_state()
+            self._dirty = False
+            self._last_write_metadata.clear()
+            timer = self._flush_timer
+            self._flush_timer = None
+        if timer is not None:
+            try:
+                timer.cancel()
+            except Exception:
+                pass
+        if not self._write_snapshot(self._state):
+            with self._lock:
+                self._dirty = True
+            self._schedule_flush()
 
     def _schedule_flush(self) -> None:
         with self._lock:

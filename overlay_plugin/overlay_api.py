@@ -18,6 +18,7 @@ _MAX_MESSAGE_BYTES = 16_384
 _ANCHOR_CHOICES = {"nw", "ne", "sw", "se", "center", "top", "bottom", "left", "right"}
 _JUSTIFICATION_CHOICES = {"left", "center", "right"}
 _MARKER_LABEL_POSITIONS = {"below", "above", "centered"}
+_CONTROLLER_PREVIEW_BOX_MODES = {"last", "max"}
 _HEX_DIGITS = set("0123456789ABCDEF")
 
 _publisher: Optional[Callable[[Mapping[str, Any]], bool]] = None
@@ -142,6 +143,7 @@ def define_plugin_group(
     id_prefix_offset_y: Optional[Union[int, float]] = None,
     payload_justification: Optional[str] = None,
     marker_label_position: Optional[str] = None,
+    controller_preview_box_mode: Optional[str] = None,
     background_color: Optional[str] = None,
     background_border_width: Optional[Union[int, float]] = None,
 ) -> bool:
@@ -169,12 +171,13 @@ def define_plugin_group(
         and id_prefix_offset_y is None
         and payload_justification is None
         and marker_label_position is None
+        and controller_preview_box_mode is None
         and background_color is None
         and background_border_width is None
     ):
         raise PluginGroupingError(
             "Provide matchingPrefixes, idPrefixGroup, idPrefixes, idPrefixGroupAnchor, "
-            "markerLabelPosition, offsets, payloadJustification, or background fields"
+            "markerLabelPosition, controllerPreviewBoxMode, offsets, payloadJustification, or background fields"
         )
 
     match_list = _normalise_prefixes(matching_prefixes, "matchingPrefixes") if matching_prefixes is not None else None
@@ -199,6 +202,13 @@ def define_plugin_group(
     )
     if marker_label_position_token is not None and id_group_label is None:
         raise PluginGroupingError("idPrefixGroup is required when specifying markerLabelPosition")
+    controller_preview_box_mode_token = (
+        _normalise_controller_preview_box_mode(controller_preview_box_mode)
+        if controller_preview_box_mode is not None
+        else None
+    )
+    if controller_preview_box_mode_token is not None and id_group_label is None:
+        raise PluginGroupingError("idPrefixGroup is required when specifying controllerPreviewBoxMode")
     background_color_token = _normalise_background_color(background_color) if background_color is not None else None
     background_border_width_token = (
         _normalise_border_width(background_border_width, "backgroundBorderWidth")
@@ -218,6 +228,7 @@ def define_plugin_group(
         offset_y=offset_y,
         payload_justification=justification_token,
         marker_label_position=marker_label_position_token,
+        controller_preview_box_mode=controller_preview_box_mode_token,
         background_color=background_color_token,
         background_border_width=background_border_width_token,
     )
@@ -325,6 +336,19 @@ def _normalise_marker_label_position(value: Optional[str]) -> str:
     return token
 
 
+def _normalise_controller_preview_box_mode(value: Optional[str]) -> str:
+    if not isinstance(value, str):
+        raise PluginGroupingError("controllerPreviewBoxMode must be a string")
+    token = value.strip().lower()
+    if not token:
+        raise PluginGroupingError("controllerPreviewBoxMode must be non-empty")
+    if token not in _CONTROLLER_PREVIEW_BOX_MODES:
+        raise PluginGroupingError(
+            "controllerPreviewBoxMode must be one of: " + ", ".join(sorted(_CONTROLLER_PREVIEW_BOX_MODES))
+        )
+    return token
+
+
 def _normalise_offset(value: Union[int, float], field: str) -> float:
     if not isinstance(value, (int, float)):
         raise PluginGroupingError(f"{field} must be a number")
@@ -412,6 +436,7 @@ class _GroupingUpdate:
     offset_y: Optional[float]
     payload_justification: Optional[str]
     marker_label_position: Optional[str]
+    controller_preview_box_mode: Optional[str]
     background_color: Optional[str]
     background_border_width: Optional[int]
 
@@ -506,6 +531,10 @@ class _PluginGroupingStore:
                     if group_entry.get("markerLabelPosition") != update.marker_label_position:
                         group_entry["markerLabelPosition"] = update.marker_label_position
                         mutated = True
+                if update.controller_preview_box_mode is not None:
+                    if group_entry.get("controllerPreviewBoxMode") != update.controller_preview_box_mode:
+                        group_entry["controllerPreviewBoxMode"] = update.controller_preview_box_mode
+                        mutated = True
                 if update.offset_x is not None:
                     if group_entry.get("offsetX") != update.offset_x:
                         group_entry["offsetX"] = update.offset_x
@@ -534,12 +563,13 @@ class _PluginGroupingStore:
                     or update.offset_x is not None
                     or update.offset_y is not None
                     or update.marker_label_position is not None
+                    or update.controller_preview_box_mode is not None
                     or update.background_color is not None
                     or update.background_border_width is not None
                 ):
                     raise PluginGroupingError(
                         "idPrefixGroup is required when specifying idPrefixes, idPrefixGroupAnchor, "
-                        "markerLabelPosition, offsets, or background fields"
+                        "markerLabelPosition, controllerPreviewBoxMode, offsets, or background fields"
                     )
 
         if mutated:

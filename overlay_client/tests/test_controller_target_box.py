@@ -47,7 +47,7 @@ def test_target_box_draws_only_for_active_group_when_active_mode():
     window._last_overlay_bounds_for_target = {("PluginA", "Group1"): bounds}
     window._last_transform_by_group = {("PluginA", "Group1"): SimpleNamespace(anchor_token="nw")}
     window._resolve_bounds_for_active_group = lambda ag, bm: bm.get(ag)
-    window._fallback_bounds_from_cache = lambda ag, mapper=None, anchor_override=None: (None, None)
+    window._fallback_bounds_from_cache = lambda ag, mapper=None, anchor_override=None, **_kwargs: (None, None)
     window._line_width = lambda key: 1
     window._compute_legacy_mapper = lambda: _make_mapper(1.0)
     window._overlay_bounds_to_rect = lambda b, m: rs.QRect(int(b.min_x), int(b.min_y), int(b.max_x - b.min_x), int(b.max_y - b.min_y))
@@ -85,7 +85,9 @@ def test_target_box_uses_base_bounds_when_no_transform(tmp_path=None):
     window._last_overlay_bounds_for_target = {}
     window._last_transform_by_group = {}
     window._resolve_bounds_for_active_group = lambda ag, bm: bm.get(ag)
-    window._fallback_bounds_from_cache = lambda ag, mapper=None, anchor_override=None: rs.RenderSurfaceMixin._fallback_bounds_from_cache(window, ag, mapper, anchor_override=anchor_override)  # type: ignore[misc]
+    window._fallback_bounds_from_cache = lambda ag, mapper=None, anchor_override=None, **kwargs: rs.RenderSurfaceMixin._fallback_bounds_from_cache(  # type: ignore[misc]
+        window, ag, mapper, anchor_override=anchor_override, **kwargs
+    )
     window._line_width = lambda key: 1
     window._compute_legacy_mapper = lambda: _make_mapper(1.0)
     window._overlay_bounds_to_rect = lambda b, m: rs.QRect(int(b.min_x), int(b.min_y), int(b.max_x - b.min_x), int(b.max_y - b.min_y))
@@ -131,7 +133,9 @@ def test_target_box_uses_cache_fallback_and_anchor():
     window._last_overlay_bounds_for_target = {}
     window._last_transform_by_group = {}
     window._resolve_bounds_for_active_group = lambda ag, bm: bm.get(ag)
-    window._fallback_bounds_from_cache = lambda ag, mapper=None, anchor_override=None: rs.RenderSurfaceMixin._fallback_bounds_from_cache(window, ag, mapper, anchor_override=anchor_override)  # type: ignore[misc]
+    window._fallback_bounds_from_cache = lambda ag, mapper=None, anchor_override=None, **kwargs: rs.RenderSurfaceMixin._fallback_bounds_from_cache(  # type: ignore[misc]
+        window, ag, mapper, anchor_override=anchor_override, **kwargs
+    )
     window._line_width = lambda key: 1
     window._compute_legacy_mapper = lambda: _make_mapper(1.0)
     window._overlay_bounds_to_rect = lambda b, m: rs.QRect(int(b.min_x), int(b.min_y), int(b.max_x - b.min_x), int(b.max_y - b.min_y))
@@ -153,6 +157,78 @@ def test_target_box_uses_cache_fallback_and_anchor():
     painter = _PainterStub()
     rs.RenderSurfaceMixin._paint_controller_target_box(window, painter)  # type: ignore[misc]
     assert any(draw[0] == "rect" for draw in painter.draws)
+
+
+def test_target_box_mode_uses_max_cache_entry():
+    window = _WindowStub()
+    window._controller_active_group = ("PluginB", "G1")
+    window._controller_active_anchor = None
+    window.controller_mode_state = lambda: "active"
+    window._last_visible_overlay_bounds_for_target = {
+        ("PluginB", "G1"): rs._OverlayBounds(min_x=0, min_y=0, max_x=50, max_y=25)
+    }
+    window._last_overlay_bounds_for_target = {}
+    window._last_transform_by_group = {}
+    window._resolve_bounds_for_active_group = lambda ag, bm: bm.get(ag)
+    window._line_width = lambda key: 1
+    window._compute_legacy_mapper = lambda: _make_mapper(1.0)
+    window._overlay_bounds_to_rect = lambda b, m: rs.QRect(int(b.min_x), int(b.min_y), int(b.max_x - b.min_x), int(b.max_y - b.min_y))
+    window._overlay_point_to_screen = lambda pt, m: (int(pt[0]), int(pt[1]))
+    window._overlay_bounds_from_cache_entry = lambda entry, prefer_transformed=True: rs.RenderSurfaceMixin._overlay_bounds_from_cache_entry(  # type: ignore[misc]
+        entry, prefer_transformed=prefer_transformed
+    )
+    window._build_bounds_with_anchor = lambda w, h, token, ax, ay: rs._OverlayBounds(min_x=ax, min_y=ay, max_x=ax + w, max_y=ay + h)
+    window._anchor_from_overlay_bounds = lambda bounds, token: (bounds.min_x, bounds.min_y)
+
+    cache_entry = {
+        "base": {
+            "base_min_x": 0.0,
+            "base_min_y": 0.0,
+            "base_max_x": 100.0,
+            "base_max_y": 50.0,
+            "base_width": 100.0,
+            "base_height": 50.0,
+        },
+        "last_visible_transformed": {
+            "base_min_x": 0.0,
+            "base_min_y": 0.0,
+            "base_max_x": 100.0,
+            "base_max_y": 50.0,
+            "base_width": 100.0,
+            "base_height": 50.0,
+        },
+        "max_transformed": {
+            "base_min_x": 0.0,
+            "base_min_y": 0.0,
+            "base_max_x": 200.0,
+            "base_max_y": 100.0,
+            "base_width": 200.0,
+            "base_height": 100.0,
+        },
+        "last_updated": 200.0,
+    }
+    window._group_cache = SimpleNamespace(
+        get_group=lambda plugin, suffix: cache_entry if (plugin, suffix) == ("PluginB", "G1") else None,
+        _state={"groups": {"PluginB": {"G1": cache_entry}}},
+    )
+
+    class _OverrideStub:
+        def group_offsets(self, plugin, suffix):
+            return (0.0, 0.0)
+
+        def group_preserve_fill_aspect(self, plugin, suffix):
+            return True, "nw"
+
+        def group_controller_preview_box_mode(self, plugin, suffix):
+            return "max"
+
+    window._override_manager = _OverrideStub()
+    painter = _PainterStub()
+    rs.RenderSurfaceMixin._paint_controller_target_box(window, painter)  # type: ignore[misc]
+    rects = [d for d in painter.draws if d[0] == "rect"]
+    assert rects
+    assert rects[0][3] == 200
+    assert rects[0][4] == 100
 
 
 def test_target_box_fallback_uses_anchor_override():

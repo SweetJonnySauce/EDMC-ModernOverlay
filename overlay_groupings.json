@@ -135,7 +135,10 @@
           "edr-bounty"
         ],
         "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
+        "payloadJustification": "left",
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "max",
+        "backgroundColor": null
       },
       "EDR Docking": {
         "idPrefixes": [
@@ -143,37 +146,62 @@
           "edr-docking-station-"
         ],
         "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
+        "payloadJustification": "left",
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "max",
+        "backgroundColor": null
       },
       "EDR Intel": {
         "idPrefixes": [
           "edr-intel"
         ],
         "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
+        "payloadJustification": "left",
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "max",
+        "backgroundColor": null
       },
       "EDR Notice": {
         "idPrefixes": [
           "edr-notice-"
         ],
         "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
+        "payloadJustification": "left",
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "max",
+        "backgroundColor": null
       },
       "EDR Target": {
         "idPrefixes": [
           "edr-target"
         ],
         "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
+        "payloadJustification": "left",
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "max",
+        "backgroundColor": null
       },
-      "Edr Navigation": {
+      "EDR Sitrep": {
+        "idPrefixes": [
+          "edr-sitrep-"
+        ],
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left",
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "max",
+        "backgroundColor": null
+      },
+      "EDR Navigation": {
         "idPrefixes": [
           "edr-navigation-"
         ],
         "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
+        "payloadJustification": "left",
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "max",
+        "backgroundColor": null
       },
-      "Edr Navroute": {
+      "EDR Navroute": {
         "idPrefixes": [
           "edr-navroute-"
         ],
@@ -181,14 +209,9 @@
         "offsetX": 640,
         "offsetY": 5,
         "payloadJustification": "left",
-        "markerLabelPosition": "below"
-      },
-      "Edr Sitrep": {
-        "idPrefixes": [
-          "edr-sitrep-"
-        ],
-        "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "last",
+        "backgroundColor": null
       }
     }
   },

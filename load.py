@@ -66,6 +66,7 @@ if __package__:
     )
     from .overlay_plugin.journal_commands import build_command_helper
     from .EDMCOverlay.edmcoverlay import normalise_legacy_payload
+    from .group_cache import GroupPlacementCache
     from .overlay_client import env_overrides as env_overrides_helper
 else:  # pragma: no cover - EDMC loads as top-level module
     from version import __version__ as MODERN_OVERLAY_VERSION, DEV_MODE_ENV_VAR, is_dev_build
@@ -108,6 +109,7 @@ else:  # pragma: no cover - EDMC loads as top-level module
     )
     from overlay_plugin.journal_commands import build_command_helper
     from EDMCOverlay.edmcoverlay import normalise_legacy_payload
+    from group_cache import GroupPlacementCache
     import overlay_client.env_overrides as env_overrides_helper
 
 PLUGIN_NAME = "EDMCModernOverlay"
@@ -1953,6 +1955,25 @@ class _PluginRuntime:
         self._send_overlay_config(rebroadcast=True)
         _log("Overlay client restart triggered.")
 
+    def reset_group_cache(self) -> bool:
+        cache_path = self.plugin_dir / "overlay_group_cache.json"
+        try:
+            cache = GroupPlacementCache(cache_path, debounce_seconds=0.1, logger=LOGGER)
+            cache.reset()
+        except Exception as exc:
+            LOGGER.warning("Failed to reset overlay group cache: %s", exc)
+            return False
+        try:
+            self._publish_payload(
+                {
+                    "event": "OverlayGroupCacheReset",
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            )
+        except Exception:
+            LOGGER.debug("Failed to notify overlay client about cache reset", exc_info=True)
+        return True
+
     def set_min_font_preference(self, value: float) -> None:
         try:
             minimum = float(value)
@@ -2939,6 +2960,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
         restart_overlay_callback = _plugin.restart_overlay_client if _plugin else None
         launch_command_callback = _plugin.set_launch_command_preference if _plugin else None
         payload_opacity_callback = _plugin.set_payload_opacity_preference if _plugin else None
+        reset_group_cache_callback = _plugin.reset_group_cache if _plugin else None
         capture_override_callback = _plugin.set_capture_override_preference if _plugin else None
         log_retention_override_callback = _plugin.set_log_retention_override_preference if _plugin else None
         payload_exclusion_callback = _plugin.set_payload_logging_exclusions if _plugin else None
@@ -2973,6 +2995,7 @@ def plugin_prefs(parent, cmdr: str, is_beta: bool):  # pragma: no cover - option
             restart_overlay_callback,
             launch_command_callback,
             payload_opacity_callback,
+            reset_group_cache_callback=reset_group_cache_callback,
             dev_mode=DEV_BUILD,
             plugin_version=MODERN_OVERLAY_VERSION,
             version_update_available=version_update_available,

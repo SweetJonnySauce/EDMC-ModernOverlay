@@ -308,6 +308,43 @@ def test_group_offsets(override_file: Path) -> None:
     assert manager.group_offsets("Example", "missing") == (0.0, 0.0)
 
 
+def test_group_controller_preview_box_mode(override_file: Path) -> None:
+    override_file.write_text(
+        json.dumps(
+            {
+                "Example": {
+                    "idPrefixGroups": {
+                        "alerts": {
+                            "idPrefixes": ["example.alert."],
+                            "controllerPreviewBoxMode": "max",
+                        },
+                        "metrics": {
+                            "idPrefixes": ["example.metric."],
+                            "controllerPreviewBoxMode": "LAST",
+                        },
+                        "default": {
+                            "idPrefixes": ["example.default."],
+                            "controllerPreviewBoxMode": "invalid",
+                        },
+                        "snake": {
+                            "idPrefixes": ["example.snake."],
+                            "controller_preview_box_mode": "max",
+                        },
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = _make_manager(override_file)
+    assert manager.group_controller_preview_box_mode("Example", "alerts") == "max"
+    assert manager.group_controller_preview_box_mode("Example", "metrics") == "last"
+    assert manager.group_controller_preview_box_mode("Example", "default") == "last"
+    assert manager.group_controller_preview_box_mode("Example", "snake") == "max"
+    assert manager.group_controller_preview_box_mode("Example", "missing") == "last"
+    assert manager.group_controller_preview_box_mode("Other", "alerts") == "last"
+
+
 def test_legacy_preserve_anchor_mapping(override_file: Path) -> None:
     override_file.write_text(
         json.dumps(

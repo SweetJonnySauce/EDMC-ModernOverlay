@@ -1,4 +1,5 @@
 import math
+from types import SimpleNamespace
 from typing import Any, Optional, Tuple
 
 import pytest
@@ -7,7 +8,8 @@ from PyQt6.QtGui import QColor
 
 from overlay_client.group_transform import GroupKey
 from overlay_client.legacy_store import LegacyItem
-from overlay_client.render_surface import RenderSurfaceMixin, _MeasuredText
+from overlay_client.paint_commands import _MessagePaintCommand, _RectPaintCommand
+from overlay_client.render_surface import RenderSurfaceMixin, _MeasuredText, _OverlayBounds
 
 
 class _StubMode:
@@ -118,6 +120,132 @@ class _RectSurface(_StubSurface):
 
     def _compute_rect_transform(self, *args, **kwargs):  # noqa: ANN002, ANN003
         return ([(0.0, 0.0), (2.0, 0.0), (0.0, 1.0), (2.0, 1.0)], [], None, None)
+
+
+class _CacheCaptureSurface(RenderSurfaceMixin):
+    def __init__(self) -> None:
+        self._render_pipeline = SimpleNamespace(_last_payload_results={})
+        self._group_cache_generations = {}
+        self._group_log_pending_base = {}
+        self._group_log_pending_transform = {}
+        self._group_log_next_allowed = {}
+        self._logged_group_bounds = {}
+        self._logged_group_transforms = {}
+        self._payload_log_delay = 0.0
+        self._cache_write_metadata = {}
+        self.captured_base = None
+        self.captured_transform = None
+
+    def _update_group_cache_from_payloads(self, base_payloads, transform_payloads):  # noqa: ANN001
+        self.captured_base = dict(base_payloads)
+        self.captured_transform = dict(transform_payloads)
+        return set()
+
+
+def test_group_cache_skips_degenerate_payloads() -> None:
+    surface = _CacheCaptureSurface()
+    visible_key = ("PluginA", "G1")
+    hidden_key = ("PluginA", "G2")
+    rect_key = ("PluginA", "G3")
+    surface._render_pipeline._last_payload_results = {
+        "cache_base_payloads": {
+            visible_key: {"plugin": "PluginA", "suffix": "G1"},
+            hidden_key: {"plugin": "PluginA", "suffix": "G2"},
+            rect_key: {"plugin": "PluginA", "suffix": "G3"},
+        },
+        "cache_transform_payloads": {
+            visible_key: {"min_x": 0, "min_y": 0, "max_x": 10, "max_y": 10},
+            hidden_key: {"min_x": 0, "min_y": 0, "max_x": 10, "max_y": 10},
+            rect_key: {"min_x": 0, "min_y": 0, "max_x": 0, "max_y": 0},
+        },
+        "active_group_keys": set(),
+    }
+
+    visible_item = LegacyItem(
+        item_id="msg-1",
+        kind="message",
+        data={"__mo_ttl__": 1, "text": "hi"},
+        plugin="PluginA",
+    )
+    hidden_item = LegacyItem(
+        item_id="msg-2",
+        kind="message",
+        data={"__mo_ttl__": 0, "text": ""},
+        plugin="PluginA",
+    )
+    rect_item = LegacyItem(
+        item_id="rect-1",
+        kind="rect",
+        data={"w": 0, "h": 0},
+        plugin="PluginA",
+    )
+
+    commands = [
+        _MessagePaintCommand(
+            group_key=GroupKey(*visible_key),
+            group_transform=None,
+            legacy_item=visible_item,
+            bounds=(0, 0, 10, 10),
+            overlay_bounds=(0.0, 0.0, 10.0, 10.0),
+            effective_anchor=None,
+            debug_log=None,
+            text="hi",
+        ),
+        _MessagePaintCommand(
+            group_key=GroupKey(*hidden_key),
+            group_transform=None,
+            legacy_item=hidden_item,
+            bounds=(0, 0, 10, 10),
+            overlay_bounds=(0.0, 0.0, 10.0, 10.0),
+            effective_anchor=None,
+            debug_log=None,
+            text="",
+        ),
+        _RectPaintCommand(
+            group_key=GroupKey(*rect_key),
+            group_transform=None,
+            legacy_item=rect_item,
+            bounds=(0, 0, 0, 0),
+            overlay_bounds=(0.0, 0.0, 0.0, 0.0),
+            effective_anchor=None,
+            debug_log=None,
+        ),
+    ]
+
+    surface._apply_group_logging_payloads({}, {}, {}, {}, commands)
+
+    assert surface.captured_base is not None
+    assert surface.captured_transform is not None
+    assert set(surface.captured_base.keys()) == {visible_key}
+    assert set(surface.captured_transform.keys()) == {visible_key}
+
+
+def test_reset_group_cache_clears_target_maps() -> None:
+    cache_calls = {}
+
+    class _CacheStub:
+        def reset(self) -> None:
+            cache_calls["reset"] = True
+
+    class _ResetSurface(RenderSurfaceMixin):
+        def __init__(self) -> None:
+            self._group_cache = _CacheStub()
+            self._last_visible_overlay_bounds_for_target = {("Plugin", "G1"): _OverlayBounds(0, 0, 10, 10)}
+            self._last_overlay_bounds_for_target = {("Plugin", "G1"): _OverlayBounds(5, 5, 15, 15)}
+            self._last_transform_by_group = {("Plugin", "G1"): object()}
+            self._repaint_calls = []
+
+        def _request_repaint(self, reason: str, *, immediate: bool = False) -> None:
+            self._repaint_calls.append((reason, immediate))
+
+    surface = _ResetSurface()
+    surface.reset_group_cache()
+
+    assert cache_calls.get("reset") is True
+    assert surface._last_visible_overlay_bounds_for_target == {}
+    assert surface._last_overlay_bounds_for_target == {}
+    assert surface._last_transform_by_group == {}
+    assert surface._repaint_calls == [("group_cache_reset", True)]
 
 
 def test_line_width_respects_override_defaults() -> None:
