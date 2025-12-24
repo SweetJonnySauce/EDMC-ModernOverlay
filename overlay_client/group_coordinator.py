@@ -61,7 +61,10 @@ class GroupCoordinator:
         for key, base_payload in base_payloads.items():
             plugin_label = (base_payload.get("plugin") or "").strip()
             suffix_label = base_payload.get("suffix")
-            if isinstance(suffix_label, str) and suffix_label.strip().lower() == "item:overlay-controller-status":
+            if isinstance(suffix_label, str) and suffix_label.strip().lower() in {
+                "item:overlay-controller-status",
+                "item:edmcmodernoverlay-controller-status",
+            }:
                 continue
             normalized = self._base_cache_payload(base_payload)
             transformed_payload = None

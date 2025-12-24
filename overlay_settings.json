@@ -1,6 +1,6 @@
 {
   "overlay_opacity": 0.0,
-  "global_payload_opacity": 73,
+  "global_payload_opacity": 100,
   "show_connection_status": false,
   "debug_overlay_corner": "SE",
   "client_log_retention": 5,
@@ -14,7 +14,7 @@
   "show_debug_overlay": false,
   "min_font_point": 6.0,
   "max_font_point": 12.0,
-  "legacy_font_step": 4,
+  "legacy_font_step": 3,
   "status_bottom_margin": 40,
   "title_bar_enabled": false,
   "title_bar_height": 30,

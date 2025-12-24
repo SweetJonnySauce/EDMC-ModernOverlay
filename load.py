@@ -126,7 +126,7 @@ VERSION_UPDATE_NOTICE_COLOR = "#ff3333"
 VERSION_UPDATE_NOTICE_TTL = 10
 VERSION_UPDATE_NOTICE_POSITION_X = 20
 VERSION_UPDATE_NOTICE_POSITION_Y = 20
-VERSION_UPDATE_NOTICE_ID = "edmc-modernoverlay-version-notice"
+VERSION_UPDATE_NOTICE_ID = f"{PLUGIN_NAME}-version-notice"
 VERSION_UPDATE_NOTICE_REBROADCASTS = 0
 VERSION_UPDATE_NOTICE_REBROADCAST_INTERVAL = 2.0
 
@@ -134,7 +134,7 @@ FONT_PREVIEW_COLOR = "#ff7f00"
 FONT_PREVIEW_TTL = 5
 FONT_PREVIEW_BASE_X = 60
 FONT_PREVIEW_BASE_Y = 120
-FONT_PREVIEW_LINE_SPACING = 30
+FONT_PREVIEW_LINE_SPACING = 40
 
 EDMC_DEFAULT_LOG_LEVEL = logging.DEBUG if DEV_BUILD else logging.INFO
 _LEVEL_NAME_MAP = {
@@ -503,7 +503,7 @@ class _PluginRuntime:
         self._controller_launch_lock = threading.Lock()
         self._controller_launch_thread: Optional[threading.Thread] = None
         self._controller_process: Optional[subprocess.Popen] = None
-        self._controller_status_id = "overlay-controller-status"
+        self._controller_status_id = f"{PLUGIN_NAME}-controller-status"
         self._controller_pid_path = self.plugin_dir / "overlay_controller.pid"
         self._last_override_reload_nonce: Optional[str] = None
         self._lifecycle.track_handle(self.broadcaster)
@@ -1409,7 +1409,7 @@ class _PluginRuntime:
                 "timestamp": current_time.isoformat(),
                 "event": "LegacyOverlay",
                 "type": "message",
-                "id": f"test-{current_time.strftime('%H%M%S%f')}",
+                "id": f"{PLUGIN_NAME}-test-{current_time.strftime('%H%M%S%f')}",
                 "text": text,
                 "color": "#ffffff",
                 "x": x_val,
@@ -1444,7 +1444,7 @@ class _PluginRuntime:
                 "timestamp": timestamp,
                 "event": "LegacyOverlay",
                 "type": "message",
-                "id": f"font-preview-{size_label}-{timestamp}",
+                "id": f"{PLUGIN_NAME}-font-preview-{size_label}-{timestamp}",
                 "text": text_label,
                 "color": FONT_PREVIEW_COLOR,
                 "x": FONT_PREVIEW_BASE_X,
@@ -2854,7 +2854,7 @@ class _PluginRuntime:
             except Exception:
                 pass
             overlay.send_message(
-                "modern-overlay-conflict",
+                f"{PLUGIN_NAME}-legacy-overlay-conflict",
                 "EDMC Modern Overlay detected the legacy overlay. Using legacy overlay instead.",
                 "#ffa500",
                 100,

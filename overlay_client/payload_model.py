@@ -67,7 +67,12 @@ class PayloadModel:
                     if existing is not None:
                         existing.expiry = expiry
                         plugin_name = _extract_plugin(payload) or "unknown"
-                        reason = "controller_heartbeat" if item_id == "overlay-controller-status" else None
+                        item_id_token = item_id.casefold()
+                        reason = (
+                            "controller_heartbeat"
+                            if item_id_token in {"overlay-controller-status", "edmcmodernoverlay-controller-status"}
+                            else None
+                        )
                         details = {
                             "item_id": item_id,
                             "plugin": plugin_name,

@@ -113,15 +113,36 @@
   },
   "EDMCModernOverlay": {
     "matchingPrefixes": [
-      "modernoverlay-"
+      "modernoverlay-",
+      "edmcmodernoverlay-"
     ],
     "idPrefixGroups": {
-      "Modernoverlay Test": {
+      "EDMCModernOverlay Font Preview": {
         "idPrefixes": [
-          "modernoverlay-test"
+          "edmcmodernoverlay-font-"
+        ],
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left",
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "last"
+      },
+      "EDMCModernOverlay Test": {
+        "idPrefixes": [
+          "modernoverlay-test",
+          "edmcmodernoverlay-test"
         ],
         "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left"
+      },
+      "EDMCModernOverlay Controller Status": {
+        "idPrefixes": [
+          "edmcmodernoverlay-controller-status"
+        ],
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left",
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "max",
+        "backgroundColor": null
       }
     }
   },
