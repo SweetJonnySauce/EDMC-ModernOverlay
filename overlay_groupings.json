@@ -113,15 +113,35 @@
   },
   "EDMCModernOverlay": {
     "matchingPrefixes": [
-      "modernoverlay-"
+      "modernoverlay-",
+      "edmcmodernoverlay-"
     ],
     "idPrefixGroups": {
-      "Modernoverlay Test": {
+      "EDMCModernOverlay Font Preview": {
         "idPrefixes": [
-          "modernoverlay-test"
+          "edmcmodernoverlay-font-"
+        ],
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left",
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "last"
+      },
+      "EDMCModernOverlay Test": {
+        "idPrefixes": [
+          "modernoverlay-test",
+          "edmcmodernoverlay-test"
         ],
         "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left"
+      },
+      "EDMCModernOverlay Controller Status": {
+        "idPrefixes": [
+          "edmcmodernoverlay-controller-"
+        ],
+        "idPrefixGroupAnchor": "nw",
+        "payloadJustification": "left",
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "max"
       }
     }
   },
@@ -215,30 +235,6 @@
       }
     }
   },
-  "Example Plugin": {
-    "matchingPrefixes": [
-      "example-",
-      "example-alt-",
-      "test-1"
-    ],
-    "idPrefixGroups": {
-      "status": {
-        "idPrefixes": [
-          "example-",
-          "example-alert-"
-        ],
-        "idPrefixGroupAnchor": "ne",
-        "payloadJustification": "left"
-      },
-      "test": {
-        "idPrefixes": [
-          "example-bob"
-        ],
-        "idPrefixGroupAnchor": "top",
-        "payloadJustification": "left"
-      }
-    }
-  },
   "LandingPad": {
     "matchingPrefixes": [
       "shell-",
@@ -280,22 +276,5 @@
         "payloadJustification": "center"
       }
     }
-  },
-  "overlay-controller-status": {
-    "matchingPrefixes": [
-      "overlay-controller-status"
-    ],
-    "idPrefixGroups": {
-      "Overlay Controller Status": {
-        "idPrefixes": [
-          "overlay-controller-status"
-        ],
-        "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
-      }
-    },
-    "notes": [
-      "Internal group to EDMCModernOverlay"
-    ]
   }
 }

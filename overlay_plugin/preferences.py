@@ -22,6 +22,7 @@ STATUS_GUTTER_MAX = 500
 STATUS_GUTTER_DEFAULT = 50
 ROW_PAD = (6, 0)
 LATEST_RELEASE_URL = "https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest"
+OVERLAY_ID_PREFIX = "EDMCModernOverlay-"
 CONFIG_PREFIX = "edmc_modern_overlay."
 CONFIG_STATE_VERSION = 1
 CONFIG_VERSION_KEY = f"{CONFIG_PREFIX}state_version"
@@ -713,7 +714,12 @@ class PreferencesPanel:
 
         self._preferences = preferences
         self._style = ttk.Style()
-        self._frame_style, self._spinbox_style, self._scale_style = self._init_theme_styles(nb)
+        (
+            self._frame_style,
+            self._spinbox_style,
+            self._scale_style,
+            self._labelframe_style,
+        ) = self._init_theme_styles(nb)
         self._var_opacity = tk.DoubleVar(value=preferences.overlay_opacity)
         self._var_payload_opacity = tk.DoubleVar(value=float(preferences.global_payload_opacity))
         self._var_show_status = tk.BooleanVar(value=preferences.show_connection_status)
@@ -1107,7 +1113,12 @@ class PreferencesPanel:
                     diagnostics_label.configure(font=diag_font)
                 except Exception:
                     pass
-            diagnostics_frame = ttk.LabelFrame(user_section, labelwidget=diagnostics_label, padding=(8, 8))
+            diagnostics_frame = ttk.LabelFrame(
+                user_section,
+                labelwidget=diagnostics_label,
+                padding=(8, 8),
+                style=self._labelframe_style,
+            )
             diagnostics_frame.grid(row=user_row, column=0, sticky="we", pady=ROW_PAD)
             diagnostics_frame.columnconfigure(0, weight=1)
             diag_row = 0
@@ -1220,7 +1231,12 @@ class PreferencesPanel:
                     dev_label.configure(font=dev_font)
                 except Exception:
                     pass
-            dev_frame = ttk.LabelFrame(frame, labelwidget=dev_label, padding=(8, 8))
+            dev_frame = ttk.LabelFrame(
+                frame,
+                labelwidget=dev_label,
+                padding=(8, 8),
+                style=self._labelframe_style,
+            )
             dev_frame.grid(row=next_row, column=0, sticky="we", pady=ROW_PAD)
             dev_frame.columnconfigure(0, weight=1)
             dev_row = 0
@@ -1383,14 +1399,18 @@ class PreferencesPanel:
         except AttributeError:
             bg = fg = None
         frame_style = "OverlayPrefs.TFrame"
+        labelframe_style = "OverlayPrefs.TLabelframe"
+        labelframe_label_style = "OverlayPrefs.TLabelframe.Label"
         spin_style = "OverlayPrefs.TSpinbox"
         scale_style = "OverlayPrefs.Horizontal.TScale"
         self._style.configure(frame_style, background=bg)
+        self._style.configure(labelframe_style, background=bg)
         self._style.configure(spin_style, arrowsize=12)
         if bg is not None and fg is not None:
+            self._style.configure(labelframe_label_style, background=bg, foreground=fg)
             self._style.configure(spin_style, fieldbackground=bg, foreground=fg, background=bg)
             self._style.configure(scale_style, background=bg)
-        return frame_style, spin_style, scale_style
+        return frame_style, spin_style, scale_style, labelframe_style
 
     def _on_opacity_change(self, value: str) -> None:
         try:
@@ -2108,7 +2128,7 @@ class PreferencesPanel:
             return
         message = self._test_var.get().strip() or "Hello from edmcoverlay"
         try:
-            overlay.send_message("modernoverlay-test", message, "#80d0ff", 60, 120, ttl=5, size="large")
+            overlay.send_message(f"{OVERLAY_ID_PREFIX}test", message, "#80d0ff", 60, 120, ttl=5, size="large")
         except Exception as exc:
             self._status_var.set(f"Legacy text failed: {exc}")
             return
@@ -2119,7 +2139,15 @@ class PreferencesPanel:
         if overlay is None:
             return
         try:
-            overlay.send_message("modernoverlay-test-emoji", "\N{memo}", "#80d0ff", 60, 120, ttl=5, size="large")
+            overlay.send_message(
+                f"{OVERLAY_ID_PREFIX}test-emoji",
+                "\N{memo}",
+                "#80d0ff",
+                60,
+                120,
+                ttl=5,
+                size="large",
+            )
         except Exception as exc:
             self._status_var.set(f"Legacy emoji failed: {exc}")
             return
@@ -2131,7 +2159,7 @@ class PreferencesPanel:
             return
         try:
             overlay.send_shape(
-                "modernoverlay-test-rect",
+                f"{OVERLAY_ID_PREFIX}test-rect",
                 "rect",
                 "#80d0ff",
                 "#20004080",
