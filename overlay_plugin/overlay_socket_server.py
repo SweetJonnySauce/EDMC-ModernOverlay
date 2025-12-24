@@ -21,6 +21,8 @@ class SocketBroadcaster:
     port: int = 0
     log: LogFunc = lambda _msg: None  # noqa: E731 - simple default noop logger
     ingest_callback: Optional[IngestFunc] = None
+    log_debug: Optional[LogFunc] = None
+    connection_log_interval: float = 0.0
     _loop: Optional[asyncio.AbstractEventLoop] = field(default=None, init=False)
     _thread: Optional[threading.Thread] = field(default=None, init=False)
     _stop_event: threading.Event = field(default_factory=threading.Event, init=False)
@@ -28,6 +30,9 @@ class SocketBroadcaster:
     _queue: "queue.Queue[Optional[str]]" = field(default_factory=queue.Queue, init=False)
     _clients: Set[Tuple[asyncio.StreamReader, asyncio.StreamWriter]] = field(default_factory=set, init=False)
     _start_error: Optional[BaseException] = field(default=None, init=False)
+    _connection_log_counts: Dict[str, int] = field(default_factory=dict, init=False)
+    _connection_log_timer: Optional[asyncio.TimerHandle] = field(default=None, init=False)
+    _last_connection_peer: Optional[Any] = field(default=None, init=False)
 
     def start(self) -> bool:
         """Start the broadcast server on a background thread.
@@ -137,11 +142,12 @@ class SocketBroadcaster:
             except Exception:
                 pass
         self._clients.clear()
+        self._cancel_connection_log_timer()
 
     async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         peer = writer.get_extra_info("peername")
         self._clients.add((reader, writer))
-        self.log(f"Client connected ({len(self._clients)} active) {peer}")
+        self._queue_connection_log("connected", peer)
         try:
             while not self._stop_event.is_set():
                 try:
@@ -184,7 +190,7 @@ class SocketBroadcaster:
                 await writer.wait_closed()
             except Exception:
                 pass
-        self.log(f"Client disconnected ({len(self._clients)} active) {peer}")
+        self._queue_connection_log("disconnected", peer)
 
     async def _broadcast(self, message: str) -> None:
         if not self._clients:
@@ -206,6 +212,44 @@ class SocketBroadcaster:
                 await writer.wait_closed()
             except Exception:
                 pass
+
+    def _queue_connection_log(self, action: str, peer: Any) -> None:
+        log_fn = self.log_debug or self.log
+        if self.connection_log_interval <= 0:
+            log_fn(f"Client {action} ({len(self._clients)} active) {peer}")
+            return
+        self._connection_log_counts[action] = self._connection_log_counts.get(action, 0) + 1
+        self._last_connection_peer = peer
+        if self._connection_log_timer is None and self._loop is not None:
+            self._connection_log_timer = self._loop.call_later(
+                self.connection_log_interval,
+                self._flush_connection_log,
+            )
+
+    def _flush_connection_log(self) -> None:
+        counts = self._connection_log_counts
+        self._connection_log_counts = {}
+        self._connection_log_timer = None
+        if not counts:
+            return
+        connected = counts.get("connected", 0)
+        disconnected = counts.get("disconnected", 0)
+        parts = []
+        if connected:
+            parts.append(f"+{connected}")
+        if disconnected:
+            parts.append(f"-{disconnected}")
+        summary = " ".join(parts) if parts else "0"
+        peer_info = f" last={self._last_connection_peer}" if self._last_connection_peer is not None else ""
+        log_fn = self.log_debug or self.log
+        log_fn(f"Client activity ({len(self._clients)} active) {summary}{peer_info}")
+
+    def _cancel_connection_log_timer(self) -> None:
+        if self._connection_log_timer is not None:
+            self._connection_log_timer.cancel()
+            self._connection_log_timer = None
+        self._connection_log_counts.clear()
+        self._last_connection_peer = None
 
 
 # Backwards compatibility: existing code imports WebSocketBroadcaster

@@ -364,6 +364,7 @@ PAYLOAD_LOGGER_NAME = f"{LOGGER_NAME}.payloads"
 PAYLOAD_LOG_FILE_NAME = "overlay-payloads.log"
 PAYLOAD_LOG_DIR_NAME = PLUGIN_NAME
 PAYLOAD_LOG_MAX_BYTES = 512 * 1024
+CONNECTION_LOG_INTERVAL_SECONDS = 5.0
 
 DEFAULT_DEBUG_CONFIG: Dict[str, Any] = {
     "capture_client_stderrout": True,
@@ -413,6 +414,11 @@ def _log(message: str) -> None:
     LOGGER.info(message)
 
 
+def _log_debug(message: str) -> None:
+    """Log debug messages through the EDMC logger."""
+    LOGGER.debug(message)
+
+
 class _PluginRuntime:
     """Encapsulates plugin state so EDMC globals stay tidy."""
 
@@ -429,7 +435,12 @@ class _PluginRuntime:
 
     def __init__(self, plugin_dir: str, preferences: Preferences) -> None:
         self.plugin_dir = Path(plugin_dir)
-        self.broadcaster = WebSocketBroadcaster(log=_log, ingest_callback=self._handle_cli_payload)
+        self.broadcaster = WebSocketBroadcaster(
+            log=_log,
+            log_debug=_log_debug,
+            connection_log_interval=CONNECTION_LOG_INTERVAL_SECONDS,
+            ingest_callback=self._handle_cli_payload,
+        )
         self.watchdog: Optional[OverlayWatchdog] = None
         self._legacy_tcp_server: Optional[LegacyOverlayTCPServer] = None
         self._lock = threading.Lock()

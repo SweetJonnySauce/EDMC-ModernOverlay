@@ -17,6 +17,7 @@
   - Fixed [#48](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/48). A "pinned" group in the overlay controller is when it's nudged up next to the edge. The arrow in the controller stays orange when pinned. This fix was to address a problem where pinning did not reset when the plugin group changed in the controller.
   - Fixed [#27](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/27). When a plugin sends a clear payload it's typically just ttl=0 , text="". This gets cached and the hud target in controller mode is misrepresented. Add capability to show the last visible (or max) payload size while in controller mode.
   - Cleaned up some inconsistencies with pref pane, internal messages being sent, and plugged `define_plugin_group` api into `utils/plugin_group_manager.py` for add/update operations.
+  - Cleaned up a noisy log message (client connected)
   
 ## 0.7.5
 - Features & Improvements:
