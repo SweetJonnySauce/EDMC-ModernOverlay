@@ -411,10 +411,6 @@ jobs:
                   lines.append(content)
                   lines.append("")
 
-          # Write markdown report
-          report_md = pathlib.Path("vt-transparency.md")
-          report_md.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
-
           # Generate a minimal HTML version for attachment
           import html
           import re
@@ -466,14 +462,13 @@ jobs:
           html_lines.extend(["</div>", "</body>", "</html>"])
           report_html = pathlib.Path("vt-transparency.html")
           report_html.write_text("\n".join(html_lines).strip() + "\n", encoding="utf-8")
-          print(f"Wrote {report_md} and {report_html} with {len(fragments)} fragments.")
+          print(f"Wrote {report_html} with {len(fragments)} fragments.")
           PY
       - name: Upload transparency report to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.release.tag_name || github.ref_name }}
           files: |
-            vt-transparency.md
             vt-transparency.html
 
   update_readme_vt:
