@@ -11,8 +11,9 @@
 - Bug Fixes
   - Fixes [#42](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/42) and [#43](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/43). Address nuanced backwards compatibility issues for vector images and marker labels that mainly affected EDR Navigation.
   - Fixed [#21](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/21). EDR Help and Docking payloads were not clearing when EDR sent the clear message. Modified the shim layer to allow positional arguments (see [#13](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/13))
-  - Fixed [#46](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/43). Fedora install now checks to see if the `flatpak-spawn` package is installed. (Fedora packages it separately.)
+  - Fixed [#46](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/46). Fedora install now checks to see if the `flatpak-spawn` package is installed. (Fedora packages it separately.)
   - Tweaked some preference settings for a more consistent UI/UX.
+  - Fixed [#48](https://github.com/SweetJonnySauce/EDMCModernOverlay/issues/48). A "pinned" group in the overlay controller is when it's nudged up next to the edge. The arrow in the controller stays orange when pinned. This fix was to address a problem where pinning did not reset when the plugin group changed in the controller.
   
 ## 0.7.5
 - Features & Improvements:

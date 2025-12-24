@@ -29,6 +29,8 @@ _PAYLOAD_JUSTIFICATION_CHOICES = {"left", "center", "right"}
 _DEFAULT_PAYLOAD_JUSTIFICATION = "left"
 _MARKER_LABEL_POSITION_CHOICES = {"below", "above", "centered"}
 _DEFAULT_MARKER_LABEL_POSITION = "below"
+_CONTROLLER_PREVIEW_BOX_MODE_CHOICES = {"last", "max"}
+_DEFAULT_CONTROLLER_PREVIEW_BOX_MODE = "last"
 
 
 @dataclass
@@ -41,6 +43,7 @@ class _GroupSpec:
     offset_y: float = 0.0
     payload_justification: str = _DEFAULT_PAYLOAD_JUSTIFICATION
     marker_label_position: str = _DEFAULT_MARKER_LABEL_POSITION
+    controller_preview_box_mode: str = _DEFAULT_CONTROLLER_PREVIEW_BOX_MODE
     background_color: Optional[str] = None
     background_border_width: Optional[int] = None
 
@@ -355,6 +358,14 @@ class PluginOverrideManager:
                         return token
                 return _DEFAULT_MARKER_LABEL_POSITION
 
+            def _parse_controller_preview_box_mode(source: Mapping[str, Any]) -> str:
+                raw_value = source.get("controllerPreviewBoxMode") or source.get("controller_preview_box_mode")
+                if isinstance(raw_value, str):
+                    token = raw_value.strip().lower()
+                    if token in _CONTROLLER_PREVIEW_BOX_MODE_CHOICES:
+                        return token
+                return _DEFAULT_CONTROLLER_PREVIEW_BOX_MODE
+
             def _parse_background_fields(source: Mapping[str, Any]) -> Tuple[Optional[str], Optional[int]]:
                 color: Optional[str] = None
                 border: Optional[int] = None
@@ -386,6 +397,7 @@ class PluginOverrideManager:
                 offset_y: float,
                 payload_justification: str,
                 marker_label_position: str,
+                controller_preview_box_mode: str,
                 background_color: Optional[str],
                 background_border_width: Optional[int],
             ) -> None:
@@ -401,6 +413,7 @@ class PluginOverrideManager:
                         offset_y=offset_y,
                         payload_justification=payload_justification,
                         marker_label_position=marker_label_position,
+                        controller_preview_box_mode=controller_preview_box_mode,
                         background_color=background_color,
                         background_border_width=background_border_width,
                     )
@@ -423,6 +436,7 @@ class PluginOverrideManager:
                     offset_x, offset_y = _parse_offsets(group_value)
                     justification_token = _parse_payload_justification(group_value)
                     marker_label_position = _parse_marker_label_position(group_value)
+                    controller_preview_box_mode = _parse_controller_preview_box_mode(group_value)
                     background_color, background_border_width = _parse_background_fields(group_value)
                     _append_group_spec(
                         label_value,
@@ -432,6 +446,7 @@ class PluginOverrideManager:
                         offset_y,
                         justification_token,
                         marker_label_position,
+                        controller_preview_box_mode,
                         background_color,
                         background_border_width,
                     )
@@ -451,6 +466,7 @@ class PluginOverrideManager:
                         offset_x, offset_y = _parse_offsets(group_value)
                         justification_token = _parse_payload_justification(group_value)
                         marker_label_position = _parse_marker_label_position(group_value)
+                        controller_preview_box_mode = _parse_controller_preview_box_mode(group_value)
                         background_color, background_border_width = _parse_background_fields(group_value)
                         _append_group_spec(
                             label_value,
@@ -460,6 +476,7 @@ class PluginOverrideManager:
                             offset_y,
                             justification_token,
                             marker_label_position,
+                            controller_preview_box_mode,
                             background_color,
                             background_border_width,
                         )
@@ -477,6 +494,7 @@ class PluginOverrideManager:
                             label_value = str(label).strip() if isinstance(label, str) and label else prefix_value
                             justification_token = _DEFAULT_PAYLOAD_JUSTIFICATION
                             marker_label_position = _DEFAULT_MARKER_LABEL_POSITION
+                            controller_preview_box_mode = _DEFAULT_CONTROLLER_PREVIEW_BOX_MODE
                             background_color, background_border_width = _parse_background_fields({})
                         elif isinstance(prefix_value, Mapping):
                             prefixes = _clean_group_prefixes(prefix_value.get("prefix"))
@@ -485,10 +503,12 @@ class PluginOverrideManager:
                             offset_x, offset_y = _parse_offsets(prefix_value)
                             justification_token = _parse_payload_justification(prefix_value)
                             marker_label_position = _parse_marker_label_position(prefix_value)
+                            controller_preview_box_mode = _parse_controller_preview_box_mode(prefix_value)
                             background_color, background_border_width = _parse_background_fields(prefix_value)
                         else:
                             justification_token = _DEFAULT_PAYLOAD_JUSTIFICATION
                             marker_label_position = _DEFAULT_MARKER_LABEL_POSITION
+                            controller_preview_box_mode = _DEFAULT_CONTROLLER_PREVIEW_BOX_MODE
                             background_color, background_border_width = _parse_background_fields({})
                         _append_group_spec(
                             label_value,
@@ -498,6 +518,7 @@ class PluginOverrideManager:
                             offset_y,
                             justification_token,
                             marker_label_position,
+                            controller_preview_box_mode,
                             background_color,
                             background_border_width,
                         )
@@ -514,6 +535,7 @@ class PluginOverrideManager:
                                 0.0,
                                 _DEFAULT_PAYLOAD_JUSTIFICATION,
                                 _DEFAULT_MARKER_LABEL_POSITION,
+                                _DEFAULT_CONTROLLER_PREVIEW_BOX_MODE,
                                 background_color,
                                 background_border_width,
                             )
@@ -825,6 +847,23 @@ class PluginOverrideManager:
                     return _DEFAULT_MARKER_LABEL_POSITION
                 return token
         return _DEFAULT_MARKER_LABEL_POSITION
+
+    def group_controller_preview_box_mode(self, plugin: Optional[str], suffix: Optional[str]) -> str:
+        self._reload_if_needed()
+        canonical = self._canonical_plugin_name(plugin)
+        if canonical is None:
+            return _DEFAULT_CONTROLLER_PREVIEW_BOX_MODE
+        config = self._plugins.get(canonical)
+        if config is None or not config.group_specs or suffix is None:
+            return _DEFAULT_CONTROLLER_PREVIEW_BOX_MODE
+        for spec in config.group_specs:
+            label_value = spec.label or (spec.prefixes[0].value if spec.prefixes else None)
+            if label_value == suffix:
+                token = spec.controller_preview_box_mode or _DEFAULT_CONTROLLER_PREVIEW_BOX_MODE
+                if token not in _CONTROLLER_PREVIEW_BOX_MODE_CHOICES:
+                    return _DEFAULT_CONTROLLER_PREVIEW_BOX_MODE
+                return token
+        return _DEFAULT_CONTROLLER_PREVIEW_BOX_MODE
 
     def group_preserve_fill_aspect(self, plugin: Optional[str], suffix: Optional[str]) -> Tuple[bool, str]:
         """Fill-mode preservation is always enabled; anchor selection is derived from overrides."""

@@ -53,6 +53,12 @@
           "default": "below",
           "description": "Marker label placement relative to the marker."
         },
+        "controllerPreviewBoxMode": {
+          "type": "string",
+          "enum": ["last", "max"],
+          "default": "last",
+          "description": "Controls controller target box selection: last visible or max transformed bounds."
+        },
         "backgroundColor": {
           "oneOf": [
             {

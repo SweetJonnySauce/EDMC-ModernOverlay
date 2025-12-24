@@ -377,6 +377,7 @@ class RenderSurfaceMixin:
                 transform_candidates,
                 translations,
                 report_overlay_bounds,
+                commands,
             )
             anchor_translations = payload_results.get("anchor_translation_by_group") or {}
             # Preserve debug helpers/logging behavior.
@@ -394,6 +395,7 @@ class RenderSurfaceMixin:
                 self._last_transform_by_group = dict(transform_by_group)
             except Exception:
                 pass
+            self._update_last_visible_overlay_bounds_for_target(overlay_bounds_for_draw, commands)
             # Paint commands and collect offscreen/debug helpers.
             self._render_commands(
                 painter,
@@ -414,6 +416,7 @@ class RenderSurfaceMixin:
         transform_candidates: Mapping[Tuple[str, Optional[str]], Tuple[str, Optional[str]]],
         translations: Mapping[Tuple[str, Optional[str]], Tuple[int, int]],
         report_overlay_bounds: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+        commands: Sequence[_LegacyPaintCommand],
     ) -> None:
         """Apply group logging/cache updates using payload data returned by the render pipeline."""
         payload_results = getattr(self._render_pipeline, "_last_payload_results", {}) or {}
@@ -422,6 +425,15 @@ class RenderSurfaceMixin:
         active_group_keys: Set[Tuple[str, Optional[str]]] = payload_results.get("active_group_keys") or set()
         now_monotonic = self._monotonic_now() if hasattr(self, "_monotonic_now") else time.monotonic()
         mode_state = self.controller_mode_state() if hasattr(self, "controller_mode_state") else "inactive"
+        visible_groups = self._visible_group_keys(commands)
+        if visible_groups:
+            cache_base_payloads = {key: payload for key, payload in cache_base_payloads.items() if key in visible_groups}
+            cache_transform_payloads = {
+                key: payload for key, payload in cache_transform_payloads.items() if key in visible_groups
+            }
+        else:
+            cache_base_payloads = {}
+            cache_transform_payloads = {}
 
         for key, payload in latest_base_payload.items():
             edit_nonce = str(payload.get("edit_nonce") or "")
@@ -1654,6 +1666,30 @@ class RenderSurfaceMixin:
         except Exception as exc:
             _CLIENT_LOGGER.debug("Forced cache flush failed: %s", exc, exc_info=exc)
 
+    def reset_group_cache(self) -> None:
+        cache = getattr(self, "_group_cache", None)
+        if cache is not None and hasattr(cache, "reset"):
+            try:
+                cache.reset()
+            except Exception as exc:
+                _CLIENT_LOGGER.debug("Failed to reset group cache: %s", exc, exc_info=exc)
+        for attr in (
+            "_last_visible_overlay_bounds_for_target",
+            "_last_overlay_bounds_for_target",
+            "_last_transform_by_group",
+        ):
+            current = getattr(self, attr, None)
+            if isinstance(current, dict):
+                current.clear()
+            else:
+                setattr(self, attr, {})
+        repaint = getattr(self, "_request_repaint", None)
+        if callable(repaint):
+            try:
+                repaint("group_cache_reset", immediate=True)
+            except Exception:
+                pass
+
     def _draw_payload_vertex_markers(self, painter: QPainter, points: Sequence[Tuple[int, int]]) -> None:
         if not points:
             return
@@ -1882,16 +1918,56 @@ class RenderSurfaceMixin:
         mode_state = getattr(self, "controller_mode_state", None)
         if callable(mode_state) and mode_state() != "active":
             return
-        bounds_map = getattr(self, "_last_overlay_bounds_for_target", {}) or {}
         transform_map = getattr(self, "_last_transform_by_group", {}) or {}
         mapper = self._compute_legacy_mapper()
         anchor_override = getattr(self, "_controller_active_anchor", None)
-        bounds = self._resolve_bounds_for_active_group(active_group, bounds_map)
+        preview_mode = "last"
+        override_manager = getattr(self, "_override_manager", None)
+        if override_manager is not None:
+            try:
+                preview_mode = override_manager.group_controller_preview_box_mode(active_group[0], active_group[1])
+            except Exception:
+                preview_mode = "last"
+        if isinstance(preview_mode, str):
+            preview_mode = preview_mode.strip().lower()
+        if preview_mode not in {"last", "max"}:
+            preview_mode = "last"
+        bounds_map = getattr(self, "_last_visible_overlay_bounds_for_target", None)
+        if not isinstance(bounds_map, dict) or not bounds_map:
+            bounds_map = getattr(self, "_last_overlay_bounds_for_target", {}) or {}
+        bounds = None
         anchor_token = None
-        if bounds is None or not bounds.is_valid():
-            bounds, anchor_token = self._fallback_bounds_from_cache(active_group, mapper, anchor_override=anchor_override)
+        if preview_mode == "last":
+            bounds = self._resolve_bounds_for_active_group(active_group, bounds_map)
             if bounds is None or not bounds.is_valid():
-                return
+                bounds, anchor_token = self._fallback_bounds_from_cache(
+                    active_group,
+                    mapper,
+                    anchor_override=anchor_override,
+                    cache_mode="last",
+                )
+            if bounds is None or not bounds.is_valid():
+                bounds, anchor_token = self._fallback_bounds_from_cache(active_group, mapper, anchor_override=anchor_override)
+        else:
+            bounds, anchor_token = self._fallback_bounds_from_cache(
+                active_group,
+                mapper,
+                anchor_override=anchor_override,
+                cache_mode="max",
+            )
+            if bounds is None or not bounds.is_valid():
+                bounds = self._resolve_bounds_for_active_group(active_group, bounds_map)
+            if bounds is None or not bounds.is_valid():
+                bounds, anchor_token = self._fallback_bounds_from_cache(
+                    active_group,
+                    mapper,
+                    anchor_override=anchor_override,
+                    cache_mode="last",
+                )
+            if bounds is None or not bounds.is_valid():
+                bounds, anchor_token = self._fallback_bounds_from_cache(active_group, mapper, anchor_override=anchor_override)
+        if bounds is None or not bounds.is_valid():
+            return
         rect = self._overlay_bounds_to_rect(bounds, mapper)
         if rect.width() <= 0 or rect.height() <= 0:
             return
@@ -1916,6 +1992,69 @@ class RenderSurfaceMixin:
         painter.setBrush(QColor(255, 255, 255))
         radius = 5
         painter.drawEllipse(QPoint(anchor_px[0], anchor_px[1]), radius, radius)
+
+    def _update_last_visible_overlay_bounds_for_target(
+        self,
+        overlay_bounds_for_draw: Mapping[Tuple[str, Optional[str]], _OverlayBounds],
+        commands: Sequence[_LegacyPaintCommand],
+    ) -> None:
+        if not overlay_bounds_for_draw:
+            return
+        visible_groups = self._visible_group_keys(commands)
+        if not visible_groups:
+            return
+        cloned_bounds = self._clone_overlay_bounds_map(overlay_bounds_for_draw)
+        last_visible = getattr(self, "_last_visible_overlay_bounds_for_target", {}) or {}
+        if not isinstance(last_visible, dict):
+            last_visible = {}
+        for key in visible_groups:
+            bounds = cloned_bounds.get(key)
+            if bounds is None or not bounds.is_valid():
+                continue
+            if (bounds.max_x - bounds.min_x) <= 0.0 or (bounds.max_y - bounds.min_y) <= 0.0:
+                continue
+            last_visible[key] = bounds
+        self._last_visible_overlay_bounds_for_target = last_visible
+
+    def _visible_group_keys(self, commands: Sequence[_LegacyPaintCommand]) -> Set[Tuple[str, Optional[str]]]:
+        visible_groups: Set[Tuple[str, Optional[str]]] = set()
+        for command in commands:
+            if command.overlay_bounds is None and command.bounds is None:
+                continue
+            if self._command_is_visible_for_target(command):
+                visible_groups.add(command.group_key.as_tuple())
+        return visible_groups
+
+    @staticmethod
+    def _safe_float(value: object, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _command_is_visible_for_target(self, command: _LegacyPaintCommand) -> bool:
+        bounds = command.overlay_bounds or command.bounds
+        if bounds is not None:
+            if (bounds[2] - bounds[0]) <= 0.0 or (bounds[3] - bounds[1]) <= 0.0:
+                return False
+        if isinstance(command, _MessagePaintCommand):
+            text = str(getattr(command, "text", "") or "")
+            ttl_raw = command.legacy_item.data.get("__mo_ttl__")
+            ttl_val = self._safe_float(ttl_raw, default=-1.0)
+            if ttl_val == 0.0 and not text.strip():
+                return False
+            return True
+        if isinstance(command, _RectPaintCommand):
+            item = command.legacy_item.data
+            width = self._safe_float(item.get("w"), default=0.0)
+            height = self._safe_float(item.get("h"), default=0.0)
+            if width <= 0.0 or height <= 0.0:
+                return False
+            return True
+        if isinstance(command, _VectorPaintCommand):
+            points = command.legacy_item.data.get("points")
+            return bool(points)
+        return True
 
     @staticmethod
     def _match_group_key(target: Tuple[str, Optional[str]], candidates: Mapping[Tuple[str, Optional[str]], Any]) -> Optional[Tuple[str, Optional[str]]]:
@@ -1945,6 +2084,8 @@ class RenderSurfaceMixin:
         active_group: Tuple[str, Optional[str]],
         mapper: Optional[LegacyMapper] = None,
         anchor_override: Optional[str] = None,
+        cache_mode: Optional[str] = None,
+        require_transformed: bool = False,
     ) -> Tuple[Optional[_OverlayBounds], Optional[str]]:
         cache = getattr(self, "_group_cache", None)
         if cache is None or not hasattr(cache, "get_group"):
@@ -1975,6 +2116,7 @@ class RenderSurfaceMixin:
                 entry = None
         if entry is None:
             return None, None
+        mode_token = (cache_mode or "transformed").strip().lower()
         token_override = anchor_override
         override_manager = getattr(self, "_override_manager", None)
         base_meta = entry.get("base") if isinstance(entry, Mapping) else {}
@@ -2006,12 +2148,49 @@ class RenderSurfaceMixin:
         )
         if base_bounds is None or not base_bounds.is_valid():
             return None, None
-
-        transformed = entry.get("transformed") if isinstance(entry, Mapping) else None
         cache_anchor_token = base_anchor_token
         bounds = base_bounds
         width = base_width
         height = base_height
+
+        def _payload_kind(payload: Any) -> str:
+            if not isinstance(payload, Mapping):
+                return ""
+            for key in payload.keys():
+                if key.startswith("trans_"):
+                    return "transformed"
+            for key in payload.keys():
+                if key.startswith("base_"):
+                    return "base"
+            return ""
+
+        cache_payload = None
+        payload_kind = ""
+        if isinstance(entry, Mapping):
+            if mode_token == "last":
+                cache_payload = entry.get("last_visible_transformed")
+            elif mode_token == "max":
+                cache_payload = entry.get("max_transformed")
+            else:
+                cache_payload = entry.get("transformed")
+            payload_kind = _payload_kind(cache_payload)
+
+        transformed = None
+        if mode_token in {"last", "max"} and payload_kind == "base":
+            cached_bounds, _cached_anchor, cached_width, cached_height = self._overlay_bounds_from_cache_entry(
+                {"base": cache_payload}, prefer_transformed=False
+            )
+            if cached_bounds is not None and cached_bounds.is_valid():
+                bounds = cached_bounds
+                width = cached_width
+                height = cached_height
+        else:
+            if payload_kind == "transformed":
+                transformed = cache_payload
+            elif mode_token not in {"last", "max"}:
+                transformed = cache_payload if isinstance(cache_payload, Mapping) else None
+        if require_transformed and not isinstance(transformed, Mapping):
+            return None, None
 
         def _offsets_match(payload: Mapping[str, Any], target_dx: float, target_dy: float) -> bool:
             tol = 0.5
@@ -2040,7 +2219,7 @@ class RenderSurfaceMixin:
             timestamp_ok = not generation_ts or entry_last_updated >= generation_ts - 1e-6
             if nonce_ok and timestamp_ok and _offsets_match(transformed, offset_dx, offset_dy):
                 cached_bounds, cached_anchor, cached_width, cached_height = self._overlay_bounds_from_cache_entry(
-                    entry or {}, prefer_transformed=True
+                    {"transformed": transformed}, prefer_transformed=True
                 )
                 if cached_bounds is not None and cached_bounds.is_valid():
                     bounds = cached_bounds
@@ -2049,6 +2228,8 @@ class RenderSurfaceMixin:
                     height = cached_height
                     use_cached_transform = True
 
+        if require_transformed and not use_cached_transform:
+            return None, None
         if not use_cached_transform and (offset_dx or offset_dy):
             bounds.translate(offset_dx, offset_dy)
 

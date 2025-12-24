@@ -186,6 +186,7 @@ def process_legacy_payload(
             "y": int(payload.get("y", 0)),
             "size": payload.get("size", "normal"),
         }
+        data["__mo_ttl__"] = ttl
         transform_meta = payload.get("__mo_transform__")
         if isinstance(transform_meta, Mapping):
             try:
@@ -215,6 +216,7 @@ def process_legacy_payload(
                 "w": int(message.get("w", 0)),
                 "h": int(message.get("h", 0)),
             }
+            data["__mo_ttl__"] = ttl
             if trace_fn:
                 snapshot = _hashable_payload_snapshot("shape", payload)
                 trace_fn(
@@ -301,6 +303,7 @@ def process_legacy_payload(
                 "base_color": message.get("color", "white"),
                 "points": points,
             }
+            data["__mo_ttl__"] = ttl
             if trace_fn:
                 snapshot = _hashable_payload_snapshot("shape", payload)
                 trace_fn(
@@ -342,6 +345,7 @@ def process_legacy_payload(
 
         # For other shapes we keep the payload for future support/logging
         enriched = dict(message)
+        enriched["__mo_ttl__"] = ttl
         enriched.setdefault("timestamp", datetime.now(UTC).isoformat())
         store.set(
             item_id,

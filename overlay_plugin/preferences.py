@@ -696,6 +696,7 @@ class PreferencesPanel:
         restart_overlay_callback: Optional[Callable[[], None]] = None,
         set_launch_command_callback: Optional[Callable[[str], None]] = None,
         set_payload_opacity_callback: Optional[Callable[[int], None]] = None,
+        reset_group_cache_callback: Optional[Callable[[], bool]] = None,
         dev_mode: bool = False,
         plugin_version: Optional[str] = None,
         version_update_available: bool = False,
@@ -786,6 +787,7 @@ class PreferencesPanel:
         self._restart_overlay = restart_overlay_callback
         self._set_launch_command = set_launch_command_callback
         self._set_payload_opacity = set_payload_opacity_callback
+        self._reset_group_cache = reset_group_cache_callback
         self._set_capture_override = set_capture_override_callback
         self._set_log_retention_override = set_log_retention_override_callback
         self._set_payload_exclusions = set_payload_exclusion_callback
@@ -1080,6 +1082,16 @@ class PreferencesPanel:
         )
         helper_label.grid(row=1, column=0, columnspan=3, sticky="w", pady=(ROW_PAD[0], 0))
         clamp_override_row.grid(row=user_row, column=0, sticky="we", pady=ROW_PAD)
+        user_row += 1
+
+        cache_row = ttk.Frame(user_section, style=self._frame_style)
+        cache_label = nb.Label(cache_row, text="Overlay group cache:")
+        cache_label.pack(side="left")
+        reset_cache_btn = nb.Button(cache_row, text="Reset cached values", command=self._on_reset_group_cache)
+        if self._reset_group_cache is None:
+            reset_cache_btn.configure(state="disabled")
+        reset_cache_btn.pack(side="left", padx=(8, 0))
+        cache_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
         user_row += 1
 
         if self._diagnostics_enabled:
@@ -1432,6 +1444,21 @@ class PreferencesPanel:
             return numeric
         finally:
             self._payload_opacity_apply_in_progress = False
+
+    def _on_reset_group_cache(self) -> None:
+        if not callable(self._reset_group_cache):
+            self._status_var.set("Reset cached values is unavailable.")
+            return
+        try:
+            success = self._reset_group_cache()
+        except Exception as exc:
+            LOGGER.debug("Reset cached values failed", exc_info=True)
+            self._status_var.set(f"Failed to reset cached values: {exc}")
+            return
+        if success is False:
+            self._status_var.set("Failed to reset cached values.")
+            return
+        self._status_var.set("Cached overlay values reset.")
 
     def _on_show_status_toggle(self) -> None:
         value = bool(self._var_show_status.get())
