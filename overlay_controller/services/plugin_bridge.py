@@ -25,19 +25,16 @@ class PluginBridge:
         *,
         root: Path,
         port_path: Optional[Path] = None,
-        settings_path: Optional[Path] = None,
         connect: Optional[ConnectFn] = None,
         logger: Optional[LogFn] = None,
         time_source: Callable[[], float] = time.time,
     ) -> None:
         self._root = root
         self._port_path = port_path or (root / "port.json")
-        self._settings_path = settings_path or (root / "overlay_settings.json")
         self._connect = connect or socket.create_connection
         self._log = logger or _noop_log
         self._time = time_source
         self._force_render_override = ForceRenderOverrideManager(
-            settings_path=self._settings_path,
             port_path=self._port_path,
             connect=self._connect,
             logger=self._log,
@@ -134,63 +131,32 @@ class ForceRenderOverrideManager:
     def __init__(
         self,
         *,
-        settings_path: Path,
         port_path: Path,
         connect: Optional[ConnectFn] = None,
         logger: Optional[LogFn] = None,
         time_source: Callable[[], float] = time.monotonic,
     ) -> None:
-        self._settings_path = settings_path
         self._port_path = port_path
         self._connect = connect or socket.create_connection
         self._logger = logger or _noop_log
         self._time = time_source
         self._active = False
-        self._previous_force: Optional[bool] = None
-        self._previous_allow: Optional[bool] = None
 
     def activate(self) -> None:
         if self._active:
             return
-        current_force, current_allow = self._read_force_settings()
-        self._previous_force = current_force
-        self._previous_allow = current_allow
-        response = self._send_override({"cli": "force_render_override", "allow": True, "force_render": True})
-        if response is not None:
-            previous_force = response.get("previous_force_render")
-            if isinstance(previous_force, bool):
-                self._previous_force = previous_force
-            previous_allow = response.get("previous_allow")
-            if isinstance(previous_allow, bool):
-                self._previous_allow = previous_allow
-        else:
-            if self._previous_force is None:
-                self._previous_force = False
-            if self._previous_allow is None:
-                self._previous_allow = False
-            self._update_settings_file(force=True, allow=True)
+        response = self._send_override({"cli": "force_render_override", "force_render": True})
+        if response is None:
+            self._safe_log("Overlay CLI unavailable while enabling force-render override.")
         self._active = True
 
     def deactivate(self) -> None:
         if not self._active:
             return
-        restore_force = self._previous_force if self._previous_force is not None else False
-        restore_allow = self._previous_allow if self._previous_allow is not None else False
-        response = self._send_override(
-            {
-                "cli": "force_render_override",
-                "allow": restore_allow,
-                "force_render": restore_force,
-            }
-        )
+        response = self._send_override({"cli": "force_render_override", "force_render": False})
         if response is None:
-            self._safe_log(
-                "Overlay CLI unavailable while restoring force-render override; writing settings file directly."
-            )
-        self._update_settings_file(force=restore_force, allow=restore_allow)
+            self._safe_log("Overlay CLI unavailable while disabling force-render override.")
         self._active = False
-        self._previous_force = None
-        self._previous_allow = None
 
     def _send_override(self, payload: JsonDict) -> Optional[JsonDict]:
         port = self._load_port()
@@ -242,26 +208,6 @@ class ForceRenderOverrideManager:
         if not isinstance(port, int) or port <= 0:
             return None
         return port
-
-    def _read_force_settings(self) -> tuple[bool, bool]:
-        try:
-            raw = json.loads(self._settings_path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            return False, False
-        return bool(raw.get("force_render", False)), bool(raw.get("allow_force_render_release", False))
-
-    def _update_settings_file(self, *, force: bool, allow: bool) -> None:
-        try:
-            raw = json.loads(self._settings_path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            raw = {}
-        raw["force_render"] = bool(force)
-        raw["allow_force_render_release"] = bool(allow)
-        try:
-            text = json.dumps(raw, indent=2) + "\n"
-            self._settings_path.write_text(text, encoding="utf-8")
-        except OSError:
-            pass
 
     def _safe_log(self, message: str) -> None:
         try:

@@ -88,32 +88,29 @@ def test_active_group_dedupes_same_payload(tmp_path: Path) -> None:
     assert payload["edit_nonce"] == "n1"
 
 
-def test_force_render_override_falls_back_to_settings_file(tmp_path: Path) -> None:
-    settings_path = tmp_path / "overlay_settings.json"
+def test_force_render_override_logs_on_failure(tmp_path: Path) -> None:
+    log: list[object] = []
+    (tmp_path / "port.json").write_text('{"port": 2345}', encoding="utf-8")
 
     def failing_connect(*_args, **_kwargs):
         raise OSError("socket unavailable")
 
-    bridge = pb.PluginBridge(root=tmp_path, connect=failing_connect)
-    manager = bridge.force_render_override
+    manager = pb.ForceRenderOverrideManager(
+        port_path=tmp_path / "port.json",
+        connect=failing_connect,
+        logger=lambda msg: log.append(("log", msg)),
+    )
 
     manager.activate()
-    saved = json.loads(settings_path.read_text(encoding="utf-8"))
-    assert saved["force_render"] is True
-    assert saved["allow_force_render_release"] is True
-
     manager.deactivate()
-    restored = json.loads(settings_path.read_text(encoding="utf-8"))
-    assert restored["force_render"] is False
-    assert restored["allow_force_render_release"] is False
+    assert any("enabling force-render override" in entry[1] for entry in log if entry[0] == "log")
+    assert any("disabling force-render override" in entry[1] for entry in log if entry[0] == "log")
 
 
-def test_force_render_override_restores_previous_from_response(tmp_path: Path) -> None:
+def test_force_render_override_sends_payloads(tmp_path: Path) -> None:
     log: list[object] = []
-    responses = ['{"status": "ok", "previous_force_render": true, "previous_allow": false}\n']
+    responses = ['{"status": "ok"}\n']
     (tmp_path / "port.json").write_text('{"port": 4567}', encoding="utf-8")
-    settings_path = tmp_path / "overlay_settings.json"
-    settings_path.write_text(json.dumps({"force_render": False, "allow_force_render_release": True}), encoding="utf-8")
     call_count = {"value": 0}
 
     def fake_connect(addr, timeout=0.0):
@@ -123,7 +120,6 @@ def test_force_render_override_restores_previous_from_response(tmp_path: Path) -
         return FakeSocket(log, responses=resp)
 
     manager = pb.ForceRenderOverrideManager(
-        settings_path=settings_path,
         port_path=tmp_path / "port.json",
         connect=fake_connect,
         logger=lambda msg: log.append(("log", msg)),
@@ -137,11 +133,5 @@ def test_force_render_override_restores_previous_from_response(tmp_path: Path) -
     assert json_writes, "expected force-render override payloads to be written"
     first_payload = json.loads(json_writes[0])
     assert first_payload["force_render"] is True
-    assert first_payload["allow"] is True
     second_payload = json.loads(json_writes[-1])
-    assert second_payload["force_render"] is True
-    assert second_payload["allow"] is False
-
-    restored = json.loads(settings_path.read_text(encoding="utf-8"))
-    assert restored["force_render"] is True
-    assert restored["allow_force_render_release"] is False
+    assert second_payload["force_render"] is False

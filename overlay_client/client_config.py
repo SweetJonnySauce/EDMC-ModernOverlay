@@ -15,7 +15,6 @@ class InitialClientSettings:
     client_log_retention: int = 5
     global_payload_opacity: int = 100
     force_render: bool = False
-    allow_force_render_release: bool = False
     force_xwayland: bool = False
     physical_clamp_enabled: bool = False
     physical_clamp_overrides: Dict[str, float] = field(default_factory=dict)
@@ -167,10 +166,7 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
     except (TypeError, ValueError):
         payload_opacity = defaults.global_payload_opacity
     payload_opacity = max(0, min(payload_opacity, 100))
-    allow_force_release = bool(data.get("allow_force_render_release", defaults.allow_force_render_release))
     force_render = bool(data.get("force_render", defaults.force_render))
-    if not allow_force_release:
-        force_render = False
     force_xwayland = bool(data.get("force_xwayland", defaults.force_xwayland))
     physical_clamp_enabled = bool(data.get("physical_clamp_enabled", defaults.physical_clamp_enabled))
     show_debug_overlay = bool(data.get("show_debug_overlay", defaults.show_debug_overlay))
@@ -260,7 +256,6 @@ def load_initial_settings(settings_path: Path) -> InitialClientSettings:
         nudge_overflow_payloads=nudge_overflow,
         payload_nudge_gutter=gutter,
         payload_log_delay_seconds=log_delay,
-        allow_force_render_release=allow_force_release,
         physical_clamp_enabled=physical_clamp_enabled,
         physical_clamp_overrides=overrides,
     )

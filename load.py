@@ -387,16 +387,6 @@ DEFAULT_DEV_SETTINGS: Dict[str, Any] = {
     "log_repaint_debounce": False,
 }
 
-def _is_force_render_enabled(preferences: Optional[Preferences]) -> bool:
-    if preferences is None:
-        return False
-    flag = bool(getattr(preferences, "force_render", False))
-    if DEV_BUILD:
-        return flag
-    allow_flag = bool(getattr(preferences, "allow_force_render_release", False))
-    return flag and allow_flag
-
-
 FLATPAK_ENV_FORWARD_KEYS: Tuple[str, ...] = (
     "EDMC_OVERLAY_SESSION_TYPE",
     "EDMC_OVERLAY_COMPOSITOR",
@@ -448,6 +438,7 @@ class _PluginRuntime:
         self._prefs_lock = threading.Lock()
         self._force_monitor_stop = threading.Event()
         self._force_monitor_thread: Optional[threading.Thread] = None
+        self._controller_force_render_override = False
         self._running = False
         self._capture_active = False
         self._state: Dict[str, Any] = {
@@ -485,7 +476,6 @@ class _PluginRuntime:
         self._load_dev_settings(force=True)
         if self._payload_log_handler is None:
             self._configure_payload_logger()
-        self._reset_force_render_override_on_startup()
         self._version_status: Optional[VersionStatus] = None
         self._version_status_lock = threading.Lock()
         self._version_update_notice_sent = False
@@ -816,27 +806,22 @@ class _PluginRuntime:
     def _start_force_render_monitor_if_needed(self) -> None:
         if self._force_monitor_thread and self._force_monitor_thread.is_alive():
             return
-        if not getattr(self._preferences, "allow_force_render_release", False):
+        if not self._controller_force_render_override:
             return
         self._force_monitor_stop.clear()
 
         def _worker() -> None:
             try:
                 while not self._force_monitor_stop.wait(timeout=5.0):
-                    if not getattr(self._preferences, "allow_force_render_release", False):
+                    if not self._controller_force_render_override:
                         return
                     if self._overlay_controller_active():
                         continue
                     with self._prefs_lock:
-                        if getattr(self._preferences, "allow_force_render_release", False):
-                            self._preferences.allow_force_render_release = False
-                            try:
-                                self._preferences.save()
-                            except Exception as exc:
-                                LOGGER.warning("Failed to clear allow_force_render_release after controller exit: %s", exc)
-                            else:
-                                LOGGER.info("Overlay Controller no longer detected; force-render override cleared.")
-                                self._send_overlay_config()
+                        if self._controller_force_render_override:
+                            self._controller_force_render_override = False
+                            LOGGER.info("Overlay Controller no longer detected; force-render override cleared.")
+                            self._send_overlay_config()
                     return
             except Exception as exc:
                 LOGGER.debug("Force-render monitor terminated with error: %s", exc, exc_info=exc)
@@ -867,6 +852,11 @@ class _PluginRuntime:
         base_value = max(CLIENT_LOG_RETENTION_MIN, min(base_value, CLIENT_LOG_RETENTION_MAX))
         override = self._log_retention_override
         return override if override is not None else base_value
+
+    def _resolve_force_render(self) -> bool:
+        return bool(getattr(self._preferences, "force_render", False)) or bool(
+            getattr(self, "_controller_force_render_override", False)
+        )
 
     def _set_log_retention_override(self, value: Optional[int]) -> bool:
         if value is not None:
@@ -1385,7 +1375,7 @@ class _PluginRuntime:
             self._preferences.gridlines_enabled,
             self._preferences.gridline_spacing,
             self._preferences.overlay_opacity,
-            _is_force_render_enabled(self._preferences),
+            self._resolve_force_render(),
             self._preferences.force_xwayland,
             self._preferences.show_debug_overlay,
             self._preferences.cycle_payload_ids,
@@ -1613,37 +1603,22 @@ class _PluginRuntime:
         self,
         *,
         force_value: Optional[bool],
-        allow_force_release: Optional[bool],
-    ) -> Tuple[bool, bool, bool, bool]:
+    ) -> Tuple[bool, bool, bool]:
         preferences = self._preferences
         previous_force = bool(getattr(preferences, "force_render", False))
-        previous_allow = bool(getattr(preferences, "allow_force_render_release", False))
         broadcast = False
         dirty = False
-        allow_flag = previous_allow if allow_force_release is None else bool(allow_force_release)
-        if allow_flag != previous_allow:
-            preferences.allow_force_render_release = allow_flag
-            dirty = True
-            broadcast = True
         if force_value is not None:
             flag = bool(force_value)
-            if not DEV_BUILD and flag and not allow_flag:
-                LOGGER.warning(
-                    "Ignoring force-render toggle; this option is restricted to developer builds (override disabled)."
-                )
-                flag = False
             if flag != previous_force:
                 preferences.force_render = flag
                 dirty = True
                 broadcast = True
-        return previous_force, previous_allow, dirty, broadcast
+        return previous_force, dirty, broadcast
 
     def set_force_render_preference(self, value: bool) -> None:
         with self._prefs_lock:
-            _prev_force, _prev_allow, dirty, broadcast = self._update_force_render_locked(
-                force_value=value,
-                allow_force_release=None,
-            )
+            _prev_force, dirty, broadcast = self._update_force_render_locked(force_value=value)
             if not dirty:
                 return
             self._preferences.save()
@@ -2164,41 +2139,31 @@ class _PluginRuntime:
                 preferences = self._preferences
                 if preferences is None:
                     raise RuntimeError("Preferences are not initialised; cannot apply force-render override")
-                if "allow" not in payload:
-                    raise ValueError("force_render_override payload requires 'allow'")
-                allow_flag = bool(payload.get("allow"))
-                desired_force_raw = payload.get("force_render")
-                desired_force: Optional[bool] = None if desired_force_raw is None else bool(desired_force_raw)
+                if "force_render" not in payload:
+                    raise ValueError("force_render_override payload requires 'force_render'")
+                desired_force = bool(payload.get("force_render"))
 
-                def _apply_force_override() -> Tuple[bool, bool, bool]:
+                def _apply_force_override() -> Tuple[bool, bool]:
                     with self._prefs_lock:
-                        previous_force = bool(getattr(preferences, "force_render", False))
-                        previous_allow = bool(getattr(preferences, "allow_force_render_release", False))
-                        _prev_force, _prev_allow, dirty, broadcast = self._update_force_render_locked(
-                            force_value=desired_force,
-                            allow_force_release=allow_flag,
-                        )
-                        if dirty:
-                            try:
-                                preferences.save()
-                            except Exception as exc:
-                                LOGGER.warning("Failed to persist force-render override preference: %s", exc)
-                        return previous_force, previous_allow, broadcast
+                        previous_override = bool(self._controller_force_render_override)
+                        if desired_force == previous_override:
+                            return previous_override, False
+                        self._controller_force_render_override = desired_force
+                        return previous_override, True
 
-                previous_force, previous_allow, broadcast = self._submit_pref_task(
+                previous_override, broadcast = self._submit_pref_task(
                     _apply_force_override,
                     wait=True,
                 )
-                if allow_flag:
+                if desired_force:
                     self._start_force_render_monitor_if_needed()
                 if broadcast:
                     self._send_overlay_config()
                 return {
                     "status": "ok",
-                    "force_render": _is_force_render_enabled(preferences),
-                    "previous_force_render": previous_force,
-                    "previous_allow": previous_allow,
-                    "allow_force_render_release": bool(preferences.allow_force_render_release),
+                    "force_render": self._resolve_force_render(),
+                    "previous_force_render": previous_override,
+                    "force_render_override": bool(self._controller_force_render_override),
                 }
             if command == "legacy_overlay":
                 legacy_payload = payload.get("payload")
@@ -2320,7 +2285,7 @@ class _PluginRuntime:
             "client_log_retention": int(self._resolve_client_log_retention()),
             "gridlines_enabled": bool(self._preferences.gridlines_enabled),
             "gridline_spacing": int(self._preferences.gridline_spacing),
-            "force_render": _is_force_render_enabled(self._preferences),
+            "force_render": self._resolve_force_render(),
             "title_bar_enabled": bool(self._preferences.title_bar_enabled),
             "title_bar_height": int(self._preferences.title_bar_height),
             "show_debug_overlay": show_debug_overlay,
@@ -2792,37 +2757,6 @@ class _PluginRuntime:
                 return True
         return False
 
-    def _warn_if_controller_running(self) -> None:
-        try:
-            active = self._overlay_controller_active()
-        except Exception as exc:
-            LOGGER.debug("Controller scan failed: %s", exc, exc_info=exc)
-            return
-        if active:
-            LOGGER.warning(
-                "Overlay Controller appears to be running; force-render override has been cleared on startup. "
-                "Reopen the controller to re-enable force-render if needed."
-            )
-
-    def _reset_force_render_override_on_startup(self) -> None:
-        reset_applied = False
-        with self._prefs_lock:
-            if getattr(self._preferences, "allow_force_render_release", False):
-                self._preferences.allow_force_render_release = False
-                try:
-                    self._preferences.save()
-                except Exception as exc:
-                    LOGGER.warning("Failed to reset allow_force_render_release on startup: %s", exc)
-                else:
-                    reset_applied = True
-        if reset_applied:
-            LOGGER.info("Cleared allow_force_render_release on startup to enforce default force-render policy.")
-        threading.Thread(
-            target=self._warn_if_controller_running,
-            name="ModernOverlayControllerScan",
-            daemon=True,
-        ).start()
-
     def _platform_context_payload(self) -> Dict[str, Any]:
         session = (os.environ.get("XDG_SESSION_TYPE") or "").lower()
         context = {
@@ -3051,7 +2985,7 @@ def prefs_changed(cmdr: str, is_beta: bool) -> None:  # pragma: no cover - save 
                 _plugin._resolve_client_log_retention() if _plugin else _preferences.client_log_retention,
                 _preferences.gridlines_enabled,
                 _preferences.gridline_spacing,
-                _is_force_render_enabled(_preferences),
+                _plugin._resolve_force_render() if _plugin else bool(getattr(_preferences, "force_render", False)),
                 _preferences.title_bar_enabled,
                 _preferences.title_bar_height,
                 _preferences.force_xwayland,

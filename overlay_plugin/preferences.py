@@ -338,7 +338,6 @@ class Preferences:
     gridlines_enabled: bool = False
     gridline_spacing: int = 120
     force_render: bool = False
-    allow_force_render_release: bool = False
     force_xwayland: bool = False
     physical_clamp_enabled: bool = False
     physical_clamp_overrides: Dict[str, float] = field(default_factory=dict)
@@ -375,7 +374,6 @@ class Preferences:
             self._ensure_state_version_mark()
         else:
             self._load_from_json()
-        self.disable_force_render_for_release()
         try:
             self._write_shadow_file()
         except Exception:
@@ -424,10 +422,6 @@ class Preferences:
             "gridlines_enabled": _config_get_raw(_config_key("gridlines_enabled"), self.gridlines_enabled),
             "gridline_spacing": _config_get_raw(_config_key("gridline_spacing"), self.gridline_spacing),
             "force_render": _config_get_raw(_config_key("force_render"), self.force_render),
-            "allow_force_render_release": _config_get_raw(
-                _config_key("allow_force_render_release"),
-                self.allow_force_render_release,
-            ),
             "force_xwayland": _config_get_raw(_config_key("force_xwayland"), self.force_xwayland),
             "physical_clamp_enabled": _config_get_raw(
                 _config_key("physical_clamp_enabled"),
@@ -493,11 +487,6 @@ class Preferences:
         self.gridlines_enabled = _coerce_bool(data.get("gridlines_enabled"), self.gridlines_enabled)
         self.gridline_spacing = _coerce_int(data.get("gridline_spacing"), self.gridline_spacing, minimum=10)
         self.force_render = _coerce_bool(data.get("force_render"), self.force_render)
-        allow_raw = data.get(
-            "allow_force_render_release",
-            self.allow_force_render_release if "allow_force_render_release" in data else self.dev_mode,
-        )
-        self.allow_force_render_release = _coerce_bool(allow_raw, bool(self.dev_mode))
         self.force_xwayland = _coerce_bool(data.get("force_xwayland"), self.force_xwayland)
         self.physical_clamp_enabled = _coerce_bool(
             data.get("physical_clamp_enabled"),
@@ -572,7 +561,6 @@ class Preferences:
             "gridlines_enabled": bool(self.gridlines_enabled),
             "gridline_spacing": int(self.gridline_spacing),
             "force_render": bool(self.force_render),
-            "allow_force_render_release": bool(self.allow_force_render_release),
             "force_xwayland": bool(self.force_xwayland),
             "physical_clamp_enabled": bool(self.physical_clamp_enabled),
             "physical_clamp_overrides": dict(self.physical_clamp_overrides or {}),
@@ -609,7 +597,6 @@ class Preferences:
         _config_set_raw(_config_key("gridlines_enabled"), bool(self.gridlines_enabled))
         _config_set_raw(_config_key("gridline_spacing"), int(self.gridline_spacing))
         _config_set_raw(_config_key("force_render"), bool(self.force_render))
-        _config_set_raw(_config_key("allow_force_render_release"), bool(self.allow_force_render_release))
         _config_set_raw(_config_key("force_xwayland"), bool(self.force_xwayland))
         _config_set_raw(_config_key("physical_clamp_enabled"), bool(self.physical_clamp_enabled))
         try:
@@ -640,27 +627,6 @@ class Preferences:
         current_version = _coerce_int(_config_get_raw(CONFIG_VERSION_KEY, 0), 0)
         if current_version < CONFIG_STATE_VERSION:
             _config_set_raw(CONFIG_VERSION_KEY, CONFIG_STATE_VERSION)
-
-    def disable_force_render_for_release(self) -> bool:
-        """Ensure release builds cannot persist the developer-only override."""
-
-        if self.dev_mode or getattr(self, "allow_force_render_release", False):
-            return False
-        if not getattr(self, "force_render", False):
-            return False
-        self.force_render = False
-        try:
-            self.save()
-        except Exception as exc:
-            LOGGER.warning(
-                "Failed to persist force-render disable for release mode: %s",
-                exc,
-            )
-            return False
-        LOGGER.info(
-            "Disabled 'Keep overlay visible when Elite Dangerous is not the foreground window' for release builds."
-        )
-        return True
 
     def status_bottom_margin(self) -> int:
         return STATUS_BASE_MARGIN + int(max(0, self.status_message_gutter))
@@ -897,6 +863,19 @@ class PreferencesPanel:
         self._update_status_gutter_spin_state()
 
         status_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
+        user_row += 1
+
+        force_row = ttk.Frame(user_section, style=self._frame_style)
+        force_checkbox = nb.Checkbutton(
+            force_row,
+            text="Keep overlay visible when Elite Dangerous is not the foreground window",
+            variable=self._var_force_render,
+            onvalue=True,
+            offvalue=False,
+            command=self._on_force_render_toggle,
+        )
+        force_checkbox.pack(side="left")
+        force_row.grid(row=user_row, column=0, sticky="w", pady=ROW_PAD)
         user_row += 1
 
         font_row = ttk.Frame(user_section, style=self._frame_style)
@@ -1247,17 +1226,6 @@ class PreferencesPanel:
                 restart_btn.configure(state="disabled")
             restart_btn.pack(side="left")
             restart_row.grid(row=dev_row, column=0, sticky="w", pady=ROW_PAD)
-            dev_row += 1
-
-            force_checkbox = nb.Checkbutton(
-                dev_frame,
-                text="Keep overlay visible when Elite Dangerous is not the foreground window",
-                variable=self._var_force_render,
-                onvalue=True,
-                offvalue=False,
-                command=self._on_force_render_toggle,
-            )
-            force_checkbox.grid(row=dev_row, column=0, sticky="w", pady=ROW_PAD)
             dev_row += 1
 
             opacity_label = nb.Label(
@@ -1815,14 +1783,15 @@ class PreferencesPanel:
 
     def _on_force_render_toggle(self) -> None:
         value = bool(self._var_force_render.get())
-        self._preferences.force_render = value
         if self._set_force_render:
             try:
                 self._set_force_render(value)
             except Exception as exc:
                 self._status_var.set(f"Failed to update force-render option: {exc}")
                 return
-        self._preferences.save()
+        else:
+            self._preferences.force_render = value
+            self._preferences.save()
 
     def _on_physical_clamp_toggle(self) -> None:
         self._preferences.physical_clamp_enabled = bool(self._var_physical_clamp.get())
