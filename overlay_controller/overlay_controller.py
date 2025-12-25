@@ -19,7 +19,7 @@ import math
 from math import ceil
 from pathlib import Path
 import tempfile
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from overlay_plugin.overlay_api import PluginGroupingError, _normalise_background_color, _normalise_border_width
 
@@ -104,13 +104,18 @@ _LOG_LEVEL_OVERRIDE_NAME: Optional[str] = None
 _LOG_LEVEL_OVERRIDE_SOURCE: Optional[str] = None
 legacy_write_groupings_config = staticmethod(EditController.legacy_write_groupings_config)
 
-def _ForceRenderOverrideManager(root: Path):
+def _ForceRenderOverrideManager(
+    root: Path,
+    *,
+    connect: Optional[Callable[..., object]] = None,
+    logger: Optional[Callable[[str], None]] = None,
+):
     """Compatibility shim returning the service ForceRenderOverrideManager."""
 
     return ForceRenderOverrideManager(
-        settings_path=root / "overlay_settings.json",
         port_path=root / "port.json",
-        logger=_controller_debug,
+        connect=connect,
+        logger=logger or _controller_debug,
     )
 
 class OverlayConfigApp(tk.Tk):

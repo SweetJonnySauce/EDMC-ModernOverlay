@@ -234,19 +234,61 @@ def test_restore_foreground_noop_on_linux(monkeypatch):
 
 
 def test_force_render_override_restores_previous(tmp_path):
-    settings_path = tmp_path / "overlay_settings.json"
-    settings_path.write_text('{"force_render": false, "allow_force_render_release": false}', encoding="utf-8")
-    mgr = oc._ForceRenderOverrideManager(tmp_path)
+    log: list[object] = []
+    (tmp_path / "port.json").write_text('{"port": 5555}', encoding="utf-8")
+
+    class FakeWriter:
+        def __init__(self, log):
+            self._log = log
+
+        def write(self, data: str) -> int:
+            self._log.append(("write", data))
+            return len(data)
+
+        def flush(self) -> None:
+            self._log.append("flush")
+
+    class FakeReader:
+        def __init__(self, responses):
+            self._responses = list(responses)
+
+        def readline(self) -> str:
+            if self._responses:
+                return self._responses.pop(0)
+            return ""
+
+    class FakeSocket:
+        def __init__(self, log, responses=None):
+            self._log = log
+            self._responses = responses or []
+
+        def makefile(self, mode: str, **_kwargs):
+            if "w" in mode:
+                return FakeWriter(self._log)
+            return FakeReader(list(self._responses))
+
+        def settimeout(self, timeout: float) -> None:
+            self._log.append(("timeout", timeout))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            self._log.append("closed")
+
+    def fake_connect(addr, timeout=0.0):
+        log.append(("connect", addr, timeout))
+        return FakeSocket(log, responses=['{"status": "ok"}\n'])
+
+    mgr = oc._ForceRenderOverrideManager(tmp_path, connect=fake_connect)
 
     mgr.activate()
-    data = settings_path.read_text(encoding="utf-8")
-    assert '"force_render": true' in data
-    assert '"allow_force_render_release": true' in data
-
     mgr.deactivate()
-    data = settings_path.read_text(encoding="utf-8")
-    assert '"force_render": false' in data
-    assert '"allow_force_render_release": false' in data
+
+    json_writes = [entry[1] for entry in log if isinstance(entry, tuple) and entry[0] == "write"]
+    assert json_writes, "expected force-render override payloads to be written"
+    assert any('"force_render": true' in payload for payload in json_writes)
+    assert any('"force_render": false' in payload for payload in json_writes)
     assert not mgr._active
 
 

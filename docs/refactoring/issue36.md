@@ -58,7 +58,7 @@ The 'nudge' setting doesn't seem to work either and they think it's not scaling 
 ### Key differences between 0.7.5-beta-release-1 (works) and 0.7.5-rc-1 (user reports broken):
 
 - Physical clamp feature was added end-to-end: new prefs/UI plus per-monitor overrides (overlay_plugin/preferences.py), new config fields emitted (load.py), new client setters and follow plumbing (overlay_client/control_surface.py, follow_surface.py, follow_geometry.py). Scaling math in follow_geometry.py was rewritten to handle fractional DPI/clamp/overrides and now decides differently even when clamp is off.
-- Defaults changed in overlay_settings.json: force_render and allow_force_render_release flipped to false, show_debug_overlay false, max_font_point dropped to 12, and new physical_clamp_* entries were added.
+- Defaults changed in overlay_settings.json: force_render flipped to false, show_debug_overlay false, max_font_point dropped to 12, and new physical_clamp_* entries were added (allow_force_render_release was later removed).
 - Debug overlay is now gated by diagnostics (load.py), so it won’t show unless diagnostics logging is enabled.
 - Additional tests/docs/scripts were added around clamp/geometry and Windows install, but functional deltas are mainly the new clamp/scaling logic and default changes.
 - Given the user’s “scaled off screen / clamp toggle has no effect” report, the only substantive behavioural change between those builds is the new clamp/scaling logic and related defaults in RC1.

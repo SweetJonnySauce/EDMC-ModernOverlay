@@ -47,7 +47,7 @@ Modern Overlay’s diagnostics depend on two independent gates: the plugin respe
 ### Dev mode gates
 - `load.py:76-290` sets `DEV_BUILD` (via `MODERN_OVERLAY_DEV_MODE=1` or a `-dev` version suffix). Dev builds default the plugin logger to DEBUG and log the “Running Modern Overlay dev build…” banner.
 - `load.py:838-906` only writes `debug.json` defaults when `DEV_BUILD` is true, so release users have to craft the file manually.
-- `overlay_plugin/preferences.py:775-923` hides the “Developer Settings” group unless `dev_mode=True`. That block holds the overlay restart button, force-render toggle, opacity slider, gridlines, payload-ID cycling controls, payload sender, and legacy overlay testers. Release builds also refuse to persist `force_render` unless `allow_force_render_release` is set (`load.py:1349-1385`, `preferences.py:293-318, 413-432`).
+- `overlay_plugin/preferences.py:775-923` hides the “Developer Settings” group unless `dev_mode=True`. That block holds the overlay restart button, opacity slider, gridlines, payload-ID cycling controls, payload sender, and legacy overlay testers. The force-render toggle now lives in the main preferences section.
 - The overlay client/controller treat dev mode as an all-or-nothing flag:
   - `overlay_client/debug_config.py:30-120` ignores `debug.json` unless `DEBUG_CONFIG_ENABLED` (derived from dev mode) is true. Group outlines, axis tags, payload vertex markers, tracing, repaint logging, and custom log retention all hinge on that flag.
   - `overlay_client/overlay_client.py:76-101` and `overlay_client/data_client.py:34-42` keep their loggers at INFO in release builds; `_ReleaseLogLevelFilter` downgrades any DEBUG message to INFO when dev mode is off.

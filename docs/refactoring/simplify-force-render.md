@@ -1,23 +1,23 @@
 ## Goal: Simplify how we force rendering
 
 ## Requirements (Behavior)
-- "Keep overlay visible" remains a dev-only preference for now (do not expose in release UI).
 - When "Keep overlay visible" is checked, the overlays must render even when the game is not focused (no release gating).
 - When the controller is active (controller mode), the overlays must render even when the game is not focused, even if the user has disabled "Keep overlay visible."
 - Controller force-render is runtime-only (no persistence across restarts).
 - Drop `allow_force_render_release` entirely (no config key, no persistence).
 
-## Current Behavior (Force Render + Release Gate)
+## Current Behavior (Single Preference + Controller Override)
 
 ### Definitions
 - `force_render`: keeps the overlay visible even when Elite is not the foreground window.
-- `allow_force_render_release`: release-build gate/override flag that decides whether `force_render` is honored or cleared.
+- controller override: runtime-only force-render flag set while the controller is active.
 
 ### Key Enforcement Points
-- Effective force-render is computed by `_is_force_render_enabled()` in `load.py`. In dev builds it returns `force_render`; in release builds it returns `force_render && allow_force_render_release`.
-- Release builds refuse to persist `force_render` unless `allow_force_render_release` is set. This is enforced in `Preferences.disable_force_render_for_release()` (`overlay_plugin/preferences.py`) and `load.py::_update_force_render_locked()`.
-- `allow_force_render_release` is cleared on plugin startup (`load.py::_reset_force_render_override_on_startup`) and can be re-enabled temporarily by the controller via the `force_render_override` CLI command.
-- The overlay client bootstraps its initial state from `overlay_settings.json` in `overlay_client/client_config.py::load_initial_settings()`, which forces `force_render = False` if `allow_force_render_release` is false.
+- Effective force-render is computed in `_PluginRuntime._resolve_force_render()` as `force_render || controller_override_active`.
+- Controller mode toggles the override via `force_render_override` CLI payloads (`force_render: true/false`); no persistence is written.
+- The force-render monitor thread clears the runtime override when the controller is no longer detected and rebroadcasts config.
+- The overlay client bootstraps its initial state from `overlay_settings.json` in `overlay_client/client_config.py::load_initial_settings()`, using only `force_render`.
+- "Keep overlay visible" lives in the main preferences section and is honored in all builds when the preference is set.
 
 ### Client Visibility Behavior
 - The client decides visibility with `force_render or (state.is_visible and state.is_foreground)` in `overlay_client/window_controller.py::post_process_follow_state()`.
@@ -26,49 +26,37 @@
 ## Runtime Flow: Dev Build
 
 1) Preferences load
-- `Preferences.__post_init__()` (`overlay_plugin/preferences.py`) loads config or `overlay_settings.json`, then calls `disable_force_render_for_release()`, which is a no-op when `dev_mode` is true.
-- `allow_force_render_release` defaults to `dev_mode` when missing, but may be cleared later by the startup override reset.
+- `Preferences.__post_init__()` (`overlay_plugin/preferences.py`) loads config or `overlay_settings.json`; there is no release gating.
+- The "Keep overlay visible" checkbox is available in the main preferences UI and honored regardless of build.
 
-2) Startup override reset
-- `_PluginRuntime.__init__()` calls `_reset_force_render_override_on_startup()` (`load.py`), which clears `allow_force_render_release` if it is true and saves preferences.
-- This does not change effective force-render in dev builds because `_is_force_render_enabled()` ignores the allow flag when `DEV_BUILD` is true.
+2) Initial client bootstrap
+- The client reads `overlay_settings.json` via `load_initial_settings()` (`overlay_client/client_config.py`) and applies `force_render` directly.
 
-3) Initial client bootstrap
-- The client reads `overlay_settings.json` via `load_initial_settings()` (`overlay_client/client_config.py`).
-- If `allow_force_render_release` is false in the file (common after step 2), the initial client setting forces `force_render` to false until the first config payload arrives.
-
-4) Overlay config broadcast
-- The plugin sends the overlay config using `_is_force_render_enabled()` (`load.py`) so the client eventually receives the dev-mode `force_render` value regardless of the allow flag.
+3) Overlay config broadcast
+- The plugin sends the overlay config using `_resolve_force_render()` (`load.py`), so the client receives `force_render` OR controller override state.
 - The client calls `set_force_render()` and `post_process_follow_state()` to apply visibility behavior.
 
-5) Controller override path (optional)
-- Opening the controller calls `ForceRenderOverrideManager.activate()` (`overlay_controller/services/plugin_bridge.py`), which sends a `force_render_override` CLI payload (`allow=true`, `force_render=true`).
-- The plugin handles this in `_handle_cli_payload()` (`load.py`) and sets `allow_force_render_release=true` plus `force_render=true`, then starts `_start_force_render_monitor_if_needed()` to auto-clear the allow flag when the controller exits.
-- Because dev builds ignore the allow flag for effectiveness, this path mainly exists to support the release policy and controller-driven restore logic.
+4) Controller override path (optional)
+- Opening the controller calls `ForceRenderOverrideManager.activate()` (`overlay_controller/services/plugin_bridge.py`), which sends `force_render_override` with `force_render=true`.
+- The plugin sets the runtime override, starts `_start_force_render_monitor_if_needed()`, and rebroadcasts config.
+- When the controller exits or is no longer detected, the monitor clears the override and rebroadcasts.
 
 ## Runtime Flow: Release Build
 
 1) Preferences load
-- `Preferences.__post_init__()` loads settings and calls `disable_force_render_for_release()` (`overlay_plugin/preferences.py`).
-- If `allow_force_render_release` is false and `force_render` is true, it clears `force_render` and saves immediately.
+- `Preferences.__post_init__()` loads settings; there is no release-specific gating.
+- The "Keep overlay visible" control is shown in the main preferences UI and the stored preference is honored.
 
-2) Startup override reset
-- `_reset_force_render_override_on_startup()` (`load.py`) clears `allow_force_render_release` and saves.
-- This guarantees the default policy on each restart, even if a controller override was active in the previous session.
+2) Initial client bootstrap
+- `load_initial_settings()` reads `overlay_settings.json` and applies `force_render` directly.
 
-3) Initial client bootstrap
-- `load_initial_settings()` (`overlay_client/client_config.py`) reads `overlay_settings.json` and forces `force_render = False` when `allow_force_render_release` is false.
-- This prevents force-render visibility before the config payload arrives.
+3) Config updates and preference changes
+- `_resolve_force_render()` returns `force_render || controller_override_active`.
+- `set_force_render_preference()` updates `force_render` without gating and triggers an overlay config broadcast.
 
-4) Config updates and preference changes
-- `_is_force_render_enabled()` (`load.py`) returns `force_render && allow_force_render_release`.
-- `_update_force_render_locked()` rejects a `force_render=true` update when `allow_force_render_release` is false, logging a warning and keeping `force_render` false.
-- `set_force_render_preference()` only takes effect if the allow flag is true.
-
-5) Controller override path (temporary allow)
-- When the controller opens, `ForceRenderOverrideManager.activate()` sends `force_render_override` with `allow=true` and `force_render=true`.
-- The plugin applies both flags, broadcasts config, and starts `_start_force_render_monitor_if_needed()` (`load.py`).
-- The monitor clears `allow_force_render_release` (and saves + broadcasts) once the controller is no longer detected, reverting the policy and disabling force-render if it was only active via the override.
+4) Controller override path (runtime-only)
+- When the controller opens, it sends `force_render_override` with `force_render=true`; when it closes, it sends `force_render=false`.
+- The plugin applies the runtime override without persisting any settings and clears the override when the controller is no longer detected.
 
 ## Refactorer Persona
 - Bias toward carving out modules aggressively while guarding behavior: no feature changes, no silent regressions.
@@ -125,25 +113,35 @@
 
 | Phase | Description | Status |
 | --- | --- | --- |
-| 1 | Define single force-render policy, remove release gating, and introduce runtime-only controller override | Planned |
-| 2 | Clean up persistence/schema/tests/docs for removed `allow_force_render_release` | Planned |
+| 1 | Define single force-render policy, remove release gating, and introduce runtime-only controller override | Completed |
+| 2 | Clean up persistence/schema/tests/docs for removed `allow_force_render_release` | Completed |
 
 ## Phase Details
 
 ### Phase 1: Single Force-Render Policy + Controller Runtime Override
 - Goal: enforce one source of truth for force-render (the preference) plus a runtime-only controller override; remove release gating logic.
 - APIs/Behavior: effective force-render = `force_render_preference || controller_override_active`.
-- Invariants: "Keep overlay visible" remains dev-only UI; controller mode always forces render; controller override does not persist.
+- Invariants: "Keep overlay visible" is available in the main UI; controller mode always forces render; controller override does not persist.
 - Risks: regressions in visibility when Elite is unfocused; loss of controller override restoration; stale settings in `overlay_settings.json`.
 - Mitigations: add targeted tests for controller override lifecycle and client visibility; keep settings migration and backward-compatible read (ignore old key).
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 1.1 | Identify all references to `allow_force_render_release` and release gating; document the new effective-force-render rule | Planned |
-| 1.2 | Update plugin runtime to compute effective force-render without release gating; wire controller override as runtime-only | Planned |
-| 1.3 | Update controller override manager to avoid writing persistence flags; ensure activation/deactivation only affects runtime state | Planned |
-| 1.4 | Update client bootstrap/config application to accept `force_render` only; remove allow gating in `load_initial_settings` | Planned |
-| 1.5 | Add/adjust tests for preference-driven force-render and controller override lifecycle | Planned |
+| 1.1 | Identify all references to `allow_force_render_release` and release gating; document the new effective-force-render rule | Completed |
+| 1.2 | Update plugin runtime to compute effective force-render without release gating; wire controller override as runtime-only | Completed |
+| 1.3 | Update controller override manager to avoid writing persistence flags; ensure activation/deactivation only affects runtime state | Completed |
+| 1.4 | Update client bootstrap/config application to accept `force_render` only; remove allow gating in `load_initial_settings` | Completed |
+| 1.5 | Add/adjust tests for preference-driven force-render and controller override lifecycle | Completed |
+
+### Phase 1 Results
+- Stage 1.1: Completed; removed release gating references and documented the new effective-force-render rule.
+- Stage 1.2: Completed; runtime now computes force-render via `_resolve_force_render()` with a controller override flag.
+- Stage 1.3: Completed; controller override now uses socket-only runtime toggles with no persistence fallback.
+- Stage 1.4: Completed; client bootstrap applies `force_render` directly without allow gating.
+- Stage 1.5: Completed; tests updated for new override behavior and runtime flag.
+- Tests: `.venv/bin/python tests/configure_pytest_environment.py`, `.venv/bin/python -m pytest overlay_controller/tests/test_plugin_bridge.py tests/test_overlay_controller_platform.py tests/test_lifecycle_tracking.py tests/test_overlay_config_payload.py`, `.venv/bin/python -m pytest tests/test_overlay_config_payload.py`.
+- Issues: overlay config tests initially failed due to missing `_controller_force_render_override` on stub runtimes; fixed by defaulting in `_resolve_force_render()`.
+- Follow-ups: none.
 
 ### Phase 2: Persistence, Schema, and Documentation Cleanup
 - Goal: remove `allow_force_render_release` from preferences, settings files, payloads, and docs.
@@ -154,6 +152,12 @@
 
 | Stage | Description | Status |
 | --- | --- | --- |
-| 2.1 | Remove `allow_force_render_release` from preferences model and persistence (config + shadow JSON) | Planned |
-| 2.2 | Update overlay config payload schema and any test fixtures referencing allow flag | Planned |
-| 2.3 | Update docs and troubleshooting references to reflect single setting and controller override behavior | Planned |
+| 2.1 | Remove `allow_force_render_release` from preferences model and persistence (config + shadow JSON) | Completed |
+| 2.2 | Update overlay config payload schema and any test fixtures referencing allow flag | Completed |
+| 2.3 | Update docs and troubleshooting references to reflect single setting and controller override behavior | Completed |
+
+### Phase 2 Results
+- Stage 2.1: Completed; dropped `allow_force_render_release` from preferences, config persistence, and `overlay_settings.json`.
+- Stage 2.2: Completed; updated override payloads and test fixtures to remove allow gating.
+- Stage 2.3: Completed; updated refactor and troubleshooting docs to reflect single-setting + runtime override behavior.
+- Tests: see Phase 1 results (no additional runs specific to Phase 2).

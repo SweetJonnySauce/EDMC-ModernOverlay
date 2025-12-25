@@ -7,7 +7,6 @@
   "gridlines_enabled": false,
   "gridline_spacing": 120,
   "force_render": false,
-  "allow_force_render_release": false,
   "force_xwayland": true,
   "physical_clamp_enabled": false,
   "physical_clamp_overrides": {},

@@ -12,7 +12,6 @@ class _StubPrefs:
         self.gridlines_enabled = False
         self.gridline_spacing = 100
         self.force_render = False
-        self.allow_force_render_release = True
         self.title_bar_enabled = False
         self.title_bar_height = 0
         self.show_debug_overlay = False
