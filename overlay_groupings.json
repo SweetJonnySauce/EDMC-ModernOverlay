@@ -55,6 +55,16 @@
         "markerLabelPosition": "below",
         "controllerPreviewBoxMode": "last",
         "backgroundColor": null
+      },
+      "BGS-Tally System_tick": {
+        "idPrefixes": [
+          "bgstally-msg-system_tick"
+        ],
+        "idPrefixGroupAnchor": "ne",
+        "offsetX": -5,
+        "payloadJustification": "right",
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "last"
       }
     }
   },
