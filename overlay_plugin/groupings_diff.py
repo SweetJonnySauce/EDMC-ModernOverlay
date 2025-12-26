@@ -210,6 +210,13 @@ def _normalise_group_entry(plugin_name: str, group_label: str, entry: Any) -> Di
         else:
             normalised["backgroundColor"] = _normalise_background_color(value)
 
+    if "backgroundBorderColor" in entry:
+        value = entry.get("backgroundBorderColor")
+        if value is None:
+            normalised["backgroundBorderColor"] = None
+        else:
+            normalised["backgroundBorderColor"] = _normalise_background_color(value)
+
     if "backgroundBorderWidth" in entry:
         value = entry.get("backgroundBorderWidth")
         if value is None:
@@ -227,6 +234,7 @@ def _normalise_group_entry(plugin_name: str, group_label: str, entry: Any) -> Di
             "offsetX",
             "offsetY",
             "backgroundColor",
+            "backgroundBorderColor",
             "backgroundBorderWidth",
         }:
             continue

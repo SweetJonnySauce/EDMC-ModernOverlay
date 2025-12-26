@@ -358,10 +358,12 @@ def test_define_plugin_group_supports_background_fields(grouping_store):
         id_prefix_group="alerts",
         id_prefixes=["example-alert-"],
         background_color="#ab12cd",
+        background_border_color="red",
         background_border_width=4,
     )
 
     payload = _load(grouping_store)
     group = payload["Example"]["idPrefixGroups"]["alerts"]
     assert group["backgroundColor"] == "#AB12CD"
+    assert group["backgroundBorderColor"] == "red"
     assert group["backgroundBorderWidth"] == 4

@@ -44,7 +44,7 @@ except PluginGroupingError as exc:
 - `matching_prefixes` replaces the existing list; when `id_prefixes` is supplied, any missing entries are appended automatically (add-only) and scoped to the plugin.
 - `id_prefix_group` identifies/creates the nested block. Creating a new group requires `id_prefixes`; later calls can update just the anchor.
 - `id_prefix_group_anchor` must be one of the nine overlay anchors (`nw`, `ne`, …). Send it alongside the group name (and optionally new prefixes) to overwrite the stored anchor.
-- Optional background fields: `background_color` accepts `#RRGGBB`/`#AARRGGBB` (alpha optional), and `background_border_width` accepts integers 0–10 to expand the fill equally on all sides. Omit to keep the group transparent.
+- Optional background fields: `background_color` and `background_border_color` accept named colors or `#RRGGBB`/`#AARRGGBB` (alpha optional). `background_border_width` accepts integers 0–10 to expand the fill equally on all sides; the border is a fixed 1px stroke drawn outside the expanded fill. Omit all background fields to keep the group transparent.
 
 Every call rewrites `overlay_groupings.json`, so keep the file under version control, document intentional changes (for example in release notes), and cover new plugin groups with regression tests. Pull requests should include the updated JSON plus any developer notes explaining the new prefixes.
 

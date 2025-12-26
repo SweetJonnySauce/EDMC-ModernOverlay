@@ -122,7 +122,11 @@ class EditController:
         app._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
 
     def persist_background(
-        self, selection: tuple[str, str], color: Optional[str], border_width: Optional[int]
+        self,
+        selection: tuple[str, str],
+        color: Optional[str],
+        border_color: Optional[str],
+        border_width: Optional[int],
     ) -> None:
         app = self.app
         plugin_name, label = selection
@@ -133,6 +137,7 @@ class EditController:
                     plugin_name,
                     label,
                     color,
+                    border_color,
                     border_width,
                     edit_nonce=app._edit_nonce,
                     write=False,
@@ -149,6 +154,7 @@ class EditController:
         snapshot = app._group_snapshots.get(selection)
         if snapshot is not None:
             snapshot.background_color = color if color else None
+            snapshot.background_border_color = border_color if border_color else None
             snapshot.background_border_width = int(border_width or 0) if border_width is not None else 0
             app._group_snapshots[selection] = snapshot
         timers = getattr(app, "_mode_timers", None)

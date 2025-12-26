@@ -1358,10 +1358,11 @@ class OverlayConfigApp(tk.Tk):
             except Exception:
                 pass
         background_color = cfg.get("backgroundColor") if isinstance(cfg, dict) else None
+        background_border_color = cfg.get("backgroundBorderColor") if isinstance(cfg, dict) else None
         background_border = cfg.get("backgroundBorderWidth") if isinstance(cfg, dict) else None
         if hasattr(self, "background_widget"):
             try:
-                self.background_widget.set_values(background_color, background_border)
+                self.background_widget.set_values(background_color, background_border_color, background_border)
             except Exception:
                 pass
         self._sync_absolute_for_current_group(force_ui=True)
@@ -1415,7 +1416,12 @@ class OverlayConfigApp(tk.Tk):
                 pass
         self._edit_nonce = f"{time.time():.6f}-{os.getpid()}"
 
-    def _handle_background_changed(self, color: Optional[str], border_width: Optional[int]) -> None:
+    def _handle_background_changed(
+        self,
+        color: Optional[str],
+        border_color: Optional[str],
+        border_width: Optional[int],
+    ) -> None:
         selection = self._get_current_group_selection()
         if selection is None:
             return
@@ -1425,6 +1431,10 @@ class OverlayConfigApp(tk.Tk):
             normalised_color = _normalise_background_color(color) if color else None
         except PluginGroupingError:
             normalised_color = None
+        try:
+            normalised_border_color = _normalise_background_color(border_color) if border_color else None
+        except PluginGroupingError:
+            normalised_border_color = None
         try:
             normalised_border = (
                 _normalise_border_width(border_width, "backgroundBorderWidth") if border_width is not None else 0
@@ -1444,6 +1454,7 @@ class OverlayConfigApp(tk.Tk):
             group = {}
             groups[label] = group
         group["backgroundColor"] = normalised_color
+        group["backgroundBorderColor"] = normalised_border_color
         group["backgroundBorderWidth"] = normalised_border
 
         state = safe_getattr(self, "_group_state")
@@ -1453,6 +1464,7 @@ class OverlayConfigApp(tk.Tk):
                     plugin_name,
                     label,
                     normalised_color,
+                    normalised_border_color,
                     normalised_border,
                     edit_nonce=self._edit_nonce,
                     write=False,

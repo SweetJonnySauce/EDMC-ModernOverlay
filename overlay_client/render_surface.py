@@ -626,16 +626,13 @@ class RenderSurfaceMixin:
         for key, transform in transform_by_group.items():
             if transform is None:
                 continue
-            color_value = getattr(transform, "background_color", None)
-            if not color_value:
+            fill_value = getattr(transform, "background_color", None)
+            border_value = getattr(transform, "background_border_color", None)
+            if not fill_value and not border_value:
                 continue
             bounds = translated_bounds_by_group.get(key)
             if bounds is None or not bounds.is_valid():
                 continue
-            q_color = self._qcolor_from_background(color_value)
-            if q_color is None:
-                continue
-            q_color = self._apply_payload_opacity_color(q_color)
             try:
                 border_width = int(getattr(transform, "background_border_width", 0) or 0)
             except Exception:
@@ -649,11 +646,31 @@ class RenderSurfaceMixin:
             top_px = int(round(top - border_width))
             width_px = int(round((right - left) + border_width * 2))
             height_px = int(round((bottom - top) + border_width * 2))
-            painter.save()
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(q_color))
-            painter.drawRect(left_px, top_px, width_px, height_px)
-            painter.restore()
+            if fill_value:
+                q_color = self._qcolor_from_background(fill_value)
+                if q_color is not None:
+                    q_color = self._apply_payload_opacity_color(q_color)
+                    painter.save()
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(QBrush(q_color))
+                    painter.drawRect(left_px, top_px, width_px, height_px)
+                    painter.restore()
+            if border_value:
+                q_border = self._qcolor_from_background(border_value)
+                if q_border is not None:
+                    q_border = self._apply_payload_opacity_color(q_border)
+                    outer_left = left_px - 1
+                    outer_top = top_px - 1
+                    outer_right = left_px + width_px + 1
+                    outer_bottom = top_px + height_px + 1
+                    painter.save()
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(QBrush(q_border))
+                    painter.drawRect(outer_left, outer_top, outer_right - outer_left, 1)
+                    painter.drawRect(outer_left, outer_bottom - 1, outer_right - outer_left, 1)
+                    painter.drawRect(outer_left, top_px, 1, height_px)
+                    painter.drawRect(outer_right - 1, top_px, 1, height_px)
+                    painter.restore()
 
     @staticmethod
     def _qcolor_from_background(value: object) -> Optional[QColor]:
@@ -663,7 +680,11 @@ class RenderSurfaceMixin:
         if not token:
             return None
         if not token.startswith("#"):
-            token = "#" + token
+            if len(token) in (6, 8) and all(ch in "0123456789abcdefABCDEF" for ch in token):
+                token = "#" + token
+            else:
+                q_color = QColor(token)
+                return q_color if q_color.isValid() else None
         if len(token) == 9:
             hex_part = token[1:]
             if not all(ch in "0123456789abcdefABCDEF" for ch in hex_part):

@@ -63,11 +63,21 @@
           "oneOf": [
             {
               "type": "string",
-              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$|^[A-Za-z][A-Za-z0-9_]*$"
             },
             { "type": "null" }
           ],
-          "description": "Hex color in #RRGGBB or #AARRGGBB format (alpha optional). Null clears to transparent."
+          "description": "Hex color in #RRGGBB or #AARRGGBB format (alpha optional), or a named color. Null clears to transparent."
+        },
+        "backgroundBorderColor": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$|^[A-Za-z][A-Za-z0-9_]*$"
+            },
+            { "type": "null" }
+          ],
+          "description": "Border color in #RRGGBB/#AARRGGBB or named form. Null clears the border."
         },
         "backgroundBorderWidth": {
           "type": "integer",

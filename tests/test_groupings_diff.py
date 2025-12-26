@@ -158,19 +158,32 @@ def test_diff_merge_round_trip_matches_merged_view():
 def test_diff_includes_background_fields():
     shipped = {
         "PluginA": {
-            "idPrefixGroups": {"Main": {"idPrefixes": ["Foo-"], "backgroundColor": "#111111", "backgroundBorderWidth": 1}}
+            "idPrefixGroups": {
+                "Main": {
+                    "idPrefixes": ["Foo-"],
+                    "backgroundColor": "#111111",
+                    "backgroundBorderColor": "red",
+                    "backgroundBorderWidth": 1,
+                }
+            }
         }
     }
     merged = {
         "PluginA": {
             "idPrefixGroups": {
-                "Main": {"idPrefixes": ["Foo-"], "backgroundColor": "#222222", "backgroundBorderWidth": 3}
+                "Main": {
+                    "idPrefixes": ["Foo-"],
+                    "backgroundColor": "#222222",
+                    "backgroundBorderColor": "blue",
+                    "backgroundBorderWidth": 3,
+                }
             }
         }
     }
 
     diff = diff_groupings(shipped, merged)
     assert diff["PluginA"]["idPrefixGroups"]["Main"]["backgroundColor"] == "#222222"
+    assert diff["PluginA"]["idPrefixGroups"]["Main"]["backgroundBorderColor"] == "blue"
     assert diff["PluginA"]["idPrefixGroups"]["Main"]["backgroundBorderWidth"] == 3
 
 

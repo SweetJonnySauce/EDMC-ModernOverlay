@@ -309,6 +309,12 @@ def test_qcolor_from_background_parses_rgba() -> None:
     assert (color.red(), color.green(), color.blue(), color.alpha()) == (0x22, 0x33, 0x44, 0x11)
 
 
+def test_qcolor_from_background_accepts_named_colors() -> None:
+    color = RenderSurfaceMixin._qcolor_from_background("red")
+    assert isinstance(color, QColor)
+    assert color.isValid()
+
+
 def _build_rect_command(surface: _RectSurface, border_spec: str, *, fill_spec: str = "#112233"):
     legacy_item = LegacyItem(
         item_id="rect-1",

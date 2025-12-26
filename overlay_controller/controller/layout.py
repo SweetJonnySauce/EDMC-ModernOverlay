@@ -43,7 +43,7 @@ class LayoutBuilder:
         on_absolute_changed: Callable[[str], None],
         on_anchor_changed: Callable[[str, bool], None],
         on_justification_changed: Callable[[str], None],
-        on_background_changed: Callable[[Optional[str], Optional[int]], None],
+        on_background_changed: Callable[[Optional[str], Optional[str], Optional[int]], None],
         load_idprefix_options: Callable[[], list[str]],
     ) -> dict[str, object]:
         app = self.app

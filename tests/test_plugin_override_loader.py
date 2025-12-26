@@ -65,6 +65,7 @@ def test_override_manager_background_from_loader(tmp_path):
       "Main": {
         "idPrefixes": ["foo-"],
         "backgroundColor": "#112233",
+        "backgroundBorderColor": "red",
         "backgroundBorderWidth": 1
       }
     }
@@ -80,6 +81,7 @@ def test_override_manager_background_from_loader(tmp_path):
     "idPrefixGroups": {
       "Main": {
         "backgroundColor": "#AABBCC",
+        "backgroundBorderColor": "blue",
         "backgroundBorderWidth": 4
       }
     }
@@ -93,8 +95,9 @@ def test_override_manager_background_from_loader(tmp_path):
     manager = PluginOverrideManager(shipped, logging.getLogger("test"), groupings_loader=loader)
     manager._reload_if_needed()
 
-    color, border = manager.group_background("PluginA", "Main")
+    color, border_color, border = manager.group_background("PluginA", "Main")
     assert color == "#AABBCC"
+    assert border_color == "blue"
     assert border == 4
 
 

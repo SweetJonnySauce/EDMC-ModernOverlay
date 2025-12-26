@@ -825,6 +825,15 @@ class GroupConfigStore:
                     cleaned["backgroundColor"] = _normalise_background_color(raw_color)
                 except PluginGroupingError:
                     pass
+        if "backgroundBorderColor" in spec or "background_border_color" in spec:
+            raw_border_color = spec.get("backgroundBorderColor") or spec.get("background_border_color")
+            if raw_border_color is None:
+                cleaned["backgroundBorderColor"] = None
+            else:
+                try:
+                    cleaned["backgroundBorderColor"] = _normalise_background_color(raw_border_color)
+                except PluginGroupingError:
+                    pass
         if "backgroundBorderWidth" in spec or "background_border_width" in spec:
             raw_border = spec.get("backgroundBorderWidth") or spec.get("background_border_width")
             if raw_border is None:
@@ -919,6 +928,7 @@ class GroupConfigStore:
                                 "markerLabelPosition": marker_label_position,
                                 "controllerPreviewBoxMode": controller_preview_box_mode,
                                 "backgroundColor": spec.get("backgroundColor"),
+                                "backgroundBorderColor": spec.get("backgroundBorderColor"),
                                 "backgroundBorderWidth": spec.get("backgroundBorderWidth"),
                                 "notes": notes,
                             }
@@ -1090,6 +1100,7 @@ class GroupConfigStore:
         marker_label_position: Optional[str] = None,
         controller_preview_box_mode: Optional[str] = None,
         background_color: Optional[str] = None,
+        background_border_color: Optional[str] = None,
         background_border_width: Optional[object] = None,
     ) -> None:
         prefix_entries = self._coerce_prefix_entries(prefixes)
@@ -1121,6 +1132,12 @@ class GroupConfigStore:
             controller_preview_box_mode_token = DEFAULT_CONTROLLER_PREVIEW_BOX_MODE
         try:
             normalized_color = _normalise_background_color(background_color) if background_color is not None else None
+        except PluginGroupingError as exc:
+            raise ValueError(str(exc)) from exc
+        try:
+            normalized_border_color = (
+                _normalise_background_color(background_border_color) if background_border_color is not None else None
+            )
         except PluginGroupingError as exc:
             raise ValueError(str(exc)) from exc
         try:
@@ -1160,6 +1177,8 @@ class GroupConfigStore:
                 update_kwargs["controller_preview_box_mode"] = controller_preview_box_mode_token
             if background_color is not None:
                 update_kwargs["background_color"] = normalized_color
+            if background_border_color is not None:
+                update_kwargs["background_border_color"] = normalized_border_color
             if background_border_width is not None:
                 update_kwargs["background_border_width"] = normalized_border
 
@@ -1193,6 +1212,7 @@ class GroupConfigStore:
         marker_label_position: Optional[object] = None,
         controller_preview_box_mode: Optional[object] = None,
         background_color: object = _MISSING,
+        background_border_color: object = _MISSING,
         background_border_width: object = _MISSING,
     ) -> None:
         original_label = label.strip()
@@ -1316,6 +1336,26 @@ class GroupConfigStore:
                     except PluginGroupingError as exc:
                         raise ValueError(str(exc)) from exc
 
+            background_border_color_value: Optional[str] = None
+            set_background_border_color_none = False
+            if background_border_color is not _MISSING:
+                if background_border_color is None or background_border_color == "":
+                    set_background_border_color_none = True
+                else:
+                    try:
+                        background_border_color_value = _normalise_background_color(background_border_color)
+                    except PluginGroupingError as exc:
+                        raise ValueError(str(exc)) from exc
+            elif replacement_label != original_label and "backgroundBorderColor" in target_spec:
+                existing_border_color = target_spec.get("backgroundBorderColor")
+                if existing_border_color is None:
+                    set_background_border_color_none = True
+                else:
+                    try:
+                        background_border_color_value = _normalise_background_color(existing_border_color)
+                    except PluginGroupingError as exc:
+                        raise ValueError(str(exc)) from exc
+
             background_border_value: Optional[int] = None
             clear_background_border = False
             if background_border_width is not _MISSING:
@@ -1345,6 +1385,7 @@ class GroupConfigStore:
                 or marker_label_position_value is not None
                 or controller_preview_value is not None
                 or background_color_value is not None
+                or background_border_color_value is not None
                 or background_border_value is not None
                 or replacement_label != original_label
             )
@@ -1372,6 +1413,8 @@ class GroupConfigStore:
                     update_kwargs["controller_preview_box_mode"] = controller_preview_value
                 if background_color_value is not None:
                     update_kwargs["background_color"] = background_color_value
+                if background_border_color_value is not None:
+                    update_kwargs["background_border_color"] = background_border_color_value
                 if background_border_value is not None:
                     update_kwargs["background_border_width"] = background_border_value
 
@@ -1398,6 +1441,8 @@ class GroupConfigStore:
                     target_spec.pop("controllerPreviewBoxMode", None)
                 if set_background_color_none:
                     target_spec["backgroundColor"] = None
+                if set_background_border_color_none:
+                    target_spec["backgroundBorderColor"] = None
                 if clear_background_border:
                     target_spec.pop("backgroundBorderWidth", None)
                 if notes is not None:
@@ -1428,6 +1473,8 @@ class GroupConfigStore:
                 target_spec.pop("controllerPreviewBoxMode", None)
             if set_background_color_none:
                 target_spec["backgroundColor"] = None
+            if set_background_border_color_none:
+                target_spec["backgroundBorderColor"] = None
             if clear_background_border:
                 target_spec.pop("backgroundBorderWidth", None)
             if notes is not None:
@@ -1652,21 +1699,25 @@ class NewGroupingDialog(simpledialog.Dialog):
         self.offset_y_var = tk.StringVar(value=self._format_initial_offset(self._suggestion.get("offsetY")))
         ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=8, column=1, sticky="ew")
 
-        ttk.Label(master, text="Background color (#RRGGBB[AA])").grid(row=9, column=0, sticky="w")
+        ttk.Label(master, text="Background color (hex or name)").grid(row=9, column=0, sticky="w")
         self.background_color_var = tk.StringVar(value=str(self._suggestion.get("backgroundColor") or ""))
         ttk.Entry(master, textvariable=self.background_color_var, width=40).grid(row=9, column=1, sticky="ew")
 
-        ttk.Label(master, text="Background border (0–10 px)").grid(row=10, column=0, sticky="w")
+        ttk.Label(master, text="Border color (hex or name)").grid(row=10, column=0, sticky="w")
+        self.background_border_color_var = tk.StringVar(value=str(self._suggestion.get("backgroundBorderColor") or ""))
+        ttk.Entry(master, textvariable=self.background_border_color_var, width=40).grid(row=10, column=1, sticky="ew")
+
+        ttk.Label(master, text="Background border (0–10 px)").grid(row=11, column=0, sticky="w")
         self.background_border_var = tk.StringVar(
             value=str(self._suggestion.get("backgroundBorderWidth", ""))
         )
         ttk.Spinbox(master, from_=0, to=10, textvariable=self.background_border_var, width=6).grid(
-            row=10, column=1, sticky="w"
+            row=11, column=1, sticky="w"
         )
 
-        ttk.Label(master, text="Notes").grid(row=11, column=0, sticky="w")
+        ttk.Label(master, text="Notes").grid(row=12, column=0, sticky="w")
         self.notes_var = tk.StringVar(value=str(self._suggestion.get("notes") or ""))
-        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=11, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=12, column=1, sticky="ew")
         return master
 
     def validate(self) -> bool:  # type: ignore[override]
@@ -1684,7 +1735,11 @@ class NewGroupingDialog(simpledialog.Dialog):
             return False
         self._validated_prefixes = prefixes
         try:
-            self._validated_background_color, self._validated_border = self._parse_background_inputs()
+            (
+                self._validated_background_color,
+                self._validated_background_border_color,
+                self._validated_border,
+            ) = self._parse_background_inputs()
         except ValueError as exc:
             messagebox.showerror("Validation error", str(exc))
             return False
@@ -1714,6 +1769,7 @@ class NewGroupingDialog(simpledialog.Dialog):
             "offset_x": self.offset_x_var.get().strip(),
             "offset_y": self.offset_y_var.get().strip(),
             "background_color": getattr(self, "_validated_background_color", None),
+            "background_border_color": getattr(self, "_validated_background_border_color", None),
             "background_border_width": getattr(self, "_validated_border", None),
             "notes": self.notes_var.get().strip(),
         }
@@ -1721,16 +1777,23 @@ class NewGroupingDialog(simpledialog.Dialog):
     def apply(self) -> None:  # type: ignore[override]
         self.result = self.result_data()
 
-    def _parse_background_inputs(self) -> tuple[Optional[str], Optional[int]]:
+    def _parse_background_inputs(self) -> tuple[Optional[str], Optional[str], Optional[int]]:
         color_raw = self.background_color_var.get().strip()
         color_value: Optional[str]
         if not color_raw:
             color_value = None
         else:
-            if not color_raw.startswith("#"):
-                color_raw = "#" + color_raw
             try:
                 color_value = _normalise_background_color(color_raw)
+            except PluginGroupingError as exc:
+                raise ValueError(str(exc)) from exc
+        border_color_raw = self.background_border_color_var.get().strip()
+        border_color_value: Optional[str]
+        if not border_color_raw:
+            border_color_value = None
+        else:
+            try:
+                border_color_value = _normalise_background_color(border_color_raw)
             except PluginGroupingError as exc:
                 raise ValueError(str(exc)) from exc
         border_raw = self.background_border_var.get().strip()
@@ -1745,7 +1808,7 @@ class NewGroupingDialog(simpledialog.Dialog):
                 border_value = _normalise_border_width(border_candidate, "backgroundBorderWidth")
             except PluginGroupingError as exc:
                 raise ValueError(str(exc)) from exc
-        return color_value, border_value
+        return color_value, border_color_value, border_value
 
 
 class EditGroupingDialog(simpledialog.Dialog):
@@ -1878,19 +1941,23 @@ class EditGroupingDialog(simpledialog.Dialog):
         self.offset_y_var = tk.StringVar(value=self._format_initial_offset(self._entry.get("offsetY")))
         ttk.Entry(master, textvariable=self.offset_y_var, width=40).grid(row=9, column=1, sticky="ew")
 
-        ttk.Label(master, text="Background color (#RRGGBB[AA])").grid(row=10, column=0, sticky="w")
+        ttk.Label(master, text="Background color (hex or name)").grid(row=10, column=0, sticky="w")
         self.background_color_var = tk.StringVar(value=str(self._entry.get("backgroundColor") or ""))
         ttk.Entry(master, textvariable=self.background_color_var, width=40).grid(row=10, column=1, sticky="ew")
 
-        ttk.Label(master, text="Background border (0–10 px)").grid(row=11, column=0, sticky="w")
+        ttk.Label(master, text="Border color (hex or name)").grid(row=11, column=0, sticky="w")
+        self.background_border_color_var = tk.StringVar(value=str(self._entry.get("backgroundBorderColor") or ""))
+        ttk.Entry(master, textvariable=self.background_border_color_var, width=40).grid(row=11, column=1, sticky="ew")
+
+        ttk.Label(master, text="Background border (0–10 px)").grid(row=12, column=0, sticky="w")
         self.background_border_var = tk.StringVar(value=str(self._entry.get("backgroundBorderWidth") or ""))
         ttk.Spinbox(master, from_=0, to=10, textvariable=self.background_border_var, width=6).grid(
-            row=11, column=1, sticky="w"
+            row=12, column=1, sticky="w"
         )
 
-        ttk.Label(master, text="Notes").grid(row=12, column=0, sticky="w")
+        ttk.Label(master, text="Notes").grid(row=13, column=0, sticky="w")
         self.notes_var = tk.StringVar(value=str(self._entry.get("notes") or ""))
-        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=12, column=1, sticky="ew")
+        ttk.Entry(master, textvariable=self.notes_var, width=40).grid(row=13, column=1, sticky="ew")
         return master
 
     def validate(self) -> bool:  # type: ignore[override]
@@ -1902,7 +1969,11 @@ class EditGroupingDialog(simpledialog.Dialog):
             messagebox.showerror("Validation error", "Enter at least one ID prefix.")
             return False
         try:
-            self._validated_background_color, self._validated_border = self._parse_background_inputs()
+            (
+                self._validated_background_color,
+                self._validated_background_border_color,
+                self._validated_border,
+            ) = self._parse_background_inputs()
         except ValueError as exc:
             messagebox.showerror("Validation error", str(exc))
             return False
@@ -1920,6 +1991,7 @@ class EditGroupingDialog(simpledialog.Dialog):
             "offset_x": self.offset_x_var.get().strip(),
             "offset_y": self.offset_y_var.get().strip(),
             "background_color": getattr(self, "_validated_background_color", None),
+            "background_border_color": getattr(self, "_validated_background_border_color", None),
             "background_border_width": getattr(self, "_validated_border", None),
             "notes": self.notes_var.get().strip(),
         }
@@ -2010,16 +2082,23 @@ class EditGroupingDialog(simpledialog.Dialog):
             return value.strip()
         return ""
 
-    def _parse_background_inputs(self) -> tuple[Optional[str], Optional[int]]:
+    def _parse_background_inputs(self) -> tuple[Optional[str], Optional[str], Optional[int]]:
         color_raw = self.background_color_var.get().strip()
         color_value: Optional[str]
         if not color_raw:
             color_value = None
         else:
-            if not color_raw.startswith("#"):
-                color_raw = "#" + color_raw
             try:
                 color_value = _normalise_background_color(color_raw)
+            except PluginGroupingError as exc:
+                raise ValueError(str(exc)) from exc
+        border_color_raw = self.background_border_color_var.get().strip()
+        border_color_value: Optional[str]
+        if not border_color_raw:
+            border_color_value = None
+        else:
+            try:
+                border_color_value = _normalise_background_color(border_color_raw)
             except PluginGroupingError as exc:
                 raise ValueError(str(exc)) from exc
         border_raw = self.background_border_var.get().strip()
@@ -2034,7 +2113,7 @@ class EditGroupingDialog(simpledialog.Dialog):
                 border_value = _normalise_border_width(border_candidate, "backgroundBorderWidth")
             except PluginGroupingError as exc:
                 raise ValueError(str(exc)) from exc
-        return color_value, border_value
+        return color_value, border_color_value, border_value
 
 
 class AddPrefixDialog(simpledialog.Dialog):
@@ -3563,6 +3642,7 @@ class PluginGroupManagerApp:
                 marker_label_position=data.get("marker_label_position"),
                 controller_preview_box_mode=data.get("controller_preview_box_mode"),
                 background_color=data.get("background_color"),
+                background_border_color=data.get("background_border_color"),
                 background_border_width=data.get("background_border_width"),
             )
         except ValueError as exc:
@@ -3598,6 +3678,7 @@ class PluginGroupManagerApp:
                 marker_label_position=data.get("marker_label_position"),
                 controller_preview_box_mode=data.get("controller_preview_box_mode"),
                 background_color=data.get("background_color"),
+                background_border_color=data.get("background_border_color"),
                 background_border_width=data.get("background_border_width"),
             )
         except ValueError as exc:

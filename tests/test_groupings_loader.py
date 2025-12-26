@@ -147,18 +147,34 @@ def test_merge_background_precedence_and_clear(tmp_path):
     shipped_payload = {
         "PluginA": {
             "idPrefixGroups": {
-                "Main": {"idPrefixes": ["Foo-"], "backgroundColor": "#112233", "backgroundBorderWidth": 2}
+                "Main": {
+                    "idPrefixes": ["Foo-"],
+                    "backgroundColor": "#112233",
+                    "backgroundBorderColor": "red",
+                    "backgroundBorderWidth": 2,
+                }
             }
         },
         "PluginB": {
             "idPrefixGroups": {
-                "Main": {"idPrefixes": ["Bar-"], "backgroundColor": "#445566", "backgroundBorderWidth": 1}
+                "Main": {
+                    "idPrefixes": ["Bar-"],
+                    "backgroundColor": "#445566",
+                    "backgroundBorderColor": "blue",
+                    "backgroundBorderWidth": 1,
+                }
             }
         },
     }
     user_payload = {
-        "PluginA": {"idPrefixGroups": {"Main": {"backgroundColor": None, "backgroundBorderWidth": 5}}},
-        "PluginB": {"idPrefixGroups": {"Main": {"backgroundColor": "bad-value"}}},
+        "PluginA": {
+            "idPrefixGroups": {
+                "Main": {"backgroundColor": None, "backgroundBorderColor": "goldenrod", "backgroundBorderWidth": 5}
+            }
+        },
+        "PluginB": {
+            "idPrefixGroups": {"Main": {"backgroundColor": "bad-value", "backgroundBorderColor": "bad-color"}}
+        },
     }
 
     _write_json(shipped, shipped_payload)
@@ -169,8 +185,10 @@ def test_merge_background_precedence_and_clear(tmp_path):
 
     group_a = merged["PluginA"]["idPrefixGroups"]["Main"]
     assert group_a.get("backgroundColor") is None  # user cleared to transparent
+    assert group_a.get("backgroundBorderColor") == "goldenrod"
     assert group_a.get("backgroundBorderWidth") == 5
 
     group_b = merged["PluginB"]["idPrefixGroups"]["Main"]
     assert group_b.get("backgroundColor") == "#445566"  # fallback to shipped
+    assert group_b.get("backgroundBorderColor") == "blue"
     assert group_b.get("backgroundBorderWidth") == 1

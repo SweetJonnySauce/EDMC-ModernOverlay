@@ -32,6 +32,7 @@ class GroupSnapshot:
     has_transform: bool = False
     cache_timestamp: float = 0.0
     background_color: Optional[str] = None
+    background_border_color: Optional[str] = None
     background_border_width: int = 0
 
 
@@ -156,6 +157,13 @@ class GroupStateService:
             background_color = _normalise_background_color(bg_color_raw) if bg_color_raw is not None else None
         except PluginGroupingError:
             background_color = None
+        bg_border_color_raw = cfg.get("backgroundBorderColor") if isinstance(cfg, dict) else None
+        try:
+            background_border_color = (
+                _normalise_background_color(bg_border_color_raw) if bg_border_color_raw is not None else None
+            )
+        except PluginGroupingError:
+            background_border_color = None
         bg_border_raw = cfg.get("backgroundBorderWidth") if isinstance(cfg, dict) else None
         try:
             background_border_width = _normalise_border_width(bg_border_raw, "backgroundBorderWidth") if bg_border_raw is not None else 0
@@ -193,6 +201,7 @@ class GroupStateService:
             has_transform=True,
             cache_timestamp=cache_ts,
             background_color=background_color,
+            background_border_color=background_border_color,
             background_border_width=background_border_width,
         )
 
@@ -253,6 +262,7 @@ class GroupStateService:
         plugin_name: str,
         label: str,
         color: Optional[str],
+        border_color: Optional[str],
         border_width: Optional[int],
         *,
         edit_nonce: str = "",
@@ -260,7 +270,7 @@ class GroupStateService:
         invalidate_cache: bool = True,
     ) -> None:
         self._edit_nonce = edit_nonce
-        self._set_group_background(plugin_name, label, color, border_width)
+        self._set_group_background(plugin_name, label, color, border_color, border_width)
         if write:
             self._write_groupings_config(edit_nonce=edit_nonce)
         if invalidate_cache:
@@ -296,7 +306,12 @@ class GroupStateService:
         group[key] = value
 
     def _set_group_background(
-        self, plugin_name: str, label: str, color: Optional[str], border_width: Optional[int]
+        self,
+        plugin_name: str,
+        label: str,
+        color: Optional[str],
+        border_color: Optional[str],
+        border_width: Optional[int],
     ) -> None:
         if not isinstance(self._groupings_data, dict):
             return
@@ -318,6 +333,11 @@ class GroupStateService:
         except PluginGroupingError:
             normalized_color = None
         group["backgroundColor"] = normalized_color
+        try:
+            normalized_border_color = _normalise_background_color(border_color) if border_color is not None else None
+        except PluginGroupingError:
+            normalized_border_color = None
+        group["backgroundBorderColor"] = normalized_border_color
         if border_width is not None:
             try:
                 group["backgroundBorderWidth"] = _normalise_border_width(border_width, "backgroundBorderWidth")

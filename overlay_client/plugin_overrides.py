@@ -45,6 +45,7 @@ class _GroupSpec:
     marker_label_position: str = _DEFAULT_MARKER_LABEL_POSITION
     controller_preview_box_mode: str = _DEFAULT_CONTROLLER_PREVIEW_BOX_MODE
     background_color: Optional[str] = None
+    background_border_color: Optional[str] = None
     background_border_width: Optional[int] = None
 
 
@@ -366,8 +367,11 @@ class PluginOverrideManager:
                         return token
                 return _DEFAULT_CONTROLLER_PREVIEW_BOX_MODE
 
-            def _parse_background_fields(source: Mapping[str, Any]) -> Tuple[Optional[str], Optional[int]]:
+            def _parse_background_fields(
+                source: Mapping[str, Any],
+            ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
                 color: Optional[str] = None
+                border_color: Optional[str] = None
                 border: Optional[int] = None
                 if "backgroundColor" in source:
                     raw_color = source.get("backgroundColor")
@@ -378,6 +382,15 @@ class PluginOverrideManager:
                             color = _normalise_background_color(raw_color)
                         except PluginGroupingError:
                             color = None
+                if "backgroundBorderColor" in source:
+                    raw_border_color = source.get("backgroundBorderColor")
+                    if raw_border_color is None:
+                        border_color = None
+                    else:
+                        try:
+                            border_color = _normalise_background_color(raw_border_color)
+                        except PluginGroupingError:
+                            border_color = None
                 if "backgroundBorderWidth" in source:
                     raw_border = source.get("backgroundBorderWidth")
                     if raw_border is None:
@@ -387,7 +400,7 @@ class PluginOverrideManager:
                             border = _normalise_border_width(raw_border, "backgroundBorderWidth")
                         except PluginGroupingError:
                             border = None
-                return color, border
+                return color, border_color, border
 
             def _append_group_spec(
                 label: Optional[str],
@@ -399,6 +412,7 @@ class PluginOverrideManager:
                 marker_label_position: str,
                 controller_preview_box_mode: str,
                 background_color: Optional[str],
+                background_border_color: Optional[str],
                 background_border_width: Optional[int],
             ) -> None:
                 if not prefixes:
@@ -415,6 +429,7 @@ class PluginOverrideManager:
                         marker_label_position=marker_label_position,
                         controller_preview_box_mode=controller_preview_box_mode,
                         background_color=background_color,
+                        background_border_color=background_border_color,
                         background_border_width=background_border_width,
                     )
                 )
@@ -437,7 +452,9 @@ class PluginOverrideManager:
                     justification_token = _parse_payload_justification(group_value)
                     marker_label_position = _parse_marker_label_position(group_value)
                     controller_preview_box_mode = _parse_controller_preview_box_mode(group_value)
-                    background_color, background_border_width = _parse_background_fields(group_value)
+                    background_color, background_border_color, background_border_width = _parse_background_fields(
+                        group_value
+                    )
                     _append_group_spec(
                         label_value,
                         cleaned_prefixes,
@@ -448,6 +465,7 @@ class PluginOverrideManager:
                         marker_label_position,
                         controller_preview_box_mode,
                         background_color,
+                        background_border_color,
                         background_border_width,
                     )
 
@@ -467,7 +485,9 @@ class PluginOverrideManager:
                         justification_token = _parse_payload_justification(group_value)
                         marker_label_position = _parse_marker_label_position(group_value)
                         controller_preview_box_mode = _parse_controller_preview_box_mode(group_value)
-                        background_color, background_border_width = _parse_background_fields(group_value)
+                        background_color, background_border_color, background_border_width = _parse_background_fields(
+                            group_value
+                        )
                         _append_group_spec(
                             label_value,
                             cleaned_prefixes,
@@ -478,6 +498,7 @@ class PluginOverrideManager:
                             marker_label_position,
                             controller_preview_box_mode,
                             background_color,
+                            background_border_color,
                             background_border_width,
                         )
 
@@ -495,7 +516,9 @@ class PluginOverrideManager:
                             justification_token = _DEFAULT_PAYLOAD_JUSTIFICATION
                             marker_label_position = _DEFAULT_MARKER_LABEL_POSITION
                             controller_preview_box_mode = _DEFAULT_CONTROLLER_PREVIEW_BOX_MODE
-                            background_color, background_border_width = _parse_background_fields({})
+                            background_color, background_border_color, background_border_width = _parse_background_fields(
+                                {}
+                            )
                         elif isinstance(prefix_value, Mapping):
                             prefixes = _clean_group_prefixes(prefix_value.get("prefix"))
                             label_value = str(label).strip() if isinstance(label, str) and label else None
@@ -504,12 +527,16 @@ class PluginOverrideManager:
                             justification_token = _parse_payload_justification(prefix_value)
                             marker_label_position = _parse_marker_label_position(prefix_value)
                             controller_preview_box_mode = _parse_controller_preview_box_mode(prefix_value)
-                            background_color, background_border_width = _parse_background_fields(prefix_value)
+                            background_color, background_border_color, background_border_width = _parse_background_fields(
+                                prefix_value
+                            )
                         else:
                             justification_token = _DEFAULT_PAYLOAD_JUSTIFICATION
                             marker_label_position = _DEFAULT_MARKER_LABEL_POSITION
                             controller_preview_box_mode = _DEFAULT_CONTROLLER_PREVIEW_BOX_MODE
-                            background_color, background_border_width = _parse_background_fields({})
+                            background_color, background_border_color, background_border_width = _parse_background_fields(
+                                {}
+                            )
                         _append_group_spec(
                             label_value,
                             prefixes,
@@ -520,13 +547,16 @@ class PluginOverrideManager:
                             marker_label_position,
                             controller_preview_box_mode,
                             background_color,
+                            background_border_color,
                             background_border_width,
                         )
                 elif isinstance(prefixes_spec, Iterable):
                     for entry in prefixes_spec:
                         if isinstance(entry, str) and entry:
                             cleaned_entry = entry.casefold()
-                            background_color, background_border_width = _parse_background_fields({})
+                            background_color, background_border_color, background_border_width = _parse_background_fields(
+                                {}
+                            )
                             _append_group_spec(
                                 entry,
                                 (cleaned_entry,),
@@ -537,6 +567,7 @@ class PluginOverrideManager:
                                 _DEFAULT_MARKER_LABEL_POSITION,
                                 _DEFAULT_CONTROLLER_PREVIEW_BOX_MODE,
                                 background_color,
+                                background_border_color,
                                 background_border_width,
                             )
 
@@ -790,7 +821,9 @@ class PluginOverrideManager:
                 return spec.offset_x, spec.offset_y
         return 0.0, 0.0
 
-    def group_background(self, plugin: Optional[str], suffix: Optional[str]) -> Tuple[Optional[str], Optional[int]]:
+    def group_background(
+        self, plugin: Optional[str], suffix: Optional[str]
+    ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         self._reload_if_needed()
         canonical = self._canonical_plugin_name(plugin)
         if canonical is None or suffix is None:
@@ -811,8 +844,8 @@ class PluginOverrideManager:
                         border_int = None
                 else:
                     border_int = None
-                return spec.background_color, border_int
-        return None, None
+                return spec.background_color, spec.background_border_color, border_int
+        return None, None, None
 
     def group_payload_justification(self, plugin: Optional[str], suffix: Optional[str]) -> str:
         self._reload_if_needed()
