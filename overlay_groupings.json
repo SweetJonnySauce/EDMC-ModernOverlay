@@ -6,58 +6,55 @@
     "idPrefixGroups": {
       "BGS-Tally Colonisation": {
         "idPrefixes": [
-          "bgstally-msg-colonisation-",
-          "bgstally-frame-colonisation"
+          "bgstally-msg-colonisation-"
         ],
         "idPrefixGroupAnchor": "nw",
-        "payloadJustification": "left"
+        "payloadJustification": "left",
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "last",
+        "backgroundColor": null
       },
-      "BGS-Tally Ready": {
+      "BGS-Tally Info": {
         "idPrefixes": [
           "bgstally-msg-info-"
         ],
         "idPrefixGroupAnchor": "nw",
-        "offsetY": 10,
         "payloadJustification": "left",
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "last",
         "backgroundColor": null
       },
-      "BGS-Tally System Info": {
+      "BGS-Tally System_info": {
         "idPrefixes": [
-          "bgstally-msg-system_info",
-          "bgstally-frame-indicator",
-          "bgstally-frame-system_info"
+          "bgstally-msg-system_info"
         ],
         "idPrefixGroupAnchor": "top",
-        "offsetX": 88,
-        "payloadJustification": "center"
+        "payloadJustification": "center",
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "last",
+        "backgroundColor": null
       },
-      "BGS-Tally Tick Notifications": {
+      "BGS-Tally Tick": {
         "idPrefixes": [
-          "bgstally-msg-system_tick-",
-          "bgstally-frame-system_tick",
-          {
-            "value": "bgstally-frame-tick",
-            "matchMode": "exact"
-          },
           "bgstally-msg-tick-"
         ],
         "idPrefixGroupAnchor": "ne",
-        "offsetX": 190,
-        "offsetY": 10,
-        "payloadJustification": "right"
+        "offsetX": -5,
+        "payloadJustification": "right",
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "last",
+        "backgroundColor": null
       },
       "BGS-Tally Tickwarn": {
         "idPrefixes": [
-          {
-            "value": "bgstally-frame-tickwarn",
-            "matchMode": "exact"
-          },
           "bgstally-msg-tickwarn"
         ],
         "idPrefixGroupAnchor": "ne",
-        "offsetX": 190,
-        "offsetY": 2,
-        "payloadJustification": "right"
+        "offsetX": -5,
+        "payloadJustification": "right",
+        "markerLabelPosition": "below",
+        "controllerPreviewBoxMode": "last",
+        "backgroundColor": null
       }
     }
   },
