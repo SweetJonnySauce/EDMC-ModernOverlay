@@ -6,7 +6,7 @@
   "client_log_retention": 5,
   "gridlines_enabled": false,
   "gridline_spacing": 120,
-  "force_render": false,
+  "force_render": true,
   "force_xwayland": true,
   "physical_clamp_enabled": false,
   "physical_clamp_overrides": {},
