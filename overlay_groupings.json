@@ -16,7 +16,8 @@
       },
       "BGS-Tally Info": {
         "idPrefixes": [
-          "bgstally-msg-info-"
+          "bgstally-msg-info-",
+          "bgstally-frame-info"
         ],
         "idPrefixGroupAnchor": "nw",
         "payloadJustification": "left",
@@ -36,7 +37,11 @@
       },
       "BGS-Tally Tick": {
         "idPrefixes": [
-          "bgstally-msg-tick-"
+          "bgstally-msg-tick-",
+          {
+            "value": "bgstally-frame-tick",
+            "matchMode": "exact"
+          }
         ],
         "idPrefixGroupAnchor": "ne",
         "offsetX": -5,
