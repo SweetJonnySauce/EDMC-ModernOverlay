@@ -14,7 +14,8 @@ runtime display status.
 - `pip` and virtual-environment support.
 - An installer-recognized distribution profile below, or the equivalent packages installed
   manually.
-- A client virtual environment. The installer installs `PyQt6>=6.5` in it.
+- A client virtual environment which the installer creates. The installer installs `PyQt6>=6.5` in it.
+- Host-installed Tkinter/Tcl/Tk support for the Python interpreter used by the client virtual environment (for example, `python3-tk` on Debian/Ubuntu).
 
 For Wayland sessions, the installer also installs `pydbus>=0.6.0`,
 `pywayland>=0.4.15`, and `PyQt6-Qt6>=6.5` in that virtual environment. It installs the
