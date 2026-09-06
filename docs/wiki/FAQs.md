@@ -42,3 +42,41 @@ I am not certain how well this works. The feature was developed for another reas
 <img width="681" height="481" alt="image" src="https://github.com/user-attachments/assets/349f12e5-45f2-4ac1-976d-316d27872612" />
 
 <img width="766" height="629" alt="image" src="https://github.com/user-attachments/assets/f6a2f6b2-022f-46bd-b677-3b81523e0ff7" />
+
+## Why does my whole screen flash black while playing Elite Dangerous on Linux?
+
+On some GNOME Wayland systems with NVIDIA graphics, the whole screen may flash black during gameplay or when switching windows. Clicking may trigger it, but blackouts can also happen every few seconds without input, and Alt-Tab may appear unresponsive. Variable refresh rate (VRR) is one suspected trigger.
+
+**This is likely not an EDMCModernOverlay problem** but may force your system into this state through heavy GPU usage.  In the investigated case, blackouts occurred while EDMC and the overlay client were stopped. The GNOME overlay helper was enabled but reported no overlay actors or presentation calls. Disabling VRR stopped the blackouts, pointing toward the desktop or graphics driver’s display handling; the precise underlying fault remains unconfirmed.
+
+**How do I check for GPU errors?**
+
+After the problem occurs and before rebooting, run this command from your EDMCModernOverlay plugin or source directory:
+
+```
+bash ./scripts/check_gpu_errors.sh
+```
+
+The script scans the current boot’s saved kernel logs from the last four hours for NVIDIA/GPU errors, including `dmaAllocMapping`, then exits. It does not watch for new entries or change system settings. It does not search previous boots.
+
+The scan has a 30-second timeout. If it times out, results may be incomplete. Retry with a smaller window that includes the problem:
+
+```
+bash ./scripts/check_gpu_errors.sh '30 minutes ago'
+```
+
+If journal access is denied, rerun with `sudo bash scripts/check_gpu_errors.sh`. Use `bash scripts/check_gpu_errors.sh --help` for examples with explicit start and end times.
+
+Save any matching entries and note the time of the blackout. A `dmaAllocMapping` error indicates a GPU memory-mapping failure, but does not prove it caused the blackout or that VRR is responsible. No matches means no matching errors were found in the accessible logs for that window; it does not rule out a display problem.
+
+**What should I try first?**
+
+Disable VRR for the monitor displaying the game in your desktop’s display settings. Keep the resolution and refresh rate unchanged for the first test, then check whether the blackouts stop.
+
+In the investigated case, disabling VRR stopped the blackouts at 3440×1440 and a fixed 60 Hz on GNOME 46 with NVIDIA graphics. This is a confirmed workaround for that system, not a universal fix for blackouts.
+
+**Has anyone else reported this workaround?**
+
+Yes. In a [report on NVIDIA’s developer forum about blackouts when Alt-Tabbing with VRR on Wayland](https://forums.developer.nvidia.com/t/screen-goes-black-for-a-few-seconds-when-alt-tabbing-out-of-games-with-vrr-at-240hz-on-wayland/314590), the original poster says disabling VRR stopped the blackouts while keeping the monitor at 240 Hz. They also reported success at 144 Hz with VRR enabled.
+
+This is a user-reported workaround, not an official NVIDIA recommendation. Their hardware and refresh rates differ from the case described above, so the report supports testing VRR off but does not establish that both systems have the same underlying fault.

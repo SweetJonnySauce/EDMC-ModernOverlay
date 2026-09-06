@@ -689,7 +689,7 @@
   },
   "EDMC-ExplorerLite": {
     "matchingPrefixes": [
-      "explorerlite-radar-"
+      "explorerlite-summary-"
     ],
     "idPrefixGroups": {
       "ExplorerLite Summary": {
