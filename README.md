@@ -4,7 +4,7 @@
 [![AILevel](https://img.shields.io/badge/Level-4.%20Local%20Autonomous%20Agent-purple?logo=openaigym&logoColor=white&link=https%3A%2F%2Feclipsesource.com%2Fblogs%2F2025%2F06%2F26%2Fai-coding-spectrum-levels-of-assistance%2F)]([![AILevel](https://img.shields.io/badge/Level-4.%20Local%20Autonomous%20Agent-purple?logo=openaigym&logoColor=white&link=https%3A%2F%2Feclipsesource.com%2Fblogs%2F2025%2F06%2F26%2Fai-coding-spectrum-levels-of-assistance%2F
 )
 [![Build Status][build-badge]][build-url]
-[![VirusTotal](https://img.shields.io/badge/VirusTotal-clean-brightgreen.svg)](https://www.virustotal.com/gui/file/c8f951c109065fea9164dd9adb7f40403ded57eaf92108fb45451f0dc46510c8)
+[![VirusTotal](https://img.shields.io/badge/VirusTotal-clean-brightgreen.svg)](https://www.virustotal.com/gui/file/8ef97545995e2bb48a53196cf52c04773ba64a87e6c4343a98241ad7ab6217ab)
 
 [build-badge]: https://github.com/SweetJonnySauce/EDMCModernOverlay/actions/workflows/ci.yml/badge.svg?branch=main
 [build-url]: https://github.com/SweetJonnySauce/EDMCModernOverlay/actions/workflows/ci.yml
