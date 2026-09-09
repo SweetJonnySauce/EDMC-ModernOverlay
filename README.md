@@ -9,7 +9,7 @@
 [build-badge]: https://github.com/SweetJonnySauce/EDMCModernOverlay/actions/workflows/ci.yml/badge.svg?branch=main
 [build-url]: https://github.com/SweetJonnySauce/EDMCModernOverlay/actions/workflows/ci.yml
 
-🔥🔥🔥0.9.0 has been released. Get it [here](https://github.com/SweetJonnySauce/EDMCModernOverlay/releases/latest)🔥🔥🔥
+🔥🔥🔥0.9.2 has been released. Get it [here](https://github.com/SweetJonnySauce/EDMCModernOverlay/releases/latest)🔥🔥🔥
 
 EDMC Modern Overlay (packaged as `EDMCModernOverlay`) replaces [EDMCOverlay](https://github.com/inorton/EDMCOverlay) and [edmcoverlay2](https://github.com/pan-mroku/edmcoverlay2). It is a cross-platform (Windows and Linux) plugin for Elite Dangerous Market Connector ([EDMC](https://github.com/EDCD/EDMarketConnector)). It streams data from other EDMC plugins to be displayed in your game window. EDMCModernOverlay supports fullscreen, borderless, and windowed mode on any display size. It also now has a standalone mode as an experimental feature in 0.7.7 for use in SteamVR. The [plugin releases](https://github.com/SweetJonnySauce/EDMC-ModernOverlay/releases/latest) include Windows (powershell and .exe) and Linux installers.
 
